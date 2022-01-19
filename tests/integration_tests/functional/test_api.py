@@ -226,27 +226,6 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     track_dirty_pages = microvm_config_json['track_dirty_pages']
     assert response_json['track_dirty_pages'] == track_dirty_pages
 
-    # Updates to MMDS version with invalid value are not allowed.
-    response = test_microvm.mmds.put_config(json={'version': 'foo'})
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "An error occurred when deserializing " \
-           "the json body of a request: unknown variant " \
-           "`foo`, expected `V1` or `V2`" in response.text
-
-    # Updates to MMDS config pre-boot are allowed.
-    response = test_microvm.mmds.put_config(json={
-        'version': 'V2',
-        'ipv4_address': '169.254.169.250'
-    })
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Updates to `ipv4_address` without version are allowed because
-    # default version is V1.
-    response = test_microvm.mmds.put_config(json={
-        'ipv4_address': '169.254.169.250'
-    })
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
 
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
     """
@@ -317,6 +296,101 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:01'
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+def test_api_mmds_config(test_microvm_with_api):
+    """
+   Test /mmds/config PUT scenarios that unit tests can't cover.
+
+    Tests updates on MMDS config before and after attaching a network device.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
+    # a root file system with the rw permission.
+    test_microvm.basic_config()
+
+    # Setting MMDS config with empty network interface IDs list is not allowed.
+    response = test_microvm.mmds.put_config(json={
+        'network_interfaces': []
+    })
+    err_msg = "The list of network interface IDs that allow " \
+              "forwarding MMDS requests is empty."
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
+
+    # Setting MMDS config when no network device has been attached
+    # is not allowed.
+    response = test_microvm.mmds.put_config(json={
+        'network_interfaces': ['foo']
+    })
+    err_msg = "The list of network interface IDs provided contains " \
+              "at least one ID that does not correspond to any " \
+              "existing network interface."
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
+
+    # Attach network interface.
+    tap = net_tools.Tap('tap1', test_microvm.jailer.netns)
+    response = test_microvm.network.put(
+        iface_id='1',
+        guest_mac='06:00:00:00:00:01',
+        host_dev_name=tap.name
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Setting MMDS config with an ID that does not correspond to an already
+    # attached network device is not allowed.
+    response = test_microvm.mmds.put_config(json={
+        'network_interfaces': ['1', 'foo']
+    })
+    err_msg = "The list of network interface IDs provided contains" \
+              " at least one ID that does not correspond to any " \
+              "existing network interface."
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
+
+    # Updates to MMDS version with invalid value are not allowed.
+    response = test_microvm.mmds.put_config(json={
+        'version': 'foo',
+        'network_interfaces': ['1']
+    })
+    err_msg = "An error occurred when deserializing the json body of a " \
+              "request: unknown variant `foo`, expected `V1` or `V2`"
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
+
+    # Valid MMDS config not specifying version or IPv4 address.
+    response = test_microvm.mmds.put_config(json={
+        'network_interfaces': ['1']
+    })
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert test_microvm.full_cfg.get().json(
+    )['mmds-config']['version'] == "V1"
+
+    # Valid MMDS config not specifying version.
+    mmds_config = {
+        'ipv4_address': '169.254.169.250',
+        'network_interfaces': ['1']
+    }
+    response = test_microvm.mmds.put_config(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert test_microvm.full_cfg.get().json(
+    )['mmds-config']['ipv4_address'] == "169.254.169.250"
+
+    # Valid MMDS config.
+    mmds_config = {
+        'version': 'V2',
+        'ipv4_address': '169.254.169.250',
+        'network_interfaces': ['1']
+    }
+    response = test_microvm.mmds.put_config(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert test_microvm.full_cfg.get().json(
+    )['mmds-config']['version'] == "V2"
 
 
 def test_api_machine_config(test_microvm_with_api):
@@ -507,7 +581,8 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     # MMDS config is not allowed post-boot.
     mmds_config = {
         'version': 'V2',
-        'ipv4_address': '169.254.169.250'
+        'ipv4_address': '169.254.169.250',
+        'network_interfaces': ['1']
     }
     response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -1307,7 +1382,8 @@ def test_get_full_config(test_microvm_with_api):
     # Update MMDS config.
     mmds_config = {
         'version': 'V2',
-        'ipv4_address': '169.254.169.250'
+        'ipv4_address': '169.254.169.250',
+        'network_interfaces': ['1']
     }
     response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -1316,7 +1392,8 @@ def test_get_full_config(test_microvm_with_api):
     expected_cfg['metrics'] = None
     expected_cfg['mmds-config'] = {
         'version': 'V2',
-        'ipv4_address': '169.254.169.250'
+        'ipv4_address': '169.254.169.250',
+        'network_interfaces': ['1']
     }
 
     # Getting full vm configuration should be available pre-boot.

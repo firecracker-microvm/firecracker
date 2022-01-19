@@ -7,6 +7,7 @@ import random
 import string
 import time
 import pytest
+from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
 import host_tools.network as net_tools
@@ -61,6 +62,14 @@ def _generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
     return cmd
 
 
+def _configure_mmds(test_microvm, iface_id, version):
+    response = test_microvm.mmds.put_config(json={
+        'version': version,
+        'network_interfaces': [iface_id]
+    })
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
 @pytest.mark.parametrize(
     "version",
     MMDS_VERSIONS
@@ -97,33 +106,36 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
     }
     _populate_data_store(test_microvm, data_store)
 
-    config_data = {
-        'ipv4_address': ''
-    }
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    config_data = {
-        'ipv4_address': '1.1.1.1'
-    }
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    # Configure MMDS with custom IPv4 address.
-    config_data = {
-        'ipv4_address': '169.254.169.250',
-        'version': version
-    }
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    test_microvm.basic_config(vcpu_count=1)
+    # Attach network device.
     _tap = test_microvm.ssh_network_config(
         network_config,
         '1',
         allow_mmds_requests=True
     )
 
+    # Invalid values IPv4 address.
+    response = test_microvm.mmds.put_config(json={
+        'ipv4_address': '',
+        'network_interfaces': ['1']
+    })
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.mmds.put_config(json={
+        'ipv4_address': '1.1.1.1',
+        'network_interfaces': ['1']
+    })
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Configure MMDS with custom IPv4 address.
+    config_data = {
+        'ipv4_address': '169.254.169.250',
+        'version': version,
+        'network_interfaces': ['1']
+    }
+    response = test_microvm.mmds.put_config(json=config_data)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -209,23 +221,20 @@ def test_json_response(test_microvm_with_api, network_config, version):
         }
     }
 
-    # Configure MMDS version if V2, default is V1.
-    if version == 'V2':
-        response = test_microvm.mmds.put_config(json={'version': version})
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
-
-    # Populate data store with contents.
-    _populate_data_store(test_microvm, data_store)
-
-    test_microvm.basic_config(vcpu_count=1)
+    # Attach network device.
     _tap = test_microvm.ssh_network_config(
         network_config,
         '1',
         allow_mmds_requests=True
     )
 
+    # Configure MMDS version.
+    _configure_mmds(test_microvm, iface_id='1', version=version)
+
+    # Populate data store with contents.
+    _populate_data_store(test_microvm, data_store)
+
+    test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -304,22 +313,20 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
             }
         }
     }
-    # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': version})
-    assert test_microvm.api_session.is_status_no_content(
-        response.status_code
-    )
 
-    # Populate data store with contents.
-    _populate_data_store(test_microvm, data_store)
-
-    test_microvm.basic_config(vcpu_count=1)
+    # Attach network device.
     _tap = test_microvm.ssh_network_config(
         network_config,
         '1',
         allow_mmds_requests=True
     )
 
+    # Configure MMDS version.
+    _configure_mmds(test_microvm, iface_id='1', version=version)
+    # Populate data store with contents.
+    _populate_data_store(test_microvm, data_store)
+
+    test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -389,9 +396,15 @@ def test_larger_than_mss_payloads(
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
+    # Attach network device.
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': version})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, iface_id='1', version=version)
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
@@ -399,12 +412,6 @@ def test_larger_than_mss_payloads(
     assert response.json() == {}
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
     test_microvm.start()
 
     # Make sure MTU is 1500 bytes.
@@ -478,7 +485,7 @@ def test_larger_than_mss_payloads(
     "version",
     MMDS_VERSIONS
 )
-def test_mmds_dummy(test_microvm_with_api, version):
+def test_mmds_dummy(test_microvm_with_api, network_config, version):
     """
     Test the API and guest facing features of the microVM MetaData Service.
 
@@ -487,9 +494,15 @@ def test_mmds_dummy(test_microvm_with_api, version):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
+    # Attach network device.
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': version})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, iface_id='1', version=version)
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
@@ -552,9 +565,15 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
+    # Attach network device.
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': version})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, iface_id='1', version=version)
 
     data_store = {
         'latest': {
@@ -566,12 +585,6 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     _populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -618,7 +631,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     "version",
     MMDS_VERSIONS
 )
-def test_patch_dos_scenario(test_microvm_with_api, version):
+def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
     """
     Test the MMDS json endpoint when data store size reaches the limit.
 
@@ -627,9 +640,15 @@ def test_patch_dos_scenario(test_microvm_with_api, version):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
+    # Attach network device.
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': version})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, iface_id='1', version=version)
 
     dummy_json = {
         'latest': {
@@ -720,14 +739,17 @@ def test_mmds_snapshot(bin_cloner_path):
     @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano(diff_snapshots=True)
+    net_iface = NetIfaceConfig()
+    vm_instance = vm_builder.build_vm_nano(
+        net_ifaces=[net_iface],
+        diff_snapshots=True
+    )
     test_microvm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
 
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': 'V2'})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, version='V2', iface_id=DEFAULT_DEV_NAME)
 
     data_store = {
         'latest': {
@@ -814,9 +836,15 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
+    # Attach network device.
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
     # Configure MMDS version.
-    response = test_microvm.mmds.put_config(json={'version': 'V2'})
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(test_microvm, version='V2', iface_id='1')
 
     data_store = {
         'latest': {
@@ -831,12 +859,6 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     _populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 

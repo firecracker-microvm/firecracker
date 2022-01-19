@@ -836,7 +836,10 @@ pub(crate) mod tests {
         assert!(ParsedRequest::try_from_request(&req).is_ok());
 
         // `/mmds/config`
-        let body = "{\"ipv4_address\":\"169.254.170.2\"}";
+        let body = "{ \
+            \"ipv4_address\": \"169.254.170.2\", \
+            \"network_interfaces\": [\"iface0\"] \
+        }";
         sender
             .write_all(http_request("PUT", "/mmds/config", Some(&body)).as_bytes())
             .unwrap();

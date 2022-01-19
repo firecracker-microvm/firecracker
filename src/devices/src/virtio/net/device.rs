@@ -225,11 +225,19 @@ impl Net {
         self.mmds_ns.is_some()
     }
 
-    /// Sets MMDS endpoint IPv4 address, if the device supports MMDS.
-    pub fn set_mmds_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
+    /// Configures the `MmdsNetworkStack` to allow device to forward MMDS requests.
+    /// If the device already supports MMDS, updates the IPv4 address.
+    pub fn configure_mmds_network_stack(&mut self, ipv4_addr: Ipv4Addr) {
         if let Some(mmds_ns) = self.mmds_ns.as_mut() {
             mmds_ns.set_ipv4_addr(ipv4_addr);
+        } else {
+            self.mmds_ns = Some(MmdsNetworkStack::new_with_defaults(Some(ipv4_addr)))
         }
+    }
+
+    /// Disables the `MmdsNetworkStack` to prevent device to forward MMDS requests.
+    pub fn disable_mmds_network_stack(&mut self) {
+        self.mmds_ns = None
     }
 
     /// Provides a reference to the configured RX rate limiter.

@@ -14,6 +14,8 @@ pub struct MmdsConfig {
     /// MMDS version.
     #[serde(default)]
     pub version: MmdsVersion,
+    /// Network interfaces that allow forwarding packets to MMDS.
+    pub network_interfaces: Vec<String>,
     /// MMDS IPv4 configured address.
     pub ipv4_address: Option<Ipv4Addr>,
 }
@@ -22,6 +24,11 @@ impl MmdsConfig {
     /// Returns the MMDS version configured.
     pub fn version(&self) -> MmdsVersion {
         self.version
+    }
+
+    /// Returns the network interfaces that accept MMDS requests.
+    pub fn network_interfaces(&self) -> Vec<String> {
+        self.network_interfaces.clone()
     }
 
     /// Returns the MMDS IPv4 address if one was configured.
@@ -34,8 +41,13 @@ impl MmdsConfig {
 /// MMDS configuration related errors.
 #[derive(Debug)]
 pub enum MmdsConfigError {
+    /// The network interfaces list provided is empty.
+    EmptyNetworkIfaceList,
     /// The provided IPv4 address is not link-local valid.
     InvalidIpv4Addr,
+    /// The network interfaces list provided contains IDs that
+    /// does not correspond to any existing network interface.
+    InvalidNetworkInterfaceId,
     /// MMDS version could not be configured.
     MmdsVersion(MmdsVersion, data_store::Error),
 }
@@ -43,8 +55,22 @@ pub enum MmdsConfigError {
 impl Display for MmdsConfigError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
+            MmdsConfigError::EmptyNetworkIfaceList => {
+                write!(
+                    f,
+                    "The list of network interface IDs that allow \
+                    forwarding MMDS requests is empty."
+                )
+            }
             MmdsConfigError::InvalidIpv4Addr => {
                 write!(f, "The MMDS IPv4 address is not link local.")
+            }
+            MmdsConfigError::InvalidNetworkInterfaceId => {
+                write!(
+                    f,
+                    "The list of network interface IDs provided contains at least one ID \
+                    that does not correspond to any existing network interface."
+                )
             }
             MmdsConfigError::MmdsVersion(version, err) => {
                 write!(

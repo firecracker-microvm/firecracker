@@ -73,19 +73,38 @@ mod tests {
 
         // Test `config` path.
         let body = r#"{
-                "ipv4_address": "169.254.170.2"
+                "version": "V2",
+                "ipv4_address": "169.254.170.2",
+                "network_interfaces": []
               }"#;
         let config_path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
 
         let body = r#"{
-                "ipv4_address": ""
+                "network_interfaces": []
               }"#;
+        let config_path = "config";
+        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
+
+        let body = r#"{
+                "version": "foo",
+                "ipv4_address": "169.254.170.2",
+                "network_interfaces": []
+              }"#;
+        let config_path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
 
-        // Equivalent to reset the mmds configuration.
-        let empty_body = r#"{}"#;
-        assert!(parse_put_mmds(&Body::new(empty_body), Some(&config_path)).is_ok());
+        let body = r#"{
+                "version": "V2"
+              }"#;
+        let config_path = "config";
+        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
+
+        let body = r#"{
+                "ipv4_address": "",
+                "network_interfaces": []
+              }"#;
+        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
 
         let invalid_config_body = r#"{
                 "invalid_config": "invalid_value"

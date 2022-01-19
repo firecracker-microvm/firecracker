@@ -963,6 +963,8 @@ definitions:
     type: object
     description:
       Defines the MMDS configuration.
+    required:
+      - network_interfaces
     properties:
       version:
         description: Enumeration indicating the MMDS version to be configured.
@@ -971,6 +973,18 @@ definitions:
           - V1
           - V2
         default: V1
+      network_interfaces:
+        description:
+          List of the network interface IDs capable of forwarding packets to
+          the MMDS. Network interface IDs mentioned must be valid at the time
+          of this request. The net device model will reply to HTTP GET requests
+          sent to the MMDS address via the interfaces mentioned. In this
+          case, both ARP requests and TCP segments heading to `ipv4_address`
+          are intercepted by the device model, and do not reach the associated
+          TAP device.
+        type: array
+        items:
+          type: string
       ipv4_address:
         type: string
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
