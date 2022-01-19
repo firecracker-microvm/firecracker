@@ -124,8 +124,7 @@ class MicrovmBuilder:
             response = vm.network.put(
                 iface_id=iface.dev_name,
                 host_dev_name=iface.tap_name,
-                guest_mac=guest_mac,
-                allow_mmds_requests=True,
+                guest_mac=guest_mac
             )
             assert vm.api_session.is_status_no_content(response.status_code)
 

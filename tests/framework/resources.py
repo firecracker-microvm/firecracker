@@ -706,7 +706,6 @@ class Network():
             iface_id=None,
             host_dev_name=None,
             guest_mac=None,
-            allow_mmds_requests=None,
             rx_rate_limiter=None,
             tx_rate_limiter=None):
         """Create the json for the net specific API request."""
@@ -719,9 +718,6 @@ class Network():
 
         if guest_mac is not None:
             datax['guest_mac'] = guest_mac
-
-        if allow_mmds_requests is not None:
-            datax['allow_mmds_requests'] = allow_mmds_requests
 
         if tx_rate_limiter is not None:
             datax['tx_rate_limiter'] = tx_rate_limiter

@@ -30,13 +30,6 @@ pub struct NetworkInterfaceConfig {
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
-    #[serde(default = "default_allow_mmds_requests")]
-    /// If this field is set, the device model will reply to HTTP GET
-    /// requests sent to the MMDS address via this interface. In this case,
-    /// both ARP requests for `169.254.169.254` and TCP segments heading to the
-    /// same address are intercepted by the device model, and do not reach
-    /// the associated TAP device.
-    pub allow_mmds_requests: bool,
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
@@ -49,16 +42,8 @@ impl From<&Net> for NetworkInterfaceConfig {
             guest_mac: net.guest_mac().copied(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
-            allow_mmds_requests: net.mmds_enabled(),
         }
     }
-}
-
-// Serde does not allow specifying a default value for a field
-// that is not required. The workaround is to specify a function
-// that returns the value.
-fn default_allow_mmds_requests() -> bool {
-    false
 }
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
@@ -202,7 +187,7 @@ impl NetBuilder {
             cfg.guest_mac.as_ref(),
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
-            cfg.allow_mmds_requests,
+            false,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
@@ -240,7 +225,6 @@ mod tests {
             guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
-            allow_mmds_requests: false,
         }
     }
 
@@ -252,7 +236,6 @@ mod tests {
                 guest_mac: self.guest_mac,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-                allow_mmds_requests: self.allow_mmds_requests,
             }
         }
     }
@@ -383,7 +366,6 @@ mod tests {
             net_if_cfg.guest_mac.unwrap(),
             MacAddr::parse_str(guest_mac).unwrap()
         );
-        assert_eq!(net_if_cfg.allow_mmds_requests, false);
 
         let mut net_builder = NetBuilder::new();
         assert!(net_builder.build(net_if_cfg.clone()).is_ok());

@@ -856,7 +856,6 @@ pub(crate) mod tests {
             \"iface_id\": \"string\", \
             \"guest_mac\": \"12:34:56:78:9a:BC\", \
             \"host_dev_name\": \"string\", \
-            \"allow_mmds_requests\": true, \
             \"rx_rate_limiter\": { \
                 \"bandwidth\": { \
                     \"size\": 0, \

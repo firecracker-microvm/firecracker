@@ -762,7 +762,6 @@ class Microvm:
             self,
             network_config,
             iface_id,
-            allow_mmds_requests=False,
             tx_rate_limiter=None,
             rx_rate_limiter=None,
             tapname=None
@@ -774,7 +773,6 @@ class Microvm:
         ssh_config dictionary.
         :param network_config: UniqueIPv4Generator instance
         :param iface_id: the interface id for the API request
-        :param allow_mmds_requests: specifies whether requests sent from
         the guest on this interface towards the MMDS address are
         intercepted and processed by the device model.
         :param tx_rate_limiter: limit the tx rate
@@ -795,7 +793,6 @@ class Microvm:
             iface_id=iface_id,
             host_dev_name=tapname,
             guest_mac=guest_mac,
-            allow_mmds_requests=allow_mmds_requests,
             tx_rate_limiter=tx_rate_limiter,
             rx_rate_limiter=rx_rate_limiter
         )

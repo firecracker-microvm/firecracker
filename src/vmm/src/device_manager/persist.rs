@@ -569,7 +569,6 @@ mod tests {
                 guest_mac: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-                allow_mmds_requests: true,
             };
             insert_net_device(
                 &mut vmm,
