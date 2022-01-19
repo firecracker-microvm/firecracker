@@ -301,18 +301,8 @@ impl VmResources {
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<NetworkInterfaceError> {
-        self.net_builder.build(body).map(|net_device| {
-            // Update `Net` device `MmdsNetworkStack` IPv4 address.
-            match &self.mmds_config {
-                Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
-                    net_device
-                        .lock()
-                        .expect("Poisoned lock")
-                        .set_mmds_ipv4_addr(ipv4_addr);
-                }),
-                None => (),
-            };
-        })
+        let _ = self.net_builder.build(body)?;
+        Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
@@ -326,21 +316,7 @@ impl VmResources {
         config: MmdsConfig,
         instance_id: &str,
     ) -> Result<MmdsConfigError> {
-        // Check IPv4 address validity.
-        let ipv4_addr = match config.ipv4_addr() {
-            Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
-            None => Ok(MmdsNetworkStack::default_ipv4_addr()),
-            _ => Err(MmdsConfigError::InvalidIpv4Addr),
-        }?;
-
-        // Update existing built network device `MmdsNetworkStack` IPv4 address.
-        for net_device in self.net_builder.iter_mut() {
-            net_device
-                .lock()
-                .expect("Poisoned lock")
-                .set_mmds_ipv4_addr(ipv4_addr);
-        }
-
+        self.set_mmds_network_stack_config(&config)?;
         self.set_mmds_version(config.version, instance_id)?;
 
         self.mmds_config = Some(MmdsConfig {
@@ -348,6 +324,7 @@ impl VmResources {
             ipv4_address: config
                 .ipv4_addr()
                 .or_else(|| Some(MmdsNetworkStack::default_ipv4_addr())),
+            network_interfaces: config.network_interfaces,
         });
 
         Ok(())
@@ -364,6 +341,47 @@ impl VmResources {
             .set_version(version)
             .map_err(|e| MmdsConfigError::MmdsVersion(version, e))?;
         mmds_lock.set_aad(instance_id);
+        Ok(())
+    }
+
+    // Updates MMDS Network Stack for network interfaces to allow forwarding
+    // requests to MMDS (or not).
+    fn set_mmds_network_stack_config(&mut self, config: &MmdsConfig) -> Result<MmdsConfigError> {
+        // Check IPv4 address validity.
+        let ipv4_addr = match config.ipv4_addr() {
+            Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
+            None => Ok(MmdsNetworkStack::default_ipv4_addr()),
+            _ => Err(MmdsConfigError::InvalidIpv4Addr),
+        }?;
+
+        let network_interfaces = config.network_interfaces();
+        // Ensure that at least one network ID is specified.
+        if network_interfaces.is_empty() {
+            return Err(MmdsConfigError::EmptyNetworkIfaceList);
+        }
+
+        // Ensure all interface IDs specified correspond to existing net devices.
+        if !network_interfaces.iter().all(|id| {
+            self.net_builder
+                .iter()
+                .map(|device| device.lock().expect("Poisoned lock").id().clone())
+                .any(|x| &x == id)
+        }) {
+            return Err(MmdsConfigError::InvalidNetworkInterfaceId);
+        }
+
+        // Create `MmdsNetworkStack` and configure the IPv4 address for
+        // existing built network devices whose names are defined in the
+        // network interface ID list.
+        for net_device in self.net_builder.iter_mut() {
+            let mut net_device_lock = net_device.lock().expect("Poisoned lock");
+            if network_interfaces.contains(net_device_lock.id()) {
+                net_device_lock.configure_mmds_network_stack(ipv4_addr);
+            } else {
+                net_device_lock.disable_mmds_network_stack();
+            }
+        }
+
         Ok(())
     }
 }
@@ -761,7 +779,9 @@ mod tests {
                         "ht_enabled": false
                     }},
                     "mmds-config": {{
-                        "ipv4_address": "169.254.170.2"
+                        "version": "V2",
+                        "ipv4_address": "169.254.170.2",
+                        "network_interfaces": ["netif"]
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
@@ -769,9 +789,8 @@ mod tests {
         );
         assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
 
-        // Test all configuration, this time trying to configure the MMDS with an
-        // empty body. It will make it access the code path in which it sets the
-        // default MMDS configuration.
+        // Test all configuration, this time trying to set default configuration
+        // for version and IPv4 address.
         let kernel_file = TempFile::new().unwrap();
         json = format!(
             r#"{{
@@ -804,7 +823,9 @@ mod tests {
                         "mem_size_mib": 1024,
                         "ht_enabled": false
                     }},
-                    "mmds-config": {{}}
+                    "mmds-config": {{
+                        "network_interfaces": ["netif"]
+                    }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
