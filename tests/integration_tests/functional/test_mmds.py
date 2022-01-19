@@ -62,11 +62,16 @@ def _generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
     return cmd
 
 
-def _configure_mmds(test_microvm, iface_id, version):
-    response = test_microvm.mmds.put_config(json={
+def _configure_mmds(test_microvm, iface_id, version, ipv4_address=None):
+    mmds_config = {
         'version': version,
         'network_interfaces': [iface_id]
-    })
+    }
+
+    if ipv4_address:
+        mmds_config['ipv4_address'] = ipv4_address
+
+    response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
@@ -107,11 +112,7 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
     _populate_data_store(test_microvm, data_store)
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Invalid values IPv4 address.
     response = test_microvm.mmds.put_config(json={
@@ -126,24 +127,20 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
     })
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
+    ipv4_address = '169.254.169.250'
     # Configure MMDS with custom IPv4 address.
-    config_data = {
-        'ipv4_address': '169.254.169.250',
-        'version': version,
-        'network_interfaces': ['1']
-    }
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _configure_mmds(
+        test_microvm,
+        iface_id='1',
+        version=version,
+        ipv4_address=ipv4_address
+    )
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    # Requests to `/mmds/config` are rejected after boot.
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    cmd = 'ip route add 169.254.169.250 dev eth0'
+    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '')
 
@@ -151,17 +148,17 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
         # Generate token.
         token = _generate_mmds_session_token(
             ssh_connection,
-            ipv4_address="169.254.169.250",
+            ipv4_address=ipv4_address,
             token_ttl=60
         )
 
         pre = _generate_mmds_v2_get_request(
-            ipv4_address='169.254.169.250',
+            ipv4_address=ipv4_address,
             token=token
         )
     else:
         pre = 'curl -s -H "Accept: application/json" ' \
-                'http://169.254.169.250/'
+                'http://{}/'.format(ipv4_address)
 
     cmd = pre + 'latest/meta-data/ami-id'
     _, stdout, _ = ssh_connection.execute_command(cmd)
@@ -222,11 +219,7 @@ def test_json_response(test_microvm_with_api, network_config, version):
     }
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
@@ -315,11 +308,7 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
     }
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
@@ -397,12 +386,7 @@ def test_larger_than_mss_payloads(
     test_microvm.spawn()
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
+    _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
 
@@ -495,12 +479,7 @@ def test_mmds_dummy(test_microvm_with_api, network_config, version):
     test_microvm.spawn()
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
+    _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
 
@@ -566,12 +545,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     test_microvm.spawn()
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
+    _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
 
@@ -641,12 +615,7 @@ def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
     test_microvm.spawn()
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
+    _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
     _configure_mmds(test_microvm, iface_id='1', version=version)
 
@@ -748,8 +717,14 @@ def test_mmds_snapshot(bin_cloner_path):
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
 
-    # Configure MMDS version.
-    _configure_mmds(test_microvm, version='V2', iface_id=DEFAULT_DEV_NAME)
+    ipv4_address = '169.254.169.250'
+    # Configure MMDS version with custom IPv4 address.
+    _configure_mmds(
+        test_microvm,
+        version='V2',
+        iface_id=DEFAULT_DEV_NAME,
+        ipv4_address=ipv4_address
+    )
 
     data_store = {
         'latest': {
@@ -766,21 +741,21 @@ def test_mmds_snapshot(bin_cloner_path):
     disks = [root_disk.local_path()]
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    cmd = 'ip route add 169.254.169.254 dev eth0'
+    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '')
 
     # Generate token.
     token = _generate_mmds_session_token(
         ssh_connection,
-        ipv4_address="169.254.169.254",
+        ipv4_address=ipv4_address,
         token_ttl=60
     )
 
     pre = 'curl -m 2 -s'
     pre += ' -X GET'
     pre += ' -H  "X-metadata-token: {}"'.format(token)
-    pre += ' http://169.254.169.254/'
+    pre += ' http://{}/'.format(ipv4_address)
 
     # Fetch metadata.
     cmd = pre + 'latest/meta-data/'
@@ -816,13 +791,14 @@ def test_mmds_snapshot(bin_cloner_path):
     cmd = 'curl -m 2 -s'
     cmd += ' -X PUT'
     cmd += ' -H  "X-metadata-token-ttl-seconds: 1"'
-    cmd += ' http://169.254.169.254/latest/api/token'
+    cmd += ' http://{}/latest/api/token'.format(ipv4_address)
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     expected = "Not allowed HTTP method."
     _assert_out(stdout, stderr, expected)
 
-    # Fetch metadata using V1 requests.
-    cmd = 'curl -s http://169.254.169.254/latest/meta-data/ami-id/'
+    # Fetch metadata using V1 requests and ensure IPv4 configuration
+    # is persistent between snapshots.
+    cmd = 'curl -s http://{}/latest/meta-data/ami-id/'.format(ipv4_address)
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, 'ami-12345678')
 
@@ -837,12 +813,7 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     test_microvm.spawn()
 
     # Attach network device.
-    _tap = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        allow_mmds_requests=True
-    )
-
+    _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
     _configure_mmds(test_microvm, version='V2', iface_id='1')
 

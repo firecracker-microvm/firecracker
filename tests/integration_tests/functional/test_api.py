@@ -300,7 +300,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
 
 def test_api_mmds_config(test_microvm_with_api):
     """
-   Test /mmds/config PUT scenarios that unit tests can't cover.
+    Test /mmds/config PUT scenarios that unit tests can't cover.
 
     Tests updates on MMDS config before and after attaching a network device.
 
@@ -1366,8 +1366,7 @@ def test_get_full_config(test_microvm_with_api):
         iface_id=iface_id,
         guest_mac=guest_mac,
         host_dev_name=tap1.name,
-        tx_rate_limiter=tx_rl,
-        allow_mmds_requests=True
+        tx_rate_limiter=tx_rl
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     expected_cfg['network-interfaces'] = [{
@@ -1375,8 +1374,7 @@ def test_get_full_config(test_microvm_with_api):
         'host_dev_name': tap1.name,
         'guest_mac': '06:00:00:00:00:01',
         'rx_rate_limiter': None,
-        'tx_rate_limiter': tx_rl,
-        'allow_mmds_requests': True
+        'tx_rate_limiter': tx_rl
     }]
 
     # Update MMDS config.

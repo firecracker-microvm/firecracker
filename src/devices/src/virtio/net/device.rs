@@ -220,11 +220,6 @@ impl Net {
         self.tap.if_name_as_str().to_string()
     }
 
-    /// Says if this device supports MMDS.
-    pub fn mmds_enabled(&self) -> bool {
-        self.mmds_ns.is_some()
-    }
-
     /// Configures the `MmdsNetworkStack` to allow device to forward MMDS requests.
     /// If the device already supports MMDS, updates the IPv4 address.
     pub fn configure_mmds_network_stack(&mut self, ipv4_addr: Ipv4Addr) {

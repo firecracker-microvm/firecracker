@@ -74,8 +74,7 @@ mod tests {
         let body = r#"{
                 "iface_id": "foo",
                 "host_dev_name": "bar",
-                "guest_mac": "12:34:56:78:9A:BC",
-                "allow_mmds_requests": false
+                "guest_mac": "12:34:56:78:9A:BC"
               }"#;
         // 1. Exercise infamous "The id from the path does not match id from the body!".
         assert!(parse_put_net(&Body::new(body), Some(&"bar")).is_err());

@@ -1273,7 +1273,6 @@ pub mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
-            allow_mmds_requests: true,
         };
 
         let mut cmdline = default_kernel_cmdline();

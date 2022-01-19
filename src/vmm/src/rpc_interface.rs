@@ -1155,7 +1155,6 @@ mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
-            allow_mmds_requests: false,
         });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
@@ -1168,7 +1167,6 @@ mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
-            allow_mmds_requests: false,
         });
         check_preboot_request_err(
             req,
@@ -1590,7 +1588,6 @@ mod tests {
                 guest_mac: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-                allow_mmds_requests: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -1685,7 +1682,6 @@ mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
-            allow_mmds_requests: false,
         });
         verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
 

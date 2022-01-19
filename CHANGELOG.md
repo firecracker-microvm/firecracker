@@ -52,6 +52,10 @@
   `X-metadata-token` header when using V2.
 - Allow `PUT` requests to MMDS in order to generate a session token
   to be used for future `GET` requests when version 2 is used.
+- Remove `allow_mmds_requests` field from the request body that attaches network
+  interfaces. Specifying interfaces that allow forwarding requests to MMDS is done
+  by adding the network interface's ID to the `network_interfaces` field of PUT
+  `/mmds/config` request's body.
 
 ### Fixed
 
