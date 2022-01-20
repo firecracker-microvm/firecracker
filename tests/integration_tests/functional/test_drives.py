@@ -4,7 +4,6 @@
 
 import os
 import platform
-import pytest
 
 from framework import utils
 
@@ -114,17 +113,14 @@ def test_device_ordering(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Determine the size of the microVM rootfs in bytes.
-    try:
-        result = utils.run_cmd(
-            'du --apparent-size --block-size=1 {}'
-            .format(test_microvm.rootfs_file),
-        )
-    except ChildProcessError:
-        pytest.skip('Failed to get microVM rootfs size: {}'
-                    .format(result.stderr))
+    rc, stdout, stderr = utils.run_cmd(
+        'du --apparent-size --block-size=1 {}'
+        .format(test_microvm.rootfs_file),
+    )
+    assert rc == 0, f"Failed to get microVM rootfs size: {stderr}"
 
-    assert len(result.stdout.split()) == 2
-    rootfs_size = result.stdout.split('\t')[0]
+    assert len(stdout.split()) == 2
+    rootfs_size = stdout.split('\t')[0]
 
     # The devices were added in this order: fs1, rootfs, fs2.
     # However, the rootfs is the root device and goes first,
@@ -172,14 +168,9 @@ def test_rescan_dev(test_microvm_with_api, network_config):
     )
 
     losetup = ['losetup', '--find', '--show', fs2.path]
-    loopback_device = None
-    result = None
-    try:
-        result = utils.run_cmd(losetup)
-        loopback_device = result.stdout.rstrip()
-    except ChildProcessError:
-        pytest.skip('failed to create a lookback device: ' +
-                    f'stdout={result.stdout}, stderr={result.stderr}')
+    rc, stdout, _ = utils.run_cmd(losetup)
+    assert rc == 0
+    loopback_device = stdout.rstrip()
 
     try:
         response = test_microvm.drive.patch(
