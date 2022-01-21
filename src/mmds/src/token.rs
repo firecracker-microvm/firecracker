@@ -12,7 +12,7 @@ use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
 use std::{fmt, io};
-use utils::time::{get_time_s, ClockType};
+use utils::time::{get_time_ms, ClockType};
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;
@@ -22,6 +22,9 @@ pub const KEY_LEN: usize = 32;
 pub const PAYLOAD_LEN: usize = std::mem::size_of::<u64>();
 /// Length of encryption tag.
 pub const TAG_LEN: usize = 16;
+
+/// Constant to convert seconds to milliseconds.
+pub const MILLISECONDS_PER_SECOND: u64 = 1_000;
 
 /// Minimum lifetime of token.
 pub const MIN_TOKEN_TTL_SECONDS: u32 = 1;
@@ -140,7 +143,7 @@ impl TokenAuthority {
             .read_exact(&mut iv)
             .map_err(Error::EntropyPool)?;
 
-        // Compute expiration time from ttl.
+        // Compute expiration time in milliseconds from ttl.
         let expiry = TokenAuthority::compute_expiry(ttl_seconds);
         // Encrypt expiry using the nonce.
         let (payload, tag) = self.encrypt_expiry(expiry, iv.as_ref())?;
@@ -194,8 +197,8 @@ impl TokenAuthority {
             Err(_) => return false,
         };
 
-        // Compare expiry with current time in seconds.
-        expiry > get_time_s(ClockType::Monotonic)
+        // Compare expiry (in ms) with current time in milliseconds.
+        expiry > get_time_ms(ClockType::Monotonic)
     }
 
     /// Decrypt ciphertext composed of payload and tag to obtain the expiry value.
@@ -268,15 +271,16 @@ impl TokenAuthority {
     }
 
     /// Compute expiry time in seconds by adding the time to live provided
-    /// to the current time measured in seconds.
+    /// to the current time measured in milliseconds.
     fn compute_expiry(ttl_as_seconds: u32) -> u64 {
-        // Get current time in seconds.
-        let now_as_seconds = get_time_s(ClockType::Monotonic);
+        // Get current time in milliseconds.
+        let now_as_milliseconds = get_time_ms(ClockType::Monotonic);
 
-        // Compute expiry by adding ttl value to current time in seconds.
-        // This addition is safe because ttl is verified beforehand and
-        // can never be more than 6h.
-        now_as_seconds.add(ttl_as_seconds as u64)
+        // Compute expiry by adding ttl value converted to milliseconds
+        // to current time (also in milliseconds). This addition is safe
+        // because ttl is verified beforehand and can never be more than
+        // 6h (21_600_000 ms).
+        now_as_milliseconds.add(ttl_as_seconds as u64 * MILLISECONDS_PER_SECOND)
     }
 }
 
@@ -370,13 +374,18 @@ mod tests {
 
     #[test]
     fn test_compute_expiry() {
-        let time_now = get_time_s(ClockType::Monotonic);
+        let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(1);
-        assert_eq!(expiry - time_now, 1);
+        let ttl = expiry - time_now;
+        // We allow a deviation of 10ms to account for the gap
+        // between the two calls to `get_time_ms()`.
+        let deviation = 10;
+        assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
 
-        let time_now = get_time_s(ClockType::Monotonic);
+        let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(0);
-        assert_eq!(expiry, time_now);
+        let ttl = expiry - time_now;
+        assert!(ttl <= deviation);
     }
 
     #[test]
