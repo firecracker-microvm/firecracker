@@ -58,6 +58,8 @@
   by adding the network interface's ID to the `network_interfaces` field of PUT
   `/mmds/config` request's body.
 - Configuring `ht_enabled: true` on aarch64 via the API is forbidden.
+- `ht_enabled` field is now optional on PUT `/machine-config`, defaulting to
+  `false`.
 
 ### Fixed
 

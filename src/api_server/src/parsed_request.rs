@@ -788,8 +788,7 @@ pub(crate) mod tests {
         let mut connection = HttpConnection::new(receiver);
         let body = "{ \
             \"vcpu_count\": 0, \
-            \"mem_size_mib\": 0, \
-            \"ht_enabled\": false \
+            \"mem_size_mib\": 0 \
         }";
         sender
             .write_all(http_request("PUT", "/machine-config", Some(&body)).as_bytes())
@@ -1009,8 +1008,7 @@ pub(crate) mod tests {
         let mut connection = HttpConnection::new(receiver);
         let body = "{ \
             \"vcpu_count\": 0, \
-            \"mem_size_mib\": 0, \
-            \"ht_enabled\": false \
+            \"mem_size_mib\": 0 \
         }";
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())

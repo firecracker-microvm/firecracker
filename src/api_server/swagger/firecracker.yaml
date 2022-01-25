@@ -928,7 +928,6 @@ definitions:
       Describes the number of vCPUs, memory size, Hyperthreading capabilities and
       the CPU template.
     required:
-      - ht_enabled
       - mem_size_mib
       - vcpu_count
     properties:

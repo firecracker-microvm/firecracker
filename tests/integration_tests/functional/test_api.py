@@ -426,6 +426,33 @@ def test_api_machine_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
+    # Test missing vcpu_count.
+    response = test_microvm.machine_cfg.put(
+        mem_size_mib=128
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "Missing mandatory field: `vcpu_count`." in response.text
+
+    # Test missing mem_size_mib.
+    response = test_microvm.machine_cfg.put(
+        vcpu_count=2
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "Missing mandatory field: `mem_size_mib`." in response.text
+
+    # Test default ht_enabled value.
+    response = test_microvm.machine_cfg.put(
+        mem_size_mib=128,
+        vcpu_count=1
+    )
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    )
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()["ht_enabled"] is False
+
     # Test that ht_enabled=True errors on ARM.
     response = test_microvm.machine_cfg.patch(
         ht_enabled=True
@@ -520,8 +547,11 @@ def test_api_machine_config(test_microvm_with_api):
     # Validate full vm configuration after patching machine config.
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json()['machine-config']['vcpu_count'] == 2
-    assert response.json()['machine-config']['mem_size_mib'] == 256
+    json = response.json()
+    assert json['machine-config']['vcpu_count'] == 2
+    assert json['machine-config']['mem_size_mib'] == 256
+    assert json['machine-config']['ht_enabled'] == (
+        platform.machine() == "x86_64")
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
@@ -570,7 +600,6 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     response = test_microvm.machine_cfg.put(
         vcpu_count=4,
-        ht_enabled=False,
         mem_size_mib=128
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)

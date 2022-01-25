@@ -22,13 +22,17 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
     #[cfg(target_arch = "aarch64")]
     check_unsupported_fields(&vm_config)?;
 
-    if vm_config.vcpu_count.is_none()
-        || vm_config.mem_size_mib.is_none()
-        || vm_config.ht_enabled.is_none()
-    {
+    if vm_config.vcpu_count.is_none() {
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "Missing mandatory fields.".to_string(),
+            "Missing mandatory field: `vcpu_count`.".to_string(),
+        ));
+    }
+
+    if vm_config.mem_size_mib.is_none() {
+        return Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Missing mandatory field: `mem_size_mib`.".to_string(),
         ));
     }
 
@@ -99,30 +103,39 @@ mod tests {
 
         // 2. Test case for mandatory fields.
         let body = r#"{
-                "mem_size_mib": 1024,
-                "ht_enabled": false
-              }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
-
-        let body = r#"{
-                "vcpu_count": 8,
-                "ht_enabled": false
-                }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
-
-        let body = r#"{
-                "vcpu_count": 8,
                 "mem_size_mib": 1024
               }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
-        // 3. Test case a success scenario for both architectures.
+        let body = r#"{
+                "vcpu_count": 8
+                }"#;
+        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+
+        // 3. Test case for success scenarios for both architectures.
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024
+              }"#;
+        let expected_config = VmConfig {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024),
+            ht_enabled: None,
+            cpu_template: None,
+            track_dirty_pages: false,
+        };
+
+        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
+            _ => panic!("Test failed."),
+        }
+
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
                 "ht_enabled": false,
                 "track_dirty_pages": true
-              }"#;
+            }"#;
         let expected_config = VmConfig {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),

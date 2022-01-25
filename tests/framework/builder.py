@@ -152,7 +152,7 @@ class MicrovmBuilder:
         response = vm.machine_cfg.put(
             vcpu_count=int(microvm_config['vcpu_count']),
             mem_size_mib=int(microvm_config['mem_size_mib']),
-            ht_enabled=bool(microvm_config['ht_enabled']),
+            ht_enabled=microvm_config['ht_enabled'],
             track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )

@@ -634,7 +634,7 @@ class Microvm:
     def basic_config(
         self,
         vcpu_count: int = 2,
-        ht_enabled: bool = False,
+        ht_enabled: bool = None,
         mem_size_mib: int = 256,
         add_root_device: bool = True,
         boot_args: str = None,
