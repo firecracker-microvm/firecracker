@@ -631,3 +631,27 @@ def is_io_uring_supported():
     return compare_versions(
         get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING
     ) >= 0
+
+
+def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
+    """Generate session token used for MMDS V2 requests."""
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X PUT'
+    cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
+    cmd += ' http://{}/latest/api/token'.format(ipv4_address)
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    token = stdout.read()
+
+    return token
+
+
+def generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
+    """Build `GET` request to fetch metadata from MMDS when using V2."""
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X GET'
+    cmd += ' -H  "X-metadata-token: {}"'.format(token)
+    if app_json:
+        cmd += ' -H "Accept: application/json"'
+    cmd += ' http://{}/'.format(ipv4_address)
+
+    return cmd

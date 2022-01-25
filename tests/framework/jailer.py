@@ -247,7 +247,7 @@ class JailerContext:
             )
             utils.run_cmd(cmd)
 
-        if self.netns:
+        if self.netns and self.netns not in utils.run_cmd('ip netns list')[1]:
             utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):

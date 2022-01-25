@@ -9,6 +9,8 @@ import time
 import pytest
 from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import generate_mmds_session_token, \
+    generate_mmds_v2_get_request
 
 import host_tools.network as net_tools
 
@@ -38,28 +40,6 @@ def _populate_data_store(test_microvm, data_store):
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
-
-
-def _generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
-    cmd = 'curl -m 2 -s'
-    cmd += ' -X PUT'
-    cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
-    cmd += ' http://{}/latest/api/token'.format(ipv4_address)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    token = stdout.read()
-
-    return token
-
-
-def _generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
-    cmd = 'curl -m 2 -s'
-    cmd += ' -X GET'
-    cmd += ' -H  "X-metadata-token: {}"'.format(token)
-    if app_json:
-        cmd += ' -H "Accept: application/json"'
-    cmd += ' http://{}/'.format(ipv4_address)
-
-    return cmd
 
 
 def _configure_mmds(test_microvm, iface_id, version, ipv4_address=None):
@@ -146,13 +126,13 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
 
     if version == 'V2':
         # Generate token.
-        token = _generate_mmds_session_token(
+        token = generate_mmds_session_token(
             ssh_connection,
             ipv4_address=ipv4_address,
             token_ttl=60
         )
 
-        pre = _generate_mmds_v2_get_request(
+        pre = generate_mmds_v2_get_request(
             ipv4_address=ipv4_address,
             token=token
         )
@@ -237,13 +217,13 @@ def test_json_response(test_microvm_with_api, network_config, version):
 
     if version == 'V2':
         # Generate token.
-        token = _generate_mmds_session_token(
+        token = generate_mmds_session_token(
                 ssh_connection,
                 ipv4_address=DEFAULT_IPV4,
                 token_ttl=60
         )
 
-        pre = _generate_mmds_v2_get_request(DEFAULT_IPV4, token)
+        pre = generate_mmds_v2_get_request(DEFAULT_IPV4, token)
     else:
         pre = 'curl -s -H "Accept: application/json"' \
                 ' http://{}/'.format(DEFAULT_IPV4)
@@ -325,13 +305,13 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
 
     if version == 'V2':
         # Generate token.
-        token = _generate_mmds_session_token(
+        token = generate_mmds_session_token(
             ssh_connection,
             ipv4_address=DEFAULT_IPV4,
             token_ttl=60
         )
 
-        pre = _generate_mmds_v2_get_request(
+        pre = generate_mmds_v2_get_request(
             ipv4_address=DEFAULT_IPV4,
             token=token,
             app_json=False
@@ -438,13 +418,13 @@ def test_larger_than_mss_payloads(
 
     if version == 'V2':
         # Generate token.
-        token = _generate_mmds_session_token(
+        token = generate_mmds_session_token(
             ssh_connection,
             ipv4_address=DEFAULT_IPV4,
             token_ttl=60
         )
 
-        pre = _generate_mmds_v2_get_request(
+        pre = generate_mmds_v2_get_request(
             ipv4_address=DEFAULT_IPV4,
             token=token,
             app_json=False
@@ -578,7 +558,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
         assert 'Invalid request' in stdout.read()
     else:
         # Generate token.
-        token = _generate_mmds_session_token(
+        token = generate_mmds_session_token(
             ssh_connection,
             ipv4_address=DEFAULT_IPV4,
             token_ttl=60
@@ -746,7 +726,7 @@ def test_mmds_snapshot(bin_cloner_path):
     _assert_out(stdout, stderr, '')
 
     # Generate token.
-    token = _generate_mmds_session_token(
+    token = generate_mmds_session_token(
         ssh_connection,
         ipv4_address=ipv4_address,
         token_ttl=60
