@@ -165,7 +165,6 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
     response = test_microvm.machine_cfg.put(
         vcpu_count=1,
         mem_size_mib=256,
-        ht_enabled=False,
         cpu_template=cpu_template,
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)

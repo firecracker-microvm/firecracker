@@ -609,8 +609,7 @@ mod tests {
                     ],
                     "machine-config": {{
                         "vcpu_count": 0,
-                        "mem_size_mib": 1024,
-                        "ht_enabled": false
+                        "mem_size_mib": 1024
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
@@ -639,8 +638,7 @@ mod tests {
                     ],
                     "machine-config": {{
                         "vcpu_count": 2,
-                        "mem_size_mib": 0,
-                        "ht_enabled": false
+                        "mem_size_mib": 0
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),

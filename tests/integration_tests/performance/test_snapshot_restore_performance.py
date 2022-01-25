@@ -133,7 +133,6 @@ def get_snap_restore_latency(
     response = basevm.machine_cfg.put(
         vcpu_count=vcpus,
         mem_size_mib=mem_size,
-        ht_enabled=False
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
 

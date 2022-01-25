@@ -199,7 +199,6 @@ def test_api_requests_logs(test_microvm_with_api):
     # Check that a Put request on /machine-config is logged.
     response = microvm.machine_cfg.put(
         vcpu_count=4,
-        ht_enabled=False,
         mem_size_mib=128
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
