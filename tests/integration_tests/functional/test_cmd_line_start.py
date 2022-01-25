@@ -12,10 +12,15 @@ from retry.api import retry_call
 import pytest
 
 from framework import utils
+from framework.artifacts import NetIfaceConfig
+from framework.utils import generate_mmds_session_token, \
+    generate_mmds_v2_get_request
+import host_tools.network as net_tools
 
 
 def _configure_vm_from_json(test_microvm, vm_config_file):
-    """Configure a microvm using a file sent as command line parameter.
+    """
+    Configure a microvm using a file sent as command line parameter.
 
     Create resources needed for the configuration of the microvm and
     set as configuration file a copy of the file that was passed as
@@ -42,7 +47,8 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
 
 
 def _add_metadata_file(test_microvm, metadata_file):
-    """Configure the microvm using a metadata file.
+    """
+    Configure the microvm using a metadata file.
 
     Given a test metadata file this creates a copy of the file and
     uses the copy to configure the microvm.
@@ -53,6 +59,70 @@ def _add_metadata_file(test_microvm, metadata_file):
     )
     shutil.copyfile(metadata_file, vm_metadata_path)
     test_microvm.metadata_file = vm_metadata_path
+
+
+def _configure_network_interface(test_microvm):
+    """
+    Create tap interface before spawning the microVM.
+
+    The network namespace and tap interface have to be created
+    beforehand when starting the microVM from a config file.
+    """
+    # Create network namespace.
+    utils.run_cmd(f"ip netns add {test_microvm.jailer.netns}")
+
+    # Create tap device and SSH config.
+    net_iface = NetIfaceConfig()
+    _tap = test_microvm.create_tap_and_ssh_config(net_iface.host_ip,
+                                                  net_iface.guest_ip,
+                                                  net_iface.netmask,
+                                                  net_iface.tap_name)
+
+
+def _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address):
+    """
+    Build command to fetch metadata from the guest's side.
+
+    The request is built based on the MMDS version configured.
+    If MMDSv2 is used, a session token must be created before
+    the `GET` request.
+    """
+    # Fetch data from MMDS from the guest's side.
+    if version == "V1":
+        cmd = 'curl -s -H "Accept: application/json" '
+        cmd += 'http://{}'.format(ipv4_address)
+
+    else:
+        # If MMDS is configured to version 2, so we need to create
+        # the session token first.
+        token = generate_mmds_session_token(
+            ssh_connection,
+            ipv4_address,
+            token_ttl=60
+        )
+        cmd = generate_mmds_v2_get_request(ipv4_address, token)
+
+    return cmd
+
+
+def _get_optional_fields_from_file(vm_config_file):
+    """
+    Retrieve optional `version` and `ipv4_address` fields from MMDS config.
+
+    Parse the vm config json file and retrieves optional  fields from MMDS
+    config. Default values are used for the fields that are not specified.
+
+    :return: a pair of (version, ipv4_address) fields from mmds config.
+    """
+    # Get MMDS version and IPv4 address configured from the file.
+    with open(vm_config_file, encoding='utf-8') as json_file:
+        mmds_config = json.load(json_file)["mmds-config"]
+        # Default to V1 if version is not specified.
+        version = mmds_config.get("version", "V1")
+        # Set to default if IPv4 is not specified .
+        ipv4_address = mmds_config.get("ipv4_address", "169.254.169.254")
+
+        return version, ipv4_address
 
 
 @pytest.mark.parametrize(
@@ -287,19 +357,125 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
     )
 
 
-def test_with_config_and_metadata_no_api(test_microvm_with_api):
+@pytest.mark.parametrize(
+    "vm_config_file",
+    [
+        "framework/vm_config_with_mmdsv1.json",
+        "framework/vm_config_with_mmdsv2.json"
+    ]
+)
+def test_config_start_and_mmds_with_api(test_microvm_with_api, vm_config_file):
     """
-    Test microvm start when config/mmds and API server thread is disable.
+    Test MMDS behavior when the microvm is configured from file.
 
     @type: functional
     """
-    vm_config_file = "framework/vm_config.json"
-    metadata_file = "../resources/tests/metadata.json"
+    test_microvm = test_microvm_with_api
 
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    _configure_network_interface(test_microvm)
+
+    # Network namespace has already been created.
+    test_microvm.spawn()
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Running"
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678',
+                'reservation-id': 'r-fea54097'
+            }
+        }
+    }
+
+    # MMDS should be empty by default.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    # Populate MMDS with data.
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Ensure the MMDS contents have been successfully updated.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Get MMDS version and IPv4 address configured from the file.
+    version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
+
+    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == stdout.read() == ''
+
+    # Fetch data from MMDS from the guest's side.
+    cmd = _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address)
+    cmd += '/latest/meta-data/'
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == data_store['latest']['meta-data']
+
+    # Validate MMDS configuration.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()["mmds-config"] == {
+        'network_interfaces': ['1'],
+        'ipv4_address': ipv4_address,
+        'version': version
+    }
+
+
+@pytest.mark.parametrize(
+    "vm_config_file",
+    [
+        "framework/vm_config_with_mmdsv1.json",
+        "framework/vm_config_with_mmdsv2.json"
+    ]
+)
+@pytest.mark.parametrize(
+    "metadata_file",
+    ["../resources/tests/metadata.json"]
+)
+def test_with_config_and_metadata_no_api(
+        test_microvm_with_api,
+        vm_config_file,
+        metadata_file
+):
+    """
+    Test microvm start when config/mmds and API server thread is disabled.
+
+    Ensures the metadata is stored successfully inside the MMDS and
+    is available to reach from the guest's side.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     _add_metadata_file(test_microvm, metadata_file)
+    _configure_network_interface(test_microvm)
     test_microvm.jailer.extra_args.update({'no-api': None})
 
     test_microvm.spawn()
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Get MMDS version and IPv4 address configured from the file.
+    version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
+
+    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == stdout.read() == ''
+
+    # Fetch data from MMDS from the guest's side.
+    cmd = _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address)
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+
+    # Compare response against the expected MMDS contents.
+    with open(metadata_file, encoding='utf-8') as metadata:
+        assert json.load(stdout) == json.load(metadata)
