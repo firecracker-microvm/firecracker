@@ -181,7 +181,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
         'vcpu_count': 4,
-        'ht_enabled': True,
+        'ht_enabled': not platform.machine() == 'aarch64',
         'mem_size_mib': 256,
         'track_dirty_pages': True
     }
@@ -393,6 +393,7 @@ def test_api_mmds_config(test_microvm_with_api):
     )['mmds-config']['version'] == "V2"
 
 
+# pylint: disable=too-many-statements
 def test_api_machine_config(test_microvm_with_api):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
@@ -425,6 +426,22 @@ def test_api_machine_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
+    # Test that ht_enabled=True errors on ARM.
+    response = test_microvm.machine_cfg.patch(
+        ht_enabled=True
+    )
+    if platform.machine() == "x86_64":
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code
+        )
+    else:
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code
+        )
+        assert "Enabling HyperThreading is not supported on aarch64" in\
+            response.text
+
+    # Test that CPU template errors on ARM.
     response = test_microvm.machine_cfg.patch(
         cpu_template='C3'
     )

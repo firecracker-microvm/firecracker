@@ -152,6 +152,8 @@ def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
 
     @type: functional
     """
+    if htt and PLATFORM == 'aarch64':
+        pytest.skip("HyperThreading is configurable only on x86.")
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
