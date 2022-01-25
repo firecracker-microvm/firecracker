@@ -774,6 +774,7 @@ definitions:
     description:
       The CPU Template defines a set of flags to be disabled from the microvm so that
       the features exposed to the guest are the same as in the selected instance type.
+      Works only on Intel.
     enum:
       - C3
       - T2
@@ -935,7 +936,7 @@ definitions:
         $ref: "#/definitions/CpuTemplate"
       ht_enabled:
         type: boolean
-        description: Flag for enabling/disabling Hyperthreading
+        description: Flag for enabling/disabling Hyperthreading. x86-only.
       mem_size_mib:
         type: integer
         description: Memory size of VM

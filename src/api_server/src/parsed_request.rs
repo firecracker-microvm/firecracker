@@ -789,7 +789,7 @@ pub(crate) mod tests {
         let body = "{ \
             \"vcpu_count\": 0, \
             \"mem_size_mib\": 0, \
-            \"ht_enabled\": true \
+            \"ht_enabled\": false \
         }";
         sender
             .write_all(http_request("PUT", "/machine-config", Some(&body)).as_bytes())
@@ -1010,7 +1010,7 @@ pub(crate) mod tests {
         let body = "{ \
             \"vcpu_count\": 0, \
             \"mem_size_mib\": 0, \
-            \"ht_enabled\": true \
+            \"ht_enabled\": false \
         }";
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())
@@ -1021,7 +1021,7 @@ pub(crate) mod tests {
         let body = "{ \
             \"vcpu_count\": 0, \
             \"mem_size_mib\": 0, \
-            \"ht_enabled\": true, \
+            \"ht_enabled\": false, \
             \"cpu_template\": \"C3\" \
         }";
         sender

@@ -19,6 +19,7 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
         Error::SerdeJson(e)
     })?;
 
+    #[cfg(target_arch = "aarch64")]
     check_unsupported_fields(&vm_config)?;
 
     if vm_config.vcpu_count.is_none()
@@ -43,6 +44,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
         Error::SerdeJson(e)
     })?;
 
+    #[cfg(target_arch = "aarch64")]
     check_unsupported_fields(&vm_config)?;
 
     if vm_config.vcpu_count.is_none()
@@ -57,17 +59,24 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
     )))
 }
 
-fn check_unsupported_fields(_vm_config: &VmConfig) -> Result<(), Error> {
-    #[cfg(target_arch = "aarch64")]
-    {
-        if _vm_config.cpu_template.is_some() {
-            // cpu_template is not supported on aarch64
-            return Err(Error::Generic(
-                StatusCode::BadRequest,
-                "CPU templates are not supported on aarch64".to_string(),
-            ));
-        }
+#[cfg(target_arch = "aarch64")]
+fn check_unsupported_fields(vm_config: &VmConfig) -> Result<(), Error> {
+    if vm_config.cpu_template.is_some() {
+        // cpu_template is not supported on aarch64
+        return Err(Error::Generic(
+            StatusCode::BadRequest,
+            "CPU templates are not supported on aarch64".to_string(),
+        ));
     }
+
+    if let Some(true) = vm_config.ht_enabled {
+        // ht_enabled: true is not supported on aarch64
+        return Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Enabling HyperThreading is not supported on aarch64".to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -91,13 +100,13 @@ mod tests {
         // 2. Test case for mandatory fields.
         let body = r#"{
                 "mem_size_mib": 1024,
-                "ht_enabled": true
+                "ht_enabled": false
               }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
         let body = r#"{
                 "vcpu_count": 8,
-                "ht_enabled": true
+                "ht_enabled": false
                 }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
@@ -111,13 +120,13 @@ mod tests {
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
-                "ht_enabled": true,
+                "ht_enabled": false,
                 "track_dirty_pages": true
               }"#;
         let expected_config = VmConfig {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
-            ht_enabled: Some(true),
+            ht_enabled: Some(false),
             cpu_template: None,
             track_dirty_pages: true,
         };
@@ -131,7 +140,7 @@ mod tests {
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
-                "ht_enabled": true,
+                "ht_enabled": false,
                 "cpu_template": "T2",
                 "track_dirty_pages": true
               }"#;
@@ -142,8 +151,37 @@ mod tests {
             let expected_config = VmConfig {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
-                ht_enabled: Some(true),
+                ht_enabled: Some(false),
                 cpu_template: Some(CpuFeaturesTemplate::T2),
+                track_dirty_pages: true,
+            };
+
+            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+                VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
+                _ => panic!("Test failed."),
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        }
+
+        // 5. Test that setting `ht_enabled: true` is successful on x86_64 while on aarch64, it is not.
+        let body = r#"{
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "ht_enabled": true,
+            "track_dirty_pages": true
+          }"#;
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let expected_config = VmConfig {
+                vcpu_count: Some(8),
+                mem_size_mib: Some(1024),
+                ht_enabled: Some(true),
+                cpu_template: None,
                 track_dirty_pages: true,
             };
 
