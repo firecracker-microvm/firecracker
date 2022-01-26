@@ -517,7 +517,7 @@
                                                 },
                                                 "tcp-p1024K-ws256K-h2g": {
                                                     "target": 74,
-                                                    "delta_percentage": 13
+                                                    "delta_percentage": 16
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "target": 94,
@@ -839,7 +839,7 @@
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
                                                     "target": 87,
-                                                    "delta_percentage": 5
+                                                    "delta_percentage": 8
                                                 },
                                                 "tcp-pDEFAULT-ws16K-g2h": {
                                                     "target": 99,
@@ -1861,7 +1861,7 @@
                                                 },
                                                 "tcp-p1024K-ws256K-h2g": {
                                                     "target": 20026,
-                                                    "delta_percentage": 17
+                                                    "delta_percentage": 25
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "target": 23619,
@@ -2127,7 +2127,7 @@
                                                 },
                                                 "tcp-p1024K-ws256K-h2g": {
                                                     "target": 97,
-                                                    "delta_percentage": 13
+                                                    "delta_percentage": 25
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "target": 95,
@@ -2329,7 +2329,7 @@
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
                                                     "target": 44.6,
-                                                    "delta_percentage": 5
+                                                    "delta_percentage": 7
                                                 },
                                                 "tcp-p1024K-ws16K-h2g": {
                                                     "target": 99,
