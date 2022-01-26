@@ -18,7 +18,7 @@ from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_cpu_percent, get_kernel_version, \
-    CmdBuilder, DictQuery, run_cmd
+    is_io_uring_supported, CmdBuilder, DictQuery, run_cmd
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -255,16 +255,63 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
     [CONFIG_NAME_ABS],
     indirect=True
 )
-def test_block_performance(bin_cloner_path, results_file_dumper):
+def test_block_performance_async(bin_cloner_path, results_file_dumper):
     """
     Test block performance for multiple vm configurations.
 
     @type: performance
     """
     logger = logging.getLogger(TEST_ID)
+
+    if not is_io_uring_supported():
+        logger.info("io_uring is not supported. Skipping..")
+        pytest.skip('Cannot run async if io_uring is not supported')
+
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
+    vm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
+    vm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
+
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    # Create a test context and add builder, logger, network.
+    test_context = TestContext()
+    test_context.custom = {
+        'builder': MicrovmBuilder(bin_cloner_path),
+        'logger': logger,
+        'name': TEST_ID,
+        'results_file_dumper': results_file_dumper,
+        'io_engine': 'Async'
+    }
+
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 vm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
+    test_matrix.run_test(fio_workload)
+
+
+@pytest.mark.nonci
+@pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
+@pytest.mark.parametrize(
+    'results_file_dumper',
+    [CONFIG_NAME_ABS],
+    indirect=True
+)
+def test_block_performance_sync(bin_cloner_path, results_file_dumper):
+    """
+    Test block performance for multiple vm configurations.
+
+    @type: performance
+    """
+    logger = logging.getLogger(TEST_ID)
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    vm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
+    vm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
+
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
@@ -276,12 +323,13 @@ def test_block_performance(bin_cloner_path, results_file_dumper):
         'builder': MicrovmBuilder(bin_cloner_path),
         'logger': logger,
         'name': TEST_ID,
-        'results_file_dumper': results_file_dumper
+        'results_file_dumper': results_file_dumper,
+        'io_engine': 'Sync'
     }
 
     test_matrix = TestMatrix(context=test_context,
                              artifact_sets=[
-                                 microvm_artifacts,
+                                 vm_artifacts,
                                  kernel_artifacts,
                                  disk_artifacts
                              ])
@@ -293,6 +341,7 @@ def fio_workload(context):
     vm_builder = context.custom['builder']
     logger = context.custom["logger"]
     file_dumper = context.custom["results_file_dumper"]
+    io_engine = context.custom["io_engine"]
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -310,7 +359,8 @@ def fio_workload(context):
         os.path.join(basevm.fsfiles, 'scratch'),
         CONFIG["block_device_size"]
     )
-    basevm.add_drive('scratch', fs.path)
+    basevm.add_drive('scratch', fs.path,
+                     io_engine=io_engine)
     basevm.start()
 
     # Get names of threads in Firecracker.
@@ -336,7 +386,7 @@ def fio_workload(context):
 
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
     env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{context.microvm.name()}"
+             f"{io_engine.lower()}_{context.microvm.name()}"
 
     for mode in CONFIG["fio_modes"]:
         for bs in CONFIG["fio_blk_sizes"]:
