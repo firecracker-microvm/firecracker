@@ -22,8 +22,8 @@ PING = "ping -c {} -i {} {}"
 LATENCY_AVG_BASELINES = {
     "x86_64": {
         "4.14": {
-            "target": 0.250,  # milliseconds
-            "delta": 0.020  # milliseconds
+            "target": 0.240,  # milliseconds
+            "delta": 0.040  # milliseconds
         },
         "5.10": {
             "target": 0.250,  # milliseconds
@@ -228,6 +228,9 @@ def _g2h_send_ping(context):
               "cpu_model_name": get_cpu_model_name()}
 
     st_core = core.Core(name="network_latency", iterations=1, custom=custom)
+    env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+             f"{context.microvm.name()}"
+
     cons = consumer.LambdaConsumer(
         func=consume_ping_output,
         func_kwargs={"requests": context.custom['requests']}
@@ -237,7 +240,8 @@ def _g2h_send_ping(context):
                       DEFAULT_HOST_IP)
     prod = producer.SSHCommand(cmd,
                                net_tools.SSHConnection(basevm.ssh_config))
-    st_core.add_pipe(producer=prod, consumer=cons, tag="ping")
+
+    st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")
 
     # Gather results and verify pass criteria.
     try:
