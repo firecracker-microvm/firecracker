@@ -23,8 +23,10 @@ import host_tools.network as net_tools
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 
-CONFIG_NAME_REL = "test_vsock_throughput_config_{}.json".format(
-    get_kernel_version(include_patch=False))
+TEST_ID = "vsock_throughput"
+kernel_version = get_kernel_version(include_patch=False)
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID,
+                                                  kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
@@ -266,19 +268,21 @@ def test_vsock_throughput(bin_cloner_path, results_file_dumper):
 
     @type: performance
     """
-    logger = logging.getLogger("vsock_throughput")
+    logger = logging.getLogger(TEST_ID)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
     microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
+    logger.info("Testing on processor %s", get_cpu_model_name())
+
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
         'builder': MicrovmBuilder(bin_cloner_path),
         'logger': logger,
-        'name': 'vsock_throughput',
+        'name': TEST_ID,
         'results_file_dumper': results_file_dumper
     }
 
@@ -316,7 +320,7 @@ def iperf_workload(context):
 
     basevm.start()
 
-    st_core = core.Core(name="vsock_throughput",
+    st_core = core.Core(name=TEST_ID,
                         iterations=1,
                         custom={'cpu_model_name': get_cpu_model_name()})
 
