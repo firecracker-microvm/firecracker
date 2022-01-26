@@ -374,12 +374,13 @@ paths:
   /mmds:
     put:
       summary: Creates a MMDS (Microvm Metadata Service) data store.
+      operationId: putMmds
       parameters:
         - name: body
           in: body
           description: The MMDS data store as JSON.
           schema:
-            type: object
+            $ref: "#/definitions/MmdsContentsObject"
       responses:
         204:
           description: MMDS data store created/updated.
@@ -393,12 +394,13 @@ paths:
             $ref: "#/definitions/Error"
     patch:
       summary: Updates the MMDS data store.
+      operationId: patchMmds
       parameters:
         - name: body
           in: body
           description: The MMDS data store patch JSON.
           schema:
-            type: object
+            $ref: "#/definitions/MmdsContentsObject"
       responses:
         204:
           description: MMDS data store updated.
@@ -412,6 +414,7 @@ paths:
             $ref: "#/definitions/Error"
     get:
       summary: Get the MMDS data store.
+      operationId: getMmds
       responses:
         200:
           description: The MMDS data store JSON.
@@ -429,6 +432,7 @@ paths:
   /mmds/config:
     put:
       summary: Set MMDS configuration. Pre-boot only.
+      operationId: putMmdsConfig
       description:
         Configures MMDS version, IPv4 address used by the MMDS network stack
         and interfaces that allow MMDS requests.
@@ -990,6 +994,11 @@ definitions:
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
         default: "169.254.169.254"
         description: A valid IPv4 link-local address.
+
+  MmdsContentsObject:
+    type: object
+    description:
+      Describes the contents of MMDS in JSON format.
 
   NetworkInterface:
     type: object
