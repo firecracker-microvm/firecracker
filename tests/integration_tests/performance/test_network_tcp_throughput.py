@@ -24,10 +24,9 @@ from framework.utils import get_cpu_percent, get_kernel_version,\
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.network as net_tools
 
-TEST_ID = "test_network_tcp_throughput"
+TEST_ID = "network_tcp_throughput"
 kernel_version = get_kernel_version(include_patch=False)
-CONFIG_NAME_REL = "{}_config_{}.json".format(TEST_ID,
-                                             kernel_version)
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
@@ -318,19 +317,21 @@ def test_network_tcp_throughput(bin_cloner_path, results_file_dumper):
 
     @type: performance
     """
-    logger = logging.getLogger("network_tcp_throughput")
+    logger = logging.getLogger(TEST_ID)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_1024mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="1vcpu_1024mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    logger.info("Testing on processor %s", get_cpu_model_name())
 
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
         'builder': MicrovmBuilder(bin_cloner_path),
         'logger': logger,
-        'name': 'network_tcp_throughput',
+        'name': TEST_ID,
         'results_file_dumper': results_file_dumper
     }
 
@@ -366,7 +367,7 @@ def iperf_workload(context):
         "disk": context.disk.name(),
         "cpu_model_name": get_cpu_model_name()
     }
-    st_core = core.Core(name="network_tcp_throughput",
+    st_core = core.Core(name=TEST_ID,
                         iterations=1,
                         custom=custom)
 

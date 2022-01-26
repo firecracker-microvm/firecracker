@@ -26,10 +26,9 @@ import framework.stats as st
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 
-TEST_ID = "test_block_performance"
+TEST_ID = "block_performance"
 kernel_version = get_kernel_version(include_patch=False)
-CONFIG_NAME_REL = "{}_config_{}.json".format(TEST_ID,
-                                             kernel_version)
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
@@ -264,10 +263,12 @@ def test_block_performance(bin_cloner_path, results_file_dumper):
     """
     logger = logging.getLogger(TEST_ID)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_1024mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="1vcpu_1024mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    logger.info("Testing on processor %s", get_cpu_model_name())
 
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
