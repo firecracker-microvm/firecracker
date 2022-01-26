@@ -88,7 +88,8 @@ class MicrovmBuilder:
               cpu_template=None,
               fc_binary=None,
               jailer_binary=None,
-              use_ramdisk=False):
+              use_ramdisk=False,
+              smt=None):
         """Build a fresh microvm."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           fc_binary, jailer_binary)
@@ -152,7 +153,7 @@ class MicrovmBuilder:
         response = vm.machine_cfg.put(
             vcpu_count=int(microvm_config['vcpu_count']),
             mem_size_mib=int(microvm_config['mem_size_mib']),
-            ht_enabled=microvm_config['ht_enabled'],
+            smt=smt,
             track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )

@@ -130,7 +130,7 @@ def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     vm = test_microvm_with_api
     vm.spawn()
-    vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
+    vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     _tap, _, _ = vm.ssh_network_config(network_config, '1')
     vm.start()
 
@@ -153,10 +153,10 @@ def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     @type: functional
     """
     if htt and PLATFORM == 'aarch64':
-        pytest.skip("HyperThreading is configurable only on x86.")
+        pytest.skip("SMT is configurable only on x86.")
     vm = test_microvm_with_api
     vm.spawn()
-    vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
+    vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     _tap, _, _ = vm.ssh_network_config(network_config, '1')
     vm.start()
     if PLATFORM == "x86_64":

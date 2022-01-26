@@ -54,7 +54,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
     if vm_config.vcpu_count.is_none()
         && vm_config.mem_size_mib.is_none()
         && vm_config.cpu_template.is_none()
-        && vm_config.ht_enabled.is_none()
+        && vm_config.smt.is_none()
     {
         return method_to_error(Method::Patch);
     }
@@ -73,11 +73,11 @@ fn check_unsupported_fields(vm_config: &VmConfig) -> Result<(), Error> {
         ));
     }
 
-    if let Some(true) = vm_config.ht_enabled {
-        // ht_enabled: true is not supported on aarch64
+    if let Some(true) = vm_config.smt {
+        // smt: true is not supported on aarch64
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "Enabling HyperThreading is not supported on aarch64".to_string(),
+            "Enabling simultaneous multithreading is not supported on aarch64".to_string(),
         ));
     }
 
@@ -120,7 +120,7 @@ mod tests {
         let expected_config = VmConfig {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
-            ht_enabled: None,
+            smt: None,
             cpu_template: None,
             track_dirty_pages: false,
         };
@@ -133,13 +133,13 @@ mod tests {
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
-                "ht_enabled": false,
+                "smt": false,
                 "track_dirty_pages": true
             }"#;
         let expected_config = VmConfig {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
-            ht_enabled: Some(false),
+            smt: Some(false),
             cpu_template: None,
             track_dirty_pages: true,
         };
@@ -153,7 +153,7 @@ mod tests {
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
-                "ht_enabled": false,
+                "smt": false,
                 "cpu_template": "T2",
                 "track_dirty_pages": true
               }"#;
@@ -164,7 +164,7 @@ mod tests {
             let expected_config = VmConfig {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
-                ht_enabled: Some(false),
+                smt: Some(false),
                 cpu_template: Some(CpuFeaturesTemplate::T2),
                 track_dirty_pages: true,
             };
@@ -180,11 +180,11 @@ mod tests {
             assert!(parse_put_machine_config(&Body::new(body)).is_err());
         }
 
-        // 5. Test that setting `ht_enabled: true` is successful on x86_64 while on aarch64, it is not.
+        // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it is not.
         let body = r#"{
             "vcpu_count": 8,
             "mem_size_mib": 1024,
-            "ht_enabled": true,
+            "smt": true,
             "track_dirty_pages": true
           }"#;
 
@@ -193,7 +193,7 @@ mod tests {
             let expected_config = VmConfig {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
-                ht_enabled: Some(true),
+                smt: Some(true),
                 cpu_template: None,
                 track_dirty_pages: true,
             };
@@ -239,7 +239,7 @@ mod tests {
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
-                "ht_enabled": false
+                "smt": false
               }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
     }

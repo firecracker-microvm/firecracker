@@ -17,7 +17,7 @@ pub enum VmConfigError {
     IncompatibleBalloonSize,
     /// The memory size is invalid. The memory can only be an unsigned integer.
     InvalidMemorySize,
-    /// The vcpu count is invalid. When hyperthreading is enabled, the `cpu_count` must be either
+    /// The vcpu count is invalid. When SMT is enabled, the `cpu_count` must be either
     /// 1 or an even number.
     InvalidVcpuCount,
     /// Could not get the config of the balloon device from the VM resources, even though a
@@ -38,7 +38,7 @@ impl fmt::Display for VmConfigError {
             InvalidVcpuCount => write!(
                 f,
                 "The vCPU number is invalid! The vCPU number can only \
-                 be 1 or an even number when hyperthreading is enabled.",
+                 be 1 or an even number when SMT is enabled.",
             ),
             InvalidVmState => write!(
                 f,
@@ -64,9 +64,9 @@ pub struct VmConfig {
     /// The memory size in MiB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_size_mib: Option<usize>,
-    /// Enables or disabled hyperthreading.
+    /// Enables or disabled SMT.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ht_enabled: Option<bool>,
+    pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu_template: Option<CpuFeaturesTemplate>,
@@ -80,7 +80,7 @@ impl Default for VmConfig {
         VmConfig {
             vcpu_count: Some(1),
             mem_size_mib: Some(DEFAULT_MEM_SIZE_MIB),
-            ht_enabled: Some(false),
+            smt: Some(false),
             cpu_template: None,
             track_dirty_pages: false,
         }
@@ -91,15 +91,15 @@ impl fmt::Display for VmConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let vcpu_count = self.vcpu_count.unwrap_or(1);
         let mem_size = self.mem_size_mib.unwrap_or(DEFAULT_MEM_SIZE_MIB);
-        let ht_enabled = self.ht_enabled.unwrap_or(false);
+        let smt = self.smt.unwrap_or(false);
         let cpu_template = self
             .cpu_template
             .map_or("Uninitialized".to_string(), |c| c.to_string());
         write!(
             f,
-            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"ht_enabled\": {:?}, \
+            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"smt\": {:?}, \
              \"cpu_template\": {:?}, \"track_dirty_pages\": {:?} }}",
-            vcpu_count, mem_size, ht_enabled, cpu_template, self.track_dirty_pages
+            vcpu_count, mem_size, smt, cpu_template, self.track_dirty_pages
         )
     }
 }
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn test_display_vm_config_error() {
         let expected_str = "The vCPU number is invalid! The vCPU number can only \
-                            be 1 or an even number when hyperthreading is enabled.";
+                            be 1 or an even number when SMT is enabled.";
         assert_eq!(VmConfigError::InvalidVcpuCount.to_string(), expected_str);
 
         let expected_str = "The memory size (MiB) is invalid.";

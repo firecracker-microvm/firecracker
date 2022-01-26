@@ -162,13 +162,13 @@ mod tests {
 
     fn check_update_deterministic_cache_entry(
         cpu_count: u8,
-        ht_enabled: bool,
+        smt: bool,
         cache_level: u32,
         expected_max_cores_per_package: u32,
     ) {
         use crate::cpu_leaf::leaf_0x4::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -192,7 +192,7 @@ mod tests {
 
     fn check_update_extended_topology_entry(
         cpu_count: u8,
-        ht_enabled: bool,
+        smt: bool,
         index: u32,
         expected_apicid: u32,
         expected_num_logical_processors: u32,
@@ -200,7 +200,7 @@ mod tests {
     ) {
         use crate::cpu_leaf::leaf_0xb::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index,

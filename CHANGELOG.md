@@ -57,9 +57,10 @@
   interfaces. Specifying interfaces that allow forwarding requests to MMDS is done
   by adding the network interface's ID to the `network_interfaces` field of PUT
   `/mmds/config` request's body.
-- Configuring `ht_enabled: true` on aarch64 via the API is forbidden.
-- `ht_enabled` field is now optional on PUT `/machine-config`, defaulting to
+- Renamed `/machine-config` `ht_enabled` to `smt`.
+- `smt` field is now optional on PUT `/machine-config`, defaulting to
   `false`.
+- Configuring `smt: true` on aarch64 via the API is forbidden.
 
 ### Fixed
 

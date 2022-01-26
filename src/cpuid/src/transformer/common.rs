@@ -174,13 +174,13 @@ mod tests {
 
     fn check_update_cache_parameters_entry(
         cpu_count: u8,
-        ht_enabled: bool,
+        smt: bool,
         cache_level: u32,
         expected_max_cpus_per_core: u32,
     ) {
         use crate::cpu_leaf::leaf_cache_parameters::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,

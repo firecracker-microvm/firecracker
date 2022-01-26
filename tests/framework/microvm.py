@@ -507,16 +507,17 @@ class Microvm:
         self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
+        self.version = InstanceVersion(
+            self._api_socket, self._fc_binary_path, self._api_session)
         self.machine_cfg = MachineConfigure(
             self._api_socket,
-            self._api_session
+            self._api_session,
+            self.firecracker_version
         )
         self.metrics = Metrics(self._api_socket, self._api_session)
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.version = InstanceVersion(
-            self._api_socket, self._fc_binary_path, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session,
                            self.firecracker_version)
         self.vm = Vm(self._api_socket, self._api_session)
@@ -634,7 +635,7 @@ class Microvm:
     def basic_config(
         self,
         vcpu_count: int = 2,
-        ht_enabled: bool = None,
+        smt: bool = None,
         mem_size_mib: int = 256,
         add_root_device: bool = True,
         boot_args: str = None,
@@ -655,7 +656,7 @@ class Microvm:
         """
         response = self.machine_cfg.put(
             vcpu_count=vcpu_count,
-            ht_enabled=ht_enabled,
+            smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages
         )
