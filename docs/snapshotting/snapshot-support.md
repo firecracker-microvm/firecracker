@@ -333,7 +333,7 @@ curl --unix-socket /tmp/firecracker.socket -i  \
     -d '{
             "vcpu_count": 2,
             "mem_size_mib": 1024,
-            "ht_enabled": false,
+            "smt": false,
             "track_dirty_pages": true
     }'
 ```

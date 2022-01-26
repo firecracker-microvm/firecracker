@@ -198,7 +198,7 @@ impl KvmVcpu {
         vcpu_config: &VcpuConfig,
         mut cpuid: CpuId,
     ) -> Result<()> {
-        let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
+        let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.smt)
             .map_err(Error::CpuId)?;
 
         filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|e| {
@@ -504,7 +504,7 @@ mod tests {
 
         let mut vcpu_config = VcpuConfig {
             vcpu_count: 1,
-            ht_enabled: false,
+            smt: false,
             cpu_template: None,
         };
 

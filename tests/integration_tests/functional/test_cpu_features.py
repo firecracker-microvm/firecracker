@@ -55,7 +55,7 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     vm = test_microvm_with_api
     vm.spawn()
-    vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
+    vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     _tap, _, _ = vm.ssh_network_config(network_config, '1')
     vm.start()
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")

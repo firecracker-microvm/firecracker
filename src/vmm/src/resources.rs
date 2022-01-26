@@ -176,7 +176,7 @@ impl VmResources {
         // supplied by the user.
         VcpuConfig {
             vcpu_count: self.vm_config().vcpu_count.unwrap(),
-            ht_enabled: self.vm_config().ht_enabled.unwrap(),
+            smt: self.vm_config().smt.unwrap(),
             cpu_template: self.vm_config().cpu_template,
         }
     }
@@ -222,23 +222,23 @@ impl VmResources {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
 
-        let ht_enabled = machine_config
-            .ht_enabled
-            .unwrap_or_else(|| self.vm_config.ht_enabled.unwrap());
+        let smt = machine_config
+            .smt
+            .unwrap_or_else(|| self.vm_config.smt.unwrap());
 
         let vcpu_count_value = machine_config
             .vcpu_count
             .unwrap_or_else(|| self.vm_config.vcpu_count.unwrap());
 
-        // If hyperthreading is enabled or is to be enabled in this call
+        // If SMT is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
-        if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
+        if smt && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
-        self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.smt = Some(smt);
         self.vm_config.track_dirty_pages = machine_config.track_dirty_pages;
 
         if machine_config.mem_size_mib.is_some() {
@@ -772,7 +772,7 @@ mod tests {
                     "machine-config": {{
                         "vcpu_count": 2,
                         "mem_size_mib": 1024,
-                        "ht_enabled": false
+                        "smt": false
                     }},
                     "mmds-config": {{
                         "version": "V2",
@@ -816,7 +816,7 @@ mod tests {
                     "machine-config": {{
                         "vcpu_count": 2,
                         "mem_size_mib": 1024,
-                        "ht_enabled": false
+                        "smt": false
                     }},
                     "mmds-config": {{
                         "network_interfaces": ["netif"]
@@ -833,7 +833,7 @@ mod tests {
         let vm_resources = default_vm_resources();
         let expected_vcpu_config = VcpuConfig {
             vcpu_count: vm_resources.vm_config().vcpu_count.unwrap(),
-            ht_enabled: vm_resources.vm_config().ht_enabled.unwrap(),
+            smt: vm_resources.vm_config().smt.unwrap(),
             cpu_template: vm_resources.vm_config().cpu_template,
         };
 
@@ -855,7 +855,7 @@ mod tests {
         let mut aux_vm_config = VmConfig {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
-            ht_enabled: Some(true),
+            smt: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
             track_dirty_pages: false,
         };

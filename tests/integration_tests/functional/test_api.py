@@ -181,7 +181,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
         'vcpu_count': 4,
-        'ht_enabled': not platform.machine() == 'aarch64',
+        'smt': platform.machine() == 'x86_64',
         'mem_size_mib': 256,
         'track_dirty_pages': True
     }
@@ -191,14 +191,14 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     if platform.machine() == 'aarch64':
         response = test_microvm.machine_cfg.put(
             vcpu_count=microvm_config_json['vcpu_count'],
-            ht_enabled=microvm_config_json['ht_enabled'],
+            smt=microvm_config_json['smt'],
             mem_size_mib=microvm_config_json['mem_size_mib'],
             track_dirty_pages=microvm_config_json['track_dirty_pages']
         )
     else:
         response = test_microvm.machine_cfg.put(
             vcpu_count=microvm_config_json['vcpu_count'],
-            ht_enabled=microvm_config_json['ht_enabled'],
+            smt=microvm_config_json['smt'],
             mem_size_mib=microvm_config_json['mem_size_mib'],
             cpu_template=microvm_config_json['cpu_template'],
             track_dirty_pages=microvm_config_json['track_dirty_pages']
@@ -213,8 +213,8 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     vcpu_count = microvm_config_json['vcpu_count']
     assert response_json['vcpu_count'] == vcpu_count
 
-    ht_enabled = microvm_config_json['ht_enabled']
-    assert response_json['ht_enabled'] == ht_enabled
+    smt = microvm_config_json['smt']
+    assert response_json['smt'] == smt
 
     mem_size_mib = microvm_config_json['mem_size_mib']
     assert response_json['mem_size_mib'] == mem_size_mib
@@ -409,9 +409,9 @@ def test_api_machine_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
-    # Test invalid type for ht_enabled flag.
+    # Test invalid type for smt flag.
     response = test_microvm.machine_cfg.put(
-        ht_enabled='random_string'
+        smt='random_string'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
@@ -440,7 +440,7 @@ def test_api_machine_config(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Missing mandatory field: `mem_size_mib`." in response.text
 
-    # Test default ht_enabled value.
+    # Test default smt value.
     response = test_microvm.machine_cfg.put(
         mem_size_mib=128,
         vcpu_count=1
@@ -451,11 +451,11 @@ def test_api_machine_config(test_microvm_with_api):
 
     response = test_microvm.machine_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json()["ht_enabled"] is False
+    assert response.json()["smt"] is False
 
-    # Test that ht_enabled=True errors on ARM.
+    # Test that smt=True errors on ARM.
     response = test_microvm.machine_cfg.patch(
-        ht_enabled=True
+        smt=True
     )
     if platform.machine() == "x86_64":
         assert test_microvm.api_session.is_status_no_content(
@@ -465,8 +465,9 @@ def test_api_machine_config(test_microvm_with_api):
         assert test_microvm.api_session.is_status_bad_request(
             response.status_code
         )
-        assert "Enabling HyperThreading is not supported on aarch64" in\
-            response.text
+        assert \
+            "Enabling simultaneous multithreading is not supported on aarch64"\
+            in response.text
 
     # Test that CPU template errors on ARM.
     response = test_microvm.machine_cfg.patch(
@@ -550,7 +551,7 @@ def test_api_machine_config(test_microvm_with_api):
     json = response.json()
     assert json['machine-config']['vcpu_count'] == 2
     assert json['machine-config']['mem_size_mib'] == 256
-    assert json['machine-config']['ht_enabled'] == (
+    assert json['machine-config']['smt'] == (
         platform.machine() == "x86_64")
 
 
@@ -1357,7 +1358,7 @@ def test_get_full_config(test_microvm_with_api):
     expected_cfg['machine-config'] = {
         'vcpu_count': 2,
         'mem_size_mib': 256,
-        'ht_enabled': False,
+        'smt': False,
         'track_dirty_pages': False
     }
     expected_cfg['boot-source'] = {

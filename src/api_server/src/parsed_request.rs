@@ -1019,7 +1019,7 @@ pub(crate) mod tests {
         let body = "{ \
             \"vcpu_count\": 0, \
             \"mem_size_mib\": 0, \
-            \"ht_enabled\": false, \
+            \"smt\": false, \
             \"cpu_template\": \"C3\" \
         }";
         sender

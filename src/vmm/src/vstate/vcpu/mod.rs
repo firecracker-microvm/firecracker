@@ -89,8 +89,8 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,
-    /// Enable hyperthreading in the CPUID configuration.
-    pub ht_enabled: bool,
+    /// Enable simultaneous multithreading in the CPUID configuration.
+    pub smt: bool,
     /// CPUID template to use.
     pub cpu_template: Option<CpuFeaturesTemplate>,
 }
@@ -911,7 +911,7 @@ mod tests {
         {
             let vcpu_config = VcpuConfig {
                 vcpu_count: 1,
-                ht_enabled: false,
+                smt: false,
                 cpu_template: None,
             };
             vcpu.kvm_vcpu

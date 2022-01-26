@@ -252,10 +252,10 @@ mod tests {
         assert_eq!(entry.ecx.read_bit(ecx::TOPOEXT_INDEX), true);
     }
 
-    fn check_update_amd_features_entry(cpu_count: u8, ht_enabled: bool) {
+    fn check_update_amd_features_entry(cpu_count: u8, smt: bool) {
         use crate::cpu_leaf::leaf_0x80000008::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -282,13 +282,13 @@ mod tests {
     fn check_update_extended_apic_id_entry(
         cpu_id: u8,
         cpu_count: u8,
-        ht_enabled: bool,
+        smt: bool,
         expected_core_id: u32,
         expected_threads_per_core: u32,
     ) {
         use crate::cpu_leaf::leaf_0x8000001e::*;
 
-        let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(cpu_id, cpu_count, smt).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
