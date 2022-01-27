@@ -50,7 +50,7 @@ LATENCY = "latency"
 def pass_criteria():
     """Define pass criteria for the statistics."""
     arch = platform.machine()
-    host_kernel = get_kernel_version(include_patch=False)
+    host_kernel = get_kernel_version(level=1)
     return {
         "Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[arch][host_kernel])
     }

@@ -27,7 +27,7 @@ from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "block_performance"
-kernel_version = get_kernel_version(include_patch=False)
+kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
