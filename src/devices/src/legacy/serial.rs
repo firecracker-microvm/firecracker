@@ -29,6 +29,12 @@ use utils::epoll::EventSet;
 /// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd` traits.
 pub trait ReadableFd: io::Read + AsRawFd {}
 
+// Received Data Available interrupt - for letting the driver know that
+// there is some pending data to be processed.
+pub const IER_RDA_BIT: u8 = 0b0000_0001;
+// Received Data Available interrupt offset
+pub const IER_RDA_OFFSET: u8 = 1;
+
 #[derive(Debug)]
 pub enum RawIOError {
     Serial(SerialError<io::Error>),
