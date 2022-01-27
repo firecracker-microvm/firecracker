@@ -354,12 +354,28 @@ impl Vmm {
 
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<()> {
+        #[cfg(target_arch = "aarch64")]
+        use devices::legacy::SerialDevice;
         #[cfg(target_arch = "x86_64")]
         let mut serial = self
             .pio_device_manager
             .stdio_serial
             .lock()
             .expect("Poisoned lock");
+
+        #[cfg(target_arch = "aarch64")]
+        let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
+        #[cfg(target_arch = "aarch64")]
+        if serial_bus_device.is_none() {
+            return Ok(());
+        }
+        #[cfg(target_arch = "aarch64")]
+        let mut serial_device_locked = serial_bus_device.unwrap().lock().expect("Poisoned lock");
+        #[cfg(target_arch = "aarch64")]
+        let serial = serial_device_locked
+            .as_mut_any()
+            .downcast_mut::<SerialDevice>()
+            .expect("Unexpected BusDeviceType");
 
         // When restoring from a previously saved state, there is no serial
         // driver initialization, therefore the RDA (Received Data Available)
