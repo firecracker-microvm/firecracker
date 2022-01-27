@@ -160,7 +160,7 @@ class JsonFileDumper(ResultsDumperInterface):
         self._root_path.mkdir(exist_ok=True)
         self._results_file = os.path.join(
             self._root_path, "{}_results_{}.json".format(
-                test_name, utils.get_kernel_version()))
+                test_name, utils.get_kernel_version(level=1)))
 
     @staticmethod
     def __dump_pretty_json(file, data, flags):

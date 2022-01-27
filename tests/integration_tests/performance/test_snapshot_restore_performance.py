@@ -25,7 +25,7 @@ from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "snap_restore_performance"
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(
-    TEST_ID, get_kernel_version(include_patch=False))
+    TEST_ID, get_kernel_version(level=1))
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 

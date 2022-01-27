@@ -25,7 +25,7 @@ from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.network as net_tools
 
 TEST_ID = "network_tcp_throughput"
-kernel_version = get_kernel_version(include_patch=False)
+kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
