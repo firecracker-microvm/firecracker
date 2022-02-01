@@ -509,6 +509,7 @@ class Microvm:
         self.logger = Logger(self._api_socket, self._api_session)
         self.version = InstanceVersion(
             self._api_socket, self._fc_binary_path, self._api_session)
+        print("Version {}".format(self.firecracker_version))
         self.machine_cfg = MachineConfigure(
             self._api_socket,
             self._api_session,
