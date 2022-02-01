@@ -119,7 +119,7 @@ fn sanitize_uri(mut uri: String) -> String {
     uri
 }
 
-fn convert_to_response(request: Request) -> Response {
+pub fn convert_to_response(request: Request) -> Response {
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
