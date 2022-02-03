@@ -85,10 +85,10 @@ class HostEchoServer(Thread):
         This method can be called from any thread. Upon returning, the
         echo server will have shut down.
         """
-        self.sock.close()
-        utils.run_cmd("rm -f {}".format(self.path))
         self.exit_evt.set()
         self.join()
+        self.sock.close()
+        utils.run_cmd("rm -f {}".format(self.path))
 
 
 class HostEchoWorker(Thread):
