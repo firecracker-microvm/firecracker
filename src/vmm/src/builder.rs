@@ -324,13 +324,8 @@ pub fn build_microvm_for_boot(
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory = create_guest_memory(
-        vm_resources
-            .vm_config()
-            .mem_size_mib
-            .ok_or(MissingMemSizeConfig)?,
-        track_dirty_pages,
-    )?;
+    let guest_memory =
+        create_guest_memory(vm_resources.vm_config().mem_size_mib, track_dirty_pages)?;
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;

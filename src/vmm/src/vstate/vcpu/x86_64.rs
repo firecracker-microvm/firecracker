@@ -210,15 +210,14 @@ impl KvmVcpu {
             Error::CpuId(e)
         })?;
 
-        if let Some(template) = vcpu_config.cpu_template {
-            match template {
-                CpuFeaturesTemplate::T2 => {
-                    t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
-                }
-                CpuFeaturesTemplate::C3 => {
-                    c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
-                }
+        match vcpu_config.cpu_template {
+            CpuFeaturesTemplate::T2 => {
+                t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
             }
+            CpuFeaturesTemplate::C3 => {
+                c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
+            }
+            CpuFeaturesTemplate::None => {}
         }
 
         self.fd.set_cpuid2(&cpuid).map_err(Error::VcpuSetCpuid)?;
@@ -505,7 +504,7 @@ mod tests {
         let mut vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            cpu_template: None,
+            cpu_template: CpuFeaturesTemplate::None,
         };
 
         assert!(vcpu
@@ -518,7 +517,7 @@ mod tests {
             .is_ok());
 
         // Test configure while using the T2 template.
-        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
+        vcpu_config.cpu_template = CpuFeaturesTemplate::T2;
         let t2_res = vcpu.configure(
             &vm_mem,
             GuestAddress(arch::get_kernel_start()),
@@ -527,7 +526,7 @@ mod tests {
         );
 
         // Test configure while using the C3 template.
-        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
+        vcpu_config.cpu_template = CpuFeaturesTemplate::C3;
         let c3_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),

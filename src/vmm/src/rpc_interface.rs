@@ -22,7 +22,7 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -96,9 +96,6 @@ pub enum VmmAction {
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
     SetVsockDevice(VsockDeviceConfig),
-    /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
-    /// action can only be called before the microVM has booted.
-    SetVmConfiguration(VmConfig),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -114,6 +111,9 @@ pub enum VmmAction {
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
+    /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
+    /// action can only be called before the microVM has booted.
+    UpdateVmConfiguration(VmUpdateConfig),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -136,7 +136,7 @@ pub enum VmmActionError {
     LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed because of bad input.
+    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad input.
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
@@ -329,9 +329,9 @@ impl<'a> PrebootApiController<'a> {
             LoadSnapshot(config) => self.load_snapshot(&config),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
-            SetVmConfiguration(config) => self.set_vm_config(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
+            UpdateVmConfiguration(config) => self.update_vm_config(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
             | FlushMetrics
@@ -395,10 +395,10 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MmdsConfig)
     }
 
-    fn set_vm_config(&mut self, cfg: VmConfig) -> ActionResult {
+    fn update_vm_config(&mut self, cfg: VmUpdateConfig) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
-            .set_vm_config(&cfg)
+            .update_vm_config(&cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MachineConfig)
     }
@@ -544,8 +544,8 @@ impl RuntimeApiController {
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
-            | SetVmConfiguration(_)
-            | StartMicroVm => Err(VmmActionError::OperationNotSupportedPostBoot),
+            | StartMicroVm
+            | UpdateVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
     }
 
@@ -775,11 +775,20 @@ mod tests {
             self.vm_config.track_dirty_pages = dirty_page_tracking;
         }
 
-        pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<(), VmConfigError> {
+        pub fn update_vm_config(
+            &mut self,
+            machine_config: &VmUpdateConfig,
+        ) -> Result<(), VmConfigError> {
             if self.force_errors {
                 return Err(VmConfigError::InvalidVcpuCount);
             }
-            self.vm_config = machine_config.clone();
+
+            self.vm_config.vcpu_count = machine_config.vcpu_count.unwrap();
+            self.vm_config.mem_size_mib = machine_config.mem_size_mib.unwrap();
+            self.vm_config.smt = machine_config.smt.unwrap();
+            self.vm_config.cpu_template = machine_config.cpu_template.unwrap();
+            self.vm_config.track_dirty_pages = machine_config.track_dirty_pages.unwrap();
+
             Ok(())
         }
 
@@ -1085,14 +1094,14 @@ mod tests {
 
     #[test]
     fn test_preboot_set_vm_config() {
-        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
         let expected_cfg = VmConfig::default();
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert_eq!(vm_res.vm_config, expected_cfg);
         });
 
-        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
         check_preboot_request_err(
             req,
             VmmActionError::MachineConfig(VmConfigError::InvalidVcpuCount),
@@ -1620,7 +1629,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
-            VmmAction::SetVmConfiguration(VmConfig::default()),
+            VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default())),
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
@@ -1695,7 +1704,7 @@ mod tests {
         });
         verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 
-        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
         verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {

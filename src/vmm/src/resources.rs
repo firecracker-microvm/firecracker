@@ -6,7 +6,7 @@ use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceCon
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, DEFAULT_MEM_SIZE_MIB};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
@@ -128,8 +128,9 @@ impl VmResources {
 
         let mut resources: Self = Self::default();
         if let Some(machine_config) = vmm_config.machine_config {
+            let machine_config = VmUpdateConfig::from(machine_config);
             resources
-                .set_vm_config(&machine_config)
+                .update_vm_config(&machine_config)
                 .map_err(Error::VmConfig)?;
         }
 
@@ -175,8 +176,8 @@ impl VmResources {
         // The unwraps are ok to use because the values are initialized using defaults if not
         // supplied by the user.
         VcpuConfig {
-            vcpu_count: self.vm_config().vcpu_count.unwrap(),
-            smt: self.vm_config().smt.unwrap(),
+            vcpu_count: self.vm_config().vcpu_count,
+            smt: self.vm_config().smt,
             cpu_template: self.vm_config().cpu_template,
         }
     }
@@ -196,23 +197,39 @@ impl VmResources {
         &self.vm_config
     }
 
-    /// Set the machine configuration of the microVM.
-    pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<VmConfigError> {
-        if machine_config.vcpu_count == Some(0) {
+    /// Update the machine configuration of the microVM.
+    pub fn update_vm_config(&mut self, machine_config: &VmUpdateConfig) -> Result<VmConfigError> {
+        let vcpu_count = machine_config
+            .vcpu_count
+            .unwrap_or(self.vm_config.vcpu_count);
+
+        let smt = machine_config.smt.unwrap_or(self.vm_config.smt);
+
+        if vcpu_count == 0 {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
-        if machine_config.mem_size_mib == Some(0) {
+        // If SMT is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
+        if smt && vcpu_count > 1 && vcpu_count % 2 == 1 {
+            return Err(VmConfigError::InvalidVcpuCount);
+        }
+
+        self.vm_config.vcpu_count = vcpu_count;
+        self.vm_config.smt = smt;
+
+        let mem_size_mib = machine_config
+            .mem_size_mib
+            .unwrap_or(self.vm_config.mem_size_mib);
+
+        if mem_size_mib == 0 {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
-            && machine_config
-                .mem_size_mib
-                .clone()
-                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
+            && mem_size_mib
                 < self
                     .balloon
                     .get_config()
@@ -222,31 +239,16 @@ impl VmResources {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
 
-        let smt = machine_config
-            .smt
-            .unwrap_or_else(|| self.vm_config.smt.unwrap());
+        self.vm_config.mem_size_mib = mem_size_mib;
 
-        let vcpu_count_value = machine_config
-            .vcpu_count
-            .unwrap_or_else(|| self.vm_config.vcpu_count.unwrap());
-
-        // If SMT is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even.
-        if smt && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(VmConfigError::InvalidVcpuCount);
+        // Update the CPU template
+        if let Some(cpu_template) = machine_config.cpu_template {
+            self.vm_config.cpu_template = cpu_template;
         }
 
-        // Update all the fields that have a new value.
-        self.vm_config.vcpu_count = Some(vcpu_count_value);
-        self.vm_config.smt = Some(smt);
-        self.vm_config.track_dirty_pages = machine_config.track_dirty_pages;
-
-        if machine_config.mem_size_mib.is_some() {
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
-        }
-
-        if machine_config.cpu_template.is_some() {
-            self.vm_config.cpu_template = machine_config.cpu_template;
+        // Update dirty page tracking
+        if let Some(track_dirty_pages) = machine_config.track_dirty_pages {
+            self.vm_config.track_dirty_pages = track_dirty_pages;
         }
 
         Ok(())
@@ -264,13 +266,7 @@ impl VmResources {
     ) -> Result<BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize
-            > self
-                .vm_config
-                .mem_size_mib
-                .clone()
-                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
-        {
+        if config.amount_mib as usize > self.vm_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
@@ -617,9 +613,68 @@ mod tests {
         );
 
         match VmResources::from_json(json.as_str(), &default_instance_info) {
-            Err(Error::VmConfig(VmConfigError::InvalidVcpuCount)) => (),
+            Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
+
+        // Valid config for x86 but invalid on aarch64 because smt is not available.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "smt": true
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        #[cfg(target_arch = "x86_64")]
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
+        #[cfg(target_arch = "aarch64")]
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_err());
+
+        // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "cpu_template": "C3"
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+        #[cfg(target_arch = "x86_64")]
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
+        #[cfg(target_arch = "aarch64")]
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_err());
 
         // Invalid memory size.
         json = format!(
@@ -832,8 +887,8 @@ mod tests {
     fn test_vcpu_config() {
         let vm_resources = default_vm_resources();
         let expected_vcpu_config = VcpuConfig {
-            vcpu_count: vm_resources.vm_config().vcpu_count.unwrap(),
-            smt: vm_resources.vm_config().smt.unwrap(),
+            vcpu_count: vm_resources.vm_config().vcpu_count,
+            smt: vm_resources.vm_config().smt,
             cpu_template: vm_resources.vm_config().cpu_template,
         };
 
@@ -850,29 +905,35 @@ mod tests {
     }
 
     #[test]
-    fn test_set_vm_config() {
+    fn test_update_vm_config() {
         let mut vm_resources = default_vm_resources();
-        let mut aux_vm_config = VmConfig {
+        let mut aux_vm_config = VmUpdateConfig {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
-            track_dirty_pages: false,
+            track_dirty_pages: Some(false),
         };
 
-        assert_ne!(vm_resources.vm_config, aux_vm_config);
-        vm_resources.set_vm_config(&aux_vm_config).unwrap();
-        assert_eq!(vm_resources.vm_config, aux_vm_config);
+        assert_ne!(
+            VmUpdateConfig::from(vm_resources.vm_config.clone()),
+            aux_vm_config
+        );
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        assert_eq!(
+            VmUpdateConfig::from(vm_resources.vm_config.clone()),
+            aux_vm_config
+        );
 
         // Invalid vcpu count.
         aux_vm_config.vcpu_count = Some(0);
         assert_eq!(
-            vm_resources.set_vm_config(&aux_vm_config),
+            vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(33);
         assert_eq!(
-            vm_resources.set_vm_config(&aux_vm_config),
+            vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(32);
@@ -880,12 +941,12 @@ mod tests {
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
         assert_eq!(
-            vm_resources.set_vm_config(&aux_vm_config),
+            vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidMemorySize)
         );
 
         // Incompatible mem_size_mib with balloon size.
-        vm_resources.vm_config.mem_size_mib = Some(128);
+        vm_resources.vm_config.mem_size_mib = 128;
         vm_resources
             .set_balloon_device(BalloonDeviceConfig {
                 amount_mib: 100,
@@ -895,13 +956,13 @@ mod tests {
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
         assert_eq!(
-            vm_resources.set_vm_config(&aux_vm_config),
+            vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::IncompatibleBalloonSize)
         );
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        assert!(vm_resources.set_vm_config(&aux_vm_config).is_ok());
+        assert!(vm_resources.update_vm_config(&aux_vm_config).is_ok());
     }
 
     #[test]
