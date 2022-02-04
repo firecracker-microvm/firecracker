@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import platform
 
 from retry.api import retry_call
 
@@ -15,6 +16,7 @@ from framework import utils
 from framework.artifacts import NetIfaceConfig
 from framework.utils import generate_mmds_session_token, \
     generate_mmds_v2_get_request
+from framework import utils_cpuid
 import host_tools.network as net_tools
 
 
@@ -189,6 +191,75 @@ def test_config_start_no_api(test_microvm_with_api, vm_config_file):
         exceptions=RuntimeError,
         tries=10,
         delay=1)
+
+
+@pytest.mark.parametrize(
+    "vm_config_file",
+    [
+        "framework/vm_config_missing_vcpu_count.json",
+        "framework/vm_config_missing_mem_size_mib.json"
+    ]
+)
+def test_config_bad_machine_config(test_microvm_with_api, vm_config_file):
+    """
+    Test microvm start when the `machine_config` is invalid.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    test_microvm.jailer.extra_args.update({'no-api': None})
+
+    test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Configuration for VMM from one single json failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "test_config",
+    [
+        ("framework/vm_config_cpu_template_C3.json", False, True, True),
+        ("framework/vm_config_smt_true.json", False, False, True),
+    ]
+)
+def test_config_machine_config_params(test_microvm_with_api, test_config):
+    """
+    Test microvm start with optional `machine_config` parameters.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+
+    # Test configuration determines if the file is a valid config or not
+    # based on the CPU
+    (vm_config_file, fail_intel, fail_amd, fail_aarch64) = test_config
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    test_microvm.jailer.extra_args.update({'no-api': None})
+
+    test_microvm.spawn()
+
+    cpu_vendor = utils_cpuid.get_cpu_vendor()
+
+    check_for_failed_start = (
+        (cpu_vendor == utils_cpuid.CpuVendor.AMD and fail_amd) or
+        (cpu_vendor == utils_cpuid.CpuVendor.INTEL and fail_intel) or
+        (platform.machine() == "aarch64" and fail_aarch64)
+    )
+
+    if check_for_failed_start:
+        test_microvm.check_any_log_message(
+            ["Building VMM configured from cmdline json failed: ",
+             "Configuration for VMM from one single json failed"]
+        )
+    else:
+        test_microvm.check_log_message(
+            "Successfully started microvm that was configured "
+            "from one single json"
+        )
 
 
 @pytest.mark.parametrize(
