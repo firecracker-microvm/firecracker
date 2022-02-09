@@ -377,9 +377,9 @@ mod tests {
         let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(1);
         let ttl = expiry - time_now;
-        // We allow a deviation of 10ms to account for the gap
+        // We allow a deviation of 20ms to account for the gap
         // between the two calls to `get_time_ms()`.
-        let deviation = 10;
+        let deviation = 20;
         assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
 
         let time_now = get_time_ms(ClockType::Monotonic);
