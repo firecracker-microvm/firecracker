@@ -6,7 +6,7 @@ use libc::{
 };
 
 use crate::{ExitCode, FC_EXIT_CODE_UNEXPECTED_ERROR};
-use logger::{error, IncMetric, METRICS};
+use logger::{error, IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -39,7 +39,7 @@ macro_rules! generate_handler {
             if num != si_signo || num != $signal_name {
                 exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR);
             }
-            $signal_metric.inc();
+            $signal_metric.store(1);
 
             error!(
                 "Shutting down VM after intercepting signal {}, code {}.",
@@ -209,31 +209,31 @@ mod tests {
             let filter = make_test_seccomp_bpf_filter();
 
             assert!(seccompiler::apply_filter(&filter).is_ok());
-            assert_eq!(METRICS.seccomp.num_faults.count(), 0);
+            assert_eq!(METRICS.seccomp.num_faults.fetch(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
             unsafe { libc::syscall(libc::SYS_mkdirat, "/foo/bar\0") };
 
             // Call SIGBUS signal handler.
-            assert_eq!(METRICS.signals.sigbus.count(), 0);
+            assert_eq!(METRICS.signals.sigbus.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGBUS);
             }
 
             // Call SIGSEGV signal handler.
-            assert_eq!(METRICS.signals.sigsegv.count(), 0);
+            assert_eq!(METRICS.signals.sigsegv.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGSEGV);
             }
 
             // Call SIGXFSZ signal handler.
-            assert_eq!(METRICS.signals.sigxfsz.count(), 0);
+            assert_eq!(METRICS.signals.sigxfsz.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGXFSZ);
             }
 
             // Call SIGXCPU signal handler.
-            assert_eq!(METRICS.signals.sigxcpu.count(), 0);
+            assert_eq!(METRICS.signals.sigxcpu.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGXCPU);
             }
@@ -245,13 +245,13 @@ mod tests {
             }
 
             // Call SIGHUP signal handler.
-            assert_eq!(METRICS.signals.sighup.count(), 0);
+            assert_eq!(METRICS.signals.sighup.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGHUP);
             }
 
             // Call SIGILL signal handler.
-            assert_eq!(METRICS.signals.sigill.count(), 0);
+            assert_eq!(METRICS.signals.sigill.fetch(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGILL);
             }
@@ -268,17 +268,17 @@ mod tests {
         // tests, so we use this as an heuristic to decide if we check the assertion.
         if cpu_count() > 1 {
             // The signal handler should let the program continue during unit tests.
-            assert!(METRICS.seccomp.num_faults.count() >= 1);
+            assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         }
-        assert!(METRICS.signals.sigbus.count() >= 1);
-        assert!(METRICS.signals.sigsegv.count() >= 1);
-        assert!(METRICS.signals.sigxfsz.count() >= 1);
-        assert!(METRICS.signals.sigxcpu.count() >= 1);
+        assert!(METRICS.signals.sigbus.fetch() >= 1);
+        assert!(METRICS.signals.sigsegv.fetch() >= 1);
+        assert!(METRICS.signals.sigxfsz.fetch() >= 1);
+        assert!(METRICS.signals.sigxcpu.fetch() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
-        assert!(METRICS.signals.sighup.count() >= 1);
+        assert!(METRICS.signals.sighup.fetch() >= 1);
         // Workaround to GitHub issue 2216.
         #[cfg(not(target_arch = "aarch64"))]
-        assert!(METRICS.signals.sigill.count() >= 1);
+        assert!(METRICS.signals.sigill.fetch() >= 1);
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {

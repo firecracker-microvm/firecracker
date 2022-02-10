@@ -134,10 +134,19 @@ impl<T: Serialize> Metrics<T> {
     /// Upon success, the function will return `True` (if metrics system was initialized and metrics
     /// were successfully written to disk) or `False` (if metrics system was not yet initialized).
     ///
-    /// This function is supposed to be called only from a single thread and
+    /// This function is usually supposed to be called only from a single thread and
     /// is not meant to be used in a multithreaded scenario. The reason
     /// `metrics_buf` is enclosed in a `Mutex` is that `lazy_static` enforces
     /// thread-safety on all its members.
+    /// The only exception is for signal handlers that result in process exit, which may be run on
+    /// any thread. To prevent the race condition present in the serialisation step of
+    /// SharedIncMetrics, deadly signals use SharedStoreMetrics instead (which have a thread-safe
+    /// serialise implementation).
+    /// The only known caveat is that other metrics may not be properly written before exiting from
+    /// a signal handler. We make this compromise since the process will be killed anyway and the
+    /// important metric in this case is the signal one.
+    /// The alternative is to hold a Mutex over the entire function call, but this increases the
+    /// known deadlock potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
             match serde_json::to_string(&self.app_metrics) {
@@ -674,7 +683,7 @@ impl RtcEvents for RTCDeviceMetrics {
 #[derive(Default, Serialize)]
 pub struct SeccompMetrics {
     /// Number of errors inside the seccomp filtering.
-    pub num_faults: SharedIncMetric,
+    pub num_faults: SharedStoreMetric,
 }
 
 /// Metrics specific to the UART device.
@@ -695,22 +704,25 @@ pub struct SerialDeviceMetrics {
 }
 
 /// Metrics related to signals.
+/// Deadly signals must be of `SharedStoreMetric` type, since they can ever be either 0 or 1.
+/// This avoids a tricky race condition caused by the unatomic serialize method of
+/// `SharedIncMetric`, between two threads calling `METRICS.write()`.
 #[derive(Default, Serialize)]
 pub struct SignalMetrics {
     /// Number of times that SIGBUS was handled.
-    pub sigbus: SharedIncMetric,
+    pub sigbus: SharedStoreMetric,
     /// Number of times that SIGSEGV was handled.
-    pub sigsegv: SharedIncMetric,
+    pub sigsegv: SharedStoreMetric,
     /// Number of times that SIGXFSZ was handled.
-    pub sigxfsz: SharedIncMetric,
+    pub sigxfsz: SharedStoreMetric,
     /// Number of times that SIGXCPU was handled.
-    pub sigxcpu: SharedIncMetric,
+    pub sigxcpu: SharedStoreMetric,
     /// Number of times that SIGPIPE was handled.
     pub sigpipe: SharedIncMetric,
     /// Number of times that SIGHUP was handled.
-    pub sighup: SharedIncMetric,
+    pub sighup: SharedStoreMetric,
     /// Number of times that SIGILL was handled.
-    pub sigill: SharedIncMetric,
+    pub sigill: SharedStoreMetric,
 }
 
 /// Metrics specific to VCPUs' mode of functioning.
@@ -736,7 +748,7 @@ pub struct VmmMetrics {
     /// Number of device related events received for a VM.
     pub device_events: SharedIncMetric,
     /// Metric for signaling a panic has occurred.
-    pub panic_count: SharedIncMetric,
+    pub panic_count: SharedStoreMetric,
 }
 
 /// Vsock-related metrics.

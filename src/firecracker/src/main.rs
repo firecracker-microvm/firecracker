@@ -11,7 +11,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
-use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
@@ -96,7 +96,7 @@ fn main_exitable() -> ExitCode {
             );
         }
 
-        METRICS.vmm.panic_count.inc();
+        METRICS.vmm.panic_count.store(1);
 
         // Write the metrics before aborting.
         if let Err(e) = METRICS.write() {

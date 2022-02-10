@@ -46,8 +46,6 @@ impl PeriodicMetrics {
     }
 
     fn write_metrics(&mut self) {
-        // Please note that, if METRICS has no output file configured yet, it will write to
-        // stdout, so metrics writing will interfere with console output.
         if let Err(e) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
             error!("Failed to write metrics: {}", e);
