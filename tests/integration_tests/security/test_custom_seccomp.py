@@ -205,7 +205,7 @@ def test_failing_filter(test_microvm_with_api):
     for line in lines:
         num_faults += json.loads(line)["seccomp"]["num_faults"]
 
-    assert num_faults == 1
+    assert num_faults >= 1
 
     # assert that the process was killed
     assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
