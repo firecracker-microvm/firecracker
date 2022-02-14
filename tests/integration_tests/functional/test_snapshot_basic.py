@@ -277,12 +277,12 @@ def test_5_full_snapshots(network_config,
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Testing matrix:
-    # - Guest kernel: Linux 4.9/4.14
+    # - Guest kernel: All supported ones
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
@@ -321,12 +321,12 @@ def test_5_inc_snapshots(network_config,
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Testing matrix:
-    # - Guest kernel: Linux 4.9/4.14
+    # - Guest kernel: All supported ones
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 4096 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_4096mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
@@ -401,11 +401,11 @@ def test_cmp_full_and_first_diff_mem(network_config,
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Testing matrix:
-    # - Guest kernel: Linux 4.9/4.14
+    # - Guest kernel: All supported ones
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 512 MB RAM
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
