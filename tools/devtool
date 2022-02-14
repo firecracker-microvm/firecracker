@@ -692,6 +692,10 @@ cmd_help() {
     echo "        Run a continuous integration test run that executes the integration tests and"
     echo "        checks that the release process works."
     echo ""
+    echo "    create_snapshot_artifacts"
+    echo "        Runs a tool that generates snapshot artifacts for supported kernel versions."
+    echo "        Snapshot mem and state files are saved under \`snapshot_artifacts/\` directory"
+    echo ""
     echo "    distclean"
     echo "        Clean up the build tree and remove the docker container."
     echo ""
@@ -1330,6 +1334,33 @@ cmd_shell() {
     if [[ $ramdisk = true ]]; then
         umount_ramdisk
     fi
+
+    return $ret
+}
+
+
+cmd_create_snapshot_artifacts() {
+    privileged=true
+
+    # Make sure we have what we need to continue.
+    ensure_devctr
+    ensure_build_dir
+
+    say "Creating snapshot artifacts ..."
+    run_devctr \
+        --privileged \
+        --ulimit nofile=4096:4096 \
+        --ulimit memlock=-1:-1 \
+        --security-opt seccomp=unconfined \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        ${ramdisk_args} \
+        -- \
+        python3 tools/create_snapshot_artifact/main.py
+    ret=$?
+
+    # Running as root may have created some root-owned files under the build
+    # dir. Let's fix that.
+    cmd_fix_perms
 
     return $ret
 }
