@@ -253,4 +253,12 @@ pub(crate) mod tests {
         let err = StatsNotFound;
         let _ = format!("{}{:?}", err, err);
     }
+
+    #[test]
+    fn test_set_device() {
+        let mut builder = BalloonBuilder::new();
+        let balloon = Balloon::new(0, true, 0, true).unwrap();
+        builder.set_device(Arc::new(Mutex::new(balloon)));
+        assert!(builder.inner.is_some());
+    }
 }

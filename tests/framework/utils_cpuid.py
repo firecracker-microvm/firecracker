@@ -17,13 +17,17 @@ class CpuVendor(Enum):
 
     AMD = auto()
     INTEL = auto()
+    ARM = auto()
 
 
 def get_cpu_vendor():
     """Return the CPU vendor."""
     brand_str = subprocess.check_output("lscpu", shell=True).strip().decode()
+    machine_str = platform.machine()
     if 'AuthenticAMD' in brand_str:
         return CpuVendor.AMD
+    if 'aarch64' in machine_str:
+        return CpuVendor.ARM
     return CpuVendor.INTEL
 
 
