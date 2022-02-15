@@ -302,9 +302,12 @@ paths:
       description:
         Updates the Virtual Machine Configuration with the specified input.
         Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
-        With SMT enabled, the vCPU count is restricted to be 1 or an even number,
+        The vCPU count is restricted to the [1, 32] range.
+        With SMT enabled, the vCPU count is required to be either 1 or an even number in the range.
         otherwise there are no restrictions regarding the vCPU count.
         If any of the parameters has an incorrect value, the whole update fails.
+        All parameters that are optional and are not specified are set to their default values
+        (smt = false, track_dirty_pages = false, cpu_template = None).
       operationId: putMachineConfiguration
       parameters:
         - name: body
@@ -778,6 +781,8 @@ definitions:
     enum:
       - C3
       - T2
+      - None
+    default: "None"
 
   Drive:
     type: object
@@ -947,6 +952,7 @@ definitions:
           snapshots can be created. These belong to diff snapshots, which contain, besides
           the microVM state, only the memory dirtied since a previous snapshot. Full snapshots
           each contain a full copy of the guest memory.
+        default: false
       vcpu_count:
         type: integer
         minimum: 1

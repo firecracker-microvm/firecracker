@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootSourceConfig;
-use crate::vmm_config::machine_config::VmConfig;
+use crate::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
 #[cfg(target_arch = "x86_64")]
@@ -78,7 +78,8 @@ impl MockVmResources {
     }
 
     pub fn with_vm_config(mut self, vm_config: VmConfig) -> Self {
-        self.0.set_vm_config(&vm_config).unwrap();
+        let machine_config = VmUpdateConfig::from(vm_config);
+        self.0.update_vm_config(&machine_config).unwrap();
         self
     }
 }

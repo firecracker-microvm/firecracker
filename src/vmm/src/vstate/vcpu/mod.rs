@@ -92,7 +92,7 @@ pub struct VcpuConfig {
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
     /// CPUID template to use.
-    pub cpu_template: Option<CpuFeaturesTemplate>,
+    pub cpu_template: CpuFeaturesTemplate,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -912,7 +912,7 @@ mod tests {
             let vcpu_config = VcpuConfig {
                 vcpu_count: 1,
                 smt: false,
-                cpu_template: None,
+                cpu_template: CpuFeaturesTemplate::None,
             };
             vcpu.kvm_vcpu
                 .configure(

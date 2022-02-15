@@ -424,21 +424,21 @@ def test_api_machine_config(test_microvm_with_api):
     response = test_microvm.machine_cfg.patch(
         track_dirty_pages=True
     )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test missing vcpu_count.
     response = test_microvm.machine_cfg.put(
         mem_size_mib=128
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Missing mandatory field: `vcpu_count`." in response.text
+    assert "missing field `vcpu_count` at line 1 column 21." in response.text
 
     # Test missing mem_size_mib.
     response = test_microvm.machine_cfg.put(
         vcpu_count=2
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Missing mandatory field: `mem_size_mib`." in response.text
+    assert "missing field `mem_size_mib` at line 1 column 17." in response.text
 
     # Test default smt value.
     response = test_microvm.machine_cfg.put(
@@ -499,8 +499,13 @@ def test_api_machine_config(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert fail_msg in response.text
 
-    # Test mem_size_mib of valid type, but too large.
+    # Reset the configuration of the microvm
+    # This will explicitly set vcpu_num = 2, mem_size_mib = 256
+    # track_dirty_pages = false. All other parameters are
+    # unspecified so will revert to default values.
     test_microvm.basic_config()
+
+    # Test mem_size_mib of valid type, but too large.
     firecracker_pid = int(test_microvm.jailer_clone_pid)
     resource.prlimit(
         firecracker_pid,
@@ -531,7 +536,22 @@ def test_api_machine_config(test_microvm_with_api):
     response = test_microvm.machine_cfg.patch(
         mem_size_mib=256
     )
+
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Set the cpu template again
+    response = test_microvm.machine_cfg.patch(
+        cpu_template='C3'
+    )
+    if platform.machine() == "x86_64":
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code
+        )
+    else:
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code
+        )
+        assert "CPU templates are not supported on aarch64" in response.text
 
     response = test_microvm.actions.put(action_type='InstanceStart')
     if utils.get_cpu_vendor() != utils.CpuVendor.INTEL:
@@ -551,8 +571,7 @@ def test_api_machine_config(test_microvm_with_api):
     json = response.json()
     assert json['machine-config']['vcpu_count'] == 2
     assert json['machine-config']['mem_size_mib'] == 256
-    assert json['machine-config']['smt'] == (
-        platform.machine() == "x86_64")
+    assert json['machine-config']['smt'] is False
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):

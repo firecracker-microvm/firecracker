@@ -620,6 +620,16 @@ class Microvm:
         assert message in self.log_data
 
     @retry(delay=0.1, tries=5)
+    def check_any_log_message(self, messages):
+        """Wait until any message in `messages` appears in logging output."""
+        for message in messages:
+            if message in self.log_data:
+                return
+        raise AssertionError(
+            f"`{messages}` were not found in this log: {self.log_data}"
+        )
+
+    @retry(delay=0.1, tries=5)
     def find_log_message(self, regex):
         """Wait until `regex` appears in logging output and return it."""
         reg_res = re.findall(regex, self.log_data)
