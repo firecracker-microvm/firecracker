@@ -612,7 +612,8 @@ paths:
     get:
       summary: Gets the full VM configuration.
       description:
-        Gets configuration for all VM resources.
+        Gets configuration for all VM resources. If the VM is restored from a snapshot, the boot-source,
+        machine-config.smt and machine-config.cpu_template will be empty.
       operationId: getExportVmConfig
       responses:
         200:

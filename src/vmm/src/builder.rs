@@ -36,9 +36,11 @@ use crate::vstate::{
     vcpu::{Vcpu, VcpuConfig},
     vm::Vm,
 };
-use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
+use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
 
+use crate::resources::VmResources;
 use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::is_same_model;
@@ -97,6 +99,8 @@ pub enum StartMicrovmError {
     RegisterMmioDevice(device_manager::mmio::Error),
     /// Cannot restore microvm state.
     RestoreMicrovmState(MicrovmStateError),
+    /// Unable to set VmResources.
+    SetVmResources(VmConfigError),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -177,7 +181,8 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
-            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state: {}", err),
+            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
+            SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
         }
     }
 }
@@ -446,6 +451,7 @@ pub fn build_microvm_from_snapshot(
     guest_memory: GuestMemoryMmap,
     track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
+    vm_resources: &mut VmResources,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
@@ -513,12 +519,25 @@ pub fn build_microvm_from_snapshot(
         .map_err(MicrovmStateError::RestoreVmState)
         .map_err(RestoreMicrovmState)?;
 
+    vm_resources
+        .update_vm_config(&VmUpdateConfig {
+            vcpu_count: Some(vcpu_count),
+            mem_size_mib: Some(mem_size_mib(&guest_memory) as usize),
+            smt: Some(false),
+            cpu_template: None,
+            track_dirty_pages: Some(track_dirty_pages),
+        })
+        .map_err(SetVmResources)?;
+
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
         mem: guest_memory,
         vm: vmm.vm.fd(),
         event_manager,
+        for_each_restored_device: VmResources::update_from_restored_device,
+        vm_resources,
     };
+
     vmm.mmio_device_manager =
         MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
             .map_err(MicrovmStateError::RestoreDevices)

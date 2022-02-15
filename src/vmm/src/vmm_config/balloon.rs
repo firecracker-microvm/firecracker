@@ -151,6 +151,11 @@ impl BalloonBuilder {
         Ok(())
     }
 
+    /// Inserts an existing balloon device.
+    pub fn set_device(&mut self, balloon: MutexBalloon) {
+        self.inner = Some(balloon);
+    }
+
     /// Provides a reference to the Balloon if present.
     pub fn get(&self) -> Option<&MutexBalloon> {
         self.inner.as_ref()

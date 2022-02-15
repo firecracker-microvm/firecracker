@@ -132,6 +132,11 @@ impl NetBuilder {
         self.net_devices.iter_mut()
     }
 
+    /// Adds an existing network device in the builder.
+    pub fn add_device(&mut self, device: Arc<Mutex<Net>>) {
+        self.net_devices.push(device);
+    }
+
     /// Builds a network device based on a network interface config. Keeps a device reference
     /// in the builder's internal list.
     pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {

@@ -122,7 +122,7 @@ pub struct Net {
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
-    pub(crate) mmds_ns: Option<MmdsNetworkStack>,
+    pub mmds_ns: Option<MmdsNetworkStack>,
 
     #[cfg(test)]
     pub(crate) mocks: Mocks,
