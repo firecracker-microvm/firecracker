@@ -7,11 +7,17 @@ import os
 import tempfile
 import json
 from typing import List
+import sys
 
 from providers.types import FileDataProvider
 from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
 from providers.snapshot_restore import SnapshotRestoreDataParser
+from framework.defs import SUPPORTED_KERNELS
+from framework.utils import get_kernel_version
+
+sys.path.append(os.path.join(os.getcwd(), 'tests'))
+
 
 OUTPUT_FILENAMES = {
     'vsock_throughput': 'test_vsock_throughput',
@@ -33,11 +39,12 @@ def get_data_files(args) -> List[str]:
     assert os.path.isdir(args.data_folder)
 
     file_list = []
-
+    host_version = get_kernel_version(level=1)
+    res_file = f"{OUTPUT_FILENAMES[args.test]}_results_{host_version}.json"
     # Get all files in the dir tree that have the right name.
     for root, _, files in os.walk(args.data_folder):
         for file in files:
-            if file == OUTPUT_FILENAMES[args.test]:
+            if file == res_file:
                 file_list.append(os.path.join(root, file))
 
     # We need at least one file.
@@ -58,7 +65,14 @@ def concatenate_data_files(data_files: List[str]):
 
 
 def main():
-    """Run the main logic."""
+    """Run the main logic.
+
+    This script needs to be run from Firecracker's root since
+    it depends on functionality found in tests/ framework.
+    The script expects to find at least 2 files containing test results in
+    the provided data folder
+     (e.q test_results/buildX/test_vsock_throughput_results_5.10.json).
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--data-folder",
                         help="Path to folder containing raw test data.",
@@ -72,6 +86,12 @@ def main():
                                  'network_tcp_throughput',
                                  'block_performance',
                                  'snapshot_restore_performance'],
+                        required=True)
+    parser.add_argument("-k", "--kernel",
+                        help="Host kernel version on which baselines \
+                            are obtained.",
+                        action="store",
+                        choices=SUPPORTED_KERNELS,
                         required=True)
     args = parser.parse_args()
 

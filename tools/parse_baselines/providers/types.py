@@ -30,7 +30,12 @@ class FileDataProvider(Iterator):
 
     def __next__(self) -> AnyStr:
         """Get a line of data from the file."""
-        return self._file.readline()
+        buffer = ""
+        for line in self._file:
+            buffer += line
+            if line == "}\n":
+                return buffer
+        return None
 
 
 class DataParser(ABC):
@@ -89,7 +94,6 @@ class DataParser(ABC):
             json_line = json.loads(line.strip())
             measurements = json_line['results']
             cpu_model = json_line['custom']['cpu_model_name']
-
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
                 for key in self._baselines_defs:
