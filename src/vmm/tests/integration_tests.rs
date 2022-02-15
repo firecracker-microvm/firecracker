@@ -220,6 +220,8 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     let mem = GuestMemoryMmap::restore(memory_file.as_file(), &microvm_state.memory_state, false)
         .unwrap();
 
+    let vm_resources = &mut VmResources::default();
+
     // Build microVM from state.
     let vmm = build_microvm_from_snapshot(
         &InstanceInfo::default(),
@@ -228,6 +230,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         mem,
         false,
         &mut empty_seccomp_filters,
+        vm_resources,
     )
     .unwrap();
     // For now we're happy we got this far, we don't test what the guest is actually doing.

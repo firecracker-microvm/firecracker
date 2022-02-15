@@ -31,7 +31,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::{builder::StartMicrovmError, EventManager};
+use crate::{builder::StartMicrovmError, warn, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use seccompiler::BpfThreadMap;
@@ -318,7 +318,10 @@ impl<'a> PrebootApiController<'a> {
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
-            GetFullVmConfig => Ok(VmmData::FullVmConfig((&*self.vm_resources).into())),
+            GetFullVmConfig => {
+                warn!("If the VM was restored from snapshot, boot-source, machine-config.smt, and machine-config.cpu_template will all be empty.");
+                Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
+            }
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -448,6 +451,7 @@ impl<'a> PrebootApiController<'a> {
             self.seccomp_filters,
             load_params,
             VERSION_MAP.clone(),
+            self.vm_resources,
         )
         .and_then(|vmm| {
             let ret = if load_params.resume_vm {
@@ -455,6 +459,7 @@ impl<'a> PrebootApiController<'a> {
             } else {
                 Ok(())
             };
+
             ret.map(|()| {
                 self.built_vmm = Some(vmm);
                 VmmData::Empty
@@ -1011,6 +1016,7 @@ mod tests {
         _: &BpfThreadMap,
         _: &LoadSnapshotParams,
         _: versionize::VersionMap,
+        _: &mut MockVmRes,
     ) -> Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }

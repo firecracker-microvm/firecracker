@@ -15,6 +15,7 @@ use crate::vstate::vcpu::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
+use crate::device_manager::persist::SharedDeviceType;
 use mmds::data_store::MmdsVersion;
 use mmds::MMDS;
 use serde::{Deserialize, Serialize};
@@ -169,6 +170,45 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Updates the resources from a restored device (used for configuring resources when
+    /// restoring from a snapshot).
+    pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
+        match device {
+            SharedDeviceType::SharedBlock(block) => {
+                self.block.add_device(block);
+            }
+
+            SharedDeviceType::SharedNetwork(network) => {
+                {
+                    let net = network.lock().expect("Poisoned lock");
+
+                    if let Some(mmds_ns) = &net.mmds_ns {
+                        if let Some(mut_mmds_config) = self.mmds_config.as_mut() {
+                            mut_mmds_config.network_interfaces.push(net.id().to_owned());
+                        } else {
+                            // The MMDS Version isn't saved in the snapshot, we set it to its default.
+                            self.mmds_config = Some(MmdsConfig {
+                                version: Default::default(),
+                                network_interfaces: vec![net.id().to_owned()],
+                                ipv4_address: Some(mmds_ns.ipv4_addr),
+                            });
+                        }
+                    }
+                }
+
+                self.net_builder.add_device(network);
+            }
+
+            SharedDeviceType::SharedBalloon(balloon) => {
+                self.balloon.set_device(balloon);
+            }
+
+            SharedDeviceType::SharedVsock(vsock) => {
+                self.vsock.set_device(vsock);
+            }
+        }
     }
 
     /// Returns a VcpuConfig based on the vm config.
@@ -389,6 +429,7 @@ impl From<&VmResources> for VmmConfig {
             .as_ref()
             .map(BootSourceConfig::from)
             .unwrap_or_default();
+
         VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),

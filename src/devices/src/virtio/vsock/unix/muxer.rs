@@ -332,6 +332,10 @@ impl VsockMuxer {
         Ok(muxer)
     }
 
+    pub fn host_sock_path(&self) -> &str {
+        &self.host_sock_path
+    }
+
     /// Handle/dispatch an epoll event to its listener.
     fn handle_event(&mut self, fd: RawFd, event_set: EventSet) {
         debug!(

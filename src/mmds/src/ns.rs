@@ -61,7 +61,7 @@ pub struct MmdsNetworkStack {
     // The Ethernet MAC address of the MMDS server.
     pub(crate) mac_addr: MacAddr,
     // MMDS server IPv4 address.
-    pub(crate) ipv4_addr: Ipv4Addr,
+    pub ipv4_addr: Ipv4Addr,
     // ARP reply destination IPv4 address (requester of address resolution reply).
     // It is the Ipv4Addr of the network interface for which the MmdsNetworkStack
     // routes the packets.

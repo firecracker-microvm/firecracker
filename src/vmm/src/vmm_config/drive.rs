@@ -156,6 +156,15 @@ impl BlockBuilder {
             .position(|b| b.lock().expect("Poisoned lock").id().eq(drive_id))
     }
 
+    /// Inserts an existing block device.
+    pub fn add_device(&mut self, block_device: Arc<Mutex<Block>>) {
+        if block_device.lock().expect("Poisoned lock").is_root_device() {
+            self.list.push_front(block_device);
+        } else {
+            self.list.push_back(block_device);
+        }
+    }
+
     /// Inserts a `Block` in the block devices list using the specified configuration.
     /// If a block with the same id already exists, it will overwrite it.
     /// Inserting a secondary root block device will fail.

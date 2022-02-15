@@ -10,6 +10,7 @@ use super::mmio::*;
 use crate::EventManager;
 use logger::error;
 
+use crate::resources::VmResources;
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -129,6 +130,15 @@ pub struct DeviceStates {
     pub balloon_device: Option<ConnectedBalloonState>,
 }
 
+/// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
+/// from a snapshot.
+pub enum SharedDeviceType {
+    SharedBlock(Arc<Mutex<Block>>),
+    SharedNetwork(Arc<Mutex<Net>>),
+    SharedBalloon(Arc<Mutex<Balloon>>),
+    SharedVsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
+}
+
 impl DeviceStates {
     fn balloon_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 2 && self.balloon_device.is_some() {
@@ -145,6 +155,8 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
+    pub for_each_restored_device: fn(&mut VmResources, SharedDeviceType),
+    pub vm_resources: &'a mut VmResources,
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -323,6 +335,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(Error::Balloon)?,
             ));
 
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::SharedBalloon(device.clone()),
+            );
+
             restore_helper(
                 device.clone(),
                 device,
@@ -342,6 +359,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(Error::Block)?,
             ));
 
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::SharedBlock(device.clone()),
+            );
+
             restore_helper(
                 device.clone(),
                 device,
@@ -359,6 +381,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 )
                 .map_err(Error::Net)?,
             ));
+
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::SharedNetwork(device.clone()),
+            );
 
             restore_helper(
                 device.clone(),
@@ -385,6 +412,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 )
                 .map_err(Error::Vsock)?,
             ));
+
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::SharedVsock(device.clone()),
+            );
 
             restore_helper(
                 device.clone(),
@@ -615,6 +647,8 @@ mod tests {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
+            for_each_restored_device: VmResources::update_from_restored_device,
+            vm_resources: &mut Default::default(),
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();

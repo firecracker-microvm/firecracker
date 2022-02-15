@@ -77,6 +77,19 @@ impl VsockBuilder {
         Self { inner: None }
     }
 
+    /// Inserts an existing vsock device.
+    pub fn set_device(&mut self, device: Arc<Mutex<Vsock<VsockUnixBackend>>>) {
+        self.inner = Some(VsockAndUnixPath {
+            uds_path: device
+                .lock()
+                .expect("Poisoned lock")
+                .backend()
+                .host_sock_path()
+                .to_owned(),
+            vsock: device.clone(),
+        });
+    }
+
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
     pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<()> {
