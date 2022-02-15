@@ -209,6 +209,7 @@ impl NetBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rate_limiter::RateLimiter;
     use std::str;
 
     use super::*;
@@ -379,5 +380,37 @@ mod tests {
         let configs = net_builder.configs();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs.first().unwrap(), &net_if_cfg);
+    }
+
+    #[test]
+    fn test_add_device() {
+        let mut net_builder = NetBuilder::new();
+        let net_id = "test_id";
+        let host_dev_name = "dev";
+        let guest_mac = "01:23:45:67:89:0b";
+
+        let net = Net::new_with_tap(
+            net_id.to_string(),
+            host_dev_name.to_string(),
+            Some(&MacAddr::parse_str(guest_mac).unwrap()),
+            RateLimiter::default(),
+            RateLimiter::default(),
+            false,
+        )
+        .unwrap();
+
+        net_builder.add_device(Arc::new(Mutex::new(net)));
+        assert_eq!(net_builder.net_devices.len(), 1);
+        assert_eq!(
+            net_builder
+                .net_devices
+                .pop()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .deref()
+                .id(),
+            net_id
+        );
     }
 }

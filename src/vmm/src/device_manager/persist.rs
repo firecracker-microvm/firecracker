@@ -373,6 +373,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
+
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
                 Net::restore(
@@ -396,6 +397,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
+
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
                 cid: vsock_state.device_state.frontend.cid,
@@ -436,6 +438,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 mod tests {
     use super::*;
     use crate::builder::tests::*;
+    use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
@@ -643,16 +646,77 @@ mod tests {
         let vmm = default_vmm();
         let device_states: DeviceStates =
             DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
+        let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
             for_each_restored_device: VmResources::update_from_restored_device,
-            vm_resources: &mut Default::default(),
+            vm_resources,
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();
 
+        let expected_vm_resources = format!(
+            r#"{{
+  "balloon": {{
+    "amount_mib": 123,
+    "deflate_on_oom": false,
+    "stats_polling_interval_s": 1
+  }},
+  "drives": [
+    {{
+      "drive_id": "root",
+      "path_on_host": "{}",
+      "is_root_device": true,
+      "partuuid": null,
+      "is_read_only": true,
+      "cache_type": "Unsafe",
+      "rate_limiter": null,
+      "io_engine": "Sync"
+    }}
+  ],
+  "boot-source": {{
+    "kernel_image_path": "",
+    "initrd_path": null
+  }},
+  "logger": null,
+  "machine-config": {{
+    "vcpu_count": 1,
+    "mem_size_mib": 128,
+    "smt": false,
+    "track_dirty_pages": false
+  }},
+  "metrics": null,
+  "mmds-config": null,
+  "network-interfaces": [
+    {{
+      "iface_id": "netif",
+      "host_dev_name": "hostname",
+      "guest_mac": "00:00:00:00:00:00",
+      "rx_rate_limiter": null,
+      "tx_rate_limiter": null
+    }}
+  ],
+  "vsock": {{
+    "guest_cid": 3,
+    "uds_path": "{}"
+  }}
+}}"#,
+            _block_files
+                .last()
+                .unwrap()
+                .as_path()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            tmp_sock_file.as_path().to_str().unwrap().to_string()
+        );
+
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
+        assert_eq!(
+            expected_vm_resources,
+            serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
+        );
     }
 }

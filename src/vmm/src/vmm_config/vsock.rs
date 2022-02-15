@@ -192,4 +192,24 @@ pub(crate) mod tests {
         ));
         let _ = format!("{}{:?}", err, err);
     }
+
+    #[test]
+    fn test_set_device() {
+        let mut vsock_builder = VsockBuilder::new();
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
+        let vsock = Vsock::new(
+            0,
+            VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
+                .unwrap(),
+        )
+        .unwrap();
+
+        vsock_builder.set_device(Arc::new(Mutex::new(vsock)));
+        assert!(vsock_builder.inner.is_some());
+        assert_eq!(
+            vsock_builder.inner.unwrap().uds_path,
+            tmp_sock_file.as_path().to_str().unwrap().to_string()
+        )
+    }
 }

@@ -247,8 +247,8 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
+    use rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
 
     impl PartialEq for DriveError {
@@ -634,5 +634,37 @@ mod tests {
         let configs = block_devs.configs();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs.first().unwrap(), &dummy_block_device);
+    }
+
+    #[test]
+    fn test_add_device() {
+        let mut block_devs = BlockBuilder::new();
+        let backing_file = TempFile::new().unwrap();
+        let block_id = "test_id";
+        let block = Block::new(
+            block_id.to_string(),
+            None,
+            CacheType::default(),
+            backing_file.as_path().to_str().unwrap().to_string(),
+            true,
+            true,
+            RateLimiter::default(),
+            FileEngineType::default(),
+        )
+        .unwrap();
+
+        block_devs.add_device(Arc::new(Mutex::new(block)));
+        assert_eq!(block_devs.list.len(), 1);
+        assert_eq!(
+            block_devs
+                .list
+                .pop_back()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .deref()
+                .id(),
+            block_id
+        )
     }
 }
