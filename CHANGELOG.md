@@ -99,6 +99,10 @@
 
 ### Fixed
 
+- GET `/vm/config` was returning a default config object after restoring from a
+  snapshot. It now correctly returns the config of the original microVM, except
+  for boot_config and the cpu_template and smt fields of the machine config,
+  which are currently lost.
 - Fixed incorrect propagation of init parameters in kernel commandline.
   Related to:
   [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
