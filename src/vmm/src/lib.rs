@@ -758,7 +758,7 @@ impl Vmm {
         // The actual thread::join() that runs to release the thread's resource is done in
         // the VcpuHandle's Drop trait.  We can trigger that to happen now by clearing the
         // list of handles. Do it here instead of Vmm::Drop to avoid dependency cycles.
-        // (Vmm's Drop will also assert this list is empty).
+        // (Vmm's Drop will also check if this list is empty).
         self.vcpus_handles.clear();
 
         // Break the main event loop, propagating the Vmm exit-code.
@@ -793,6 +793,29 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 
 impl Drop for Vmm {
     fn drop(&mut self) {
+        // There are two cases when `drop()` is called:
+        // 1) before the Vmm has been mutexed and subscribed to the event
+        //    manager, or
+        // 2) after the Vmm has been registered as a subscriber to the
+        //    event manager.
+        //
+        // The first scenario is bound to happen if an error is raised during
+        // Vmm creation (for example, during snapshot load), before the Vmm has
+        // been subscribed to the event manager. If that happens, the `drop()`
+        // function is called right before propagating the error. In order to
+        // be able to gracefully exit Firecracker with the correct fault
+        // message, we need to prepare the Vmm contents for the tear down
+        // (join the vcpu threads). Explicitly calling `stop()` allows the
+        // Vmm to be successfully dropped and firecracker to propagate the
+        // error.
+        //
+        // In the second case, before dropping the Vmm object, the event
+        // manager calls `stop()`, which sends a `Finish` event to the vcpus
+        // and joins the vcpu threads. The Vmm is dropped after everything is
+        // ready to be teared down. The line below is a no-op, because the Vmm
+        // has already been stopped by the event manager at this point.
+        self.stop(self.shutdown_exit_code.unwrap_or(FC_EXIT_CODE_OK));
+
         if let Some(observer) = self.events_observer.as_mut() {
             if let Err(e) = observer.on_vmm_stop() {
                 warn!("{}", Error::VmmObserverTeardown(e));
@@ -804,7 +827,12 @@ impl Drop for Vmm {
             error!("Failed to write metrics while stopping: {}", e);
         }
 
-        assert!(self.vcpus_handles.is_empty());
+        if !self.vcpus_handles.is_empty() {
+            error!(
+                "Failed to tear down Vmm: the vcpu threads \
+                have not finished execution."
+            );
+        }
     }
 }
 
