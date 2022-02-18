@@ -15,6 +15,7 @@ pub mod arg_parser;
 pub mod byte_order;
 pub mod kernel_version;
 pub mod net;
+pub mod seccomp;
 pub mod signal;
 pub mod sm;
 pub mod time;

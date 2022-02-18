@@ -49,9 +49,9 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use linux_loader::loader::KernelLoader;
 use logger::{error, warn};
-use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use utils::eventfd::EventFd;
+use utils::seccomp::BpfThreadMap;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
@@ -314,7 +314,7 @@ pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
-    seccomp_filters: &BpfThreadMap,
+    seccomp_filters: Option<&BpfThreadMap>,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -404,27 +404,31 @@ pub fn build_microvm_for_boot(
         boot_cmdline,
     )?;
 
+    let vcpu_filter = match seccomp_filters {
+        Some(filters) => Some(
+            filters
+                .get("vcpu")
+                .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
+                .clone(),
+        ),
+        None => None,
+    };
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.start_vcpus(
-        vcpus,
-        seccomp_filters
-            .get("vcpu")
-            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
-            .clone(),
-    )
-    .map_err(Internal)?;
+    vmm.start_vcpus(vcpus, vcpu_filter).map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
     // altogether is the desired behaviour.
     // Keep this as the last step before resuming vcpus.
-    seccompiler::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
-    )
-    .map_err(Error::SeccompFilters)
-    .map_err(Internal)?;
+    if let Some(filters) = seccomp_filters {
+        seccompiler::apply_filter(
+            filters
+                .get("vmm")
+                .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
+        )
+        .map_err(Error::SeccompFilters)
+        .map_err(Internal)?;
+    }
 
     // The vcpus start off in the `Paused` state, let them run.
     vmm.resume_vm().map_err(Internal)?;
@@ -445,7 +449,7 @@ pub fn build_microvm_from_snapshot(
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
     track_dirty_pages: bool,
-    seccomp_filters: &BpfThreadMap,
+    seccomp_filters: Option<&BpfThreadMap>,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
@@ -526,15 +530,17 @@ pub fn build_microvm_from_snapshot(
     vmm.emulate_serial_init()
         .map_err(StartMicrovmError::Internal)?;
 
+    let vcpu_filter = match seccomp_filters {
+        Some(filters) => Some(
+            filters
+                .get("vcpu")
+                .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
+                .clone(),
+        ),
+        None => None,
+    };
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.start_vcpus(
-        vcpus,
-        seccomp_filters
-            .get("vcpu")
-            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
-            .clone(),
-    )
-    .map_err(Internal)?;
+    vmm.start_vcpus(vcpus, vcpu_filter).map_err(Internal)?;
 
     // Restore vcpus kvm state.
     vmm.restore_vcpu_states(microvm_state.vcpu_states)
@@ -545,13 +551,15 @@ pub fn build_microvm_from_snapshot(
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
-    seccompiler::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
-    )
-    .map_err(Error::SeccompFilters)
-    .map_err(StartMicrovmError::Internal)?;
+    if let Some(filters) = seccomp_filters {
+        seccompiler::apply_filter(
+            filters
+                .get("vmm")
+                .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
+        )
+        .map_err(Error::SeccompFilters)
+        .map_err(StartMicrovmError::Internal)?;
+    }
 
     Ok(vmm)
 }

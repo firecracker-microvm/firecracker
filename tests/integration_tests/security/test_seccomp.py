@@ -69,7 +69,7 @@ def _get_basic_syscall_list():
     return json
 
 
-def _run_seccompiler_bin(json_data, basic=False):
+def _run_seccompiler_bin(json_data):
     json_temp = tempfile.NamedTemporaryFile(delete=False)
     json_temp.write(json_data.encode('utf-8'))
     json_temp.flush()
@@ -77,7 +77,7 @@ def _run_seccompiler_bin(json_data, basic=False):
     bpf_temp = tempfile.NamedTemporaryFile(delete=False)
 
     run_seccompiler_bin(bpf_path=bpf_temp.name,
-                        json_path=json_temp.name, basic=basic)
+                        json_path=json_temp.name)
 
     os.unlink(json_temp.name)
     return bpf_temp.name
@@ -193,20 +193,6 @@ def test_advanced_seccomp(bin_seccomp_paths):
 
     # The demo malicious binary should have received `SIGSYS`.
     assert outcome.returncode == -31
-
-    os.unlink(bpf_path)
-
-    # Run seccompiler-bin with `--basic` flag.
-    bpf_path = _run_seccompiler_bin(json_filter, basic=True)
-
-    # Run the mini jailer for malicious binary.
-    outcome = utils.run_cmd([demo_jailer, demo_malicious, bpf_path],
-                            no_shell=True,
-                            ignore_return_code=True)
-
-    # The malicious binary also terminates gracefully, since the --basic option
-    # disables all argument checks.
-    assert outcome.returncode == 0
 
     os.unlink(bpf_path)
 

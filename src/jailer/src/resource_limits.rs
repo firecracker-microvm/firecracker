@@ -92,8 +92,11 @@ mod tests {
 
     #[test]
     fn test_from_resource() {
-        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as _);
-        assert_eq!(u32::from(Resource::RlimitNoFile), libc::RLIMIT_NOFILE as _);
+        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as u32);
+        assert_eq!(
+            u32::from(Resource::RlimitNoFile),
+            libc::RLIMIT_NOFILE as u32
+        );
     }
 
     #[test]

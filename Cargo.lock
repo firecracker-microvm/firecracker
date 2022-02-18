@@ -835,12 +835,21 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "seccompiler"
-version = "1.0.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01d1292a1131b22ccea49f30bd106f1238b5ddeec1a98d39268dcc31d540e68"
 dependencies = [
- "bincode",
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "seccompiler-bin"
+version = "1.0.0"
+dependencies = [
+ "bincode",
+ "seccompiler",
  "utils",
 ]
 
@@ -978,8 +987,10 @@ dependencies = [
 name = "utils"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "libc",
  "net_gen",
+ "seccompiler",
  "serde",
  "serde_json",
  "vmm-sys-util",
@@ -1059,6 +1070,7 @@ name = "vmm"
 version = "0.1.0"
 dependencies = [
  "arch",
+ "bincode",
  "cpuid",
  "criterion",
  "devices",

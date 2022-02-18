@@ -17,7 +17,7 @@ timerfd = ">=1.0"
 api_server = { path = "../api_server" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
-seccompiler = { path = "../seccompiler" }
+seccompiler =  ">=0.2.0"
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }

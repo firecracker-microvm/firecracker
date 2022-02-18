@@ -10,7 +10,6 @@ use utils::tempfile::TempFile;
 use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_serial_device};
 use vmm::persist::{self, snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{EventManager, FC_EXIT_CODE_OK};
@@ -42,13 +41,12 @@ fn test_build_microvm() {
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
         let vmm_ret = build_microvm_for_boot(
             &InstanceInfo::default(),
             &resources,
             &mut event_manager,
-            &mut empty_seccomp_filters,
+            None,
         );
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
@@ -205,7 +203,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     use vmm::memory_snapshot::SnapshotMemory;
 
     let mut event_manager = EventManager::new().unwrap();
-    let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
     // Deserialize microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
@@ -227,7 +224,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         microvm_state,
         mem,
         false,
-        &mut empty_seccomp_filters,
+        None,
     )
     .unwrap();
     // For now we're happy we got this far, we don't test what the guest is actually doing.
