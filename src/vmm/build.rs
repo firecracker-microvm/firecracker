@@ -1,19 +1,18 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::TryInto;
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::fs::File;
+use std::io::Write;
+use std::io::{BufReader, BufWriter};
+use std::path::PathBuf;
 
-const ADVANCED_BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
+const BINARY_FILTER_FILE_NAME: &str = "advanced_filter.rs";
 
 const JSON_DIR: &str = "../../resources/seccomp";
-const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler-bin";
-const SECCOMPILER_SRC_DIR: &str = "../seccompiler-bin/src";
 
 // This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
-// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
     let target = env::var("TARGET").expect("Missing target.");
@@ -41,76 +40,45 @@ fn main() {
     let json_path = json_path.to_str().expect("Invalid bytes");
     println!("cargo:rerun-if-changed={}", json_path);
 
-    // Also retrigger the build script on any seccompiler source code change.
-    register_seccompiler_src_watchlist(Path::new(SECCOMPILER_SRC_DIR));
-
     // Run seccompiler-bin, getting the default, advanced filter.
     let mut bpf_out_path = PathBuf::from(&out_dir);
-    bpf_out_path.push(ADVANCED_BINARY_FILTER_FILE_NAME);
-    run_seccompiler_bin(
-        &target,
-        json_path,
-        bpf_out_path.to_str().expect("Invalid bytes."),
-    );
-}
+    bpf_out_path.push(BINARY_FILTER_FILE_NAME);
 
-// Run seccompiler with the given arguments.
-fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
+    let input_file = File::open(&json_path).expect("Could not open JSON file");
+    let input_reader = BufReader::new(input_file);
+    let bpf_data = seccompiler::compile_from_json(
+        input_reader,
+        std::env::consts::ARCH.try_into().expect("Invalid arch"),
+    )
+    .expect("Could not write to file");
 
-    // Command for running seccompiler-bin
-    let mut command = Command::new("cargo");
-    command.args(&[
-        "run",
-        "-p",
-        "seccompiler-bin",
-        "--verbose",
-        "--target",
-        &cargo_target,
-        // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
-        // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
-        // holding.
-        "--target-dir",
-        SECCOMPILER_BUILD_DIR,
-        "--",
-        "--input-file",
-        &json_path,
-        "--target-arch",
-        &target_arch,
-        "--output-file",
-        out_path,
-    ]);
+    let file = File::create(bpf_out_path.to_str().expect("Invalid bytes."))
+        .expect("Could not create file");
+    let mut writer = BufWriter::new(file);
+    writer
+        .write_all(
+            r#"
+                fn get_default_filters() -> Option<HashMap<String, Arc<BpfProgram>>> {
+                    Some(
+                        vec![
+            "#
+            .as_bytes(),
+        )
+        .expect("Could not write to file");
 
-    match command.output() {
-        Err(error) => panic!("\nSeccompiler-bin error: {:?}\n", error),
-        Ok(result) if !result.status.success() => {
-            panic!(
-                "\nSeccompiler-bin returned non-zero exit code:\nstderr: {}\nstdout: {}\n",
-                String::from_utf8(result.stderr).unwrap(),
-                String::from_utf8(result.stdout).unwrap(),
-            );
-        }
-        Ok(_) => {}
+    for (name, bpf_program) in bpf_data {
+        writer
+            .write_all(
+                format!(
+                    r#"("{}".to_string(), Arc::new(vec!{:#?})),"#,
+                    name, bpf_program
+                )
+                .as_bytes(),
+            )
+            .expect("Could not write to file");
     }
-}
 
-// Recursively traverse the entire seccompiler source folder and trigger a re-run of this build
-// script on any modification of these files.
-fn register_seccompiler_src_watchlist(src_dir: &Path) {
-    let contents = fs::read_dir(src_dir).expect("Unable to read folder contents.");
-    for entry in contents {
-        let path = entry.unwrap().path();
-        let metadata = fs::metadata(&path).expect("Unable to read file/folder metadata.");
-
-        if metadata.is_file() {
-            // Watch all source files.
-            println!(
-                "cargo:rerun-if-changed={}",
-                path.to_str().expect("Invalid unicode bytes.")
-            );
-        } else if metadata.is_dir() {
-            // If is a folder, recurse.
-            register_seccompiler_src_watchlist(&path);
-        }
-    }
+    writer
+        .write_all("].into_iter().collect())}".as_bytes())
+        .expect("Could not write to file");
 }

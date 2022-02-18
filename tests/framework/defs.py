@@ -19,9 +19,6 @@ FC_WORKSPACE_DIR = Path(__file__).parent.parent.parent.resolve()
 # Cargo target dir for the Firecracker workspace. Set via .cargo/config
 FC_WORKSPACE_TARGET_DIR = FC_WORKSPACE_DIR / "build/cargo_target"
 
-# Cargo build directory for seccompiler
-SECCOMPILER_TARGET_DIR = FC_WORKSPACE_DIR / "build/seccompiler"
-
 # Folder containing JSON seccomp filters
 SECCOMP_JSON_DIR = FC_WORKSPACE_DIR / "resources/seccomp"
 
