@@ -1,8 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::sync::Arc;
+
+use seccompiler::{sock_filter, BpfProgram};
 use utils::seccomp::{deserialize_binary, BpfThreadMap};
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
@@ -51,6 +55,9 @@ impl fmt::Display for FilterError {
     }
 }
 
+// Include the default seccomp filters compiled by the build script.
+include!(concat!(env!("OUT_DIR"), "/advanced_filter.rs"));
+
 /// Seccomp filter configuration.
 pub enum SeccompConfig {
     /// Seccomp filtering disabled.
@@ -84,19 +91,9 @@ impl SeccompConfig {
 pub fn get_filters(config: SeccompConfig) -> Result<Option<BpfThreadMap>, FilterError> {
     match config {
         SeccompConfig::None => Ok(None),
-        SeccompConfig::Advanced => get_default_filters().map(Some),
+        SeccompConfig::Advanced => Ok(get_default_filters()),
         SeccompConfig::Custom(reader) => get_custom_filters(reader).map(Some),
     }
-}
-
-/// Retrieve the default filters containing the syscall rules required by `Firecracker`
-/// to function. The binary file is generated via the `build.rs` script of this crate.
-fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
-    // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
-    let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
-    let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
-        .map_err(FilterError::Deserialization)?;
-    filter_thread_categories(map)
 }
 
 /// Retrieve custom seccomp filters.
