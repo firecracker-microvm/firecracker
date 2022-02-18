@@ -17,17 +17,14 @@ In order to test the vsock device connection state machine, these tests will:
 import os.path
 
 from socket import timeout as SocketTimeout
-from framework.utils_vsock import make_blob, \
-    check_host_connections, check_guest_connections, \
-    HostEchoWorker
+from framework.utils_vsock import make_blob, check_host_connections, \
+    check_guest_connections, check_vsock_device, _copy_vsock_data_to_guest, \
+    make_host_port_path, HostEchoWorker, ECHO_SERVER_PORT, VSOCK_UDS_PATH
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
 from host_tools.network import SSHConnection
 import host_tools.logging as log_tools
 
-VSOCK_UDS_PATH = "v.sock"
-ECHO_SERVER_PORT = 5252
-BLOB_SIZE = 20 * 1024 * 1024
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
 
@@ -58,40 +55,11 @@ def test_vsock(
 
     vm.start()
 
-    # Generate the random data blob file.
-    blob_path, blob_hash = make_blob(test_fc_session_root_path)
-    vm_blob_path = "/tmp/vsock/test.blob"
-
-    # Set up a tmpfs drive on the guest, so we can copy the blob there.
-    # Guest-initiated connections (echo workers) will use this blob.
     conn = SSHConnection(vm.ssh_config)
-    cmd = "mkdir -p /tmp/vsock"
-    cmd += " && mount -t tmpfs tmpfs -o size={} /tmp/vsock".format(
-        BLOB_SIZE + 1024*1024
-    )
-    ecode, _, _ = conn.execute_command(cmd)
-    assert ecode == 0
 
-    # Copy `vsock_helper` and the random blob to the guest.
-    vsock_helper = bin_vsock_path
-    conn.scp_file(vsock_helper, '/bin/vsock_helper')
-    conn.scp_file(blob_path, vm_blob_path)
-
-    # Test guest-initiated connections.
-    path = os.path.join(
-        vm.path,
-        _make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-    )
-    check_guest_connections(vm, path, vm_blob_path, blob_hash)
-
-    # Test host-initiated connections.
-    path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    check_host_connections(vm, path, blob_path, blob_hash)
-
-
-def _make_host_port_path(uds_path, port):
-    """Build the path for a Unix socket, mapped to host vsock port `port`."""
-    return "{}_{}".format(uds_path, port)
+    check_vsock_device(vm, bin_vsock_path,
+                       test_fc_session_root_path,
+                       conn)
 
 
 def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
@@ -162,20 +130,10 @@ def test_vsock_epipe(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
+    conn = SSHConnection(vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    conn = SSHConnection(vm.ssh_config)
-    cmd = "mkdir -p /tmp/vsock"
-    cmd += " && mount -t tmpfs tmpfs -o size={} /tmp/vsock".format(
-        BLOB_SIZE + 1024*1024
-    )
-    ecode, _, _ = conn.execute_command(cmd)
-    assert ecode == 0
-
-    # Copy `vsock_helper` and the random blob to the guest.
-    vsock_helper = bin_vsock_path
-    conn.scp_file(vsock_helper, '/bin/vsock_helper')
-    conn.scp_file(blob_path, vm_blob_path)
+    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
 
     path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
     # Negative test for host-initiated connections that
@@ -238,20 +196,10 @@ def test_vsock_transport_reset(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
+    conn = SSHConnection(test_vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    conn = SSHConnection(test_vm.ssh_config)
-    cmd = "mkdir -p /tmp/vsock"
-    cmd += " && mount -t tmpfs tmpfs -o size={} /tmp/vsock".format(
-        BLOB_SIZE + 1024*1024
-    )
-    ecode, _, _ = conn.execute_command(cmd)
-    assert ecode == 0
-
-    # Copy `vsock_helper` and the random blob to the guest.
-    vsock_helper = bin_vsock_path
-    conn.scp_file(vsock_helper, '/bin/vsock_helper')
-    conn.scp_file(blob_path, vm_blob_path)
+    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
 
     # Start guest echo server.
     path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
@@ -306,7 +254,7 @@ def test_vsock_transport_reset(
     # Test guest-initiated connections.
     path = os.path.join(
         test_vm.path,
-        _make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+        make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
     )
     check_guest_connections(test_vm, path, vm_blob_path, blob_hash)
 
