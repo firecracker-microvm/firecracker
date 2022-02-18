@@ -1,4 +1,4 @@
-# Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Script used to generate snapshots of microVMs."""
 
@@ -14,7 +14,8 @@ sys.path.append(os.path.join(os.getcwd(), 'tests'))  # noqa: E402
 
 # pylint: disable=wrong-import-position
 from conftest import _test_images_s3_bucket, _gcc_compile, init_microvm
-from framework.artifacts import NetIfaceConfig, ArtifactCollection, ArtifactSet
+from framework.artifacts import ArtifactCollection, ArtifactSet, \
+    create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.matrix import TestMatrix, TestContext
@@ -28,19 +29,7 @@ DEST_KERNEL_NAME = "vmlinux.bin"
 ROOTFS_KEY = "ubuntu-18.04"
 
 # Define 4 net device configurations.
-net_ifaces = [NetIfaceConfig(),
-              NetIfaceConfig(host_ip="192.168.1.1",
-                             guest_ip="192.168.1.2",
-                             tap_name="tap1",
-                             dev_name="eth1"),
-              NetIfaceConfig(host_ip="192.168.2.1",
-                             guest_ip="192.168.2.2",
-                             tap_name="tap2",
-                             dev_name="eth2"),
-              NetIfaceConfig(host_ip="192.168.3.1",
-                             guest_ip="192.168.3.2",
-                             tap_name="tap3",
-                             dev_name="eth3")]
+net_ifaces = create_net_devices_configuration(4)
 
 # Allow routing requests to MMDS through eth3.
 net_iface_for_mmds = net_ifaces[3]

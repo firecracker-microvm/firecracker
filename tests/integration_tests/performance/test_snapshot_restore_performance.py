@@ -9,7 +9,8 @@ import tempfile
 
 import pytest
 from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
+from framework.artifacts import ArtifactCollection, ArtifactSet, \
+    create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
@@ -40,19 +41,7 @@ USEC_IN_MSEC = 1000
 RESTORE_LATENCY = "restore_latency"
 
 # Define 4 net device configurations.
-net_ifaces = [NetIfaceConfig(),
-              NetIfaceConfig(host_ip="192.168.1.1",
-                             guest_ip="192.168.1.2",
-                             tap_name="tap1",
-                             dev_name="eth1"),
-              NetIfaceConfig(host_ip="192.168.2.1",
-                             guest_ip="192.168.2.2",
-                             tap_name="tap2",
-                             dev_name="eth2"),
-              NetIfaceConfig(host_ip="192.168.3.1",
-                             guest_ip="192.168.3.2",
-                             tap_name="tap3",
-                             dev_name="eth3")]
+net_ifaces = create_net_devices_configuration(4)
 
 # We are using this as a global variable in order to only
 # have to call the constructor and destructor once.
