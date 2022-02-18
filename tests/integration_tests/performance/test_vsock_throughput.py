@@ -19,6 +19,7 @@ from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
     get_kernel_version, DictQuery
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
+from framework.utils_vsock import make_host_port_path, VSOCK_UDS_PATH
 import host_tools.network as net_tools
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
@@ -31,7 +32,6 @@ CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
 SERVER_STARTUP_TIME = CONFIG_DICT["server_startup_time"]
-VSOCK_UDS_PATH = "v.sock"
 IPERF3 = "iperf3-vsock"
 THROUGHPUT = "throughput"
 DURATION = "duration"
@@ -127,7 +127,7 @@ def produce_iperf_output(basevm,
         # Bind the UDS in the jailer's root.
         basevm.create_jailed_resource(os.path.join(
             basevm.path,
-            _make_host_port_path(VSOCK_UDS_PATH, BASE_PORT + client_idx)))
+            make_host_port_path(VSOCK_UDS_PATH, BASE_PORT + client_idx)))
 
         pinned_cmd = f"taskset --cpu-list {client_idx % basevm.vcpus_count}" \
             f" {cmd}"
@@ -360,8 +360,3 @@ def iperf_workload(context):
         handle_failure(file_dumper, err)
 
     file_dumper.dump(result)
-
-
-def _make_host_port_path(uds_path, port):
-    """Build the path for a Unix socket, mapped to host vsock port `port`."""
-    return "{}_{}".format(uds_path, port)
