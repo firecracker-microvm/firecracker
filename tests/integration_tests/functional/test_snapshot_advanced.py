@@ -8,7 +8,8 @@ import tempfile
 import pytest
 from test_balloon import _test_rss_memory_lower
 from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, NetIfaceConfig
+from framework.artifacts import ArtifactCollection, \
+    create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -16,19 +17,7 @@ import host_tools.drive as drive_tools
 
 
 # Define 4 net device configurations.
-net_ifaces = [NetIfaceConfig(),
-              NetIfaceConfig(host_ip="192.168.1.1",
-                             guest_ip="192.168.1.2",
-                             tap_name="tap1",
-                             dev_name="eth1"),
-              NetIfaceConfig(host_ip="192.168.2.1",
-                             guest_ip="192.168.2.2",
-                             tap_name="tap2",
-                             dev_name="eth2"),
-              NetIfaceConfig(host_ip="192.168.3.1",
-                             guest_ip="192.168.3.2",
-                             tap_name="tap3",
-                             dev_name="eth3")]
+net_ifaces = create_net_devices_configuration(4)
 # Define 4 scratch drives.
 scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
 

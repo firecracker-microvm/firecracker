@@ -538,6 +538,24 @@ DEFAULT_DEV_NAME = "eth0"
 DEFAULT_NETMASK = 30
 
 
+def create_net_devices_configuration(num):
+    """Define configuration for the requested number of net devices."""
+    host_ip = "192.168.{}.1"
+    guest_ip = "192.168.{}.2"
+    tap_name = "tap{}"
+    dev_name = "eth{}"
+
+    net_ifaces = []
+    for i in range(num):
+        net_iface = NetIfaceConfig(host_ip=host_ip.format(i),
+                                   guest_ip=guest_ip.format(i),
+                                   tap_name=tap_name.format(i),
+                                   dev_name=dev_name.format(i))
+        net_ifaces.append(net_iface)
+
+    return net_ifaces
+
+
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
