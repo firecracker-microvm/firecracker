@@ -102,8 +102,7 @@ def get_rustflags():
 
 
 def run_seccompiler_bin(bpf_path,
-                        json_path=defs.SECCOMP_JSON_DIR,
-                        basic=False):
+                        json_path=defs.SECCOMP_JSON_DIR):
     """
     Run seccompiler-bin.
 
@@ -116,7 +115,7 @@ def run_seccompiler_bin(bpf_path,
     if json_path == defs.SECCOMP_JSON_DIR:
         json_path = json_path / "{}.json".format(cargo_target)
 
-    cmd = 'cargo run -p seccompiler --target-dir {} --target {} --\
+    cmd = 'cargo run -p seccompiler-bin --target-dir {} --target {} --\
         --input-file {} --target-arch {} --output-file {}'.format(
         defs.SECCOMPILER_TARGET_DIR,
         cargo_target,
@@ -124,9 +123,6 @@ def run_seccompiler_bin(bpf_path,
         platform.machine(),
         bpf_path
     )
-
-    if basic:
-        cmd += ' --basic'
 
     rc, _, _ = utils.run_cmd(cmd)
 

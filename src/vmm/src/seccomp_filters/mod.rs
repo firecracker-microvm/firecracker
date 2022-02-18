@@ -1,11 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
-
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::sync::Arc;
+use utils::seccomp::{deserialize_binary, BpfThreadMap};
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -21,13 +19,13 @@ pub enum FilterError {
     /// Invalid SeccompConfig.
     SeccompConfig(String),
     /// Filter deserialitaion error.
-    Deserialization(DeserializationError),
+    Deserialization(bincode::Error),
     /// Invalid thread categories.
     ThreadCategories(String),
     /// Missing Thread Category.
     MissingThreadCategory(String),
     /// Filter installation error.
-    Install(InstallationError),
+    Install(seccompiler::Error),
     /// File open error.
     FileOpen(std::io::Error),
 }
@@ -83,11 +81,11 @@ impl SeccompConfig {
 }
 
 /// Retrieve the appropriate filters, based on the SeccompConfig.
-pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
+pub fn get_filters(config: SeccompConfig) -> Result<Option<BpfThreadMap>, FilterError> {
     match config {
-        SeccompConfig::None => Ok(get_empty_filters()),
-        SeccompConfig::Advanced => get_default_filters(),
-        SeccompConfig::Custom(reader) => get_custom_filters(reader),
+        SeccompConfig::None => Ok(None),
+        SeccompConfig::Advanced => get_default_filters().map(Some),
+        SeccompConfig::Custom(reader) => get_custom_filters(reader).map(Some),
     }
 }
 
@@ -99,15 +97,6 @@ fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
-}
-
-/// Retrieve empty seccomp filters.
-fn get_empty_filters() -> BpfThreadMap {
-    let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
-    map
 }
 
 /// Retrieve custom seccomp filters.
@@ -149,25 +138,21 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seccompiler::BpfThreadMap;
+    use std::sync::Arc;
+    use utils::seccomp::BpfThreadMap;
     use utils::tempfile::TempFile;
 
     #[test]
     fn test_get_filters() {
-        let mut filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let mut filters = get_filters(SeccompConfig::Advanced).unwrap().unwrap();
         assert_eq!(filters.len(), 3);
         assert!(filters.remove("vmm").is_some());
         assert!(filters.remove("api").is_some());
         assert!(filters.remove("vcpu").is_some());
 
-        let mut filters = get_filters(SeccompConfig::None).unwrap();
-        assert_eq!(filters.len(), 3);
-        assert_eq!(filters.remove("vmm").unwrap().len(), 0);
-        assert_eq!(filters.remove("api").unwrap().len(), 0);
-        assert_eq!(filters.remove("vcpu").unwrap().len(), 0);
+        assert!(get_filters(SeccompConfig::None).unwrap().is_none());
 
         let file = TempFile::new().unwrap().into_file();
-
         assert!(get_filters(SeccompConfig::Custom(Box::new(file))).is_err());
     }
 

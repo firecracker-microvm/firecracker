@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex};
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use mmds::MMDS;
-use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument};
+use utils::seccomp::BpfThreadMap;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
@@ -284,7 +284,7 @@ fn main_exitable() -> ExitCode {
         };
     }
 
-    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
+    let mut seccomp_filters: Option<BpfThreadMap> = match SeccompConfig::from_args(
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
@@ -359,12 +359,10 @@ fn main_exitable() -> ExitCode {
             payload_limit,
         )
     } else {
-        let seccomp_filters: BpfThreadMap = seccomp_filters
-            .into_iter()
-            .filter(|(k, _)| k != "api")
-            .collect();
         run_without_api(
-            &seccomp_filters,
+            seccomp_filters
+                .map(|filters| filters.into_iter().filter(|(k, _)| k != "api").collect())
+                .as_ref(),
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
@@ -443,7 +441,7 @@ fn print_snapshot_data_format(snapshot_path: &str) {
 
 // Configure and start a microVM as described by the command-line JSON.
 fn build_microvm_from_json(
-    seccomp_filters: &BpfThreadMap,
+    seccomp_filters: Option<&BpfThreadMap>,
     event_manager: &mut EventManager,
     config_json: String,
     instance_info: InstanceInfo,
@@ -473,7 +471,7 @@ fn build_microvm_from_json(
 }
 
 fn run_without_api(
-    seccomp_filters: &BpfThreadMap,
+    seccomp_filters: Option<&BpfThreadMap>,
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,

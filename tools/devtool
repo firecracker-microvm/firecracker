@@ -894,7 +894,7 @@ cmd_build() {
         --workdir "$CTR_FC_ROOT_DIR" \
         ${extra_args} \
         -- \
-        cargo build -p seccompiler --bin seccompiler-bin \
+        cargo build -p seccompiler-bin \
             --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
             "${cargo_args[@]}"
     ret=$?

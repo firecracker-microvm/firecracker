@@ -33,6 +33,10 @@
   `cpu_template`, `track_dirty_pages`) to their default values if they are
   not specified in the `PUT` request.
 
+### Removed
+
+- Removed the deprecated `--basic` flag of `seccompiler-bin` binary.
+
 ## [1.0.0]
 
 ### Added

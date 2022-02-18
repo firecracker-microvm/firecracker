@@ -132,7 +132,7 @@ pub enum Error {
     /// Cannot add a device to the MMIO Bus.
     RegisterMMIODevice(device_manager::mmio::Error),
     /// Cannot install seccomp filters.
-    SeccompFilters(seccompiler::InstallationError),
+    SeccompFilters(seccompiler::Error),
     /// Write to the serial console failed.
     Serial(io::Error),
     /// Cannot create Timer file descriptor.
@@ -282,7 +282,7 @@ impl Vmm {
     pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
-        vcpu_seccomp_filter: Arc<BpfProgram>,
+        vcpu_seccomp_filter: Option<Arc<BpfProgram>>,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));

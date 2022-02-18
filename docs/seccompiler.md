@@ -29,8 +29,6 @@ Example usage:
     --input-file "x86_64_musl.json" # File path of the JSON input.
     --output-file "bpf_x86_64_musl" # Optional path of the output file.
                                     # [default: "seccomp_binary_filter.out"]
-    --basic # Optional, creates basic filters, discarding any parameter checks.
-            # (Deprecated).
 ```
 
 ### Seccompiler library
@@ -132,9 +130,6 @@ are expected as base-10 integers.
 In order to allow a syscall with multiple alternatives for the same parameters,
 you can write multiple syscall rule objects at the filter-level, each with its
 own rules.
-
-Note that, when passing the deprecated `--basic` flag to seccompiler-bin, all
-`args` fields of the `SeccompRule`s are ignored.
 
 A **condition object** is made up of the following mandatory properties:
 

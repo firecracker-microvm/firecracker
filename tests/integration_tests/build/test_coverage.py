@@ -48,7 +48,7 @@ KCOV_COVERED_LINES_REGEX = r'"covered_lines":"(\d+)"'
 KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
 """Regex for extracting number of total executable lines found by kcov."""
 
-SECCOMPILER_BUILD_DIR = '../build/seccompiler'
+SECCOMPILER_BUILD_DIR = '../build/seccompiler-bin'
 
 
 @pytest.mark.timeout(400)

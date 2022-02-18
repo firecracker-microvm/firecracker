@@ -24,7 +24,7 @@ pub use micro_http::{
 };
 use mmds::data_store;
 use mmds::data_store::Mmds;
-use seccompiler::BpfProgramRef;
+use seccompiler::BpfProgram;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
@@ -120,7 +120,6 @@ impl ApiServer {
     /// };
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::rpc_interface::VmmData;
-    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
@@ -132,7 +131,6 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
     /// let payload_limit = Some(MAX_DATA_STORE_SIZE);
     ///
     /// thread::Builder::new()
@@ -147,7 +145,7 @@ impl ApiServer {
     ///         .bind_and_run(
     ///             PathBuf::from(api_thread_path_to_socket),
     ///             time_reporter,
-    ///             seccomp_filters.get("api").unwrap(),
+    ///             None,
     ///             payload_limit,
     ///         )
     ///         .unwrap();
@@ -170,7 +168,7 @@ impl ApiServer {
         &mut self,
         path: PathBuf,
         process_time_reporter: ProcessTimeReporter,
-        seccomp_filter: BpfProgramRef,
+        seccomp_filter: Option<Arc<BpfProgram>>,
         maybe_request_size: Option<usize>,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
@@ -189,11 +187,13 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
-            panic!(
-                "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
-                e
-            );
+        if let Some(filter) = seccomp_filter {
+            if let Err(e) = seccompiler::apply_filter(&filter) {
+                panic!(
+                    "Failed to set the requested seccomp filters on the API thread: {}",
+                    e
+                );
+            }
         }
 
         server.start_server().expect("Cannot start HTTP server");
@@ -203,10 +203,7 @@ impl ApiServer {
                 Ok(vec) => vec,
                 Err(e) => {
                     // print request error, but keep server running
-                    error!(
-                        "API Server error on retrieving incoming request. Error: {}",
-                        e
-                    );
+                    error!("API Server error on retrieving incoming request: {}", e);
                     continue;
                 }
             };
@@ -636,7 +633,9 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let api_filter = get_filters(SeccompConfig::Advanced)
+            .unwrap()
+            .map(|mut filters| filters.remove("api").unwrap());
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -650,7 +649,7 @@ mod tests {
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
+                    api_filter,
                     None,
                 )
                 .unwrap();
@@ -683,7 +682,9 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let api_filter = get_filters(SeccompConfig::Advanced)
+            .unwrap()
+            .map(|mut filters| filters.remove("api").unwrap());
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -697,7 +698,7 @@ mod tests {
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
+                    api_filter,
                     Some(50),
                 )
                 .unwrap();

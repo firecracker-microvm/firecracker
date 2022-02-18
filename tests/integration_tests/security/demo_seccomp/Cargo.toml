@@ -7,7 +7,8 @@ edition = "2018"
 [dependencies]
 libc = ">=0.2.39"
 
-seccompiler = { path = "../../../../src/seccompiler" }
+utils = { path = "../../../../src/utils" }
+seccompiler =  ">=0.2.0"
 
 [workspace]
 

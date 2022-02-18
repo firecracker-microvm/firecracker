@@ -14,7 +14,7 @@ use api_server::{ApiRequest, ApiResponse, ApiServer};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
-use seccompiler::BpfThreadMap;
+use utils::seccomp::BpfThreadMap;
 use utils::{epoll::EventSet, eventfd::EventFd};
 use vmm::{
     resources::VmResources,
@@ -118,7 +118,7 @@ impl MutEventSubscriber for ApiServerAdapter {
 }
 
 pub(crate) fn run_with_api(
-    seccomp_filters: &mut BpfThreadMap,
+    seccomp_filters: &mut Option<BpfThreadMap>,
     config_json: Option<String>,
     bind_path: PathBuf,
     instance_info: InstanceInfo,
@@ -142,9 +142,11 @@ pub(crate) fn run_with_api(
         .try_clone()
         .expect("Failed to clone API event FD");
     let api_bind_path = bind_path.clone();
-    let api_seccomp_filter = seccomp_filters
-        .remove("api")
-        .expect("Missing seccomp filter for API thread.");
+    let api_seccomp_filter = seccomp_filters.as_mut().map(|filters| {
+        filters
+            .remove("api")
+            .expect("Missing seccomp filter for API thread.")
+    });
     // Start the separate API thread.
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
@@ -152,7 +154,7 @@ pub(crate) fn run_with_api(
             match ApiServer::new(mmds_info, to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
                 api_bind_path,
                 process_time_reporter,
-                &api_seccomp_filter,
+                api_seccomp_filter,
                 payload_limit,
             ) {
                 Ok(_) => (),
@@ -181,14 +183,14 @@ pub(crate) fn run_with_api(
     // Configure, build and start the microVM.
     let build_result = match config_json {
         Some(json) => super::build_microvm_from_json(
-            &seccomp_filters,
+            seccomp_filters.as_ref(),
             &mut event_manager,
             json,
             instance_info,
             boot_timer_enabled,
         ),
         None => PrebootApiController::build_microvm_from_requests(
-            &seccomp_filters,
+            seccomp_filters.as_ref(),
             &mut event_manager,
             instance_info,
             || {

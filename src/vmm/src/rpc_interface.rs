@@ -34,12 +34,12 @@ use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{builder::StartMicrovmError, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
-use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
     build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
+use utils::seccomp::BpfThreadMap;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -221,7 +221,7 @@ pub type ActionResult = result::Result<VmmData, VmmActionError>;
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
 pub struct PrebootApiController<'a> {
-    seccomp_filters: &'a BpfThreadMap,
+    seccomp_filters: Option<&'a BpfThreadMap>,
     instance_info: InstanceInfo,
     vm_resources: &'a mut VmResources,
     event_manager: &'a mut EventManager,
@@ -237,7 +237,7 @@ pub struct PrebootApiController<'a> {
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
-        seccomp_filters: &'a BpfThreadMap,
+        seccomp_filters: Option<&'a BpfThreadMap>,
         instance_info: InstanceInfo,
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
@@ -259,7 +259,7 @@ impl<'a> PrebootApiController<'a> {
     ///
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     pub fn build_microvm_from_requests<F, G>(
-        seccomp_filters: &BpfThreadMap,
+        seccomp_filters: Option<&BpfThreadMap>,
         event_manager: &mut EventManager,
         instance_info: InstanceInfo,
         recv_req: F,
@@ -705,7 +705,7 @@ mod tests {
     use crate::vmm_config::vsock::VsockBuilder;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
-    use seccompiler::BpfThreadMap;
+    use utils::seccomp::BpfThreadMap;
 
     use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
@@ -988,7 +988,7 @@ mod tests {
         _: &InstanceInfo,
         _: &VmResources,
         _: &mut EventManager,
-        _: &BpfThreadMap,
+        _: Option<&BpfThreadMap>,
     ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
@@ -1008,7 +1008,7 @@ mod tests {
     pub fn restore_from_snapshot(
         _: &InstanceInfo,
         _: &mut EventManager,
-        _: &BpfThreadMap,
+        _: Option<&BpfThreadMap>,
         _: &LoadSnapshotParams,
         _: versionize::VersionMap,
     ) -> Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
@@ -1018,10 +1018,9 @@ mod tests {
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
-        seccomp_filters: &'a BpfThreadMap,
     ) -> PrebootApiController<'a> {
         let instance_info = InstanceInfo::default();
-        PrebootApiController::new(seccomp_filters, instance_info, vm_resources, event_manager)
+        PrebootApiController::new(None, instance_info, vm_resources, event_manager)
     }
 
     fn check_preboot_request<F>(request: VmmAction, check_success: F)
@@ -1030,8 +1029,7 @@ mod tests {
     {
         let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
         let res = preboot.handle_preboot_request(request);
         check_success(res, &vm_resources);
     }
@@ -1043,8 +1041,7 @@ mod tests {
             ..Default::default()
         };
         let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
         let err = preboot.handle_preboot_request(request).unwrap_err();
         assert_eq!(err, expected_err);
     }
@@ -1238,8 +1235,7 @@ mod tests {
     fn test_preboot_load_snapshot() {
         let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
 
         // Without resume.
         let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
@@ -1357,7 +1353,7 @@ mod tests {
         };
 
         let (_vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
-            &BpfThreadMap::new(),
+            None,
             &mut EventManager::new().unwrap(),
             InstanceInfo::default(),
             commands,
@@ -1646,8 +1642,7 @@ mod tests {
     fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
         let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
 
         preboot.handle_preboot_request(res).unwrap();
 

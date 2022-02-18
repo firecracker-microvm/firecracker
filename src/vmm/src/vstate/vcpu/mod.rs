@@ -25,7 +25,7 @@ use crate::{
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use logger::{error, info, IncMetric, METRICS};
-use seccompiler::{BpfProgram, BpfProgramRef};
+use seccompiler::BpfProgram;
 use utils::{
     errno,
     eventfd::EventFd,
@@ -235,7 +235,7 @@ impl Vcpu {
     /// The handle can be used to control the remote vcpu.
     pub fn start_threaded(
         mut self,
-        seccomp_filter: Arc<BpfProgram>,
+        seccomp_filter: Option<Arc<BpfProgram>>,
         barrier: Arc<Barrier>,
     ) -> Result<VcpuHandle> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
@@ -243,12 +243,11 @@ impl Vcpu {
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.kvm_vcpu.index))
             .spawn(move || {
-                let filter = &*seccomp_filter;
                 self.init_thread_local_data()
                     .expect("Cannot cleanly initialize vcpu TLS.");
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
-                self.run(filter);
+                self.run(seccomp_filter);
             })
             .map_err(Error::VcpuSpawn)?;
 
@@ -264,15 +263,17 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
+    pub fn run(&mut self, seccomp_filter: Option<Arc<BpfProgram>>) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
-            panic!(
-                "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
-                self.kvm_vcpu.index, e
-            );
+        if let Some(filter) = seccomp_filter {
+            if let Err(e) = seccompiler::apply_filter(&filter) {
+                panic!(
+                    "Failed to set the requested seccomp filters on vCPU {}: {}",
+                    self.kvm_vcpu.index, e
+                );
+            }
         }
 
         // Start running the machine state in the `Paused` state.
@@ -662,7 +663,6 @@ mod tests {
 
     use super::*;
     use crate::builder::StartMicrovmError;
-    use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
     use linux_loader::loader::KernelLoader;
@@ -924,10 +924,9 @@ mod tests {
                 .expect("failed to configure vcpu");
         }
 
-        let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
         let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
-            .start_threaded(seccomp_filters.remove("vcpu").unwrap(), barrier.clone())
+            .start_threaded(None, barrier.clone())
             .expect("failed to start vcpu");
         // Wait for vCPUs to initialize their TLS before moving forward.
         barrier.wait();

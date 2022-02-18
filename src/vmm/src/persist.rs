@@ -30,8 +30,8 @@ use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
-use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
+use utils::seccomp::BpfThreadMap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -436,7 +436,7 @@ pub fn snapshot_state_sanity_check(
 pub fn restore_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
-    seccomp_filters: &BpfThreadMap,
+    seccomp_filters: Option<&BpfThreadMap>,
     params: &LoadSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
