@@ -54,23 +54,19 @@ impl From<sock_filter> for seccompiler::sock_filter {
 }
 
 /// Deserialize a BPF file into a collection of usable BPF filters.
-/// Has an optional `bytes_limit` that is passed to bincode to constrain the maximum amount of memory
+/// Also takes a `bytes_limit` that is passed to bincode to constrain the maximum amount of memory
 /// that we can allocate while performing the deserialization.
 pub fn deserialize_binary<R: Read>(
     reader: R,
-    bytes_limit: Option<u64>,
+    bytes_limit: u64,
 ) -> Result<BpfThreadMap, bincode::Error> {
-    let result = match bytes_limit {
-        // Also add the default options. These are not part of the `DefaultOptions` as per
-        // this issue: https://github.com/servo/bincode/issues/333
-        Some(limit) => DefaultOptions::new()
-            .with_fixint_encoding()
-            .allow_trailing_bytes()
-            .with_limit(limit)
-            .deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
-        // No limit is the default.
-        None => bincode::deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
-    };
+    // Also add the default options. These are not part of the `DefaultOptions` as per
+    // this issue: https://github.com/servo/bincode/issues/333
+    let result = DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(bytes_limit)
+        .deserialize_from::<R, HashMap<String, BpfProgram>>(reader);
 
     Ok(result?
         .into_iter()

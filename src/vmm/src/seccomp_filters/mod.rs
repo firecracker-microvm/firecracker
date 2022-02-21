@@ -15,7 +15,7 @@ const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 // allocation DOS caused by binary filters that are too large.
 // This limit can be safely determined since the maximum length of a BPF
 // filter is 4096 instructions and Firecracker has a finite number of threads.
-const DESERIALIZATION_BYTES_LIMIT: Option<u64> = Some(100_000);
+const DESERIALIZATION_BYTES_LIMIT: u64 = 100_000;
 
 /// Error retrieving seccomp filters.
 #[derive(fmt::Debug)]
