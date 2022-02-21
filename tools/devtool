@@ -111,9 +111,6 @@ CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 
-# Full path to the seccompiler cargo target dir on the host.
-CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
-
 # Full path to the Firecracker sources dir, as bind-mounted in the container.
 CTR_FC_ROOT_DIR="/firecracker"
 
@@ -122,9 +119,6 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
-
-# Full path to the seccompiler cargo target dir, as bind-mounted in the container.
-CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
 
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
@@ -305,7 +299,7 @@ build_jailer_bin_path() {
 build_seccomp_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+    echo "$CARGO_TARGET_DIR/$target/$profile/seccompiler-bin"
 }
 
 ensure_release_binaries_exist() {
@@ -889,7 +883,7 @@ cmd_build() {
         ${extra_args} \
         -- \
         cargo build -p seccompiler-bin \
-            --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
+            --target-dir "$CTR_CARGO_TARGET_DIR" \
             "${cargo_args[@]}"
     ret=$?
 
@@ -926,13 +920,11 @@ cmd_build() {
     # If `cargo build` was successful, output a message.
     [ $ret -eq 0 ] && {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
-        seccompiler_bin_dir="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile"
 
         # Seccompiler has a different build folder, we need to output two
         # messages.
         say "Build successful."
-        say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
-        say "Seccompiler-bin binary placed under $seccompiler_bin_dir"
+        say "Firecracker, Jailer and seccompiler-bin binaries placed under $cargo_bin_dir"
     }
 
     return $ret
@@ -989,13 +981,12 @@ cmd_strip() {
       strip $strip_flags\
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
         "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
-        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/seccompiler-bin"
     ret=$?
 
     [ $ret -eq 0 ] && {
         say "Stripping was successful."
-        say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
-        say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
+        say "Stripped Firecracker, Jailer and seccompiler-bin binaries placed under $CARGO_TARGET_DIR/$target/$profile."
     }
 
     return $ret
