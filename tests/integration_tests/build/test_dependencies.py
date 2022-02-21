@@ -50,8 +50,9 @@ def test_num_dependencies(dep_file):
             current_deps.add(line)
 
     # Use the code below to update the expected dependencies.
+    # from pprint import pprint
     # with open(dep_file, "w", encoding='utf-8') as prev_deps:
-    #     prev_deps.write(str(current_deps))
+    #     pprint(sorted(current_deps), stream=prev_deps)
 
     with open(dep_file, encoding='utf-8') as prev_deps:
         prev_deps = ast.literal_eval(prev_deps.read())
