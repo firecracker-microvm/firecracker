@@ -15,12 +15,17 @@ as follows:
 installed, since they are not intended for production use.
 
 Firecracker uses JSON files for expressing the filter rules and relies on the
-[seccompiler](seccompiler.md) tool for all the seccomp functionality.
+[seccompiler rust-vmm lib](https://github.com/rust-vmm/seccompiler) for
+build-time compilation of the default filters and later installing them.
+
+For using custom filters, a separate tool called
+[seccompiler-bin](seccompiler-bin.md) is exported from the Firecracker
+workspace.
 
 ## Default filters (recommended)
 
 At build time, the default target-specific JSON file is compiled into the
-serialized binary file, using seccompiler-bin, and gets embedded in the
+serialized binary file, using the seccompiler library, and gets embedded in the
 Firecracker binary.
 
 This process is performed automatically, when building the executable.
@@ -47,8 +52,8 @@ for example checksums, as well as for the Firecracker binary or other artifacts,
 in order to mitigate potential man-in-the-middle attacks.
 
 Firecracker exposes a way for advanced users to override the default filters
-with fully customisable alternatives, leveraging the same JSON/seccompiler
-tooling, at startup time.
+with fully customisable alternatives, leveraging the same JSON file format and
+the [seccompiler-bin tool](seccompiler-bin.md), at startup time.
 
 Via Firecracker's optional `--seccomp-filter` parameter, one can supply
 the path to a custom filter file compiled with seccompiler-bin.
@@ -57,7 +62,7 @@ Potential use cases:
 
 - Users of experimentally-supported targets (like GNU libc builds) may be able
     to use this feature to implement seccomp filters without needing to have a
-    custom build of Firecracker.
+    custom patch over Firecracker.
 - Faced with a _theoretical_ production issue, due to a syscall that was
     issued by the Firecracker process, but not allowed by the seccomp policy,
     one may use a custom filter in order to quickly mitigate the issue. This

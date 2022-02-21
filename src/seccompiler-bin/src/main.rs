@@ -2,35 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
-//! into raw BPF programs, serializing them and outputting them to a file.
-//!
-//! Used in conjunction with the provided library crate, one can deserialize the binary filters
-//! and easily install them on a per-thread basis, in order to achieve a quick and robust
-//! seccomp-based jailing solution.
-//!
-//! See the documentation on github for more information.
-//!
-//!  ```text
-//! The compilation goes through a couple of steps, from JSON to BPF:
-//!
-//!                  JSON
-//!                   |
-//!            (via serde_json)
-//!                   |
-//!                   V
-//!       collection of `Filter` objects
-//!                   |
-//!      (via Compiler.compile_blob(...))
-//!                   |
-//!                   V
-//!   collection of `SeccompFilter` objects
-//!     (IR - intermediate representation)
-//!                   |
-//!    (via SeccompFilter.try_into::<BpfProgram>(...))
-//!                   |
-//!                   V
-//!     collection of `BpfProgram` objects
-//! ```
+//! into raw BPF programs, serializing them and outputting them to a file. It uses the
+//! [seccompiler library from rust-vmm](https://github.com/rust-vmm/seccompiler),
+//! with the added functionality of serializing the compiled BPF filters into a
+//! binary file using `bincode`.
+
+//! Such a binary file can then be directly consumed by Firecracker, using the `--seccomp-filter`
+//! parameter, to provide custom seccomp filters. Read the docs in `seccomp.md` for more info.
 
 use std::collections::HashMap;
 use std::convert::TryInto;
