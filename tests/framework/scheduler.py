@@ -219,7 +219,6 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             PytestScheduler.filter_batch(session.config,
                                          batch,
                                          marker_name="nonci")
-            break
 
         for batch in schedule:
             self._raw_stdout(
