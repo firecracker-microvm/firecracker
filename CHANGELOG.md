@@ -7,6 +7,8 @@
 - The API `PATCH` methods for `machine-config` can now be used to reset
   the `cpu_template` to `"None"`. Until this change there was no way to
   reset the `cpu_template` once it was set.
+- Added a `rebase-snap` tool for rebasing a diff snapshot over a base
+  snapshot.
 
 ### Changed
 
