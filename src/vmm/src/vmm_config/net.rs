@@ -192,7 +192,6 @@ impl NetBuilder {
             cfg.guest_mac.as_ref(),
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
-            false,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
@@ -395,7 +394,6 @@ mod tests {
             Some(&MacAddr::parse_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
-            false,
         )
         .unwrap();
 
