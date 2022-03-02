@@ -84,7 +84,6 @@ impl Persist<'_> for Net {
             None,
             rx_rate_limiter,
             tx_rate_limiter,
-            state.mmds_ns.is_some(),
         )
         .map_err(Error::CreateNet)?;
 

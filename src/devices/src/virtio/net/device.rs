@@ -136,7 +136,6 @@ impl Net {
         guest_mac: Option<&MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
-        allow_mmds_requests: bool,
     ) -> Result<Self> {
         let tap = Tap::open_named(&tap_if_name).map_err(Error::TapOpen)?;
 
@@ -167,17 +166,12 @@ impl Net {
         }
 
         let mut queue_evts = Vec::new();
-        for _ in QUEUE_SIZES.iter() {
+        let mut queues = Vec::new();
+        for &size in QUEUE_SIZES {
             queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?);
+            queues.push(Queue::new(size));
         }
 
-        let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
-
-        let mmds_ns = if allow_mmds_requests {
-            Some(MmdsNetworkStack::new_with_defaults(None))
-        } else {
-            None
-        };
         Ok(Net {
             id,
             tap,
@@ -197,7 +191,7 @@ impl Net {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             config_space,
-            mmds_ns,
+            mmds_ns: None,
             guest_mac: guest_mac.copied(),
 
             #[cfg(test)]

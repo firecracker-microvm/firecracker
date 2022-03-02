@@ -16,6 +16,7 @@ use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
 use crate::virtio::{Net, Queue, QueueError};
+use mmds::ns::MmdsNetworkStack;
 
 use rate_limiter::RateLimiter;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -34,15 +35,15 @@ pub fn default_net() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new_with_tap(
+    let mut net = Net::new_with_tap(
         format!("net-device{}", next_tap),
         tap_dev_name,
         Some(&guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
-        true,
     )
     .unwrap();
+    net.configure_mmds_network_stack(MmdsNetworkStack::default_ipv4_addr());
     enable(&net.tap);
 
     net
