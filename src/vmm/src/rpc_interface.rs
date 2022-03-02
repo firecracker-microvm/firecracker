@@ -102,6 +102,8 @@ pub enum VmmAction {
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
+    /// Set shutdown signal via ACPI
+    SendACPIShutdown,
     /// Update the balloon size, after microVM start.
     UpdateBalloon(BalloonUpdateConfig),
     /// Update the balloon statistics polling interval, after microVM start.
@@ -347,6 +349,7 @@ impl<'a> PrebootApiController<'a> {
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            SendACPIShutdown => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -522,6 +525,7 @@ impl RuntimeApiController {
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
+            SendACPIShutdown => self.send_acpi_shutdown(),
             UpdateBalloon(balloon_update) => self
                 .vmm
                 .lock()
@@ -613,6 +617,15 @@ impl RuntimeApiController {
             .lock()
             .expect("Poisoned lock")
             .send_ctrl_alt_del()
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::InternalVmm)
+    }
+
+    fn send_acpi_shutdown(&mut self) -> ActionResult {
+        self.vmm
+            .lock()
+            .expect("Poisoned lock")
+            .send_acpi_shutdown()
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::InternalVmm)
     }

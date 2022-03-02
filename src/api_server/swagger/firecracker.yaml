@@ -873,6 +873,7 @@ definitions:
         enum:
           - FlushMetrics
           - InstanceStart
+          - SendACPIShutdown
           - SendCtrlAltDel
 
   InstanceInfo:

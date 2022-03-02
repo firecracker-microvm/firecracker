@@ -5,7 +5,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-use acpi_tables::{rsdp::RSDP, sdt::SDT};
+use acpi_tables::{rsdp::RSDP, sdt::GenericAddress, sdt::SDT};
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[repr(packed)]
@@ -35,14 +35,17 @@ const MADT_CPU_ENABLE_FLAG: usize = 0;
 // Needs to be in upper memory range 0xE0000-0xFFFFF, see
 // https://elixir.bootlin.com/linux/v4.14.209/source/drivers/acpi/acpica/tbxfroot.c#L211
 pub const RSDP_ADDR: u64 = 0xe0000;
+pub const ACPI_SCI_INT: u8 = 9;
+pub const ACPI_X_PM1A_EVT_BLK: u16 = 0x500;
+pub const ACPI_PM1_EVT_LEN: u8 = 4;
 
 pub fn create_acpi_tables(guest_mem: &GuestMemoryMmap, num_cpus: u8) -> GuestAddress {
     let rsdp_offset = GuestAddress(RSDP_ADDR);
     let mut tables: Vec<u64> = Vec::new();
 
     // DSDT
-    let mut dsdt = SDT::new(*b"DSDT", 36, 6, *b"FIRECK", *b"FCDSDT  ", 1);
-    dsdt.update_checksum();
+    let dsdt = SDT::new(*b"DSDT", 36, 6, *b"FIRECK", *b"FCDSDT  ", 1);
+
     let dsdt_offset = rsdp_offset.checked_add(RSDP::len() as u64).unwrap();
     guest_mem
         .write_slice(dsdt.as_slice(), dsdt_offset)
@@ -51,16 +54,17 @@ pub fn create_acpi_tables(guest_mem: &GuestMemoryMmap, num_cpus: u8) -> GuestAdd
     // FACP aka FADT
     // Revision 6 of the ACPI FADT table is 276 bytes long
     let mut facp = SDT::new(*b"FACP", 276, 6, *b"FIRECK", *b"FCFACP  ", 1);
-
-    let fadt_flags: u32 = 1 << 20; // HW_REDUCED_ACPI
-    facp.write(112, fadt_flags);
-
+    facp.write(46, ACPI_SCI_INT); // SCI_INT
+    facp.write(88, ACPI_PM1_EVT_LEN); // PM1_EVT_LEN
     facp.write(131, 3u8); // FADT minor version
     facp.write(140, dsdt_offset.0); // X_DSDT
-
+    facp.write(
+        148,
+        GenericAddress::io_port_address::<u32>(ACPI_X_PM1A_EVT_BLK),
+    ); // X_PM1a_EVT_BLK
     facp.write(268, b"FIRECRCK"); // Hypervisor Vendor Identity
-
     facp.update_checksum();
+
     let facp_offset = dsdt_offset.checked_add(dsdt.len() as u64).unwrap();
     guest_mem
         .write_slice(facp.as_slice(), facp_offset)

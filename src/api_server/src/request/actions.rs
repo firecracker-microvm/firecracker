@@ -18,6 +18,7 @@ enum ActionType {
     FlushMetrics,
     InstanceStart,
     SendCtrlAltDel,
+    SendACPIShutdown,
 }
 
 // The model of the json body from a sync request. We use Serde to transform each associated
@@ -43,11 +44,22 @@ pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
             #[cfg(target_arch = "aarch64")]
             return Err(Error::Generic(
                 StatusCode::BadRequest,
-                "SendCtrlAltDel does not supported on aarch64.".to_string(),
+                "SendCtrlAltDel is not supported on aarch64.".to_string(),
             ));
 
             #[cfg(target_arch = "x86_64")]
             Ok(ParsedRequest::new_sync(VmmAction::SendCtrlAltDel))
+        }
+        ActionType::SendACPIShutdown => {
+            // SendACPIShutdown not supported on aarch64.
+            #[cfg(target_arch = "aarch64")]
+            return Err(Error::Generic(
+                StatusCode::BadRequest,
+                "SendACPIShutdown is not supported on aarch64.".to_string(),
+            ));
+
+            #[cfg(target_arch = "x86_64")]
+            Ok(ParsedRequest::new_sync(VmmAction::SendACPIShutdown))
         }
     }
 }
@@ -86,7 +98,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         {
             let json = r#"{
-                "action_type": "SendCtrlAltDel"
+                "action_type": "SendACPIShutdown"
             }"#;
 
             let result = parse_put_actions(&Body::new(json));

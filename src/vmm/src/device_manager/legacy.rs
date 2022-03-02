@@ -63,10 +63,11 @@ pub struct PortIODeviceManager {
     pub io_bus: devices::Bus,
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
     pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
-
+    pub gpio: Arc<Mutex<devices::legacy::GpioDevice>>,
     pub com_evt_1_3: EventFdTrigger,
     pub com_evt_2_4: EventFdTrigger,
     pub kbd_evt: EventFd,
+    pub gpio_evt: EventFd,
 }
 
 impl PortIODeviceManager {
@@ -82,19 +83,26 @@ impl PortIODeviceManager {
             .map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let gpio_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
             i8042_reset_evfd,
             kbd_evt.try_clone().map_err(Error::EventFd)?,
         )));
 
+        let gpio = Arc::new(Mutex::new(devices::legacy::GpioDevice::new(
+            gpio_evt.try_clone().map_err(Error::EventFd)?,
+        )));
+
         Ok(PortIODeviceManager {
             io_bus,
             stdio_serial: serial,
             i8042,
+            gpio,
             com_evt_1_3,
             com_evt_2_4,
             kbd_evt,
+            gpio_evt,
         })
     }
 
@@ -117,6 +125,9 @@ impl PortIODeviceManager {
         self.io_bus
             .insert(self.i8042.clone(), 0x060, 0x5)
             .map_err(Error::BusError)?;
+        self.io_bus
+            .insert(self.gpio.clone(), 0x500, 0x4)
+            .map_err(Error::BusError)?;
 
         vm_fd
             .register_irqfd(&self.com_evt_1_3, 4)
@@ -126,6 +137,9 @@ impl PortIODeviceManager {
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
             .register_irqfd(&self.kbd_evt, 1)
+            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+        vm_fd
+            .register_irqfd(&self.gpio_evt, 9)
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
         Ok(())
