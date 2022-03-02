@@ -1,9 +1,10 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde_json::Value;
 use std::fmt::{Display, Formatter};
 use std::result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::Error as VmmError;
 #[cfg(not(test))]
@@ -34,6 +35,8 @@ use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{builder::StartMicrovmError, warn, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
+use mmds::data_store::{self, Mmds};
+use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
@@ -63,6 +66,8 @@ pub enum VmmAction {
     GetBalloonStats,
     /// Get complete microVM configuration in JSON format.
     GetFullVmConfig,
+    /// Get MMDS contents.
+    GetMMDS,
     /// Get the machine configuration of the microVM.
     GetVmMachineConfig,
     /// Get microVM instance information.
@@ -82,8 +87,12 @@ pub enum VmmAction {
     /// called before the microVM has booted. If this action is successful, the loaded microVM will
     /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
     LoadSnapshot(LoadSnapshotParams),
+    /// Partial update of the MMDS contents.
+    PatchMMDS(Value),
     /// Pause the guest, by pausing the microVM VCPUs.
     Pause,
+    /// Repopulate the MMDS contents.
+    PutMMDS(Value),
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
@@ -140,8 +149,12 @@ pub enum VmmActionError {
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
+    /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
+    Mmds(data_store::Error),
     /// The action `SetMmdsConfiguration` failed because of bad user input.
     MmdsConfig(MmdsConfigError),
+    /// Mmds contents update failed due to exceeding the data store limit.
+    MmdsLimitExceeded(data_store::Error),
     /// The action `InsertNetworkDevice` failed because of bad user input.
     NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported.
@@ -177,7 +190,9 @@ impl Display for VmmActionError {
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 Metrics(err) => err.to_string(),
+                Mmds(err) => err.to_string(),
                 MmdsConfig(err) => err.to_string(),
+                MmdsLimitExceeded(err) => err.to_string(),
                 NetworkConfig(err) => err.to_string(),
                 NotSupported(err) => format!("The requested operation is not supported: {}", err),
                 OperationNotSupportedPostBoot => {
@@ -210,6 +225,8 @@ pub enum VmmData {
     FullVmConfig(VmmConfig),
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
+    /// Mmds contents.
+    MmdsValue(serde_json::Value),
     /// The microVM instance information.
     InstanceInformation(InstanceInfo),
     /// The microVM version.
@@ -218,6 +235,32 @@ pub enum VmmData {
 
 /// Shorthand result type for external VMM commands.
 pub type ActionResult = result::Result<VmmData, VmmActionError>;
+
+/// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
+trait MmdsRequestHandler {
+    fn mmds(&self) -> MutexGuard<'_, Mmds>;
+
+    fn get_mmds(&self) -> ActionResult {
+        Ok(VmmData::MmdsValue(self.mmds().data_store_value()))
+    }
+
+    fn patch_mmds(&self, value: serde_json::Value) -> ActionResult {
+        self.mmds()
+            .patch_data(value)
+            .map(|()| VmmData::Empty)
+            .map_err(|e| match e {
+                data_store::Error::DataStoreLimitExceeded => {
+                    VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
+                }
+                _ => VmmActionError::Mmds(e),
+            })
+    }
+
+    fn put_mmds(&self, value: serde_json::Value) -> ActionResult {
+        self.mmds().put_data(value);
+        Ok(VmmData::Empty)
+    }
+}
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
 pub struct PrebootApiController<'a> {
@@ -232,6 +275,12 @@ pub struct PrebootApiController<'a> {
     // Some PrebootApiRequest errors are irrecoverable and Firecracker
     // should cleanly teardown if they occur.
     fatal_error: Option<ExitCode>,
+}
+
+impl MmdsRequestHandler for PrebootApiController<'_> {
+    fn mmds(&self) -> MutexGuard<'_, Mmds> {
+        MMDS.lock().expect("Poisoned lock")
+    }
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -322,6 +371,7 @@ impl<'a> PrebootApiController<'a> {
                 warn!("If the VM was restored from snapshot, boot-source, machine-config.smt, and machine-config.cpu_template will all be empty.");
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
+            GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -330,6 +380,8 @@ impl<'a> PrebootApiController<'a> {
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self.load_snapshot(&config),
+            PatchMMDS(value) => self.patch_mmds(value),
+            PutMMDS(value) => self.put_mmds(value),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
@@ -486,6 +538,12 @@ pub struct RuntimeApiController {
     vm_resources: VmResources,
 }
 
+impl MmdsRequestHandler for RuntimeApiController {
+    fn mmds(&self) -> MutexGuard<'_, Mmds> {
+        MMDS.lock().expect("Poisoned lock")
+    }
+}
+
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
     pub fn handle_request(&mut self, request: VmmAction) -> ActionResult {
@@ -509,6 +567,7 @@ impl RuntimeApiController {
                 .map(VmmData::BalloonStats)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -518,7 +577,9 @@ impl RuntimeApiController {
             GetVmmVersion => Ok(VmmData::VmmVersion(
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
+            PatchMMDS(value) => self.patch_mmds(value),
             Pause => self.pause(),
+            PutMMDS(value) => self.put_mmds(value),
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
@@ -730,6 +791,8 @@ mod tests {
                     | (Logger(_), Logger(_))
                     | (MachineConfig(_), MachineConfig(_))
                     | (Metrics(_), Metrics(_))
+                    | (Mmds(_), Mmds(_))
+                    | (MmdsLimitExceeded(_), MmdsLimitExceeded(_))
                     | (MmdsConfig(_), MmdsConfig(_))
                     | (NetworkConfig(_), NetworkConfig(_))
                     | (NotSupported(_), NotSupported(_))
@@ -1237,6 +1300,146 @@ mod tests {
             req,
             VmmActionError::MmdsConfig(MmdsConfigError::InvalidIpv4Addr),
         );
+    }
+
+    #[test]
+    fn test_preboot_get_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
+        });
+    }
+
+    #[test]
+    fn test_runtime_get_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
+        });
+    }
+
+    #[test]
+    fn test_preboot_put_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        check_preboot_request(
+            VmmAction::PutMMDS(Value::String("string".to_string())),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+            );
+        });
+    }
+
+    #[test]
+    fn test_runtime_put_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        check_runtime_request(
+            VmmAction::PutMMDS(Value::String("string".to_string())),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+            );
+        });
+    }
+
+    #[test]
+    fn test_preboot_patch_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        // MMDS data store is not yet initialized.
+        check_preboot_request_err(
+            VmmAction::PatchMMDS(Value::String("string".to_string())),
+            VmmActionError::Mmds(data_store::Error::NotInitialized),
+        );
+
+        check_preboot_request(
+            VmmAction::PutMMDS(
+                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+            ),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
+                ))
+            );
+        });
+
+        check_preboot_request(
+            VmmAction::PatchMMDS(
+                serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
+            ),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+
+        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
+                ))
+            );
+        });
+    }
+
+    #[test]
+    fn test_runtime_patch_mmds() {
+        *(MMDS.lock().unwrap()) = Mmds::default();
+        // MMDS data store is not yet initialized.
+        check_runtime_request_err(
+            VmmAction::PatchMMDS(Value::String("string".to_string())),
+            VmmActionError::Mmds(data_store::Error::NotInitialized),
+        );
+
+        check_runtime_request(
+            VmmAction::PutMMDS(
+                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+            ),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
+                ))
+            );
+        });
+
+        check_runtime_request(
+            VmmAction::PatchMMDS(
+                serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
+            ),
+            |result, _| {
+                assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+
+        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
+                ))
+            );
+        });
     }
 
     #[test]

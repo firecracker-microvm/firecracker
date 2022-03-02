@@ -190,14 +190,19 @@ impl Mmds {
         Ok(())
     }
 
-    // We do not check size of data_store before returning a result because due
-    // to limit from put/patch the data_store can not be bigger than the limit
-    // imposed by the server.
-    pub fn get_data_str(&self) -> String {
+    #[cfg(test)]
+    fn get_data_str(&self) -> String {
         if self.data_store.is_null() {
             return String::from("{}");
         }
         self.data_store.to_string()
+    }
+
+    // We do not check size of data_store before returning a result because due
+    // to limit from put/patch the data_store can not be bigger than the limit
+    // imposed by the server.
+    pub fn data_store_value(&self) -> Value {
+        self.data_store.clone()
     }
 
     /// Returns the serde::Value in IMDS format plaintext.
