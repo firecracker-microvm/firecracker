@@ -11,7 +11,7 @@ mod request;
 
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex, MutexGuard};
+use std::sync::mpsc;
 use std::{fmt, io};
 
 use crate::parsed_request::{ParsedRequest, RequestAction};
@@ -22,8 +22,6 @@ pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
-use mmds::data_store;
-use mmds::data_store::Mmds;
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -64,8 +62,6 @@ type Result<T> = std::result::Result<T, Error>;
 
 /// Structure associated with the API server implementation.
 pub struct ApiServer {
-    /// MMDS info directly accessible from the API thread.
-    mmds_info: Arc<Mutex<Mmds>>,
     /// Sender which allows passing messages to the VMM.
     api_request_sender: mpsc::Sender<ApiRequest>,
     /// Receiver which collects messages from the VMM.
@@ -82,13 +78,11 @@ impl ApiServer {
     ///
     /// Returns the newly formed `ApiServer`.
     pub fn new(
-        mmds_info: Arc<Mutex<Mmds>>,
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
     ) -> Self {
         ApiServer {
-            mmds_info,
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -112,7 +106,6 @@ impl ApiServer {
     /// use api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
     /// use mmds::MAX_DATA_STORE_SIZE;
-    /// use mmds::MMDS;
     /// use std::env::consts::ARCH;
     /// use std::{
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
@@ -130,7 +123,6 @@ impl ApiServer {
     /// let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
-    /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
     /// let payload_limit = Some(MAX_DATA_STORE_SIZE);
@@ -138,19 +130,14 @@ impl ApiServer {
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
     ///     .spawn(move || {
-    ///         ApiServer::new(
-    ///             mmds_info,
-    ///             api_request_sender,
-    ///             vmm_response_receiver,
-    ///             to_vmm_fd,
-    ///         )
-    ///         .bind_and_run(
-    ///             PathBuf::from(api_thread_path_to_socket),
-    ///             time_reporter,
-    ///             seccomp_filters.get("api").unwrap(),
-    ///             payload_limit,
-    ///         )
-    ///         .unwrap();
+    ///         ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
+    ///             .bind_and_run(
+    ///                 PathBuf::from(api_thread_path_to_socket),
+    ///                 time_reporter,
+    ///                 seccomp_filters.get("api").unwrap(),
+    ///                 payload_limit,
+    ///             )
+    ///             .unwrap();
     ///     })
     ///     .unwrap();
     ///
@@ -249,9 +236,6 @@ impl ApiServer {
                     RequestAction::Sync(vmm_action) => {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
                     }
-                    RequestAction::GetMMDS => self.get_mmds(),
-                    RequestAction::PatchMMDS(value) => self.patch_mmds(value),
-                    RequestAction::PutMMDS(value) => self.put_mmds(value),
                     RequestAction::ShutdownInternal => {
                         self.shutdown_flag = true;
                         Response::new(Version::Http11, StatusCode::NoContent)
@@ -311,43 +295,6 @@ impl ApiServer {
         response
     }
 
-    fn unlock_mmds(&self) -> MutexGuard<'_, Mmds> {
-        self.mmds_info
-            .lock()
-            .expect("Failed to acquire lock on MMDS info")
-    }
-
-    fn get_mmds(&self) -> Response {
-        let data = self.unlock_mmds().get_data_str();
-        ApiServer::json_response(StatusCode::OK, data)
-    }
-
-    fn patch_mmds(&self, value: serde_json::Value) -> Response {
-        let mmds_response = self.unlock_mmds().patch_data(value);
-
-        match mmds_response {
-            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
-            Err(e) => match e {
-                data_store::Error::NotFound
-                | data_store::Error::UnsupportedValueType
-                | data_store::Error::TokenAuthority(_) => unreachable!(),
-                data_store::Error::NotInitialized => ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(e.to_string()),
-                ),
-                data_store::Error::DataStoreLimitExceeded => ApiServer::json_response(
-                    StatusCode::PayloadTooLarge,
-                    ApiServer::json_fault_message(e.to_string()),
-                ),
-            },
-        }
-    }
-
-    fn put_mmds(&self, value: serde_json::Value) -> Response {
-        self.unlock_mmds().put_data(value);
-        Response::new(Version::Http11, StatusCode::NoContent)
-    }
-
     /// An HTTP response which also includes a body.
     pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
@@ -371,7 +318,6 @@ mod tests {
     use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
-    use mmds::MMDS;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
@@ -413,14 +359,8 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
 
-        let mut api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
+        let mut api_server = ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd);
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MissingKernelConfig,
@@ -470,80 +410,12 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mmds() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        let api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-
-        let response = api_server.get_mmds();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[test]
-    fn test_put_mmds() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        let api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-        let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
-        assert_eq!(response.status(), StatusCode::NoContent);
-    }
-
-    #[test]
-    fn test_patch_mmds() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = Arc::new(Mutex::new(Mmds::default()));
-
-        let api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-
-        // MMDS data store is not yet initialized.
-        let response = api_server.patch_mmds(serde_json::Value::Bool(true));
-        assert_eq!(response.status(), StatusCode::BadRequest);
-
-        let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
-        assert_eq!(response.status(), StatusCode::NoContent);
-
-        let response = api_server.patch_mmds(serde_json::Value::String(
-            "{ \"key\" : \"value\" }".to_string(),
-        ));
-        assert_eq!(response.status(), StatusCode::NoContent);
-    }
-
-    #[test]
     fn test_handle_request() {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
 
-        let mut api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
+        let mut api_server = ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd);
 
         // Test an Actions request.
         let (mut sender, receiver) = UnixStream::pair().unwrap();
@@ -575,39 +447,6 @@ mod tests {
         let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Test a Get Mmds request.
-        sender.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
-        assert_eq!(response.status(), StatusCode::OK);
-
-        // Test a Put Mmds request.
-        sender
-            .write_all(
-                b"PUT /mmds HTTP/1.1\r\n\
-                Content-Type: application/json\r\n\
-                Content-Length: 2\r\n\r\n{}",
-            )
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
-        assert_eq!(response.status(), StatusCode::NoContent);
-
-        // Test a Patch Mmds request.
-        sender
-            .write_all(
-                b"PATCH /mmds HTTP/1.1\r\n\
-                Content-Type: application/json\r\n\
-                Content-Length: 2\r\n\r\n{}",
-            )
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
-        assert_eq!(response.status(), StatusCode::NoContent);
-
         // Test erroneous request.
         sender
             .write_all(
@@ -631,35 +470,34 @@ mod tests {
 
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
+        let (to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
             .spawn(move || {
-                ApiServer::new(
-                    mmds_info,
-                    api_request_sender,
-                    vmm_response_receiver,
-                    to_vmm_fd,
-                )
-                .bind_and_run(
-                    PathBuf::from(api_thread_path_to_socket),
-                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
-                    None,
-                )
-                .unwrap();
+                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
+                    .bind_and_run(
+                        PathBuf::from(api_thread_path_to_socket),
+                        ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                        seccomp_filters.get("api").unwrap(),
+                        None,
+                    )
+                    .unwrap();
             })
             .unwrap();
 
         // Wait for the server to set itself up.
         thread::sleep(Duration::from_millis(10));
+        to_api
+            .send(Box::new(Ok(VmmData::InstanceInformation(
+                InstanceInfo::default(),
+            ))))
+            .unwrap();
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
-        // Send a GET mmds request.
-        assert!(sock.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").is_ok());
+        // Send a GET InstanceInfo request.
+        assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
 
@@ -679,25 +517,19 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
             .spawn(move || {
-                ApiServer::new(
-                    mmds_info,
-                    api_request_sender,
-                    vmm_response_receiver,
-                    to_vmm_fd,
-                )
-                .bind_and_run(
-                    PathBuf::from(api_thread_path_to_socket),
-                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
-                    Some(50),
-                )
-                .unwrap();
+                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
+                    .bind_and_run(
+                        PathBuf::from(api_thread_path_to_socket),
+                        ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                        seccomp_filters.get("api").unwrap(),
+                        Some(50),
+                    )
+                    .unwrap();
             })
             .unwrap();
 

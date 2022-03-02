@@ -137,7 +137,6 @@ pub(crate) fn run_with_api(
     MMDS.lock()
         .expect("Failed to acquire lock on MMDS")
         .set_data_store_limit(payload_limit.unwrap_or(MAX_DATA_STORE_SIZE));
-    let mmds_info = MMDS.clone();
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
@@ -149,7 +148,7 @@ pub(crate) fn run_with_api(
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            match ApiServer::new(mmds_info, to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
+            match ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
                 api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
