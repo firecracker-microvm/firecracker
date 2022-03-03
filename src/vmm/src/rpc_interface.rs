@@ -1233,7 +1233,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_preboot_load_snapshot() {
         let mut vm_resources = MockVmRes::default();
