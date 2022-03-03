@@ -173,9 +173,10 @@ mod tests {
     use super::*;
 
     use libc::{cpu_set_t, syscall};
+    use std::convert::TryInto;
     use std::{mem, process, thread};
 
-    use seccompiler::sock_filter;
+    use seccompiler::{compile_from_json, sock_filter};
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -286,135 +287,26 @@ mod tests {
         // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
         // other signals, results in an error. Probably because of the way `cargo test` is
         // handling signals.
-        #[cfg(target_arch = "aarch64")]
-        #[allow(clippy::unreadable_literal)]
-        let bpf_filter = vec![
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 4,
-            },
-            sock_filter {
-                code: 21,
-                jt: 1,
-                jf: 0,
-                k: 3221225655,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 21,
-                jt: 0,
-                jf: 1,
-                k: 34,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 1,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 2,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 196608,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-        ];
-        #[cfg(target_arch = "x86_64")]
-        #[allow(clippy::unreadable_literal)]
-        let bpf_filter = vec![
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 4,
-            },
-            sock_filter {
-                code: 21,
-                jt: 1,
-                jf: 0,
-                k: 3221225534,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 21,
-                jt: 0,
-                jf: 1,
-                k: 258,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 1,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 2,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 196608,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-        ];
+        let json_filter = r#"
+            {
+                "main": {
+                    "default_action": "allow",
+                    "filter_action": "trap",
+                    "filter": [
+                        {
+                            "syscall": "mkdirat"
+                        }   
+                    ]
+                }
+            }
+        "#;
 
-        bpf_filter
+        let mut compiled_filters = compile_from_json(
+            json_filter.as_bytes(),
+            std::env::consts::ARCH.try_into().unwrap(),
+        )
+        .unwrap();
+
+        compiled_filters.remove("main").unwrap()
     }
 }
