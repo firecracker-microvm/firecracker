@@ -191,7 +191,7 @@ impl ApiServer {
         // altogether is the desired behaviour.
         if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
-                "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
+                "Failed to set the requested seccomp filters on the API thread: {}",
                 e
             );
         }
@@ -203,10 +203,7 @@ impl ApiServer {
                 Ok(vec) => vec,
                 Err(e) => {
                     // print request error, but keep server running
-                    error!(
-                        "API Server error on retrieving incoming request. Error: {}",
-                        e
-                    );
+                    error!("API Server error on retrieving incoming request: {}", e);
                     continue;
                 }
             };
