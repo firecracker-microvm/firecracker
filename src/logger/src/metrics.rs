@@ -205,7 +205,7 @@ impl fmt::Display for MetricsError {
                 "Reinitialization of metrics not allowed.".to_string()
             }
             MetricsError::Serde(ref e) => e.to_string(),
-            MetricsError::Write(ref e) => format!("Failed to write metrics. Error: {}", e),
+            MetricsError::Write(ref e) => format!("Failed to write metrics: {}", e),
         };
         write!(f, "{}", printable)
     }
@@ -949,7 +949,7 @@ mod tests {
                 "{}",
                 MetricsError::Write(std::io::Error::new(ErrorKind::Interrupted, "write"))
             ),
-            "Failed to write metrics. Error: write"
+            "Failed to write metrics: write"
         );
         assert_eq!(
             format!(

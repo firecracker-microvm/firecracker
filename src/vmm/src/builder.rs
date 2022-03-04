@@ -112,7 +112,7 @@ impl Display for StartMicrovmError {
         use self::StartMicrovmError::*;
         match self {
             AttachBlockDevice(err) => {
-                write!(f, "Unable to attach block device to Vmm. Error: {}", err)
+                write!(f, "Unable to attach block device to Vmm: {}", err)
             }
             ConfigureSystem(e) => write!(f, "System configuration error: {:?}", e),
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
@@ -177,7 +177,7 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
-            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
+            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state: {}", err),
         }
     }
 }

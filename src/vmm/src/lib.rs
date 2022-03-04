@@ -749,10 +749,7 @@ impl Vmm {
         // It breaks out of the state machine loop so that the thread can be joined.
         for (idx, handle) in self.vcpus_handles.iter().enumerate() {
             if let Err(e) = handle.send_event(VcpuEvent::Finish) {
-                error!(
-                    "Failed to send VcpuEvent::Finish to vCPU {}. Error: {}",
-                    idx, e
-                );
+                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, e);
             }
         }
         // The actual thread::join() that runs to release the thread's resource is done in
