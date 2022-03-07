@@ -572,7 +572,6 @@ dependencies = [
  "base64",
  "bincode",
  "dumbo",
- "lazy_static",
  "logger",
  "micro_http",
  "serde",

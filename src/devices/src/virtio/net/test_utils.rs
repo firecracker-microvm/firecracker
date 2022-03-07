@@ -9,6 +9,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::{mem, result};
 
 #[cfg(test)]
@@ -16,6 +17,7 @@ use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
 use crate::virtio::{Net, Queue, QueueError};
+use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 
 use rate_limiter::RateLimiter;
@@ -43,7 +45,10 @@ pub fn default_net() -> Net {
         RateLimiter::default(),
     )
     .unwrap();
-    net.configure_mmds_network_stack(MmdsNetworkStack::default_ipv4_addr());
+    net.configure_mmds_network_stack(
+        MmdsNetworkStack::default_ipv4_addr(),
+        Arc::new(Mutex::new(Mmds::default())),
+    );
     enable(&net.tap);
 
     net
