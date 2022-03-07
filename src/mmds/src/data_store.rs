@@ -190,14 +190,6 @@ impl Mmds {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn get_data_str(&self) -> String {
-        if self.data_store.is_null() {
-            return String::from("{}");
-        }
-        self.data_store.to_string()
-    }
-
     // We do not check size of data_store before returning a result because due
     // to limit from put/patch the data_store can not be bigger than the limit
     // imposed by the server.
@@ -298,6 +290,15 @@ impl Mmds {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Mmds {
+        pub fn get_data_str(&self) -> String {
+            if self.data_store.is_null() {
+                return String::from("{}");
+            }
+            self.data_store.to_string()
+        }
+    }
 
     #[test]
     fn test_display_mmds_version() {

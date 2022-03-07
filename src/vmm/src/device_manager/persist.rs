@@ -377,7 +377,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
                 Net::restore(
-                    NetConstructorArgs { mem: mem.clone() },
+                    NetConstructorArgs {
+                        mem: mem.clone(),
+                        mmds: constructor_args.vm_resources.mmds.clone(),
+                    },
                     &net_state.device_state,
                 )
                 .map_err(Error::Net)?,

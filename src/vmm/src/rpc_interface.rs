@@ -36,7 +36,6 @@ use crate::{builder::StartMicrovmError, warn, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use mmds::data_store::{self, Mmds};
-use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
@@ -279,7 +278,7 @@ pub struct PrebootApiController<'a> {
 
 impl MmdsRequestHandler for PrebootApiController<'_> {
     fn mmds(&self) -> MutexGuard<'_, Mmds> {
-        MMDS.lock().expect("Poisoned lock")
+        self.vm_resources.mmds.lock().expect("Poisoned lock")
     }
 }
 
@@ -307,6 +306,7 @@ impl<'a> PrebootApiController<'a> {
     /// the message transport.
     ///
     /// Returns a populated `VmResources` object and a running `Vmm` object.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_microvm_from_requests<F, G>(
         seccomp_filters: &BpfThreadMap,
         event_manager: &mut EventManager,
@@ -314,6 +314,8 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
+        payload_limit: Option<usize>,
+        metadata_json: Option<&str>,
     ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), ExitCode>
     where
         F: Fn() -> VmmAction,
@@ -327,6 +329,23 @@ impl<'a> PrebootApiController<'a> {
         {
             vm_resources.boot_timer = boot_timer_enabled;
         }
+        // Overwrite the data store limit.
+        if let Some(limit) = payload_limit {
+            vm_resources
+                .mmds
+                .lock()
+                .unwrap()
+                .set_data_store_limit(limit);
+        }
+
+        // Init the data store from file, if present.
+        if let Some(data) = metadata_json {
+            vm_resources.mmds.lock().expect("Poisoned lock").put_data(
+                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+            );
+            info!("Successfully added metadata to mmds from file");
+        }
+
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filters,
             instance_info,
@@ -540,7 +559,7 @@ pub struct RuntimeApiController {
 
 impl MmdsRequestHandler for RuntimeApiController {
     fn mmds(&self) -> MutexGuard<'_, Mmds> {
-        MMDS.lock().expect("Poisoned lock")
+        self.vm_resources.mmds.lock().expect("Poisoned lock")
     }
 }
 
@@ -816,7 +835,7 @@ mod tests {
         block_set: bool,
         vsock_set: bool,
         net_set: bool,
-        mmds_set: bool,
+        pub mmds: Arc<Mutex<Mmds>>,
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -913,11 +932,18 @@ mod tests {
             Ok(())
         }
 
-        pub fn set_mmds_config(&mut self, _: MmdsConfig, _: &str) -> Result<(), MmdsConfigError> {
+        pub fn set_mmds_config(
+            &mut self,
+            mmds_config: MmdsConfig,
+            _: &str,
+        ) -> Result<(), MmdsConfigError> {
             if self.force_errors {
                 return Err(MmdsConfigError::InvalidIpv4Addr);
             }
-            self.mmds_set = true;
+            let mut mmds_guard = self.mmds.lock().unwrap();
+            mmds_guard
+                .set_version(mmds_config.version)
+                .map_err(|e| MmdsConfigError::MmdsVersion(mmds_config.version, e))?;
             Ok(())
         }
     }
@@ -1105,6 +1131,24 @@ mod tests {
         check_success(res, &vm_resources);
     }
 
+    fn check_preboot_request_with_mmds<F>(
+        request: VmmAction,
+        mmds: Arc<Mutex<Mmds>>,
+        check_success: F,
+    ) where
+        F: FnOnce(ActionResult, &MockVmRes),
+    {
+        let mut vm_resources = MockVmRes {
+            mmds,
+            ..Default::default()
+        };
+        let mut evmgr = EventManager::new().unwrap();
+        let seccomp_filters = BpfThreadMap::new();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
+        let res = preboot.handle_preboot_request(request);
+        check_success(res, &vm_resources);
+    }
+
     // Forces error and validates error kind against expected.
     fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
         let mut vm_resources = MockVmRes {
@@ -1283,12 +1327,12 @@ mod tests {
     fn test_preboot_set_mmds_config() {
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
             ipv4_address: None,
-            version: MmdsVersion::default(),
+            version: MmdsVersion::V2,
             network_interfaces: Vec::new(),
         });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
-            assert!(vm_res.mmds_set)
+            assert_eq!(vm_res.mmds.lock().unwrap().version(), MmdsVersion::V2);
         });
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
@@ -1304,7 +1348,6 @@ mod tests {
 
     #[test]
     fn test_preboot_get_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
         check_preboot_request(VmmAction::GetMMDS, |result, _| {
             assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
         });
@@ -1312,7 +1355,6 @@ mod tests {
 
     #[test]
     fn test_runtime_get_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
         check_runtime_request(VmmAction::GetMMDS, |result, _| {
             assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
         });
@@ -1320,14 +1362,16 @@ mod tests {
 
     #[test]
     fn test_preboot_put_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
-        check_preboot_request(
+        let mmds = Arc::new(Mutex::new(Mmds::default()));
+
+        check_preboot_request_with_mmds(
             VmmAction::PutMMDS(Value::String("string".to_string())),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
-        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(Value::String("string".to_string())))
@@ -1337,14 +1381,16 @@ mod tests {
 
     #[test]
     fn test_runtime_put_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
-        check_runtime_request(
+        let mmds = Arc::new(Mutex::new(Mmds::default()));
+
+        check_runtime_request_with_mmds(
             VmmAction::PutMMDS(Value::String("string".to_string())),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
-        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(Value::String("string".to_string())))
@@ -1354,22 +1400,23 @@ mod tests {
 
     #[test]
     fn test_preboot_patch_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
+        let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
         check_preboot_request_err(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
             VmmActionError::Mmds(data_store::Error::NotInitialized),
         );
 
-        check_preboot_request(
+        check_preboot_request_with_mmds(
             VmmAction::PutMMDS(
                 serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
             ),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
-        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(
@@ -1378,16 +1425,17 @@ mod tests {
             );
         });
 
-        check_preboot_request(
+        check_preboot_request_with_mmds(
             VmmAction::PatchMMDS(
                 serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
             ),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
 
-        check_preboot_request(VmmAction::GetMMDS, |result, _| {
+        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(
@@ -1399,22 +1447,23 @@ mod tests {
 
     #[test]
     fn test_runtime_patch_mmds() {
-        *(MMDS.lock().unwrap()) = Mmds::default();
+        let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
         check_runtime_request_err(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
             VmmActionError::Mmds(data_store::Error::NotInitialized),
         );
 
-        check_runtime_request(
+        check_runtime_request_with_mmds(
             VmmAction::PutMMDS(
                 serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
             ),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
-        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(
@@ -1423,16 +1472,17 @@ mod tests {
             );
         });
 
-        check_runtime_request(
+        check_runtime_request_with_mmds(
             VmmAction::PatchMMDS(
                 serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
             ),
+            mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
 
-        check_runtime_request(VmmAction::GetMMDS, |result, _| {
+        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
                 Ok(VmmData::MmdsValue(
@@ -1564,15 +1614,22 @@ mod tests {
             assert_eq!(resp, expect);
         };
 
-        let (_vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
+        let (vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
             &BpfThreadMap::new(),
             &mut EventManager::new().unwrap(),
             InstanceInfo::default(),
             commands,
             expected_resp,
             false,
+            Some(mmds::MAX_DATA_STORE_SIZE),
+            Some(r#""magic""#),
         )
         .unwrap();
+
+        assert_eq!(
+            vm_res.mmds.lock().unwrap().data_store_value(),
+            Value::String("magic".to_string())
+        );
     }
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)
@@ -1581,6 +1638,23 @@ mod tests {
     {
         let vmm = Arc::new(Mutex::new(MockVmm::default()));
         let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm.clone());
+        let res = runtime.handle_request(request);
+        check_success(res, &vmm.lock().unwrap());
+    }
+
+    fn check_runtime_request_with_mmds<F>(
+        request: VmmAction,
+        mmds: Arc<Mutex<Mmds>>,
+        check_success: F,
+    ) where
+        F: FnOnce(ActionResult, &MockVmm),
+    {
+        let vm_res = MockVmRes {
+            mmds,
+            ..Default::default()
+        };
+        let vmm = Arc::new(Mutex::new(MockVmm::default()));
+        let mut runtime = RuntimeApiController::new(vm_res, vmm.clone());
         let res = runtime.handle_request(request);
         check_success(res, &vmm.lock().unwrap());
     }

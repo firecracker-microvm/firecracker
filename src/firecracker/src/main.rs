@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
-use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument};
@@ -306,31 +305,21 @@ fn main_exitable() -> ExitCode {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
-    if let Some(data) = metadata_json {
-        MMDS.lock()
-            .expect("Failed to acquire lock on MMDS")
-            .put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-            );
-
-        info!("Successfully added metadata to mmds from file");
-    }
-
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
+    let payload_limit = arg_parser
+        .arguments()
+        .single_value("http-api-max-payload-size")
+        .map(|lim| {
+            lim.parse::<usize>()
+                .expect("'http-api-max-payload-size' parameter expected to be of 'usize' type.")
+        });
 
     if api_enabled {
         let bind_path = arguments
             .single_value("api-sock")
             .map(PathBuf::from)
             .expect("Missing argument: api-sock");
-        let payload_limit = arg_parser
-            .arguments()
-            .single_value("http-api-max-payload-size")
-            .map(|lim| {
-                lim.parse::<usize>()
-                    .expect("'http-api-max-payload-size' parameter expected to be of 'usize' type.")
-            });
 
         let start_time_us = arguments.single_value("start-time-us").map(|s| {
             s.parse::<u64>()
@@ -357,6 +346,7 @@ fn main_exitable() -> ExitCode {
             process_time_reporter,
             boot_timer_enabled,
             payload_limit,
+            metadata_json.as_deref(),
         )
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
@@ -368,6 +358,8 @@ fn main_exitable() -> ExitCode {
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
+            payload_limit,
+            metadata_json.as_deref(),
         )
     }
 }
@@ -448,11 +440,15 @@ fn build_microvm_from_json(
     config_json: String,
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
+    mmds_max_size: Option<usize>,
+    metadata_json: Option<&str>,
 ) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), ExitCode> {
-    let mut vm_resources = VmResources::from_json(&config_json, &instance_info).map_err(|err| {
-        error!("Configuration for VMM from one single json failed: {}", err);
-        vmm::FC_EXIT_CODE_BAD_CONFIGURATION
-    })?;
+    let mut vm_resources =
+        VmResources::from_json(&config_json, &instance_info, mmds_max_size, metadata_json)
+            .map_err(|err| {
+                error!("Configuration for VMM from one single json failed: {}", err);
+                vmm::FC_EXIT_CODE_BAD_CONFIGURATION
+            })?;
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(
         &instance_info,
@@ -477,6 +473,8 @@ fn run_without_api(
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
+    mmds_max_size: Option<usize>,
+    metadata_json: Option<&str>,
 ) -> ExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -492,6 +490,8 @@ fn run_without_api(
         config_json.unwrap(),
         instance_info,
         bool_timer_enabled,
+        mmds_max_size,
+        metadata_json,
     ) {
         Ok((res, vmm)) => (res, vmm),
         Err(exit_code) => return exit_code,

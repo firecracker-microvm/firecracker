@@ -5,9 +5,9 @@
 
 use std::io;
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use mmds::{ns::MmdsNetworkStack, persist::MmdsNetworkStackState};
+use mmds::{data_store::Mmds, ns::MmdsNetworkStack, persist::MmdsNetworkStackState};
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
@@ -41,6 +41,7 @@ pub struct NetState {
 
 pub struct NetConstructorArgs {
     pub mem: GuestMemoryMmap,
+    pub mmds: Arc<Mutex<Mmds>>,
 }
 
 #[derive(Debug)]
@@ -88,10 +89,9 @@ impl Persist<'_> for Net {
         .map_err(Error::CreateNet)?;
 
         // Safe to unwrap because MmdsNetworkStack::restore() cannot fail.
-        net.mmds_ns = state
-            .mmds_ns
-            .as_ref()
-            .map(|mmds_state| MmdsNetworkStack::restore((), &mmds_state).unwrap());
+        net.mmds_ns = state.mmds_ns.as_ref().map(|mmds_state| {
+            MmdsNetworkStack::restore(constructor_args.mmds.clone(), &mmds_state).unwrap()
+        });
 
         net.queues = state
             .virtio_state
@@ -154,7 +154,10 @@ mod tests {
         // Deserialize and restore the net device.
         {
             let restored_net = Net::restore(
-                NetConstructorArgs { mem: guest_mem },
+                NetConstructorArgs {
+                    mem: guest_mem,
+                    mmds: Arc::new(Mutex::new(Mmds::default())),
+                },
                 &NetState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
             )
             .unwrap();

@@ -123,10 +123,10 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes>(
+    pub fn receive_segment<T: NetworkBytes, F: FnOnce(Request) -> Response>(
         &mut self,
         s: &TcpSegment<T>,
-        callback: fn(Request) -> Response,
+        callback: F,
     ) {
         if self.stop_receiving {
             return;
@@ -311,7 +311,10 @@ fn build_response(status_code: StatusCode, body: Body) -> Response {
 }
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
-fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) -> Response {
+fn parse_request_bytes<F: FnOnce(Request) -> Response>(
+    byte_stream: &[u8],
+    callback: F,
+) -> Response {
     let request = Request::try_from(byte_stream, None);
     match request {
         Ok(request) => callback(request),
