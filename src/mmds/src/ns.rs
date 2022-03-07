@@ -119,17 +119,20 @@ impl MmdsNetworkStack {
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
     // of an Ethernet frame (of that exact size, without the CRC).
     pub fn detour_frame(&mut self, src: &[u8]) -> bool {
-        // The frame cannot possibly contain an ARP request or IPv4 packet for the MMDS.
-        if !test_speculative_tpa(src, self.ipv4_addr)
-            && !test_speculative_dst_addr(src, self.ipv4_addr)
-        {
-            return false;
-        }
-
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {
-                ETHERTYPE_ARP => return self.detour_arp(eth),
-                ETHERTYPE_IPV4 => return self.detour_ipv4(eth),
+                ETHERTYPE_ARP => {
+                    if !test_speculative_tpa(src, self.ipv4_addr) {
+                        return false;
+                    }
+                    return self.detour_arp(eth);
+                }
+                ETHERTYPE_IPV4 => {
+                    if !test_speculative_dst_addr(src, self.ipv4_addr) {
+                        return false;
+                    }
+                    return self.detour_ipv4(eth);
+                }
                 _ => (),
             };
         } else {
