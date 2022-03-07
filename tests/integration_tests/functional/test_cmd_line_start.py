@@ -390,15 +390,15 @@ def test_start_with_missing_metadata(test_microvm_with_api):
     )
     test_microvm.metadata_file = vm_metadata_path
 
-    # This will be a FileNotFound on the firecracker socket
-    # and not the metadata file
-    with pytest.raises(FileNotFoundError):
+    try:
         test_microvm.spawn()
-
-    test_microvm.check_log_message(
-        "Unable to open or read from the mmds content file"
-    )
-    test_microvm.check_log_message("No such file or directory")
+    except FileNotFoundError:
+        pass
+    finally:
+        test_microvm.check_log_message(
+            "Unable to open or read from the mmds content file"
+        )
+        test_microvm.check_log_message("No such file or directory")
 
 
 def test_start_with_invalid_metadata(test_microvm_with_api):
@@ -417,15 +417,17 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
     shutil.copy(metadata_file, vm_metadata_path)
     test_microvm.metadata_file = vm_metadata_path
 
-    with pytest.raises(FileNotFoundError):
+    try:
         test_microvm.spawn()
-
-    test_microvm.check_log_message(
-        "MMDS error: metadata provided not valid json"
-    )
-    test_microvm.check_log_message(
-        "EOF while parsing an object"
-    )
+    except FileNotFoundError:
+        pass
+    finally:
+        test_microvm.check_log_message(
+            "MMDS error: metadata provided not valid json"
+        )
+        test_microvm.check_log_message(
+            "EOF while parsing an object"
+        )
 
 
 @pytest.mark.parametrize(
