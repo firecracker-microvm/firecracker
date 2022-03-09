@@ -295,18 +295,27 @@ echo "KSM: ENABLED (Recommendation: DISABLED)"
 
 ##### Branch Target Injection mitigation (Spectre V2)
 
-**Intel and AMD** Use a kernel compiled with retpoline and run on hardware with microcode
-supporting conditional Indirect Branch Prediction Barriers (IBPB) and
+**Intel and AMD**
+Where available, Intel recommends using Enhanced Indirect Branch Restricted
+Speculation (eIBRS) together with microcode supporting conditional
+Indirect Branch Prediction Barriers (IBPB).
+
+If eIBRS is not available, use a kernel compiled with retpoline and run on
+hardware with microcode supporting IBPB and
 Indirect Branch Restricted Speculation (IBRS).
 
 Verification can be done by running:
 
 ```bash
-(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, \
+(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline,
 IBPB: conditional, IBRS_FW' \
 /sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
 echo "retpoline, IBPB, IBRS: ENABLED (OK)") \
-|| echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
+|| (grep -Eq '^Mitigation: Enhanced IBRS,
+IBPB: conditional' \
+/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
+echo "eIBRS, IBPB: ENABLED (OK)") \
+|| echo "eIBRS, IBPB: DISABLED (Recommendation: ENABLED)"
 ```
 
 **ARM** The mitigations for ARM systems are patched in all linux stable versions
@@ -321,6 +330,17 @@ Verification can be done by running:
 grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v2) && \
 echo "SPECTRE V2 -> OK" || echo "SPECTRE V2 -> NOT OK"
 ```
+
+##### Spectre-BHB
+
+**All hosts** Use latest default SpectreV2 mitigations by keeping kernels up to
+date. Additionally, use a host kernel that has unprivileged BPF disabled by
+enabling `BPF_UNPRIV_DEFAULT_OFF` in the kernel config or by writing `1` or `2`
+to `/proc/sys/kernel/unprivileged_bpf_disabled`.
+
+**Intel** . For an extra layer of security, while trading off performance, you
+can add `spectrev2=eibrs,lfence` or more strictly, `spectrev2=eibrs,retpoline`
+to the kernel commandline of the host.
 
 ##### Bounds Check Bypass Store (Spectre V1)
 
