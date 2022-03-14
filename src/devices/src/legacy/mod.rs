@@ -5,14 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-mod gpio_pl061;
+mod acpi_device;
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 mod rtc_pl031;
 pub mod serial;
 
-pub use self::gpio_pl061::Error as GpioDeviceError;
-pub use self::gpio_pl061::GpioDevice;
+pub use self::acpi_device::AcpiDevice;
+pub use self::acpi_device::Error as AcpiDeviceError;
 pub use self::i8042::Error as I8042DeviceError;
 pub use self::i8042::I8042Device;
 #[cfg(target_arch = "aarch64")]

@@ -273,7 +273,7 @@ fn create_vmm_and_vcpus(
             Box::new(io::stdout()),
         )
         .map_err(Internal)?;
-        // x86_64 uses the i8042 reset event as the Vmm exit event.
+        // x86_64 uses the i8042 / acpi_device reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
             .try_clone()
             .map_err(Error::EventFd)
@@ -406,7 +406,7 @@ pub fn build_microvm_for_boot(
         vcpu_config,
         entry_addr,
         &initrd,
-        boot_cmdline,
+        &mut boot_cmdline,
     )?;
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -751,10 +751,10 @@ pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
 fn create_pio_dev_manager_with_legacy_devices(
     vm: &Vm,
     serial: Arc<Mutex<SerialDevice>>,
-    i8042_reset_evfd: EventFd,
+    reset_evfd: EventFd,
 ) -> std::result::Result<PortIODeviceManager, super::Error> {
     let mut pio_dev_mgr =
-        PortIODeviceManager::new(serial, i8042_reset_evfd).map_err(Error::CreateLegacyDevice)?;
+        PortIODeviceManager::new(serial, reset_evfd).map_err(Error::CreateLegacyDevice)?;
     pio_dev_mgr
         .register_devices(vm.fd())
         .map_err(Error::LegacyIOBus)?;
@@ -812,7 +812,7 @@ pub fn configure_system_for_boot(
     vcpu_config: VcpuConfig,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
-    boot_cmdline: LoaderKernelCmdline,
+    boot_cmdline: &mut LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
     #[cfg(target_arch = "x86_64")]
@@ -830,7 +830,7 @@ pub fn configure_system_for_boot(
         }
 
         // TODO: remove this once we define virtio devices and their IRQs in ACPI DSDT.
-        // boot_cmdline.insert_str("acpi=noirq").unwrap();
+        // boot_cmdline.insert_str("acpi=no").unwrap();
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.

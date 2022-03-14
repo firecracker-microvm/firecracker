@@ -13,6 +13,7 @@ use logger::METRICS;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use crate::acpi::{ACPI_REGISTERS_BASE_ADDRESS, ACPI_REGISTERS_TOTAL_LENGTH, ACPI_SCI_INT};
 use devices::legacy::EventFdTrigger;
 use kvm_ioctls::VmFd;
 use utils::eventfd::EventFd;
@@ -63,16 +64,16 @@ pub struct PortIODeviceManager {
     pub io_bus: devices::Bus,
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
     pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
-    pub gpio: Arc<Mutex<devices::legacy::GpioDevice>>,
+    pub acpi_device: Arc<Mutex<devices::legacy::AcpiDevice>>,
     pub com_evt_1_3: EventFdTrigger,
     pub com_evt_2_4: EventFdTrigger,
     pub kbd_evt: EventFd,
-    pub gpio_evt: EventFd,
+    pub acpi_device_evt: EventFd,
 }
 
 impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(serial: Arc<Mutex<SerialDevice>>, i8042_reset_evfd: EventFd) -> Result<Self> {
+    pub fn new(serial: Arc<Mutex<SerialDevice>>, reset_evfd: EventFd) -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
@@ -83,26 +84,28 @@ impl PortIODeviceManager {
             .map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let gpio_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let acpi_device_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
+        let i8042_reset_evfd = reset_evfd.try_clone().map_err(Error::EventFd)?;
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
             i8042_reset_evfd,
             kbd_evt.try_clone().map_err(Error::EventFd)?,
         )));
 
-        let gpio = Arc::new(Mutex::new(devices::legacy::GpioDevice::new(
-            gpio_evt.try_clone().map_err(Error::EventFd)?,
+        let acpi_device = Arc::new(Mutex::new(devices::legacy::AcpiDevice::new(
+            acpi_device_evt.try_clone().map_err(Error::EventFd)?,
+            reset_evfd,
         )));
 
         Ok(PortIODeviceManager {
             io_bus,
             stdio_serial: serial,
             i8042,
-            gpio,
+            acpi_device,
             com_evt_1_3,
             com_evt_2_4,
             kbd_evt,
-            gpio_evt,
+            acpi_device_evt,
         })
     }
 
@@ -126,7 +129,11 @@ impl PortIODeviceManager {
             .insert(self.i8042.clone(), 0x060, 0x5)
             .map_err(Error::BusError)?;
         self.io_bus
-            .insert(self.gpio.clone(), 0x500, 0x4)
+            .insert(
+                self.acpi_device.clone(),
+                ACPI_REGISTERS_BASE_ADDRESS.into(),
+                ACPI_REGISTERS_TOTAL_LENGTH.into(),
+            )
             .map_err(Error::BusError)?;
 
         vm_fd
@@ -139,7 +146,7 @@ impl PortIODeviceManager {
             .register_irqfd(&self.kbd_evt, 1)
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
-            .register_irqfd(&self.gpio_evt, 9)
+            .register_irqfd(&self.acpi_device_evt, ACPI_SCI_INT.into())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
         Ok(())

@@ -61,7 +61,7 @@ use devices::virtio::{
 };
 use devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
+use logger::{debug, error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
@@ -118,8 +118,8 @@ pub enum Error {
     EventFd(io::Error),
     /// I8042 Error.
     I8042Error(devices::legacy::I8042DeviceError),
-    /// Gpio Error.
-    GpioError(devices::legacy::GpioDeviceError),
+    /// Acpi Device Error.
+    AcpiDeviceError(devices::legacy::AcpiDeviceError),
     /// Cannot access kernel file.
     KernelFile(io::Error),
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
@@ -180,7 +180,7 @@ impl Display for Error {
             DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
-            GpioError(e) => write!(f, "Gpio error: {}", e),
+            AcpiDeviceError(e) => write!(f, "Acpi Device error: {}", e),
             KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
             KvmContext(e) => write!(f, "Failed to validate KVM support: {}", e),
             #[cfg(target_arch = "x86_64")]
@@ -410,11 +410,11 @@ impl Vmm {
         debug!("Sending ACPI shutdown signal to guest...");
 
         self.pio_device_manager
-            .gpio
+            .acpi_device
             .lock()
-            .expect("gpio lock was poisoned")
+            .expect("Acpi Device lock was poisoned")
             .send_acpi_shutdown_signal()
-            .map_err(Error::GpioError)
+            .map_err(Error::AcpiDeviceError)
     }
 
     /// Saves the state of a paused Microvm.
