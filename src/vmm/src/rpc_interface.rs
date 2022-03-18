@@ -236,14 +236,16 @@ pub enum VmmData {
 pub type ActionResult = result::Result<VmmData, VmmActionError>;
 
 /// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
+/// The methods get a mutable reference to self because the methods should initialise the data
+/// store with the defaults if it's not already initialised.
 trait MmdsRequestHandler {
-    fn mmds(&self) -> MutexGuard<'_, Mmds>;
+    fn mmds(&mut self) -> MutexGuard<'_, Mmds>;
 
-    fn get_mmds(&self) -> ActionResult {
+    fn get_mmds(&mut self) -> ActionResult {
         Ok(VmmData::MmdsValue(self.mmds().data_store_value()))
     }
 
-    fn patch_mmds(&self, value: serde_json::Value) -> ActionResult {
+    fn patch_mmds(&mut self, value: serde_json::Value) -> ActionResult {
         self.mmds()
             .patch_data(value)
             .map(|()| VmmData::Empty)
@@ -255,7 +257,7 @@ trait MmdsRequestHandler {
             })
     }
 
-    fn put_mmds(&self, value: serde_json::Value) -> ActionResult {
+    fn put_mmds(&mut self, value: serde_json::Value) -> ActionResult {
         self.mmds().put_data(value);
         Ok(VmmData::Empty)
     }
@@ -277,8 +279,8 @@ pub struct PrebootApiController<'a> {
 }
 
 impl MmdsRequestHandler for PrebootApiController<'_> {
-    fn mmds(&self) -> MutexGuard<'_, Mmds> {
-        self.vm_resources.mmds.lock().expect("Poisoned lock")
+    fn mmds(&mut self) -> MutexGuard<'_, Mmds> {
+        self.vm_resources.locked_mmds_or_default()
     }
 }
 
@@ -332,15 +334,13 @@ impl<'a> PrebootApiController<'a> {
         // Overwrite the data store limit.
         if let Some(limit) = payload_limit {
             vm_resources
-                .mmds
-                .lock()
-                .unwrap()
+                .locked_mmds_or_default()
                 .set_data_store_limit(limit);
         }
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            vm_resources.mmds.lock().expect("Poisoned lock").put_data(
+            vm_resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
             );
             info!("Successfully added metadata to mmds from file");
@@ -558,8 +558,8 @@ pub struct RuntimeApiController {
 }
 
 impl MmdsRequestHandler for RuntimeApiController {
-    fn mmds(&self) -> MutexGuard<'_, Mmds> {
-        self.vm_resources.mmds.lock().expect("Poisoned lock")
+    fn mmds(&mut self) -> MutexGuard<'_, Mmds> {
+        self.vm_resources.locked_mmds_or_default()
     }
 }
 
@@ -835,7 +835,7 @@ mod tests {
         block_set: bool,
         vsock_set: bool,
         net_set: bool,
-        pub mmds: Arc<Mutex<Mmds>>,
+        pub mmds: Option<Arc<Mutex<Mmds>>>,
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -940,11 +940,23 @@ mod tests {
             if self.force_errors {
                 return Err(MmdsConfigError::InvalidIpv4Addr);
             }
-            let mut mmds_guard = self.mmds.lock().unwrap();
+            let mut mmds_guard = self.locked_mmds_or_default();
             mmds_guard
                 .set_version(mmds_config.version)
                 .map_err(|e| MmdsConfigError::MmdsVersion(mmds_config.version, e))?;
             Ok(())
+        }
+
+        /// If not initialised, create the mmds data store with the default config.
+        pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
+            self.mmds
+                .get_or_insert(Arc::new(Mutex::new(Mmds::default())))
+        }
+
+        /// If not initialised, create the mmds data store with the default config.
+        pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
+            let mmds = self.mmds_or_default();
+            mmds.lock().expect("Poisoned lock")
         }
     }
 
@@ -1139,7 +1151,7 @@ mod tests {
         F: FnOnce(ActionResult, &MockVmRes),
     {
         let mut vm_resources = MockVmRes {
-            mmds,
+            mmds: Some(mmds),
             ..Default::default()
         };
         let mut evmgr = EventManager::new().unwrap();
@@ -1332,7 +1344,10 @@ mod tests {
         });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
-            assert_eq!(vm_res.mmds.lock().unwrap().version(), MmdsVersion::V2);
+            assert_eq!(
+                vm_res.mmds.as_ref().unwrap().lock().unwrap().version(),
+                MmdsVersion::V2
+            );
         });
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
@@ -1627,7 +1642,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            vm_res.mmds.lock().unwrap().data_store_value(),
+            vm_res
+                .mmds
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .data_store_value(),
             Value::String("magic".to_string())
         );
     }
@@ -1650,7 +1671,7 @@ mod tests {
         F: FnOnce(ActionResult, &MockVmm),
     {
         let vm_res = MockVmRes {
-            mmds,
+            mmds: Some(mmds),
             ..Default::default()
         };
         let vmm = Arc::new(Mutex::new(MockVmm::default()));

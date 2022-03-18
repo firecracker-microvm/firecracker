@@ -20,7 +20,7 @@ use crate::device_manager::persist::SharedDeviceType;
 use mmds::data_store::{Mmds, MmdsVersion};
 use serde::{Deserialize, Serialize};
 use std::convert::From;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -105,8 +105,10 @@ pub struct VmResources {
     pub balloon: BalloonBuilder,
     /// The network devices builder.
     pub net_builder: NetBuilder,
-    /// The Mmds data store.
-    pub mmds: Arc<Mutex<Mmds>>,
+    /// The optional Mmds data store.
+    // This is initialised on demand (if ever used), so that we don't allocate it unless it's
+    // actually used.
+    pub mmds: Option<Arc<Mutex<Mmds>>>,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
 }
@@ -168,12 +170,14 @@ impl VmResources {
 
         // Overwrite the data store limit.
         if let Some(limit) = mmds_max_size {
-            resources.mmds.lock().unwrap().set_data_store_limit(limit);
+            resources
+                .locked_mmds_or_default()
+                .set_data_store_limit(limit);
         }
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            resources.mmds.lock().unwrap().put_data(
+            resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
             );
             info!("Successfully added metadata to mmds from file");
@@ -186,6 +190,18 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// If not initialised, create the mmds data store with the default config.
+    pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
+        self.mmds
+            .get_or_insert(Arc::new(Mutex::new(Mmds::default())))
+    }
+
+    /// If not initialised, create the mmds data store with the default config.
+    pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
+        let mmds = self.mmds_or_default();
+        mmds.lock().expect("Poisoned lock")
     }
 
     /// Updates the resources from a restored device (used for configuring resources when
@@ -293,9 +309,13 @@ impl VmResources {
         Ok(())
     }
 
+    // Repopulate the MmdsConfig based on information from the data store
+    // and the associated net devices.
     fn mmds_config(&self) -> Option<MmdsConfig> {
-        // Repopulate the MmdsConfig based on information from the data store
-        // and the associated net devices.
+        // If the data store is not initialised, we can be sure that the user did not configure
+        // mmds.
+        let mmds = self.mmds.as_ref()?;
+
         let mut mmds_config = None;
         let net_devs_with_mmds: Vec<_> = self
             .net_builder
@@ -305,7 +325,7 @@ impl VmResources {
 
         if !net_devs_with_mmds.is_empty() {
             let mut inner_mmds_config = MmdsConfig {
-                version: self.mmds.lock().expect("Poisoned lock").version(),
+                version: mmds.lock().expect("Poisoned lock").version(),
                 network_interfaces: vec![],
                 ipv4_address: None,
             };
@@ -397,7 +417,7 @@ impl VmResources {
         version: MmdsVersion,
         instance_id: &str,
     ) -> Result<MmdsConfigError> {
-        let mut mmds_guard = self.mmds.lock().expect("Poisoned lock");
+        let mut mmds_guard = self.locked_mmds_or_default();
         mmds_guard
             .set_version(version)
             .map_err(|e| MmdsConfigError::MmdsVersion(version, e))?;
@@ -432,13 +452,16 @@ impl VmResources {
             return Err(MmdsConfigError::InvalidNetworkInterfaceId);
         }
 
+        // Safe to unwrap because we've just made sure that it's initialised.
+        let mmds = self.mmds_or_default().clone();
+
         // Create `MmdsNetworkStack` and configure the IPv4 address for
         // existing built network devices whose names are defined in the
         // network interface ID list.
         for net_device in self.net_builder.iter_mut() {
             let mut net_device_lock = net_device.lock().expect("Poisoned lock");
             if network_interfaces.contains(net_device_lock.id()) {
-                net_device_lock.configure_mmds_network_stack(ipv4_addr, self.mmds.clone());
+                net_device_lock.configure_mmds_network_stack(ipv4_addr, mmds.clone());
             } else {
                 net_device_lock.disable_mmds_network_stack();
             }
@@ -557,7 +580,7 @@ mod tests {
             vsock: Default::default(),
             balloon: Default::default(),
             net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
+            mmds: None,
             boot_timer: false,
         }
     }
@@ -959,7 +982,7 @@ mod tests {
         let mut map = Map::new();
         map.insert("key".to_string(), Value::String("value".to_string()));
         assert_eq!(
-            resources.mmds.lock().unwrap().data_store_value(),
+            resources.mmds.unwrap().lock().unwrap().data_store_value(),
             Value::Object(map)
         );
     }
@@ -1008,13 +1031,33 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
 
-            let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
-            let vmm_config: VmmConfig = (&resources).into();
-            assert_eq!(initial_vmm_config, vmm_config);
+            {
+                let resources =
+                    VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
+                        .unwrap();
+
+                let initial_vmm_config =
+                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let vmm_config: VmmConfig = (&resources).into();
+                assert_eq!(initial_vmm_config, vmm_config);
+            }
+
+            {
+                // In this case the mmds data store will be initialised but the config still None.
+                let resources = VmResources::from_json(
+                    json.as_str(),
+                    &InstanceInfo::default(),
+                    None,
+                    Some(r#"{"key": "value"}"#),
+                )
+                .unwrap();
+
+                let initial_vmm_config =
+                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let vmm_config: VmmConfig = (&resources).into();
+                assert_eq!(initial_vmm_config, vmm_config);
+            }
         }
 
         // Single interface for MMDS.
@@ -1219,7 +1262,7 @@ mod tests {
             vsock: Default::default(),
             balloon: BalloonBuilder::new(),
             net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
+            mmds: None,
             boot_timer: false,
         };
         let mut new_balloon_cfg = BalloonDeviceConfig {
@@ -1250,7 +1293,7 @@ mod tests {
             vsock: Default::default(),
             balloon: BalloonBuilder::new(),
             net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
+            mmds: None,
             boot_timer: false,
         };
         new_balloon_cfg.amount_mib = 256;
