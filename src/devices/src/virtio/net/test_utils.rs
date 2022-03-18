@@ -54,6 +54,25 @@ pub fn default_net() -> Net {
     net
 }
 
+pub fn default_net_no_mmds() -> Net {
+    let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
+    let tap_dev_name = format!("net-device{}", next_tap);
+
+    let guest_mac = default_guest_mac();
+
+    let net = Net::new_with_tap(
+        format!("net-device{}", next_tap),
+        tap_dev_name,
+        Some(&guest_mac),
+        RateLimiter::default(),
+        RateLimiter::default(),
+    )
+    .unwrap();
+    enable(&net.tap);
+
+    net
+}
+
 pub enum ReadTapMock {
     Failure,
     MockFrame(Vec<u8>),

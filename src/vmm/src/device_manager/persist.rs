@@ -374,12 +374,29 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
+        // If there's at least one network device having an mmds_ns, initialise the VmResources
+        // mmds data store with a default config.
+        // After we add support for persisting the version, we'll instead need to restore the data
+        // store using the snapshotted version.
+        if state
+            .net_devices
+            .iter()
+            .any(|dev| dev.device_state.mmds_ns.is_some())
+        {
+            constructor_args.vm_resources.mmds_or_default();
+        }
+
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
                 Net::restore(
                     NetConstructorArgs {
                         mem: mem.clone(),
-                        mmds: constructor_args.vm_resources.mmds.clone(),
+                        mmds: constructor_args
+                            .vm_resources
+                            .mmds
+                            .as_ref()
+                            // Clone the Arc reference.
+                            .cloned(),
                     },
                     &net_state.device_state,
                 )
@@ -608,7 +625,7 @@ mod tests {
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             };
-            insert_net_device(
+            insert_net_device_with_mmds(
                 &mut vmm,
                 &mut cmdline,
                 &mut event_manager,
@@ -691,7 +708,13 @@ mod tests {
     "track_dirty_pages": false
   }},
   "metrics": null,
-  "mmds-config": null,
+  "mmds-config": {{
+    "version": "V1",
+    "network_interfaces": [
+      "netif"
+    ],
+    "ipv4_address": "169.254.169.254"
+  }},
   "network-interfaces": [
     {{
       "iface_id": "netif",
@@ -715,6 +738,8 @@ mod tests {
                 .to_string(),
             tmp_sock_file.as_path().to_str().unwrap().to_string()
         );
+
+        assert!(vm_resources.mmds.is_some());
 
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
         assert_eq!(

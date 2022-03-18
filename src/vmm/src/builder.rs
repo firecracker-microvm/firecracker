@@ -998,6 +998,8 @@ pub mod tests {
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
+    use mmds::data_store::Mmds;
+    use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use vm_memory::GuestMemory;
 
@@ -1137,6 +1139,23 @@ pub mod tests {
 
         let res = attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager);
         assert!(res.is_ok());
+    }
+
+    pub(crate) fn insert_net_device_with_mmds(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        net_config: NetworkInterfaceConfig,
+    ) {
+        let mut net_builder = NetBuilder::new();
+        net_builder.build(net_config).unwrap();
+        let net = net_builder.iter().next().unwrap();
+        net.lock().unwrap().configure_mmds_network_stack(
+            MmdsNetworkStack::default_ipv4_addr(),
+            Arc::new(Mutex::new(Mmds::default())),
+        );
+
+        attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
     }
 
     pub(crate) fn insert_vsock_device(
