@@ -26,6 +26,8 @@ ENV LC_ALL=C.UTF-8
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         binutils-dev \
+        # Needed in order to be able to compile `userfaultfd-sys`.
+        clang \
         cmake \
         curl \
         file \
@@ -42,6 +44,7 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         make \
+        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
@@ -91,7 +94,7 @@ RUN mkdir "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
             # Fix a version that does not require cargo edition 2021.
-            && cargo install cargo-deny --version '^0.9.1' \
+            && cargo install --locked cargo-deny --version '^0.9.1' \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
@@ -99,6 +102,12 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
+
+# help musl-gcc find linux headers
+RUN cd /usr/include/x86_64-linux-musl \
+    && ln -s ../x86_64-linux-gnu/asm asm \
+    && ln -s ../linux linux \
+    && ln -s ../asm-generic asm-generic
 
 # Build iperf3-vsock
 RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
