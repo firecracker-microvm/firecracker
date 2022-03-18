@@ -16,7 +16,6 @@
 //! ARM PrimeCell General Purpose Input/Output(PL061)
 //!
 //! This module implements an ARM PrimeCell General Purpose Input/Output(PL061) to support gracefully poweroff microvm from external.
-//!
 
 use crate::bus::BusDevice;
 use logger::warn;
@@ -120,7 +119,7 @@ impl BusDevice for AcpiDevice {
 
             // SLP_EN is a write only bit; reading from it will always return 0 according to the spec:
             // https://uefi.org/specs/ACPI/6.4/04_ACPI_Hardware_Specification/ACPI_Hardware_Specification.html#pm1-control-registers-fixed-hardware-feature-control-bits
-            value = value & (!(1 << SLP_EN_OFFSET));
+            value &= !(1 << SLP_EN_OFFSET);
 
             // get each byte from value considering Little Endian representation
             let value_bytes = value.to_le_bytes();
@@ -153,10 +152,10 @@ impl BusDevice for AcpiDevice {
 
             // check if required bits for the soft-off state are written as ones (the other bits
             // in the AcpiDevice can have any value)
-            if (self.data & soft_off_state_bits) == soft_off_state_bits {
-                if self.shutdown_vmm().is_err() {
-                    warn!("AcpiDevice could not shutdown Firecracker");
-                }
+            if (self.data & soft_off_state_bits) == soft_off_state_bits
+                && self.shutdown_vmm().is_err()
+            {
+                warn!("AcpiDevice could not shutdown Firecracker");
             }
         } else {
             warn!("Invalid AcpiDevice write: offset {}", offset);

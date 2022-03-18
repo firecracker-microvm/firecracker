@@ -1,4 +1,7 @@
-// Copyright © 2019 Intel Corporation
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright © 2022 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0
 //

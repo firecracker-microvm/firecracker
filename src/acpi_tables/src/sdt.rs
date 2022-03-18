@@ -62,12 +62,12 @@ impl GenericAddress {
     }
 }
 
-pub struct SDT {
+pub struct Sdt {
     data: Vec<u8>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl SDT {
+impl Sdt {
     pub fn new(
         signature: [u8; 4],
         length: u32,
@@ -91,7 +91,7 @@ impl SDT {
         assert_eq!(data.len(), 36);
 
         data.resize(length as usize, 0);
-        let mut sdt = SDT { data };
+        let mut sdt = Sdt { data };
 
         sdt.update_checksum();
         sdt
@@ -155,11 +155,11 @@ impl SDT {
 
 #[cfg(test)]
 mod tests {
-    use super::SDT;
+    use super::Sdt;
 
     #[test]
     fn test_sdt() {
-        let mut sdt = SDT::new(*b"TEST", 40, 1, *b"FIRECR", *b"TESTTEST", 1);
+        let mut sdt = Sdt::new(*b"TEST", 40, 1, *b"FIRECR", *b"TESTTEST", 1);
         let sum: u8 = sdt
             .as_slice()
             .iter()

@@ -5,10 +5,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+#[cfg(target_arch = "x86_64")]
 use acpi_tables::aml::Aml;
-use acpi_tables::{aml, rsdp::RSDP, sdt::GenericAddress, sdt::SDT};
+#[cfg(target_arch = "x86_64")]
+use acpi_tables::{aml, rsdp::Rsdp, sdt::GenericAddress, sdt::Sdt};
+#[cfg(target_arch = "x86_64")]
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
+#[cfg(target_arch = "x86_64")]
 #[repr(packed)]
 struct LocalAPIC {
     pub r#type: u8,
@@ -18,9 +22,10 @@ struct LocalAPIC {
     pub flags: u32,
 }
 
+#[cfg(target_arch = "x86_64")]
 #[repr(packed)]
 #[derive(Default)]
-struct IOAPIC {
+struct Ioapic {
     pub r#type: u8,
     pub length: u8,
     pub ioapic_id: u8,
@@ -29,20 +34,27 @@ struct IOAPIC {
     pub gsi_base: u32,
 }
 
+#[cfg(target_arch = "x86_64")]
 const MADT_CPU_ENABLE_FLAG: usize = 0;
 
 // TODO: move this to arch defines
 // Needs to be in upper memory range 0xE0000-0xFFFFF, see
 // https://elixir.bootlin.com/linux/v4.14.209/source/drivers/acpi/acpica/tbxfroot.c#L211
+#[cfg(target_arch = "x86_64")]
 pub const RSDP_ADDR: u64 = 0xe0000;
-
+#[cfg(target_arch = "x86_64")]
 pub const ACPI_SCI_INT: u8 = 9;
 
+#[cfg(target_arch = "x86_64")]
 pub const ACPI_REGISTERS_BASE_ADDRESS: u16 = 0x500;
+#[cfg(target_arch = "x86_64")]
 pub const ACPI_PM1_EVT_LEN: u16 = 4;
+#[cfg(target_arch = "x86_64")]
 pub const ACPI_PM1_CNT_LEN: u16 = 2;
+#[cfg(target_arch = "x86_64")]
 pub const ACPI_REGISTERS_TOTAL_LENGTH: u16 = ACPI_PM1_EVT_LEN + ACPI_PM1_CNT_LEN;
 
+#[cfg(target_arch = "x86_64")]
 pub fn create_acpi_tables(guest_mem: &GuestMemoryMmap, num_cpus: u8) -> GuestAddress {
     let mut tables: Vec<u64> = Vec::new();
 
@@ -57,21 +69,20 @@ pub fn create_acpi_tables(guest_mem: &GuestMemoryMmap, num_cpus: u8) -> GuestAdd
 
     let xsdt_offset = create_xsdt_table(tables, guest_mem, madt_offset, madt.len() as u64);
 
-    let rsdt_offset = create_rsdt_table(guest_mem, xsdt_offset);
-
-    rsdt_offset
+    create_rsdp_table(guest_mem, xsdt_offset)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn create_dsdt_table(
     guest_mem: &GuestMemoryMmap,
     rsdp_offset: GuestAddress,
-) -> (GuestAddress, SDT) {
-    let mut dsdt = SDT::new(*b"DSDT", 36, 6, *b"FIRECK", *b"FCDSDT  ", 1);
+) -> (GuestAddress, Sdt) {
+    let mut dsdt = Sdt::new(*b"DSDT", 36, 6, *b"FIRECK", *b"FCDSDT  ", 1);
 
     let s5 = aml::Name::new("_S5_".into(), &aml::Package::new(vec![&5u8]));
     dsdt.append_slice(&s5.to_aml_bytes());
 
-    let dsdt_offset = rsdp_offset.checked_add(RSDP::len() as u64).unwrap();
+    let dsdt_offset = rsdp_offset.checked_add(Rsdp::len() as u64).unwrap();
     guest_mem
         .write_slice(dsdt.as_slice(), dsdt_offset)
         .expect("Error writing DSDT table");
@@ -79,14 +90,15 @@ fn create_dsdt_table(
     (dsdt_offset, dsdt)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn create_fadt_table(
     guest_mem: &GuestMemoryMmap,
     dsdt_offset: GuestAddress,
     dsdt_len: u64,
-) -> (GuestAddress, SDT) {
+) -> (GuestAddress, Sdt) {
     // FADT aka FACP
     // Revision 6 of the ACPI FADT table is 276 bytes long
-    let mut fadt = SDT::new(*b"FACP", 276, 6, *b"FIRECK", *b"FCFACP  ", 1);
+    let mut fadt = Sdt::new(*b"FACP", 276, 6, *b"FIRECK", *b"FCFACP  ", 1);
 
     fadt.write(46, ACPI_SCI_INT); // SCI_INT
     fadt.write(88, ACPI_PM1_EVT_LEN); // PM1_EVT_LEN
@@ -116,13 +128,14 @@ fn create_fadt_table(
     (fadt_offset, fadt)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn create_madt_table(
     num_cpus: u8,
     guest_mem: &GuestMemoryMmap,
     fadt_offset: GuestAddress,
     fadt_len: u64,
-) -> (GuestAddress, SDT) {
-    let mut madt = SDT::new(*b"APIC", 44, 5, *b"FIRECK", *b"FCMADT  ", 1);
+) -> (GuestAddress, Sdt) {
+    let mut madt = Sdt::new(*b"APIC", 44, 5, *b"FIRECK", *b"FCMADT  ", 1);
     madt.write(36, arch::x86_64::APIC_DEFAULT_PHYS_BASE);
 
     for cpu in 0..num_cpus {
@@ -136,7 +149,7 @@ fn create_madt_table(
         madt.append(lapic);
     }
 
-    madt.append(IOAPIC {
+    madt.append(Ioapic {
         r#type: 1,
         length: 12,
         ioapic_id: 0,
@@ -153,13 +166,14 @@ fn create_madt_table(
     (madt_offset, madt)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn create_xsdt_table(
     tables: Vec<u64>,
     guest_mem: &GuestMemoryMmap,
     madt_offset: GuestAddress,
     madt_len: u64,
 ) -> GuestAddress {
-    let mut xsdt = SDT::new(*b"XSDT", 36, 1, *b"FIRECK", *b"FCXSDT  ", 1);
+    let mut xsdt = Sdt::new(*b"XSDT", 36, 1, *b"FIRECK", *b"FCXSDT  ", 1);
     for table in tables {
         xsdt.append(table);
     }
@@ -173,9 +187,10 @@ fn create_xsdt_table(
     xsdt_offset
 }
 
-fn create_rsdt_table(guest_mem: &GuestMemoryMmap, xsdt_offset: GuestAddress) -> GuestAddress {
+#[cfg(target_arch = "x86_64")]
+fn create_rsdp_table(guest_mem: &GuestMemoryMmap, xsdt_offset: GuestAddress) -> GuestAddress {
     let rsdp_offset = GuestAddress(RSDP_ADDR);
-    let rsdp = RSDP::new(*b"FIRECK", xsdt_offset.0);
+    let rsdp = Rsdp::new(*b"FIRECK", xsdt_offset.0);
 
     guest_mem
         .write_slice(rsdp.as_slice(), rsdp_offset)

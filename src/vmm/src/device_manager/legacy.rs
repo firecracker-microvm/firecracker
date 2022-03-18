@@ -84,7 +84,6 @@ impl PortIODeviceManager {
             .map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let acpi_device_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
         let i8042_reset_evfd = reset_evfd.try_clone().map_err(Error::EventFd)?;
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
@@ -92,6 +91,7 @@ impl PortIODeviceManager {
             kbd_evt.try_clone().map_err(Error::EventFd)?,
         )));
 
+        let acpi_device_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let acpi_device = Arc::new(Mutex::new(devices::legacy::AcpiDevice::new(
             acpi_device_evt.try_clone().map_err(Error::EventFd)?,
             reset_evfd,

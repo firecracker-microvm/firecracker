@@ -103,6 +103,7 @@ pub enum VmmAction {
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
     /// Set shutdown signal via ACPI
+    #[cfg(target_arch = "x86_64")]
     SendACPIShutdown,
     /// Update the balloon size, after microVM start.
     UpdateBalloon(BalloonUpdateConfig),
@@ -349,6 +350,7 @@ impl<'a> PrebootApiController<'a> {
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            #[cfg(target_arch = "x86_64")]
             SendACPIShutdown => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
@@ -525,6 +527,7 @@ impl RuntimeApiController {
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
+            #[cfg(target_arch = "x86_64")]
             SendACPIShutdown => self.send_acpi_shutdown(),
             UpdateBalloon(balloon_update) => self
                 .vmm
@@ -621,6 +624,8 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
+    /// Injects ACPI shutdown signal to the inner Vmm.
+    #[cfg(target_arch = "x86_64")]
     fn send_acpi_shutdown(&mut self) -> ActionResult {
         self.vmm
             .lock()
@@ -724,6 +729,8 @@ mod tests {
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
+    #[cfg(target_arch = "x86_64")]
+    use std::io;
 
     use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
@@ -887,6 +894,8 @@ mod tests {
         pub resume_called: bool,
         #[cfg(target_arch = "x86_64")]
         pub send_ctrl_alt_del_called: bool,
+        #[cfg(target_arch = "x86_64")]
+        pub send_acpi_shutdown_called: bool,
         pub update_balloon_config_called: bool,
         pub update_balloon_stats_config_called: bool,
         pub update_block_device_path_called: bool,
@@ -920,6 +929,19 @@ mod tests {
                 ));
             }
             self.send_ctrl_alt_del_called = true;
+            Ok(())
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        pub fn send_acpi_shutdown(&mut self) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::AcpiDeviceError(
+                    devices::legacy::AcpiDeviceError::AcpiDeviceInterruptFailure(
+                        io::Error::last_os_error(),
+                    ),
+                ));
+            }
+            self.send_acpi_shutdown_called = true;
             Ok(())
         }
 

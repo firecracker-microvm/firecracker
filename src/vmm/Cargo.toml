@@ -18,7 +18,6 @@ versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 vm-superio = ">=0.4.0"
 vm-memory = { path = "../vm-memory" }
-acpi_tables = { path = "../acpi_tables" }
 arch = { path = "../arch" }
 devices = { path = "../devices" }
 logger = { path = "../logger" }
@@ -31,6 +30,7 @@ virtio_gen = { path = "../virtio_gen" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
+acpi_tables = { path = "../acpi_tables" }
 
 [dev-dependencies]
 criterion = "0.3.0"
