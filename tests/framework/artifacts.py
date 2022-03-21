@@ -479,6 +479,19 @@ class SnapshotType(Enum):
     DIFF = 1
 
 
+class SnapshotMemBackendType(Enum):
+    """
+    Supported guest memory backend types used for snapshot load.
+
+    - `FILE`: establishes if the guest memory is backed by a file.
+    - `UFFD`: indicates that the guest memory page faults are handled by
+              a dedicated UFFD page-fault handler process.
+    """
+
+    FILE = 'File'
+    UFFD = 'Uffd'
+
+
 class Snapshot:
     """Manages Firecracker snapshots."""
 
