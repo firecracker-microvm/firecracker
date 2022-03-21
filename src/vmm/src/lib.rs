@@ -318,38 +318,53 @@ impl Vmm {
         Ok(())
     }
 
-    // Checks that the vCPUs respond with the `_expected_response`.
-    fn check_vcpus_response(
-        &mut self,
-        _expected_response: VcpuResponse,
-    ) -> std::result::Result<(), ()> {
-        for handle in self.vcpus_handles.iter() {
-            match handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC) {
-                Ok(_expected_response) => (),
-                _ => return Err(()),
-            }
-        }
-        Ok(())
-    }
-
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<()> {
         self.mmio_device_manager.kick_devices();
-        self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
-            .map_err(|_| Error::VcpuResume)?;
+
+        // Send the events.
+        self.vcpus_handles
+            .iter()
+            .try_for_each(|handle| handle.send_event(VcpuEvent::Resume))
+            .map_err(|_| Error::VcpuMessage)?;
+
+        // Check the responses.
+        if self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .any(|response| !matches!(response, Ok(VcpuResponse::Resumed)))
+        {
+            return Err(Error::VcpuMessage);
+        }
+
         self.instance_info.state = VmState::Running;
         Ok(())
     }
 
     /// Sends a pause command to the vCPUs.
     pub fn pause_vm(&mut self) -> Result<()> {
-        self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
-            .map_err(|_| Error::VcpuPause)?;
+        // Send the events.
+        self.vcpus_handles
+            .iter()
+            .try_for_each(|handle| handle.send_event(VcpuEvent::Pause))
+            .map_err(|_| Error::VcpuMessage)?;
+
+        // Check the responses.
+        if self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .any(|response| !matches!(response, Ok(VcpuResponse::Paused)))
+        {
+            return Err(Error::VcpuMessage);
+        }
+
         self.instance_info.state = VmState::Paused;
         Ok(())
     }
 
-    /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
+    /// Returns a reference to the inner `GuestMemoryMmap` object.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
     }
@@ -460,22 +475,6 @@ impl Vmm {
             .collect::<std::result::Result<Vec<VcpuState>, MicrovmStateError>>()?;
 
         Ok(vcpu_states)
-    }
-
-    // Sends an event to all vCPUs and waits for a response.
-    fn broadcast_vcpu_event(
-        &mut self,
-        event: VcpuEvent,
-        expected_response: VcpuResponse,
-    ) -> Result<()> {
-        for handle in self.vcpus_handles.iter() {
-            handle
-                .send_event(event.clone())
-                .map_err(|_| Error::VcpuMessage)?;
-        }
-
-        self.check_vcpus_response(expected_response)
-            .map_err(|_| Error::VcpuMessage)
     }
 
     /// Restores vcpus kvm states.
