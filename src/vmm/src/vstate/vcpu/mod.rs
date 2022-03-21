@@ -657,7 +657,6 @@ mod tests {
         fmt,
         sync::Mutex,
         sync::{Arc, Barrier},
-        time::Duration,
     };
 
     use super::*;
@@ -665,6 +664,7 @@ mod tests {
     use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
+    use crate::RECV_TIMEOUT_SEC;
     use linux_loader::loader::KernelLoader;
     use utils::errno;
     use utils::signal::validate_signal_num;
@@ -1033,7 +1033,7 @@ mod tests {
         assert_eq!(
             handle
                 .response_receiver()
-                .recv_timeout(Duration::from_millis(1000))
+                .recv_timeout(RECV_TIMEOUT_SEC)
                 .expect("did not receive event response from vcpu"),
             response
         );
@@ -1094,7 +1094,7 @@ mod tests {
             .expect("failed to send event to vcpu");
         let vcpu_state = match vcpu_handle
             .response_receiver()
-            .recv_timeout(Duration::from_millis(1000))
+            .recv_timeout(RECV_TIMEOUT_SEC)
             .expect("did not receive event response from vcpu")
         {
             VcpuResponse::SavedState(state) => state,
