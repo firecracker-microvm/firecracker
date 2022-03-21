@@ -10,8 +10,8 @@ from pathlib import Path
 from conftest import init_microvm, _test_images_s3_bucket
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.artifacts import (
-    ArtifactCollection, Artifact, DiskArtifact, Snapshot,
-    SnapshotType, NetIfaceConfig
+    ArtifactCollection, Artifact, DiskArtifact, NetIfaceConfig,
+    Snapshot, SnapshotMemBackendType, SnapshotType
 )
 from framework import utils
 import host_tools.logging as log_tools
@@ -175,7 +175,13 @@ class MicrovmBuilder:
                             diff_snapshots=False,
                             use_ramdisk=False,
                             fc_binary=None, jailer_binary=None,
-                            daemonize=True):
+                            daemonize=True,
+                            # If None, it means that the guest memory is
+                            # backed by a file.
+                            # If specified, establishes that page-faults
+                            # resulted when loading the guest memory
+                            # are handled by a dedicated UFFD PF handler.
+                            uffd_path=None):
         """Build a microvm from a snapshot artifact."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           fc_binary, jailer_binary,)
@@ -210,10 +216,31 @@ class MicrovmBuilder:
                                          guest_ip=iface.guest_ip,
                                          netmask_len=iface.netmask,
                                          tapname=iface.tap_name)
-        response = vm.snapshot.load(mem_file_path=jailed_mem,
-                                    snapshot_path=jailed_vmstate,
-                                    diff=diff_snapshots,
-                                    resume=resume)
+
+        full_fc_version = \
+            vm.version.get_from_api().json()['firecracker_version']
+        if utils.compare_dirty_versions(full_fc_version, '1.0.0') > 0:
+            if uffd_path:
+                jailed_uffd = vm.copy_to_jail_ramfs(uffd_path) if use_ramdisk \
+                    else vm.create_jailed_resource(uffd_path)
+                mem_backend = {
+                    'type': SnapshotMemBackendType.UFFD,
+                    'path': jailed_uffd
+                }
+            else:
+                mem_backend = {
+                    'type': SnapshotMemBackendType.FILE,
+                    'path': jailed_mem
+                }
+            response = vm.snapshot.load(mem_backend=mem_backend,
+                                        snapshot_path=jailed_vmstate,
+                                        diff=diff_snapshots,
+                                        resume=resume)
+        else:
+            response = vm.snapshot.load(mem_file_path=jailed_mem,
+                                        snapshot_path=jailed_vmstate,
+                                        diff=diff_snapshots,
+                                        resume=resume)
         status_ok = vm.api_session.is_status_no_content(response.status_code)
 
         # Verify response status and cleanup if needed before assert.
