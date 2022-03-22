@@ -71,7 +71,7 @@ pub struct MmdsNetworkStack {
     // This handles MMDS<->guest interaction at the TCP level.
     pub(crate) tcp_handler: TcpIPv4Handler,
     // Data store reference shared across all MmdsNetworkStack instances.
-    mmds: Arc<Mutex<Mmds>>,
+    pub mmds: Arc<Mutex<Mmds>>,
 }
 
 impl MmdsNetworkStack {
