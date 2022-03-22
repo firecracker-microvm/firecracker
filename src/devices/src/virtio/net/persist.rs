@@ -90,7 +90,8 @@ impl Persist<'_> for Net {
         .map_err(Error::CreateNet)?;
 
         // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if
-        // there is at least one net device having the MMDS NS present. Otherwise, return an error.
+        // there is at least one net device having the MMDS NS present and/or the mmds version was
+        // persisted in the snapshot.
         if let Some(mmds_ns) = &state.mmds_ns {
             // We're safe calling unwrap() to discard the error, as MmdsNetworkStack::restore() always
             // returns Ok.
