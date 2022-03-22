@@ -647,13 +647,38 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     return token
 
 
-def generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
-    """Build `GET` request to fetch metadata from MMDS when using V2."""
+def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
+    """Build `GET` request to fetch metadata from MMDS."""
     cmd = 'curl -m 2 -s'
-    cmd += ' -X GET'
-    cmd += ' -H  "X-metadata-token: {}"'.format(token)
+
+    if token is not None:
+        cmd += ' -X GET'
+        cmd += ' -H  "X-metadata-token: {}"'.format(token)
+
     if app_json:
         cmd += ' -H "Accept: application/json"'
+
     cmd += ' http://{}/'.format(ipv4_address)
 
     return cmd
+
+
+def configure_mmds(test_microvm, iface_ids, version, ipv4_address=None,
+                   fc_version=None):
+    """Configure mmds service."""
+    mmds_config = {
+        'version': version,
+        'network_interfaces': iface_ids
+    }
+
+    # For versions prior to v1.0.0, the mmds config only contains
+    # the ipv4_address.
+    if fc_version is not None and \
+            compare_versions(fc_version, "1.0.0") < 0:
+        mmds_config = {}
+
+    if ipv4_address:
+        mmds_config['ipv4_address'] = ipv4_address
+
+    response = test_microvm.mmds.put_config(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)

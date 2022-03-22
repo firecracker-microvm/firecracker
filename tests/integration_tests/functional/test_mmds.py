@@ -7,10 +7,13 @@ import random
 import string
 import time
 import pytest
-from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig
+from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig,\
+    ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import generate_mmds_session_token, \
-    generate_mmds_v2_get_request
+from framework.utils import generate_mmds_session_token, configure_mmds, \
+    generate_mmds_get_request, get_firecracker_version_from_toml, \
+    compare_versions
+from conftest import _test_images_s3_bucket
 
 import host_tools.network as net_tools
 
@@ -24,9 +27,11 @@ DEFAULT_IPV4 = '169.254.169.254'
 MMDS_VERSIONS = ['V2', 'V1']
 
 
-def _assert_out(stdout, stderr, expected):
+def _run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
     assert stderr.read() == ''
-    assert stdout.read() == expected
+    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stdout == expected
 
 
 def _populate_data_store(test_microvm, data_store):
@@ -42,17 +47,138 @@ def _populate_data_store(test_microvm, data_store):
     assert response.json() == data_store
 
 
-def _configure_mmds(test_microvm, iface_id, version, ipv4_address=None):
-    mmds_config = {
-        'version': version,
-        'network_interfaces': [iface_id]
+def _validate_mmds_snapshot(
+    vm_instance,
+    vm_builder,
+    version,
+    target_fc_version=None,
+    fc_path=None,
+    jailer_path=None
+):
+    """Test MMDS behaviour across snap-restore."""
+    basevm = vm_instance.vm
+    root_disk = vm_instance.disks[0]
+    disks = [root_disk.local_path()]
+    ssh_key = vm_instance.ssh_key
+    ipv4_address = '169.254.169.250'
+
+    # Configure MMDS version with custom IPv4 address.
+    configure_mmds(
+        basevm,
+        version=version,
+        iface_ids=[DEFAULT_DEV_NAME],
+        ipv4_address=ipv4_address,
+        fc_version=target_fc_version
+    )
+
+    # Check if the FC version supports the latest format for mmds-config.
+    # If target_fc_version is None, we assume the current version is used.
+    if target_fc_version is None or \
+            (target_fc_version is not None and
+             compare_versions(target_fc_version, "1.0.0") >= 0):
+        expected_mmds_config = {
+            "version": version,
+            "ipv4_address": ipv4_address,
+            "network_interfaces": [DEFAULT_DEV_NAME]
+        }
+        response = basevm.full_cfg.get()
+        assert basevm.api_session.is_status_ok(response.status_code)
+        assert response.json()["mmds-config"] == expected_mmds_config
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678'
+            }
+        }
     }
+    _populate_data_store(basevm, data_store)
 
-    if ipv4_address:
-        mmds_config['ipv4_address'] = ipv4_address
+    basevm.start()
 
-    response = test_microvm.mmds.put_config(json=mmds_config)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    snapshot_builder = SnapshotBuilder(basevm)
+
+    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
+    _run_guest_cmd(ssh_connection, f'ip route add {ipv4_address} dev eth0', '')
+
+    # Generate token if needed.
+    token = None
+    if version == "V2":
+        token = generate_mmds_session_token(
+            ssh_connection,
+            ipv4_address,
+            token_ttl=60
+        )
+
+    # Fetch metadata.
+    cmd = generate_mmds_get_request(
+        ipv4_address,
+        token=token,
+    )
+    _run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
+
+    # Create snapshot.
+    snapshot = snapshot_builder.create(disks,
+                                       ssh_key,
+                                       SnapshotType.FULL,
+                                       target_version=target_fc_version)
+
+    # Resume microVM and ensure session token is still valid on the base.
+    response = basevm.vm.patch(state='Resumed')
+    assert basevm.api_session.is_status_no_content(response.status_code)
+
+    # Fetch metadata again using the same token.
+    _run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
+
+    # Kill base microVM.
+    basevm.kill()
+
+    # Load microVM clone from snapshot.
+    microvm, _ = vm_builder.build_from_snapshot(snapshot,
+                                                resume=True,
+                                                fc_binary=fc_path,
+                                                jailer_binary=jailer_path)
+
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+    # Check the reported mmds config. In versions up to (including) v1.0.0 this
+    # was not populated after restore.
+    if target_fc_version is not None and \
+            compare_versions("1.0.0", target_fc_version) < 0:
+        response = microvm.full_cfg.get()
+        assert microvm.api_session.is_status_ok(response.status_code)
+        assert response.json()["mmds-config"] == expected_mmds_config
+
+    if version == 'V1':
+        # Verify that V2 requests don't work
+        assert generate_mmds_session_token(
+            ssh_connection,
+            ipv4_address,
+            token_ttl=60
+        ) == "Not allowed HTTP method."
+
+        token = None
+    else:
+        # Attempting to reuse the token across a restore must fail.
+        cmd = generate_mmds_get_request(ipv4_address, token=token)
+        _run_guest_cmd(ssh_connection, cmd, 'MMDS token not valid.')
+
+        # Generate token.
+        token = generate_mmds_session_token(
+            ssh_connection,
+            ipv4_address,
+            token_ttl=60
+        )
+
+    # Data store is empty after a restore.
+    cmd = generate_mmds_get_request(ipv4_address, token=token)
+    _run_guest_cmd(ssh_connection, cmd, 'null')
+
+    # Now populate the store.
+    _populate_data_store(microvm, data_store)
+
+    # Fetch metadata.
+    _run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
 
 
 @pytest.mark.parametrize(
@@ -109,9 +235,9 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
 
     ipv4_address = '169.254.169.250'
     # Configure MMDS with custom IPv4 address.
-    _configure_mmds(
+    configure_mmds(
         test_microvm,
-        iface_id='1',
+        iface_ids=['1'],
         version=version,
         ipv4_address=ipv4_address
     )
@@ -120,50 +246,43 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, f'ip route add {ipv4_address} dev eth0', '')
 
+    token = None
     if version == 'V2':
         # Generate token.
         token = generate_mmds_session_token(
             ssh_connection,
-            ipv4_address=ipv4_address,
+            ipv4_address,
             token_ttl=60
         )
 
-        pre = generate_mmds_v2_get_request(
-            ipv4_address=ipv4_address,
-            token=token
-        )
-    else:
-        pre = 'curl -s -H "Accept: application/json" ' \
-                'http://{}/'.format(ipv4_address)
+    pre = generate_mmds_get_request(
+        ipv4_address,
+        token=token,
+    )
 
     cmd = pre + 'latest/meta-data/ami-id'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 'ami-12345678'
+    _run_guest_cmd(ssh_connection, cmd, 'ami-12345678', use_json=True)
 
     # The request is still valid if we append a
     # trailing slash to a leaf node.
     cmd = pre + 'latest/meta-data/ami-id/'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 'ami-12345678'
+    _run_guest_cmd(ssh_connection, cmd, 'ami-12345678', use_json=True)
 
     cmd = pre + 'latest/meta-data/network/interfaces/macs/' \
                 '02:29:96:8f:6a:2d/subnet-id'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 'subnet-be9b61d'
+    _run_guest_cmd(ssh_connection, cmd, 'subnet-be9b61d', use_json=True)
 
     # Test reading a non-leaf node WITHOUT a trailing slash.
     cmd = pre + 'latest/meta-data'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == data_store['latest']['meta-data']
+    _run_guest_cmd(ssh_connection, cmd,
+                   data_store['latest']['meta-data'], use_json=True)
 
     # Test reading a non-leaf node with a trailing slash.
     cmd = pre + 'latest/meta-data/'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == data_store['latest']['meta-data']
+    _run_guest_cmd(ssh_connection, cmd,
+                   data_store['latest']['meta-data'], use_json=True)
 
 
 @pytest.mark.parametrize(
@@ -202,7 +321,7 @@ def test_json_response(test_microvm_with_api, network_config, version):
     _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
 
     # Populate data store with contents.
     _populate_data_store(test_microvm, data_store)
@@ -212,41 +331,34 @@ def test_json_response(test_microvm_with_api, network_config, version):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     cmd = 'ip route add {} dev eth0'.format(DEFAULT_IPV4)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, cmd, '')
 
+    token = None
     if version == 'V2':
         # Generate token.
         token = generate_mmds_session_token(
-                ssh_connection,
-                ipv4_address=DEFAULT_IPV4,
-                token_ttl=60
+            ssh_connection,
+            DEFAULT_IPV4,
+            token_ttl=60
         )
 
-        pre = generate_mmds_v2_get_request(DEFAULT_IPV4, token)
-    else:
-        pre = 'curl -s -H "Accept: application/json"' \
-                ' http://{}/'.format(DEFAULT_IPV4)
+    pre = generate_mmds_get_request(DEFAULT_IPV4, token)
 
     cmd = pre + 'latest/meta-data/'
-    _, stdout, _ = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == data_store['latest']['meta-data']
+    _run_guest_cmd(ssh_connection, cmd,
+                   data_store['latest']['meta-data'], use_json=True)
 
     cmd = pre + 'latest/meta-data/ami-id/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 'ami-12345678'
+    _run_guest_cmd(ssh_connection, cmd, 'ami-12345678', use_json=True)
 
     cmd = pre + 'latest/meta-data/dummy_res/0'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 'res1'
+    _run_guest_cmd(ssh_connection, cmd, 'res1', use_json=True)
 
     cmd = pre + 'latest/Usage/CPU'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 12.12
+    _run_guest_cmd(ssh_connection, cmd, 12.12, use_json=True)
 
     cmd = pre + 'latest/Limits/CPU'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert json.load(stdout) == 512
+    _run_guest_cmd(ssh_connection, cmd, 512, use_json=True)
 
 
 @pytest.mark.parametrize(
@@ -291,7 +403,7 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
     _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
     # Populate data store with contents.
     _populate_data_store(test_microvm, data_store)
 
@@ -300,27 +412,24 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     cmd = 'ip route add {} dev eth0'.format(DEFAULT_IPV4)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, cmd, '')
 
+    token = None
     if version == 'V2':
         # Generate token.
         token = generate_mmds_session_token(
             ssh_connection,
-            ipv4_address=DEFAULT_IPV4,
+            DEFAULT_IPV4,
             token_ttl=60
         )
 
-        pre = generate_mmds_v2_get_request(
-            ipv4_address=DEFAULT_IPV4,
-            token=token,
-            app_json=False
-        )
-    else:
-        pre = 'curl -s http://{}/'.format(DEFAULT_IPV4)
+    pre = generate_mmds_get_request(
+        DEFAULT_IPV4,
+        token=token,
+        app_json=False
+    )
 
     cmd = pre + 'latest/meta-data/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
     expected = "ami-id\n" \
                "dummy_array\n" \
                "dummy_obj/\n" \
@@ -328,25 +437,21 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
                "public-hostname\n" \
                "reservation-id"
 
-    _assert_out(stdout, stderr, expected)
+    _run_guest_cmd(ssh_connection, cmd, expected)
 
     cmd = pre + 'latest/meta-data/ami-id/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+    _run_guest_cmd(ssh_connection, cmd, 'ami-12345678')
 
     cmd = pre + 'latest/meta-data/dummy_array/0'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'arr_val1')
+    _run_guest_cmd(ssh_connection, cmd, 'arr_val1')
 
     cmd = pre + 'latest/Usage/CPU'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'Cannot retrieve value. The value has an'
-                                ' unsupported type.')
+    _run_guest_cmd(ssh_connection, cmd, 'Cannot retrieve value. The value has'
+                   ' an unsupported type.')
 
     cmd = pre + 'latest/Limits/CPU'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'Cannot retrieve value. The value has an'
-                                ' unsupported type.')
+    _run_guest_cmd(ssh_connection, cmd, 'Cannot retrieve value. The value has'
+                   ' an unsupported type.')
 
 
 @pytest.mark.parametrize(
@@ -368,7 +473,7 @@ def test_larger_than_mss_payloads(
     # Attach network device.
     _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
@@ -381,13 +486,10 @@ def test_larger_than_mss_payloads(
     # Make sure MTU is 1500 bytes.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    cmd = 'ip link set dev eth0 mtu 1500'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, "")
+    _run_guest_cmd(ssh_connection, 'ip link set dev eth0 mtu 1500', '')
 
     cmd = 'ip a s eth0 | grep -i mtu | tr -s " " | cut -d " " -f 4,5'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, "mtu 1500\n")
+    _run_guest_cmd(ssh_connection, cmd, 'mtu 1500\n')
 
     # These values are usually used by booted up guest network interfaces.
     mtu = 1500
@@ -412,37 +514,31 @@ def test_larger_than_mss_payloads(
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
-    cmd = 'ip route add {} dev eth0'.format(DEFAULT_IPV4)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, f'ip route add {DEFAULT_IPV4} dev eth0', '')
 
+    token = None
     if version == 'V2':
         # Generate token.
         token = generate_mmds_session_token(
             ssh_connection,
-            ipv4_address=DEFAULT_IPV4,
+            DEFAULT_IPV4,
             token_ttl=60
         )
 
-        pre = generate_mmds_v2_get_request(
-            ipv4_address=DEFAULT_IPV4,
-            token=token,
-            app_json=False
-        )
-    else:
-        pre = 'curl -s http://{}/'.format(DEFAULT_IPV4)
+    pre = generate_mmds_get_request(
+        DEFAULT_IPV4,
+        token=token,
+        app_json=False
+    )
 
     cmd = pre + 'larger_than_mss'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, larger_than_mss)
+    _run_guest_cmd(ssh_connection, cmd, larger_than_mss)
 
     cmd = pre + 'mss_equal'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, mss_equal)
+    _run_guest_cmd(ssh_connection, cmd, mss_equal)
 
     cmd = pre + 'lower_than_mss'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, lower_than_mss)
+    _run_guest_cmd(ssh_connection, cmd, lower_than_mss)
 
 
 @pytest.mark.parametrize(
@@ -461,7 +557,7 @@ def test_mmds_dummy(test_microvm_with_api, network_config, version):
     # Attach network device.
     _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
@@ -527,7 +623,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     # Attach network device.
     _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
 
     data_store = {
         'latest': {
@@ -542,16 +638,14 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    cmd = 'ip route add {} dev eth0'.format(DEFAULT_IPV4)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, f'ip route add {DEFAULT_IPV4} dev eth0', '')
 
     get_cmd = 'curl -m 2 -s'
     get_cmd += ' -X GET'
     get_cmd += ' -H  "Content-Length: 100"'
     get_cmd += ' -H "Accept: application/json"'
     get_cmd += ' -d "some body"'
-    get_cmd += ' http://{}/'.format(DEFAULT_IPV4)
+    get_cmd += f' http://{DEFAULT_IPV4}/'
 
     if version == 'V1':
         _, stdout, _ = ssh_connection.execute_command(get_cmd)
@@ -560,7 +654,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
         # Generate token.
         token = generate_mmds_session_token(
             ssh_connection,
-            ipv4_address=DEFAULT_IPV4,
+            DEFAULT_IPV4,
             token_ttl=60
         )
 
@@ -597,7 +691,7 @@ def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
     # Attach network device.
     _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
-    _configure_mmds(test_microvm, iface_id='1', version=version)
+    configure_mmds(test_microvm, iface_ids=['1'], version=version)
 
     dummy_json = {
         'latest': {
@@ -678,109 +772,121 @@ def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
     assert len(str(response.json()).replace(" ", "")) == 158
 
 
-def test_mmds_snapshot(bin_cloner_path):
+@pytest.mark.parametrize(
+    "version",
+    MMDS_VERSIONS
+)
+def test_mmds_snapshot(bin_cloner_path,  version):
     """
-    Exercise MMDS behavior with snapshots.
+    Test MMDS behavior by restoring a snapshot on current and past FC versions.
 
-    Ensures that MMDS V2 behavior is not affected by taking a snapshot
-    and that MMDS V2 is not available after snapshot load.
+    Ensures that the version is persisted or initialised with the default if
+    the firecracker version does not support it.
 
     @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
-    net_iface = NetIfaceConfig()
     vm_instance = vm_builder.build_vm_nano(
-        net_ifaces=[net_iface],
-        diff_snapshots=True
-    )
-    test_microvm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
-
-    ipv4_address = '169.254.169.250'
-    # Configure MMDS version with custom IPv4 address.
-    _configure_mmds(
-        test_microvm,
-        version='V2',
-        iface_id=DEFAULT_DEV_NAME,
-        ipv4_address=ipv4_address
+        net_ifaces=[NetIfaceConfig()]
     )
 
-    data_store = {
-        'latest': {
-            'meta-data': {
-                'ami-id': 'ami-12345678'
-            }
-        }
-    }
-    _populate_data_store(test_microvm, data_store)
+    # Validate current version.
+    _validate_mmds_snapshot(
+        vm_instance, vm_builder, version)
 
-    test_microvm.start()
+    # Validate restoring in past versions.
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Fetch all firecracker binaries.
+    # Create a snapshot with current build and restore with each FC binary
+    # artifact.
+    firecracker_artifacts = artifacts.firecrackers(
+        # v1.0.0 breaks snapshot compatibility with older versions.
+        min_version="1.0.0",
+        max_version=get_firecracker_version_from_toml())
+    for firecracker in firecracker_artifacts:
+        vm_instance = vm_builder.build_vm_nano(
+            net_ifaces=[NetIfaceConfig()]
+        )
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
 
-    snapshot_builder = SnapshotBuilder(test_microvm)
-    disks = [root_disk.local_path()]
+        target_version = firecracker.base_name()[1:]
+        # If the version is smaller or equal to 1.0.0, we expect that
+        # MMDS will be initialised with V1 by default.
+        if compare_versions(target_version, "1.0.0") <= 0:
+            mmds_version = "V1"
+        else:
+            mmds_version = version
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    cmd = 'ip route add {} dev eth0'.format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+        _validate_mmds_snapshot(
+            vm_instance,
+            vm_builder,
+            mmds_version,
+            target_fc_version=target_version,
+            fc_path=firecracker.local_path(),
+            jailer_path=jailer.local_path()
+        )
 
-    # Generate token.
-    token = generate_mmds_session_token(
-        ssh_connection,
-        ipv4_address=ipv4_address,
-        token_ttl=60
-    )
 
-    pre = 'curl -m 2 -s'
-    pre += ' -X GET'
-    pre += ' -H  "X-metadata-token: {}"'.format(token)
-    pre += ' http://{}/'.format(ipv4_address)
+def test_mmds_older_snapshot(bin_cloner_path):
+    """
+    Test MMDS behavior restoring older snapshots in the current version.
 
-    # Fetch metadata.
-    cmd = pre + 'latest/meta-data/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, "ami-id")
+    Ensures that the MMDS version is persisted or initialised with the default
+    if the FC version does not support this feature.
 
-    # Create diff snapshot.
-    snapshot = snapshot_builder.create(disks,
-                                       ssh_key,
-                                       SnapshotType.DIFF)
+    @type: functional
+    """
+    vm_builder = MicrovmBuilder(bin_cloner_path)
 
-    # Resume microVM and ensure session token is still valid on the base.
-    response = test_microvm.vm.patch(state='Resumed')
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    # Validate restoring a past snapshot in the current version.
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Fetch all firecracker binaries.
+    firecracker_artifacts = artifacts.firecrackers(
+        max_version=get_firecracker_version_from_toml())
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
 
-    _, stdout, stderr = ssh_connection.execute_command(
-        pre + 'latest/meta-data/'
-    )
-    _assert_out(stdout, stderr, "ami-id")
+        net_iface = NetIfaceConfig()
+        vm_instance = vm_builder.build_vm_nano(
+            net_ifaces=[net_iface],
+            fc_binary=firecracker.local_path(),
+            jailer_binary=jailer.local_path()
+        )
 
-    # Kill base microVM.
-    test_microvm.kill()
+        fc_version = firecracker.base_name()[1:]
+        # If the version is smaller or equal to 1.0.0, we expect that
+        # MMDS will be initialised with V1 by default.
+        # Otherwise, we may configure V2.
+        if compare_versions(fc_version, "1.0.0") <= 0:
+            mmds_version = "V1"
+        else:
+            mmds_version = "V2"
 
-    # Load microVM clone from snapshot.
-    test_microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                     resume=True,
-                                                     diff_snapshots=True)
-    _populate_data_store(test_microvm, data_store)
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+        # Check if we need to configure MMDS the old way, by
+        # setting `allow_mmds_requests`.
+        # If we do (for v0.25), reissue the network PUT api call.
+        if compare_versions(fc_version, "1.0.0") < 0:
+            basevm = vm_instance.vm
+            guest_mac = net_tools.mac_from_ip(net_iface.guest_ip)
+            response = basevm.network.put(
+                iface_id=net_iface.dev_name,
+                host_dev_name=net_iface.tap_name,
+                guest_mac=guest_mac,
+                allow_mmds_requests=True
+            )
+            assert basevm.api_session.is_status_no_content(
+                response.status_code)
 
-    # Mmds V2 is not available with snapshots.
-    # Test that `PUT` requests are not allowed.
-    cmd = 'curl -m 2 -s'
-    cmd += ' -X PUT'
-    cmd += ' -H  "X-metadata-token-ttl-seconds: 1"'
-    cmd += ' http://{}/latest/api/token'.format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    expected = "Not allowed HTTP method."
-    _assert_out(stdout, stderr, expected)
-
-    # Fetch metadata using V1 requests and ensure IPv4 configuration
-    # is persistent between snapshots.
-    cmd = 'curl -s http://{}/latest/meta-data/ami-id/'.format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+        _validate_mmds_snapshot(
+            vm_instance,
+            vm_builder,
+            mmds_version,
+            target_fc_version=fc_version
+        )
 
 
 def test_mmds_v2_negative(test_microvm_with_api, network_config):
@@ -795,7 +901,7 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     # Attach network device.
     _tap = test_microvm.ssh_network_config(network_config, '1')
     # Configure MMDS version.
-    _configure_mmds(test_microvm, version='V2', iface_id='1')
+    configure_mmds(test_microvm, version='V2', iface_ids=['1'])
 
     data_store = {
         'latest': {
@@ -813,74 +919,65 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    cmd = 'ip route add 169.254.169.254 dev eth0'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _run_guest_cmd(ssh_connection, f'ip route add {DEFAULT_IPV4} dev eth0', '')
 
     # Check `GET` request fails when token is not provided.
-    cmd = 'curl -s http://169.254.169.254/latest/meta-data/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    cmd = generate_mmds_get_request(DEFAULT_IPV4)
     expected = "No MMDS token provided. Use `X-metadata-token` header " \
                "to specify the session token."
-    _assert_out(stdout, stderr, expected)
+    _run_guest_cmd(ssh_connection, cmd, expected)
 
     # Generic `GET` request.
-    get_cmd = 'curl -m 2 -s'
-    get_cmd += ' -X GET'
-    get_cmd += ' -H  "X-metadata-token: {}"'
-    get_cmd += ' http://169.254.169.254/latest/meta-data'
 
     # Check `GET` request fails when token is not valid.
-    _, stdout, stderr = ssh_connection.execute_command(get_cmd.format("foo"))
-    _assert_out(stdout, stderr, "MMDS token not valid.")
+    _run_guest_cmd(ssh_connection, generate_mmds_get_request(
+        DEFAULT_IPV4, token="foo"), "MMDS token not valid.")
 
     # Check `PUT` request fails when token TTL is not provided.
-    _, stdout, stderr = ssh_connection.execute_command(
-        'curl -m 2 -s -X PUT http://169.254.169.254/latest/api/token'
-    )
+    cmd = f'curl -m 2 -s -X PUT http://{DEFAULT_IPV4}/latest/api/token'
     expected = "Token time to live value not found. Use " \
                "`X-metadata-token-ttl_seconds` header to specify " \
                "the token's lifetime."
-    _assert_out(stdout, stderr, expected)
+    _run_guest_cmd(ssh_connection, cmd, expected)
 
     # Check `PUT` request fails when `X-Forwarded-For` header is provided.
     cmd = 'curl -m 2 -s'
     cmd += ' -X PUT'
     cmd += ' -H  "X-Forwarded-For: foo"'
-    cmd += ' http://169.254.169.254'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    cmd += f' http://{DEFAULT_IPV4}'
     expected = "Invalid header. Reason: Unsupported header name. " \
                "Key: X-Forwarded-For"
-    _assert_out(stdout, stderr, expected)
+    _run_guest_cmd(ssh_connection, cmd, expected)
 
     # Generic `PUT` request.
     put_cmd = 'curl -m 2 -s'
     put_cmd += ' -X PUT'
     put_cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'
-    put_cmd += ' http://169.254.169.254/latest/api/token'
+    put_cmd += f' {DEFAULT_IPV4}/latest/api/token'
 
     # Check `PUT` request fails when path is invalid.
     # Path is invalid because we remove the last character
     # at the end of the valid uri.
-    _, stdout, stderr = ssh_connection.execute_command(put_cmd[:-1].format(60))
-    _assert_out(stdout, stderr, "Resource not found: /latest/api/toke.")
+    _run_guest_cmd(
+        ssh_connection, put_cmd[:-1].format(60),
+        "Resource not found: /latest/api/toke."
+    )
 
     # Check `PUT` request fails when token TTL is not valid.
     ttl_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1]
     for ttl in ttl_values:
-        _, stdout, stderr = ssh_connection.execute_command(put_cmd.format(ttl))
         expected = "Invalid time to live value provided for token: {}. " \
                    "Please provide a value between {} and {}." \
             .format(ttl, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS)
-        _assert_out(stdout, stderr, expected)
+        _run_guest_cmd(ssh_connection, put_cmd.format(ttl), expected)
 
     # Valid `PUT` request to generate token.
-    _, stdout, stderr = ssh_connection.execute_command(put_cmd.format(1))
+    _, stdout, _ = ssh_connection.execute_command(put_cmd.format(1))
     token = stdout.read()
     assert len(token) > 0
 
     # Wait for token to expire.
     time.sleep(1)
     # Check `GET` request fails when expired token is provided.
-    _, stdout, stderr = ssh_connection.execute_command(get_cmd.format(token))
-    _assert_out(stdout, stderr, "MMDS token not valid.")
+    _run_guest_cmd(ssh_connection, generate_mmds_get_request(
+        DEFAULT_IPV4, token=token), "MMDS token not valid.")

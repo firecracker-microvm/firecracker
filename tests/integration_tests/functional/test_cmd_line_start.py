@@ -15,7 +15,7 @@ import pytest
 from framework import utils
 from framework.artifacts import NetIfaceConfig
 from framework.utils import generate_mmds_session_token, \
-    generate_mmds_v2_get_request
+    generate_mmds_get_request
 from framework import utils_cpuid
 import host_tools.network as net_tools
 
@@ -94,11 +94,7 @@ def _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address):
     the `GET` request.
     """
     # Fetch data from MMDS from the guest's side.
-    if version == "V1":
-        cmd = 'curl -s -H "Accept: application/json" '
-        cmd += 'http://{}'.format(ipv4_address)
-
-    else:
+    if version == "V2":
         # If MMDS is configured to version 2, so we need to create
         # the session token first.
         token = generate_mmds_session_token(
@@ -106,9 +102,10 @@ def _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address):
             ipv4_address,
             token_ttl=60
         )
-        cmd = generate_mmds_v2_get_request(ipv4_address, token)
+    else:
+        token = None
 
-    return cmd
+    return generate_mmds_get_request(ipv4_address, token)
 
 
 def _get_optional_fields_from_file(vm_config_file):
