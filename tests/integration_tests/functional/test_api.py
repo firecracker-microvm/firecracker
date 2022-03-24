@@ -1467,7 +1467,11 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
                                        ssh_key,
                                        SnapshotType.FULL)
 
-    microvm, _ = microvm_builder.build_from_snapshot(snapshot, True, False)
+    microvm, _ = microvm_builder.build_from_snapshot(
+        snapshot,
+        resume=True,
+        diff_snapshots=False
+    )
 
     expected_cfg = setup_cfg.copy()
 
