@@ -1,14 +1,20 @@
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Test UFFD related functionality when resuming from snapshot."""
+
 import logging
 import os
+from subprocess import TimeoutExpired
+
+import stat
 
 from framework.artifacts import SnapshotMemBackendType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.utils import run_cmd
+from framework.utils import run_cmd, UffdHandler
 
 import host_tools.network as net_tools
+
+SOCKET_PATH = "/firecracker-uffd.sock"
 
 
 def create_snapshot(bin_cloner_path):
@@ -18,6 +24,14 @@ def create_snapshot(bin_cloner_path):
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
+
+    # Add a memory balloon.
+    response = basevm.balloon.put(
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=0
+    )
+    assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -36,6 +50,43 @@ def create_snapshot(bin_cloner_path):
     basevm.kill()
 
     return snapshot
+
+
+def spawn_pf_handler(vm, handler_path, mem_path):
+    """Spawn page fault handler process."""
+    # Copy snapshot memory file into chroot of microVM.
+    jailed_mem = vm.create_jailed_resource(mem_path)
+    # Copy the valid page fault binary into chroot of microVM.
+    jailed_handler = vm.create_jailed_resource(handler_path)
+
+    handler_name = os.path.basename(jailed_handler)
+    args = [SOCKET_PATH, jailed_mem]
+
+    uffd_handler = UffdHandler(handler_name, args)
+    real_root = os.open("/", os.O_RDONLY)
+
+    os.chroot(vm.chroot())
+    os.chdir('/')
+    st = os.stat(handler_name)
+    os.chmod(handler_name, st.st_mode | stat.S_IEXEC)
+
+    uffd_handler.spawn()
+    try:
+        outs, errs = uffd_handler.proc().communicate(timeout=1)
+        print(outs)
+        print(errs)
+        assert False, "Could not start PF handler!"
+    except TimeoutExpired:
+        print("This is the good case!")
+
+    # The page fault handler will create the socket path with root rights.
+    # Change rights to the jailer's.
+    os.chown(SOCKET_PATH, vm.jailer.uid, vm.jailer.gid)
+
+    os.fchdir(real_root)
+    os.chroot(".")
+
+    return uffd_handler
 
 
 def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
@@ -100,3 +151,50 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     assert "Load microVM snapshot error: Cannot connect to UDS in order to" \
            " send information on handling guest memory page-faults due to: " \
            "Connection refused (os error 111)" in response.text
+
+
+def test_valid_handler(bin_cloner_path,
+                       test_microvm_with_api,
+                       uffd_handler_paths):
+    """
+    Test valid uffd handler scenario.
+
+    @type: functional
+    """
+    logger = logging.getLogger("uffd_unbinded_socket")
+
+    logger.info("Create snapshot")
+    snapshot = create_snapshot(bin_cloner_path)
+
+    logger.info("Load snapshot, mem %s", snapshot.mem)
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm = test_microvm_with_api
+    vm.spawn()
+
+    # Spawn page fault handler process.
+    _pf_handler = spawn_pf_handler(
+        vm,
+        uffd_handler_paths['valid_handler'],
+        snapshot.mem
+    )
+
+    vm, _ = vm_builder.build_from_snapshot(snapshot, vm=vm,
+                                           resume=True,
+                                           uffd_path=SOCKET_PATH)
+
+    # Inflate balloon.
+    response = vm.balloon.patch(amount_mib=200)
+    assert vm.api_session.is_status_no_content(
+        response.status_code
+    )
+
+    # Deflate balloon.
+    response = vm.balloon.patch(amount_mib=0)
+    assert vm.api_session.is_status_no_content(
+        response.status_code
+    )
+
+    # Verify if guest can run commands.
+    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0

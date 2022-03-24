@@ -170,6 +170,7 @@ class MicrovmBuilder:
     # so we do not need to move it around polluting the code.
     def build_from_snapshot(self,
                             snapshot: Snapshot,
+                            vm=None,
                             resume=False,
                             # Enable incremental snapshot capability.
                             diff_snapshots=False,
@@ -183,11 +184,12 @@ class MicrovmBuilder:
                             # are handled by a dedicated UFFD PF handler.
                             uffd_path=None):
         """Build a microvm from a snapshot artifact."""
-        vm = init_microvm(self.root_path, self.bin_cloner_path,
-                          fc_binary, jailer_binary,)
-        vm.jailer.daemonize = daemonize
-        vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
-        vm.api_session.untime()
+        if vm is None:
+            vm = init_microvm(self.root_path, self.bin_cloner_path,
+                              fc_binary, jailer_binary,)
+            vm.jailer.daemonize = daemonize
+            vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
+            vm.api_session.untime()
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
         metrics_fifo = log_tools.Fifo(metrics_file_path)
@@ -221,11 +223,9 @@ class MicrovmBuilder:
             vm.version.get_from_api().json()['firecracker_version']
         if utils.compare_dirty_versions(full_fc_version, '1.0.0') > 0:
             if uffd_path:
-                jailed_uffd = vm.copy_to_jail_ramfs(uffd_path) if use_ramdisk \
-                    else vm.create_jailed_resource(uffd_path)
                 mem_backend = {
                     'type': SnapshotMemBackendType.UFFD,
-                    'path': jailed_uffd
+                    'path': uffd_path
                 }
             else:
                 mem_backend = {

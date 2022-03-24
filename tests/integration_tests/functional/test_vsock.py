@@ -246,9 +246,11 @@ def test_vsock_transport_reset(
     test_vm.kill()
 
     # Load snapshot.
-    test_vm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                True,
-                                                False)
+    test_vm, _ = vm_builder.build_from_snapshot(
+        snapshot,
+        resume=True,
+        diff_snapshots=False
+    )
 
     # Check that vsock device still works.
     # Test guest-initiated connections.
