@@ -16,7 +16,7 @@ import platform
 from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
-
+from retry.api import retry_call
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -729,3 +729,46 @@ def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None,
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     return response
+
+
+def start_screen_process(screen_log, session_name, binary_path, binary_params):
+    """Start binary process into a screen session."""
+    start_cmd = 'screen -L -Logfile {logfile} ' \
+                '-dmS {session} {binary} {params}'
+    start_cmd = start_cmd.format(
+        logfile=screen_log,
+        session=session_name,
+        binary=binary_path,
+        params=' '.join(binary_params)
+    )
+
+    run_cmd(start_cmd)
+
+    # Build a regex object to match (number).session_name
+    regex_object = re.compile(
+        r'([0-9]+)\.{}'.format(session_name))
+
+    # Run 'screen -ls' in a retry_call loop, 30 times with a 1s
+    # delay between calls.
+    # If the output of 'screen -ls' matches the regex object, it will
+    # return the PID. Otherwise, a RuntimeError will be raised.
+    screen_pid = retry_call(
+        search_output_from_cmd,
+        fkwargs={
+            "cmd": 'screen -ls',
+            "find_regex": regex_object
+        },
+        exceptions=RuntimeError,
+        tries=30,
+        delay=1).group(1)
+
+    binary_clone_pid = int(open(
+        '/proc/{0}/task/{0}/children'.format(screen_pid),
+        encoding='utf-8'
+    ).read().strip())
+
+    # Configure screen to flush stdout to file.
+    flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
+    run_cmd(flush_cmd.format(session=session_name))
+
+    return screen_pid, binary_clone_pid
