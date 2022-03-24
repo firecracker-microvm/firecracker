@@ -37,6 +37,7 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
     VIRTIO_NET_F_MAC,
 };
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 enum FrontendError {
@@ -157,7 +158,8 @@ impl Net {
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1;
+            | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -257,9 +259,15 @@ impl Net {
     }
 
     fn signal_rx_used_queue(&mut self) -> result::Result<(), DeviceError> {
-        if self.rx_deferred_irqs {
+        if !self.rx_deferred_irqs {
+            return Ok(());
+        }
+
+        let mem = self.device_state.mem().unwrap();
+        if self.queues[RX_INDEX].prepare_kick(mem) {
             return self.signal_used_queue();
         }
+        self.rx_deferred_irqs = false;
 
         Ok(())
     }
@@ -354,7 +362,7 @@ impl Net {
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop(mem).ok_or_else(|| {
+        let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
             METRICS.net.no_rx_avail_buffer.inc();
             FrontendError::EmptyQueue
         })?;
@@ -539,10 +547,10 @@ impl Net {
         // trigger a process_rx() which checks if there are any new frames to be sent, starting
         // with the MMDS network stack.
         let mut process_rx_for_mmds = false;
-        let mut raise_irq = false;
+        let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
 
-        while let Some(head) = tx_queue.pop(mem) {
+        while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx_rate_limiter.consume(1, TokenType::Ops) {
@@ -628,13 +636,13 @@ impl Net {
             tx_queue
                 .add_used(mem, head_index, 0)
                 .map_err(DeviceError::QueueError)?;
-            raise_irq = true;
+            used_any = true;
         }
 
-        if raise_irq {
-            self.signal_used_queue()?;
-        } else {
+        if !used_any {
             METRICS.net.no_tx_avail_buffer.inc();
+        } else if tx_queue.prepare_kick(mem) {
+            self.signal_used_queue()?;
         }
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
@@ -669,13 +677,11 @@ impl Net {
             // rate limiters present but with _very high_ allowed rate
             error!("Failed to get rx queue event: {:?}", e);
             METRICS.net.event_fails.inc();
+        } else if self.rx_rate_limiter.is_blocked() {
+            METRICS.net.rx_rate_limiter_throttled.inc();
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
-            if !self.rx_rate_limiter.is_blocked() {
-                self.resume_rx().unwrap_or_else(report_net_event_fail);
-            } else {
-                METRICS.net.rx_rate_limiter_throttled.inc();
-            }
+            self.resume_rx().unwrap_or_else(report_net_event_fail);
         }
     }
 
@@ -840,6 +846,13 @@ impl VirtioDevice for Net {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
+        if event_idx {
+            for queue in &mut self.queues {
+                queue.enable_notif_suppression();
+            }
+        }
+
         if self.activate_evt.write(1).is_err() {
             error!("Net: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
@@ -948,7 +961,8 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1;
+            | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         assert_eq!(net.avail_features_by_page(0), features as u32);
         assert_eq!(net.avail_features_by_page(1), (features >> 32) as u32);
@@ -1550,6 +1564,11 @@ pub mod tests {
             1,
             th.simulate_event(NetEvent::Tap)
         );
+
+        // We need to set this here to false, otherwise the device will try to
+        // handle a deferred frame, it will fail and will never try to read from
+        // the tap.
+        th.net().rx_deferred_frame = false;
 
         // Fake an avail buffer; this time, tap reading should error out.
         th.rxq.avail.idx.set(1);
