@@ -21,7 +21,6 @@ import weakref
 
 from threading import Lock
 from retry import retry
-from retry.api import retry_call
 
 import host_tools.logging as log_tools
 import host_tools.cpu_load as cpu_tools
@@ -552,7 +551,7 @@ class Microvm:
         # to be run by customers (together with CLONE_NEWPID flag).
         #
         # We have to use an external tool for CLONE_NEWPID, because
-        # 1) Python doesn't provide a os.clone() interface, and
+        # 1) Python doesn't provide os.clone() interface, and
         # 2) Python's ctypes libc interface appears to be broken, causing
         # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
@@ -560,44 +559,13 @@ class Microvm:
         else:
             # This file will collect any output from 'screen'ed Firecracker.
             self._screen_log = self.SCREEN_LOGFILE.format(self._session_name)
-            start_cmd = 'screen -L -Logfile {logfile} '\
-                        '-dmS {session} {binary} {params}'
-            start_cmd = start_cmd.format(
-                logfile=self.screen_log,
-                session=self._session_name,
-                binary=self._jailer_binary_path,
-                params=' '.join(jailer_param_list)
+            screen_pid, binary_pid = utils.start_screen_process(
+                self._screen_log, self._session_name,
+                self._jailer_binary_path,
+                jailer_param_list
             )
-
-            utils.run_cmd(start_cmd)
-
-            # Build a regex object to match (number).session_name
-            regex_object = re.compile(
-                r'([0-9]+)\.{}'.format(self._session_name))
-
-            # Run 'screen -ls' in a retry_call loop, 30 times with a one
-            # second delay between calls.
-            # If the output of 'screen -ls' matches the regex object, it will
-            # return the PID. Otherwise a RuntimeError will be raised.
-            screen_pid = retry_call(
-                utils.search_output_from_cmd,
-                fkwargs={
-                    "cmd": 'screen -ls',
-                    "find_regex": regex_object
-                },
-                exceptions=RuntimeError,
-                tries=30,
-                delay=1).group(1)
-
             self._screen_pid = screen_pid
-
-            self.jailer_clone_pid = int(open('/proc/{0}/task/{0}/children'
-                                             .format(screen_pid),
-                                             encoding='utf-8').read().strip())
-
-            # Configure screen to flush stdout to file.
-            flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
-            utils.run_cmd(flush_cmd.format(session=self._session_name))
+            self.jailer_clone_pid = binary_pid
 
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
