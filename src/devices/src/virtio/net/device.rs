@@ -11,6 +11,7 @@ use crate::virtio::net::test_utils::Mocks;
 use crate::virtio::net::Error;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
+use crate::virtio::DescriptorChain;
 use crate::virtio::{
     ActivateResult, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
 };
@@ -299,9 +300,56 @@ impl Net {
         success
     }
 
+    /// Write a slice in a descriptor chain
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the descriptor chain is too short or
+    /// an inappropriate (read only) descriptor is found in the chain
+    fn write_to_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        data: &[u8],
+        head: DescriptorChain,
+    ) -> std::result::Result<(), FrontendError> {
+        let mut chunk = data;
+        let mut next_descriptor = Some(head);
+
+        while let Some(descriptor) = &next_descriptor {
+            if !descriptor.is_write_only() {
+                return Err(FrontendError::ReadOnlyDescriptor);
+            }
+
+            let len = std::cmp::min(chunk.len(), descriptor.len as usize);
+            match mem.write_slice(&chunk[..len], descriptor.addr) {
+                Ok(()) => {
+                    METRICS.net.rx_count.inc();
+                    chunk = &chunk[len..];
+                }
+                Err(e) => {
+                    error!("Failed to write slice: {:?}", e);
+                    if let GuestMemoryError::PartialBuffer { .. } = e {
+                        METRICS.net.rx_partial_writes.inc();
+                    }
+                    return Err(FrontendError::GuestMemory(e));
+                }
+            }
+
+            // If chunk is empty we are done here.
+            if chunk.is_empty() {
+                METRICS.net.rx_bytes_count.add(data.len());
+                METRICS.net.rx_packets_count.inc();
+                return Ok(());
+            }
+
+            next_descriptor = descriptor.next_descriptor();
+        }
+
+        warn!("Receiving buffer is too small to hold frame of current size");
+        Err(FrontendError::DescriptorChainTooSmall)
+    }
+
     // Copies a single frame from `self.rx_frame_buf` into the guest.
     fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
-        let mut result: std::result::Result<(), FrontendError> = Ok(());
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -312,57 +360,24 @@ impl Net {
         })?;
         let head_index = head_descriptor.index;
 
-        let mut frame_slice = &self.rx_frame_buf[..self.rx_bytes_read];
-        let frame_len = frame_slice.len();
-        let mut maybe_next_descriptor = Some(head_descriptor);
-        while let Some(descriptor) = &maybe_next_descriptor {
-            if frame_slice.is_empty() {
-                break;
-            }
-
-            if !descriptor.is_write_only() {
-                result = Err(FrontendError::ReadOnlyDescriptor);
-                break;
-            }
-
-            let len = std::cmp::min(frame_slice.len(), descriptor.len as usize);
-            match mem.write_slice(&frame_slice[..len], descriptor.addr) {
-                Ok(()) => {
-                    METRICS.net.rx_count.inc();
-                    frame_slice = &frame_slice[len..];
-                }
-                Err(e) => {
-                    error!("Failed to write slice: {:?}", e);
-                    match e {
-                        GuestMemoryError::PartialBuffer { .. } => &METRICS.net.rx_partial_writes,
-                        _ => &METRICS.net.rx_fails,
-                    }
-                    .inc();
-                    result = Err(FrontendError::GuestMemory(e));
-                    break;
-                }
-            };
-
-            maybe_next_descriptor = descriptor.next_descriptor();
-        }
-        if result.is_ok() && !frame_slice.is_empty() {
-            warn!("Receiving buffer is too small to hold frame of current size");
-            METRICS.net.rx_fails.inc();
-            result = Err(FrontendError::DescriptorChainTooSmall);
-        }
-
+        let result = Self::write_to_descriptor_chain(
+            mem,
+            &self.rx_frame_buf[..self.rx_bytes_read],
+            head_descriptor,
+        );
         // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
-        let used_len = if result.is_err() { 0 } else { frame_len as u32 };
+        let used_len = if result.is_err() {
+            METRICS.net.rx_fails.inc();
+            0
+        } else {
+            self.rx_bytes_read as u32
+        };
         queue.add_used(mem, head_index, used_len).map_err(|e| {
             error!("Failed to add available descriptor {}: {}", head_index, e);
             FrontendError::AddUsed
         })?;
         self.rx_deferred_irqs = true;
 
-        if result.is_ok() {
-            METRICS.net.rx_bytes_count.add(frame_len);
-            METRICS.net.rx_packets_count.inc();
-        }
         result
     }
 
