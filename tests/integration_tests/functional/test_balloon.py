@@ -646,9 +646,11 @@ def _test_balloon_snapshot(context):
     basevm.kill()
 
     logger.info("Load snapshot #{}, mem {}".format(1, snapshot.mem))
-    microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                True,
-                                                diff_snapshots)
+    microvm, _ = vm_builder.build_from_snapshot(
+        snapshot,
+        resume=True,
+        diff_snapshots=diff_snapshots
+    )
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 

@@ -102,9 +102,11 @@ def _test_seq_snapshots(context):
 
     for i in range(seq_len):
         logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
-        microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                    True,
-                                                    diff_snapshots)
+        microvm, _ = vm_builder.build_from_snapshot(
+            snapshot,
+            resume=True,
+            diff_snapshots=diff_snapshots
+        )
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
@@ -236,9 +238,11 @@ def test_patch_drive_snapshot(bin_cloner_path):
 
     # Load snapshot in a new Firecracker microVM.
     logger.info("Load snapshot, mem %s", snapshot.mem)
-    microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                True,
-                                                diff_snapshots)
+    microvm, _ = vm_builder.build_from_snapshot(
+        snapshot,
+        resume=True,
+        diff_snapshots=diff_snapshots
+    )
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
@@ -446,9 +450,11 @@ def test_negative_postload_api(bin_cloner_path):
 
     logger.info("Load snapshot, mem %s", snapshot.mem)
     # Do not resume, just load, so we can still call APIs that work.
-    microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                False,
-                                                True)
+    microvm, _ = vm_builder.build_from_snapshot(
+        snapshot,
+        resume=False,
+        diff_snapshots=True
+    )
     fail_msg = "The requested operation is not supported after starting " \
         "the microVM"
 
@@ -517,7 +523,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     os.chmod(snapshot.mem, 0o000)
 
     try:
-        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+        _, _ = vm_builder.build_from_snapshot(
+            snapshot,
+            resume=True,
+            diff_snapshots=True
+        )
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Cannot open the memory file: Permission denied" in str(error)
@@ -528,7 +538,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     os.chmod(snapshot.vmstate, 0o000)
 
     try:
-        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+        _, _ = vm_builder.build_from_snapshot(
+            snapshot,
+            resume=True,
+            diff_snapshots=True
+        )
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Cannot perform open on the snapshot backing file:" \
@@ -544,7 +558,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     os.chmod(snapshot.disks[0], 0o000)
 
     try:
-        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+        _, _ = vm_builder.build_from_snapshot(
+            snapshot,
+            resume=True,
+            diff_snapshots=True
+        )
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Block(BackingFile(Os { code: 13, kind: PermissionDenied" \
