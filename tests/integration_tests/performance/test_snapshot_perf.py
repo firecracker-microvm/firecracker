@@ -172,8 +172,8 @@ def snapshot_resume_producer(
     """Produce results for snapshot resume tests."""
     microvm, metrics_fifo = vm_builder.build_from_snapshot(
         snapshot,
-        True,
-        snapshot_type == SnapshotType.DIFF,
+        resume=True,
+        diff_snapshots=snapshot_type == SnapshotType.DIFF,
         use_ramdisk=use_ramdisk)
 
     # Attempt to connect to resumed microvm.
