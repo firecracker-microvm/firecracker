@@ -78,6 +78,33 @@ class ProcessManager:
         return cpu_percentages
 
 
+class UffdHandler:
+    """Describe the UFFD page fault handler process."""
+
+    def __init__(self, name, args):
+        """Instantiate the handler process with arguments."""
+        self._proc = None
+        self._args = [f"/{name}"]
+        self._args.extend(args)
+
+    def spawn(self):
+        """Spawn handler process using arguments provided."""
+        self._proc = subprocess.Popen(
+            self._args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1
+        )
+
+    def proc(self):
+        """Return UFFD handler process."""
+        return self._proc
+
+    def __del__(self):
+        """Tear down the UFFD handler process."""
+        self._proc.kill()
+
+
 # pylint: disable=R0903
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
