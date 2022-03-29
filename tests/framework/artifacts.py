@@ -16,7 +16,7 @@ from framework.utils import compare_versions
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
 
-ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
+ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts-alin"
 
 
 class ArtifactType(Enum):
