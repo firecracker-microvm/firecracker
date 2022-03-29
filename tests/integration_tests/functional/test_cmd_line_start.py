@@ -20,13 +20,15 @@ from framework import utils_cpuid
 import host_tools.network as net_tools
 
 
-def _configure_vm_from_json(test_microvm, vm_config_file):
+def _configure_vm_from_json(test_microvm, vm_config_file, json_xform=None):
     """
     Configure a microvm using a file sent as command line parameter.
 
     Create resources needed for the configuration of the microvm and
     set as configuration file a copy of the file that was passed as
     parameter to this helper function.
+    Also apply a transformation fuction to the copy of the configuration
+    JSON if specified.
     """
     test_microvm.create_jailed_resource(test_microvm.kernel_file,
                                         create_jail=True)
@@ -40,9 +42,11 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
     vm_config_path = os.path.join(test_microvm.path,
                                   os.path.basename(vm_config_file))
     with open(vm_config_file, encoding='utf-8') as f1:
+        vm_cfg_json = json.load(f1)
+        if json_xform is not None:
+            vm_cfg_json = json_xform(vm_cfg_json)
         with open(vm_config_path, "w", encoding='utf-8') as f2:
-            for line in f1:
-                f2.write(line)
+            json.dump(vm_cfg_json, f2)
     test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
     test_microvm.jailer.extra_args = {'config-file': os.path.basename(
         vm_config_file)}

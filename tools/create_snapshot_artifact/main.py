@@ -9,6 +9,8 @@ import shutil
 import tempfile
 import sys
 
+from functools import partial
+
 # Hack to be able to import testing framework functions.
 sys.path.append(os.path.join(os.getcwd(), 'tests'))  # noqa: E402
 
@@ -136,7 +138,7 @@ def validate_mmds(ssh_connection, data_store):
     assert json.load(stdout) == data_store
 
 
-def copy_snapshot_artifacts(snapshot, rootfs, kernel, ssh_key):
+def copy_snapshot_artifacts(snapshot, rootfs, kernel, ssh_key, template):
     """Copy snapshot artifacts to dedicated snapshot directory."""
     # Create snapshot artifacts directory specific for the kernel version used.
     guest_kernel_version = re.search(
@@ -145,7 +147,7 @@ def copy_snapshot_artifacts(snapshot, rootfs, kernel, ssh_key):
     )
     snapshot_artifacts_dir = os.path.join(
         SNAPSHOT_ARTIFACTS_ROOT_DIR,
-        f"{guest_kernel_version.group(1)}_guest_snapshot"
+        f"{guest_kernel_version.group(1)}_{template}_guest_snapshot"
     )
     os.mkdir(snapshot_artifacts_dir)
 
@@ -179,13 +181,13 @@ def main():
     Artifacts are saved in the following format:
     snapshot_artifacts
         |
-        -> <guest_kernel_supported_0>_guest_snapshot
+        -> <guest_kernel_supported_0>_<cpu_template>_guest_snapshot
             |
             -> vm.mem
             -> vm.vmstate
             -> ubuntu-18.04.id_rsa
             -> ubuntu-18.04.ext4
-        -> <guest_kernel_supported_1>_guest_snapshot
+        -> <guest_kernel_supported_1>_<cpu_template>_guest_snapshot
             |
             ...
     """
@@ -210,21 +212,31 @@ def main():
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
-    # Create a test context.
-    test_context = TestContext()
-    test_context.custom = {
-        'bin_cloner_path': bin_cloner_path,
-        'session_root_path': root_path
-    }
+    cpu_templates = ["C3", "T2", "None"]
 
-    # Create the test matrix.
-    test_matrix = TestMatrix(context=test_context,
-                             artifact_sets=[
-                                 kernel_artifacts,
-                                 disk_artifacts
-                             ])
+    for cpu_template in cpu_templates:
+        # Create a test context.
+        test_context = TestContext()
+        test_context.custom = {
+            'bin_cloner_path': bin_cloner_path,
+            'session_root_path': root_path,
+            'cpu_template': cpu_template
+        }
 
-    test_matrix.run_test(create_snapshots)
+        # Create the test matrix.
+        test_matrix = TestMatrix(context=test_context,
+                                 artifact_sets=[
+                                     kernel_artifacts,
+                                     disk_artifacts
+                                 ])
+
+        test_matrix.run_test(create_snapshots)
+
+
+def add_cpu_template(template, json_data):
+    """Modify the microvm config JSON to add a cpu_template."""
+    json_data['machine-config']['cpu_template'] = template
+    return json_data
 
 
 def create_snapshots(context):
@@ -236,8 +248,10 @@ def create_snapshots(context):
     ssh_key.download(vm.path)
     vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
     os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
+    cpu_template = context.custom['cpu_template']
 
-    _configure_vm_from_json(vm, VM_CONFIG_FILE)
+    fn = partial(add_cpu_template, cpu_template)
+    _configure_vm_from_json(vm, VM_CONFIG_FILE, json_xform=fn)
     configure_network_interfaces(vm)
     vm.spawn()
 
@@ -284,7 +298,8 @@ def create_snapshots(context):
         snapshot,
         vm.rootfs_file,
         context.kernel.name(),
-        ssh_key
+        ssh_key,
+        cpu_template
     )
 
     vm.kill()

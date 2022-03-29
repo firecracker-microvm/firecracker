@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import re
 import pathlib
 import shutil
 import pytest
@@ -113,8 +114,9 @@ def _test_mmds(vm, mmds_net_iface):
 
 
 @pytest.mark.nonci
+@pytest.mark.parametrize("cpu_template", ["C3", "T2", "None"])
 def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
-                                     test_fc_session_root_path):
+                                     test_fc_session_root_path, cpu_template):
     """
     Restore from snapshots obtained with all supported guest kernel versions.
 
@@ -133,8 +135,13 @@ def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
     pathlib.Path(Artifact.LOCAL_ARTIFACT_DIR).mkdir(parents=True,
                                                     exist_ok=True)
 
-    # Iterate through all subdirectories in the snapshot root dir.
-    for subdir_name in os.listdir(snapshot_root_dir):
+    # Iterate through all subdirectories based on CPU template
+    # in the snapshot root dir.
+    subdir_filter = r".*_" + re.escape(cpu_template) + r"_guest_snapshot"
+    snap_subdirs = [
+        d for d in os.listdir(snapshot_root_dir) if re.match(subdir_filter, d)
+    ]
+    for subdir_name in snap_subdirs:
         snapshot_dir = os.path.join(snapshot_root_dir, subdir_name)
         assert os.path.isdir(snapshot_dir)
 
