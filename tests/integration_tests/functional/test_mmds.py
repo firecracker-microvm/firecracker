@@ -6,6 +6,7 @@
 import json
 import random
 import string
+import os
 import time
 import pytest
 from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig,\
@@ -17,6 +18,7 @@ from framework.utils import generate_mmds_session_token, configure_mmds, \
 from conftest import _test_images_s3_bucket
 
 import host_tools.network as net_tools
+import host_tools.logging as log_tools
 
 # Minimum lifetime of token.
 MIN_TOKEN_TTL_SECONDS = 1
@@ -1003,3 +1005,42 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     # Check `GET` request fails when expired token is provided.
     _run_guest_cmd(ssh_connection, generate_mmds_get_request(
         DEFAULT_IPV4, token=token), "MMDS token not valid.")
+
+
+def test_deprecated_mmds_config(test_microvm_with_api, network_config):
+    """
+    Test deprecated Mmds configs.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Attach network device.
+    test_microvm.ssh_network_config(network_config, '1')
+    # Use the default version, which is 1 for backwards compatibility.
+    response = configure_mmds(test_microvm, iface_ids=['1'])
+    assert 'deprecation' in response.headers
+
+    response = configure_mmds(test_microvm, iface_ids=['1'], version="V1")
+    assert 'deprecation' in response.headers
+
+    response = configure_mmds(test_microvm, iface_ids=['1'], version="V2")
+    assert 'deprecation' not in response.headers
+
+    test_microvm.start()
+    lines = metrics_fifo.sequential_reader(100)
+
+    assert sum(list(map(
+        lambda line:
+            json.loads(line)['deprecated_api']['deprecated_http_api_calls'],
+        lines
+    ))) == 2
