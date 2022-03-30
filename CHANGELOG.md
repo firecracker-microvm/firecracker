@@ -23,6 +23,8 @@
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
 - MmdsV2 is now Generally Available.
+- MmdsV1 is now deprecated and will be removed in Firecracker v2.0.0.
+  Use MmdsV2 instead.
 
 ### Fixed
 

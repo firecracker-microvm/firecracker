@@ -663,13 +663,15 @@ def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
     return cmd
 
 
-def configure_mmds(test_microvm, iface_ids, version, ipv4_address=None,
+def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None,
                    fc_version=None):
     """Configure mmds service."""
     mmds_config = {
-        'version': version,
         'network_interfaces': iface_ids
     }
+
+    if version is not None:
+        mmds_config['version'] = version
 
     # For versions prior to v1.0.0, the mmds config only contains
     # the ipv4_address.
@@ -682,3 +684,5 @@ def configure_mmds(test_microvm, iface_ids, version, ipv4_address=None,
 
     response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    return response
