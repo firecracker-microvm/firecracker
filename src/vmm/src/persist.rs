@@ -8,7 +8,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::{io::AsRawFd, net::UnixStream};
 use std::path::Path;
-use std::process;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
@@ -87,18 +86,6 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// This describes the information sent by Firecracker to the
-/// page fault handler process through the UDS socket.
-pub struct UffdInfo {
-    /// List of guest region mappings between Firecracker base virtual address
-    /// and offset in the buffer or file backend for a guest memory region.
-    pub guest_region_uffd_mappings: Vec<GuestRegionUffdMapping>,
-    /// Firecracker's PID which can be used by the page fault handler process to
-    /// bring down Firecracker at the end of the execution or in case an error occurs.
-    pub pid: u32,
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -587,29 +574,41 @@ fn guest_memory_from_uffd(
         });
     }
 
-    // Wrapp backend mappings and PID into a structure to be sent through the UDS socket.
-    let uffd_info = UffdInfo {
-        guest_region_uffd_mappings: backend_mappings,
-        pid: process::id(),
-    };
-
-    // This is safe to unwrap() because we control the contents of the structure
-    // (i.e RegionBackendMapping entries and PID).
-    let uffd_info = serde_json::to_string(&uffd_info).unwrap();
+    // This is safe to unwrap() because we control the contents of the vector
+    // (i.e GuestRegionUffdMapping entries).
+    let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path).map_err(UdsConnection)?;
     socket
         .send_with_fd(
-            uffd_info.as_bytes(),
-            // In the happy case, we can close the fd since the other process has it open and is
+            backend_mappings.as_bytes(),
+            // In the happy case we can close the fd since the other process has it open and is
             // using it to serve us pages.
             //
             // The problem is that if other process crashes/exits, firecracker guest memory
             // will simply revert to anon-mem behavior which would lead to silent errors and
             // undefined behavior.
             //
-            // To tackle this scenario, we send Firecracker's PID to the page fault handler,
-            // so that the handler is able to notify Firecracker of any crashes/exits.
+            // To tackle this scenario, the page fault handler can notify Firecracker of any
+            // crashes/exits. There is no need for Firecracker to explicitly send its process ID.
+            // The external process can obtain Firecracker's PID by calling `getsockopt` with
+            // `libc::SO_PEERCRED` option like so:
+            //
+            // let mut val = libc::ucred { pid: 0, gid: 0, uid: 0 };
+            // let mut ucred_size: u32 = mem::size_of::<libc::ucred>() as u32;
+            // libc::getsockopt(
+            //      socket.as_raw_fd(),
+            //      libc::SOL_SOCKET,
+            //      libc::SO_PEERCRED,
+            //      &mut val as *mut _ as *mut _,
+            //      &mut ucred_size as *mut libc::socklen_t,
+            // );
+            //
+            // Per this linux man page: https://man7.org/linux/man-pages/man7/unix.7.html,
+            // `SO_PEERCRED` returns the credentials (PID, UID and GID) of the peer process
+            // connected to this socket. The returned credentials are those that were in effect
+            // at the time of the `connect` call.
+            //
             // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
             // page fault handler process does not tear down Firecracker when necessary, the
             // uffd will still be alive but with no one to serve faults, leading to guest freeze.
