@@ -9,6 +9,7 @@ use crate::virtio::net::tap::Tap;
 #[cfg(test)]
 use crate::virtio::net::test_utils::Mocks;
 use crate::virtio::net::Error;
+use crate::virtio::net::NetQueue;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
 use crate::virtio::DescriptorChain;
@@ -109,7 +110,6 @@ pub struct Net {
     pub(crate) tx_rate_limiter: RateLimiter,
 
     pub(crate) rx_deferred_frame: bool,
-    rx_deferred_irqs: bool,
 
     rx_bytes_read: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
@@ -186,7 +186,6 @@ impl Net {
             rx_rate_limiter,
             tx_rate_limiter,
             rx_deferred_frame: false,
-            rx_deferred_irqs: false,
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_frame_buf: [0u8; MAX_BUFFER_SIZE],
@@ -248,26 +247,21 @@ impl Net {
         &self.tx_rate_limiter
     }
 
-    fn signal_used_queue(&mut self) -> result::Result<(), DeviceError> {
-        self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
-            METRICS.net.event_fails.inc();
-            DeviceError::FailedSignalingIrq(e)
-        })?;
-
-        self.rx_deferred_irqs = false;
-        Ok(())
-    }
-
-    fn signal_rx_used_queue(&mut self) -> result::Result<(), DeviceError> {
-        if !self.rx_deferred_irqs {
-            return Ok(());
-        }
-
+    fn signal_used_queue(&mut self, queue_type: NetQueue) -> result::Result<(), DeviceError> {
+        // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        if self.queues[RX_INDEX].prepare_kick(mem) {
-            return self.signal_used_queue();
+
+        let queue = match queue_type {
+            NetQueue::Rx => &mut self.queues[RX_INDEX],
+            NetQueue::Tx => &mut self.queues[TX_INDEX],
+        };
+
+        if queue.prepare_kick(mem) {
+            self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
+                METRICS.net.event_fails.inc();
+                DeviceError::FailedSignalingIrq(e)
+            })?;
         }
-        self.rx_deferred_irqs = false;
 
         Ok(())
     }
@@ -384,7 +378,6 @@ impl Net {
             error!("Failed to add available descriptor {}: {}", head_index, e);
             FrontendError::AddUsed
         })?;
-        self.rx_deferred_irqs = true;
 
         result
     }
@@ -515,7 +508,7 @@ impl Net {
 
         // At this point we processed as many Rx frames as possible.
         // We have to wake the guest if at least one descriptor chain has been used.
-        self.signal_rx_used_queue()
+        self.signal_used_queue(NetQueue::Rx)
     }
 
     // Process the deferred frame first, then continue reading from tap.
@@ -527,7 +520,7 @@ impl Net {
             return self.process_rx();
         }
 
-        self.signal_rx_used_queue()
+        self.signal_used_queue(NetQueue::Rx)
     }
 
     fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
@@ -641,9 +634,9 @@ impl Net {
 
         if !used_any {
             METRICS.net.no_tx_avail_buffer.inc();
-        } else if tx_queue.prepare_kick(mem) {
-            self.signal_used_queue()?;
         }
+
+        self.signal_used_queue(NetQueue::Tx)?;
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
         if process_rx_for_mmds {
