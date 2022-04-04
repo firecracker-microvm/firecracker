@@ -22,6 +22,14 @@ pub use self::device::Net;
 pub use self::event_handler::*;
 pub use tap::Error as TapError;
 
+/// Enum representing the Net device queue types
+pub enum NetQueue {
+    /// The RX queue
+    Rx,
+    /// The TX queue
+    Tx,
+}
+
 #[derive(Debug)]
 pub enum Error {
     /// Open tap device failed.
