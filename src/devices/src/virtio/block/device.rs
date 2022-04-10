@@ -225,7 +225,7 @@ macro_rules! unwrap_async_file_engine_or_return {
                 error!("The block device doesn't use an async IO engine");
                 return;
             }
-        };
+        }
     };
 }
 
