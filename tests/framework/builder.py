@@ -228,7 +228,7 @@ class MicrovmBuilder:
         return vm, metrics_fifo
 
     def build_from_artifacts(self, config,
-                             kernel, disks, cpu_template,
+                             kernel, disks, cpu_template=None,
                              net_ifaces=None, diff_snapshots=False,
                              fc_binary=None, jailer_binary=None,
                              daemonize=True, io_engine=None):

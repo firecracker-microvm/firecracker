@@ -4,6 +4,12 @@
 
 import re
 import platform
+import time
+
+from framework.artifacts import ArtifactCollection, ArtifactSet
+from framework.builder import MicrovmBuilder
+import host_tools.network as net_tools  # pylint: disable=import-error
+from conftest import _test_images_s3_bucket
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
@@ -31,20 +37,32 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-def test_boottime_no_network(test_microvm_with_api):
+def test_boottime_no_network(test_microvm_with_api, bin_cloner_path):
     """
     Check boot time of microVM without a network device.
 
     @type: performance
     """
-    vm = test_microvm_with_api
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_from_artifacts("2vcpu_256mb", "4.14", "ubuntu", None)
+    
+    vm = vm_instance.vm
+
     vm.jailer.extra_args.update(
-        {'boot-timer': None}
-    )
-    _ = _configure_and_run_vm(vm)
+            {'boot-timer': None}
+        )
+
+    vm.start()
+
+    print(vm.log_data)
+
+    # vm = test_microvm_with_api
+    # _configure_and_run_vm(vm)
+    
     boottime_us = _test_microvm_boottime(vm)
     print("Boot time with no network is: " + str(boottime_us) + " us")
-
+    
+    assert 1==2
     return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
 
 

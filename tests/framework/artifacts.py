@@ -304,7 +304,7 @@ class ArtifactCollection:
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
-    ARTIFACTS_ROOT = 'ci-artifacts'
+    ARTIFACTS_ROOT = 'ci-artifacts-dev'
     ARTIFACTS_DISKS = '/disks/' + PLATFORM + "/"
     ARTIFACTS_KERNELS = '/kernels/' + PLATFORM + "/"
     ARTIFACTS_MICROVMS = '/microvms/'
@@ -428,11 +428,13 @@ class ArtifactCollection:
             keyword=keyword
         )
 
-        valid_kernels = list(filter(
-            lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS),
-            kernels
-        ))
-        return valid_kernels
+        # valid_kernels = list(filter(
+        #     lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS),
+        #     kernels
+        # ))
+        # return valid_kernels
+
+        return kernels
 
     def disks(self, keyword=None):
         """Return disk artifacts for the current arch."""
