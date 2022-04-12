@@ -9,11 +9,16 @@
   reset the `cpu_template` once it was set.
 - Added a `rebase-snap` tool for rebasing a diff snapshot over a base
   snapshot.
+- Mmds version is persisted across snapshot-restore. Snapshot compatibility is
+  preserved bidirectionally, to and from a Firecracker version that does not
+  support persisting the Mmds version. In such cases, the default V1 option is
+  used.
 
 ### Changed
 
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
+- MmdsV2 is now Generally Available.
 
 ### Fixed
 

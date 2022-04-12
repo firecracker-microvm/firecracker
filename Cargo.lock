@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "api_server",
  "event-manager",
@@ -460,7 +460,7 @@ checksum = "1aab8fc367588b89dcee83ab0fd66b72b50b72fa1904d7095045ace2b0c81c35"
 
 [[package]]
 name = "jailer"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "libc",
  "regex",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "rebase-snap"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "libc",
  "utils",
@@ -841,7 +841,7 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "seccompiler"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bincode",
  "libc",

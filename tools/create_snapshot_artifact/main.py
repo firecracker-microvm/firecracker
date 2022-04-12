@@ -22,7 +22,7 @@ from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.matrix import TestMatrix, TestContext
 from framework.utils import generate_mmds_session_token, \
-    generate_mmds_v2_get_request, run_cmd
+    generate_mmds_get_request, run_cmd
 from integration_tests.functional.test_cmd_line_start import \
     _configure_vm_from_json
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -130,7 +130,7 @@ def validate_mmds(ssh_connection, data_store):
         token_ttl=60
     )
 
-    cmd = generate_mmds_v2_get_request(
+    cmd = generate_mmds_get_request(
         IPV4_ADDRESS,
         token=token
     )

@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 use crate::EventManager;
-use logger::error;
+use logger::{error, warn};
 
 use crate::resources::VmResources;
+use crate::vmm_config::mmds::MmdsConfigError;
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -27,6 +28,7 @@ use devices::virtio::{
 };
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
+use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -44,6 +46,7 @@ pub enum Error {
     Net(NetError),
     Vsock(VsockError),
     VsockUnixBackend(VsockUnixBackendError),
+    MmdsConfig(MmdsConfigError),
 }
 
 #[derive(Clone, Versionize)]
@@ -112,6 +115,32 @@ pub struct ConnectedLegacyState {
     pub mmio_slot: MMIODeviceInfo,
 }
 
+/// Holds the MMDS data store version.
+#[derive(Debug, PartialEq, Versionize, Clone)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
+pub enum MmdsVersionState {
+    V1,
+    V2,
+}
+
+impl From<MmdsVersionState> for MmdsVersion {
+    fn from(state: MmdsVersionState) -> Self {
+        match state {
+            MmdsVersionState::V1 => MmdsVersion::V1,
+            MmdsVersionState::V2 => MmdsVersion::V2,
+        }
+    }
+}
+
+impl From<MmdsVersion> for MmdsVersionState {
+    fn from(version: MmdsVersion) -> Self {
+        match version {
+            MmdsVersion::V1 => MmdsVersionState::V1,
+            MmdsVersion::V2 => MmdsVersionState::V2,
+        }
+    }
+}
+
 #[derive(Clone, Versionize)]
 /// Holds the device states.
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -128,6 +157,9 @@ pub struct DeviceStates {
     /// Balloon device state.
     #[version(start = 2, ser_fn = "balloon_serialize")]
     pub balloon_device: Option<ConnectedBalloonState>,
+    /// Mmds version.
+    #[version(start = 3, ser_fn = "mmds_version_serialize")]
+    pub mmds_version: Option<MmdsVersionState>,
 }
 
 /// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
@@ -149,6 +181,17 @@ impl DeviceStates {
 
         Ok(())
     }
+
+    fn mmds_version_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
+        if target_version < 3 && self.mmds_version.is_some() {
+            warn!(
+                "Target version does not support persisting the MMDS version. The default will be \
+                used when restoring."
+            );
+        }
+
+        Ok(())
+    }
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -157,6 +200,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub event_manager: &'a mut EventManager,
     pub for_each_restored_device: fn(&mut VmResources, SharedDeviceType),
     pub vm_resources: &'a mut VmResources,
+    pub instance_id: &'a str,
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -172,6 +216,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             vsock_device: None,
             #[cfg(target_arch = "aarch64")]
             legacy_devices: Vec::new(),
+            mmds_version: None,
         };
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, devinfo, bus_dev| {
             if *devtype == arch::DeviceType::BootTimer {
@@ -225,10 +270,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     });
                 }
                 TYPE_NET => {
-                    let net_state = locked_device.as_any().downcast_ref::<Net>().unwrap().save();
+                    let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
+                    if let (Some(mmds_ns), None) =
+                        (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
+                    {
+                        states.mmds_version =
+                            Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
+                    }
+
                     states.net_devices.push(ConnectedNetState {
                         device_id: devid.clone(),
-                        device_state: net_state,
+                        device_state: net.save(),
                         transport_state,
                         mmio_slot: devinfo.clone(),
                     });
@@ -374,15 +426,20 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        // If there's at least one network device having an mmds_ns, initialise the VmResources
-        // mmds data store with a default config.
-        // After we add support for persisting the version, we'll instead need to restore the data
-        // store using the snapshotted version.
-        if state
+        // If the snapshot has the mmds version persisted, initialise the data store with it.
+        if let Some(mmds_version) = &state.mmds_version {
+            constructor_args
+                .vm_resources
+                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)
+                .map_err(Error::MmdsConfig)?;
+        } else if state
             .net_devices
             .iter()
             .any(|dev| dev.device_state.mmds_ns.is_some())
         {
+            // If there's at least one network device having an mmds_ns, it means
+            // that we are restoring from a version that did not persist the `MmdsVersionState`.
+            // Init with the default.
             constructor_args.vm_resources.mmds_or_default();
         }
 
@@ -630,6 +687,7 @@ mod tests {
                 &mut cmdline,
                 &mut event_manager,
                 network_interface,
+                MmdsVersion::V2,
             );
             // Add a vsock device.
             let vsock_dev_id = "vsock";
@@ -657,6 +715,26 @@ mod tests {
                 .serialize(&mut buf.as_mut_slice(), &version_map, 2)
                 .unwrap();
 
+            version_map
+                .new_version()
+                .set_type_version(DeviceStates::type_id(), 3);
+
+            // For snapshot versions that not support persisting the mmds version, it should be
+            // deserialized as None. The MMIODeviceManager will initialise it as the default if
+            // there's at least one network device having a MMDS NS.
+            vmm.mmio_device_manager
+                .save()
+                .serialize(&mut buf.as_mut_slice(), &version_map, 2)
+                .unwrap();
+            let device_states: DeviceStates =
+                DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
+            assert!(device_states.mmds_version.is_none());
+
+            vmm.mmio_device_manager
+                .save()
+                .serialize(&mut buf.as_mut_slice(), &version_map, 3)
+                .unwrap();
+
             // We only want to keep the device map from the original MmioDeviceManager.
             vmm.mmio_device_manager.soft_clone()
         };
@@ -665,7 +743,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_states: DeviceStates =
-            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
+            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 3).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
@@ -673,6 +751,7 @@ mod tests {
             event_manager: &mut event_manager,
             for_each_restored_device: VmResources::update_from_restored_device,
             vm_resources,
+            instance_id: "microvm-id",
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();
@@ -709,7 +788,7 @@ mod tests {
   }},
   "metrics": null,
   "mmds-config": {{
-    "version": "V1",
+    "version": "V2",
     "network_interfaces": [
       "netif"
     ],
@@ -739,7 +818,17 @@ mod tests {
             tmp_sock_file.as_path().to_str().unwrap().to_string()
         );
 
-        assert!(vm_resources.mmds.is_some());
+        assert_eq!(
+            vm_resources
+                .mmds
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .version(),
+            MmdsVersion::V2
+        );
+        assert_eq!(device_states.mmds_version.unwrap(), MmdsVersion::V2.into());
 
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
         assert_eq!(

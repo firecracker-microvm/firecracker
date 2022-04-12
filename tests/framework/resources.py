@@ -714,7 +714,8 @@ class Network():
             host_dev_name=None,
             guest_mac=None,
             rx_rate_limiter=None,
-            tx_rate_limiter=None):
+            tx_rate_limiter=None,
+            allow_mmds_requests=None):
         """Create the json for the net specific API request."""
         datax = {
             'iface_id': iface_id
@@ -731,6 +732,10 @@ class Network():
 
         if rx_rate_limiter is not None:
             datax['rx_rate_limiter'] = rx_rate_limiter
+
+        # Keep this for interacting with older FC versions in snapshot tests.
+        if allow_mmds_requests is not None:
+            datax['allow_mmds_requests'] = allow_mmds_requests
 
         return datax
 

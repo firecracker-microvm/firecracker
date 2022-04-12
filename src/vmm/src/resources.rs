@@ -411,8 +411,8 @@ impl VmResources {
         Ok(())
     }
 
-    // Updates MMDS version.
-    fn set_mmds_version(
+    /// Updates MMDS version.
+    pub fn set_mmds_version(
         &mut self,
         version: MmdsVersion,
         instance_id: &str,
