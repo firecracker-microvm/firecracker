@@ -14,6 +14,8 @@ from framework.artifacts import Snapshot, Artifact, ArtifactType, \
 from framework.builder import MicrovmBuilder
 from framework.defs import FC_WORKSPACE_DIR, DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.utils_vsock import check_vsock_device
+from framework.utils import generate_mmds_session_token, \
+    generate_mmds_get_request
 from integration_tests.functional.test_mmds import _populate_data_store
 from integration_tests.functional.test_snapshot_basic import \
     _guest_run_fio_iteration
@@ -103,12 +105,18 @@ def _test_mmds(vm, mmds_net_iface):
     code, _, _ = ssh_connection.execute_command(cmd)
     assert code == 0
 
-    # Ensure MMDS default version 1 works as expected.
-    # The base microVM had MMDS version 2 configured, but this
-    # information is not persistent inside the snapshot yet,
-    # so the cloned VM starts with default MMDS V1.
-    cmd = 'curl -s -H "Accept: application/json" ' \
-          'http://{}/'.format(mmds_ipv4_address)
+    # The base microVM had MMDS version 2 configured, which was persisted
+    # across the snapshot-restore.
+    token = generate_mmds_session_token(
+        ssh_connection,
+        mmds_ipv4_address,
+        token_ttl=60
+    )
+
+    cmd = generate_mmds_get_request(
+        mmds_ipv4_address,
+        token=token
+    )
     _, stdout, _ = ssh_connection.execute_command(cmd)
     assert json.load(stdout) == data_store
 
