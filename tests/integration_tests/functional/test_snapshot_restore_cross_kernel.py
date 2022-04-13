@@ -16,6 +16,7 @@ from framework.defs import FC_WORKSPACE_DIR, DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.utils_vsock import check_vsock_device
 from framework.utils import generate_mmds_session_token, \
     generate_mmds_get_request
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_mmds import _populate_data_store
 from integration_tests.functional.test_snapshot_basic import \
     _guest_run_fio_iteration
@@ -122,7 +123,9 @@ def _test_mmds(vm, mmds_net_iface):
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize("cpu_template", ["C3", "T2", "None"])
+@pytest.mark.parametrize("cpu_template",
+                         ["C3", "T2", "None"]
+                         if get_cpu_vendor() == CpuVendor.INTEL else ["None"])
 def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
                                      test_fc_session_root_path, cpu_template):
     """
