@@ -304,7 +304,7 @@ class ArtifactCollection:
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
-    ARTIFACTS_ROOT = 'ci-artifacts'
+    ARTIFACTS_ROOT = 'ci-artifacts-uffd'
     ARTIFACTS_DISKS = '/disks/' + PLATFORM + "/"
     ARTIFACTS_KERNELS = '/kernels/' + PLATFORM + "/"
     ARTIFACTS_MICROVMS = '/microvms/'
