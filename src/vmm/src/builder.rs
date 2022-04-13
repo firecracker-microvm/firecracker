@@ -536,6 +536,7 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         for_each_restored_device: VmResources::update_from_restored_device,
         vm_resources,
+        instance_id: &instance_info.id,
     };
 
     vmm.mmio_device_manager =
@@ -998,7 +999,7 @@ pub mod tests {
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
-    use mmds::data_store::Mmds;
+    use mmds::data_store::{Mmds, MmdsVersion};
     use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use vm_memory::GuestMemory;
@@ -1146,13 +1147,16 @@ pub mod tests {
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         net_config: NetworkInterfaceConfig,
+        mmds_version: MmdsVersion,
     ) {
         let mut net_builder = NetBuilder::new();
         net_builder.build(net_config).unwrap();
         let net = net_builder.iter().next().unwrap();
+        let mut mmds = Mmds::default();
+        mmds.set_version(mmds_version).unwrap();
         net.lock().unwrap().configure_mmds_network_stack(
             MmdsNetworkStack::default_ipv4_addr(),
-            Arc::new(Mutex::new(Mmds::default())),
+            Arc::new(Mutex::new(mmds)),
         );
 
         attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
