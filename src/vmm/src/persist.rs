@@ -37,7 +37,7 @@ use logger::{error, info};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
-use userfaultfd::{Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -501,9 +501,14 @@ pub fn restore_from_snapshot(
             guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)?,
             None,
         ),
-        MemBackendType::Uffd => {
-            guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)?
-        }
+        MemBackendType::Uffd => guest_memory_from_uffd(
+            mem_backend_path,
+            mem_state,
+            track_dirty_pages,
+            // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
+            // is present in the microVM state.
+            microvm_state.device_states.balloon_device.is_some(),
+        )?,
     };
     builder::build_microvm_from_snapshot(
         instance_info,
@@ -546,6 +551,7 @@ fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
+    enable_balloon: bool,
 ) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), LoadSnapshotError> {
     use self::LoadSnapshotError::{
         CreateUffdBuilder, DeserializeMemory, UdsConnection, UffdMemoryRegionsRegister, UffdSend,
@@ -554,7 +560,15 @@ fn guest_memory_from_uffd(
     let guest_memory =
         GuestMemoryMmap::restore(None, mem_state, track_dirty_pages).map_err(DeserializeMemory)?;
 
-    let uffd = UffdBuilder::new()
+    let mut uffd_builder = UffdBuilder::new();
+
+    if enable_balloon {
+        // We enable this so that the page fault handler can add logic
+        // for treating madvise(MADV_DONTNEED) events triggerd by balloon inflation.
+        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
+    }
+
+    let uffd = uffd_builder
         .close_on_exec(true)
         .non_blocking(true)
         .create()
