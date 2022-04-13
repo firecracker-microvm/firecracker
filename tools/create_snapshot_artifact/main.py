@@ -23,6 +23,7 @@ from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.matrix import TestMatrix, TestContext
 from framework.utils import generate_mmds_session_token, \
     generate_mmds_get_request, run_cmd
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import \
     _configure_vm_from_json
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -212,7 +213,9 @@ def main():
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
-    cpu_templates = ["C3", "T2", "None"]
+    cpu_templates = ["None"]
+    if get_cpu_vendor() == CpuVendor.INTEL:
+        cpu_templates.extend(["C3", "T2"])
 
     for cpu_template in cpu_templates:
         # Create a test context.
