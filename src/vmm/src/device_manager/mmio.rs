@@ -10,7 +10,6 @@ use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
-use vm_allocator::IdAllocator;
 #[cfg(target_arch = "x86_64")]
 use vm_memory::GuestAddress;
 
@@ -31,6 +30,7 @@ use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -100,8 +100,7 @@ pub struct MMIODeviceInfo {
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
-    mmio_base: u64,
-    next_avail_mmio: u64,
+    pub(crate) address_allocator: AddressAllocator,
     pub(crate) legacy_irq_allocator: IdAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
@@ -109,9 +108,12 @@ pub struct MMIODeviceManager {
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
+        #[cfg(target_arch = "x86_64")]
+        let size = 768 << 20;
+        #[cfg(target_arch = "aarch64")]
+        let size = 1 << 30; //>> 1GB
         MMIODeviceManager {
-            mmio_base,
-            next_avail_mmio: mmio_base,
+            address_allocator: AddressAllocator::new(mmio_base, size).unwrap(),
             legacy_irq_allocator: IdAllocator::new(irq_interval.0, irq_interval.1).unwrap(),
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
@@ -126,7 +128,11 @@ impl MMIODeviceManager {
             irqs.push(res.map_err(Error::AllocatorError)?);
         }
         let slot = MMIODeviceInfo {
-            addr: self.next_avail_mmio,
+            addr: self
+                .address_allocator
+                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+                .map_err(Error::AllocatorError)?
+                .start(),
             len: MMIO_LEN,
             irqs,
         };
@@ -218,7 +224,14 @@ impl MMIODeviceManager {
         serial: Arc<Mutex<SerialDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
-        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path. Can not use `unwrap_or` as we do
+        // not want the `allocate_new_slot` to be called eagerly.
+        let slot = if let Some(dev_info_opt_unwrapped) = dev_info_opt {
+            dev_info_opt_unwrapped
+        } else {
+            self.allocate_new_slot(1)?
+        };
 
         vm.register_irqfd(
             &serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
@@ -227,6 +240,7 @@ impl MMIODeviceManager {
         .map_err(Error::RegisterIrqFd)?;
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        // Register the newly created Serial object.
         self.register_mmio_device(identifier, slot, serial)
     }
 
@@ -243,17 +257,25 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Create and register a MMIO RTC device at the specified MMIO address if given as parameter,
-    /// otherwise allocate a new MMIO slot for it.
+    /// Create and register a MMIO RTC device at the specified MMIO address if
+    /// given as parameter, otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
         rtc: Arc<Mutex<RTCDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
-        // Create and attach a new RTC device.
-        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(0)?);
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path. Can not use `unwrap_or` as we do
+        // not want the `allocate_new_slot` to be called eagerly.
+        let slot = if let Some(dev_info_opt_unwrapped) = dev_info_opt {
+            dev_info_opt_unwrapped
+        } else {
+            self.allocate_new_slot(0)?
+        };
 
+        // Create a new identifier for the RTC device.
         let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
+        // Attach the newly created RTC device.
         self.register_mmio_device(identifier, slot, rtc)
     }
 

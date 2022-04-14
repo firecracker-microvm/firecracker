@@ -5,6 +5,7 @@
 
 use std::result::Result;
 use std::sync::{Arc, Mutex};
+use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
 use crate::EventManager;
@@ -33,6 +34,12 @@ use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
+
+/// This represents the size of the mmio device specified to the kernel as a cmdline option
+/// It has to be larger than 0x100 (the offset where the configuration space starts from
+/// the beginning of the memory mapped device registers) + the size of the configuration space
+/// Currently hardcoded to 4K.
+const MMIO_LEN: u64 = 0x1000;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug)]
@@ -343,6 +350,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .legacy_irq_allocator
                         .allocate_id()
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+                    dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
                     dev_manager
                         .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
@@ -350,6 +365,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
+                    dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
                     dev_manager
                         .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
@@ -373,6 +396,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             dev_manager
                 .legacy_irq_allocator
                 .allocate_id()
+                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+            dev_manager
+                .address_allocator
+                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
                 .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
             dev_manager
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
