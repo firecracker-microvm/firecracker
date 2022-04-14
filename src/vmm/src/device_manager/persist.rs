@@ -360,10 +360,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   slot: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
-            dev_manager
-                .slot_sanity_check(slot)
-                .map_err(Error::DeviceManager)?;
-
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
@@ -506,7 +502,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
-
         Ok(dev_manager)
     }
 }
