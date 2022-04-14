@@ -48,14 +48,14 @@ pub enum Error {
     InternalDeviceError(String),
     /// Invalid configuration attempted.
     InvalidInput,
-    /// No more IRQs are available.
-    IrqsExhausted,
     /// Registering an IO Event failed.
     RegisterIoEvent(kvm_ioctls::Error),
     /// Registering an IRQ FD failed.
     RegisterIrqFd(kvm_ioctls::Error),
     /// Failed to update the mmio device.
     UpdateFailed,
+    /// Allocation logic error.
+    AllocatorError(vm_allocator::Error),
 }
 
 impl fmt::Display for Error {
@@ -67,11 +67,11 @@ impl fmt::Display for Error {
             Error::IncorrectDeviceType => write!(f, "incorrect device type"),
             Error::InternalDeviceError(e) => write!(f, "device error: {}", e),
             Error::InvalidInput => write!(f, "invalid configuration"),
-            Error::IrqsExhausted => write!(f, "no more IRQs are available"),
             Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),
             Error::DeviceNotFound => write!(f, "the device couldn't be found"),
             Error::UpdateFailed => write!(f, "failed to update the mmio device"),
+            Error::AllocatorError(e) => write!(f, "failed to allocate requested resource: {}", e),
         }
     }
 }
@@ -113,7 +113,9 @@ impl IrqManager {
 
     pub fn get(&mut self, count: u32) -> Result<Vec<u32>> {
         if self.next_avail + count > self.last + 1 {
-            return Err(Error::IrqsExhausted);
+            return Err(Error::AllocatorError(
+                vm_allocator::Error::ResourceNotAvailable,
+            ));
         }
         let mut irqs = Vec::with_capacity(count as usize);
         for _ in 0..count {
@@ -653,7 +655,8 @@ mod tests {
                     )
                     .unwrap_err()
             ),
-            "no more IRQs are available".to_string()
+            "failed to allocate requested resource: The requested resource is not available."
+                .to_string()
         );
     }
 
@@ -677,10 +680,10 @@ mod tests {
                 Error::IncorrectDeviceType => format!("{}{:?}", e, e),
                 Error::InternalDeviceError(_) => format!("{}{:?}", e, e),
                 Error::InvalidInput => format!("{}{:?}", e, e),
-                Error::IrqsExhausted => format!("{}{:?}", e, e),
                 Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
                 Error::RegisterIrqFd(_) => format!("{}{:?}", e, e),
                 Error::UpdateFailed => format!("{}{:?}", e, e),
+                Error::AllocatorError(_) => format!("{}{:?}", e, e),
             };
             assert!(!msg.is_empty());
         };
@@ -691,7 +694,7 @@ mod tests {
         check_fmt_err(Error::IncorrectDeviceType);
         check_fmt_err(Error::InternalDeviceError(String::new()));
         check_fmt_err(Error::InvalidInput);
-        check_fmt_err(Error::IrqsExhausted);
+        check_fmt_err(Error::AllocatorError(vm_allocator::Error::Overflow));
         check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));
         check_fmt_err(Error::RegisterIrqFd(errno::Error::new(0)));
         check_fmt_err(Error::UpdateFailed);
@@ -778,14 +781,16 @@ mod tests {
                     .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
-            "no more IRQs are available".to_string()
+            "failed to allocate requested resource: The requested resource is not available."
+                .to_string()
         );
 
         let _addr = device_manager.allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1);
         assert_eq!(device_manager.irqs.next_avail, arch::IRQ_MAX);
         assert_eq!(
             format!("{}", device_manager.allocate_new_slot(2).unwrap_err()),
-            "no more IRQs are available".to_string()
+            "failed to allocate requested resource: The requested resource is not available."
+                .to_string()
         );
 
         let _addr = device_manager.allocate_new_slot(1);
