@@ -1196,6 +1196,16 @@ name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
+name = "vm-allocator"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "565b6886b7dd1b3bf34ec9243d90a97db4f2a83c2416caa52fcc95fd255d45e4"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "vm-fdt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1252,6 +1262,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
+ "vm-memory 0.1.0",
  "vm-memory 0.3.0",
  "vm-superio",
 ]
