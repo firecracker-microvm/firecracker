@@ -50,6 +50,8 @@
  'snapshot v0.1.0 (/firecracker/src/snapshot)',
  'subtle v2.4.1',
  'syn v1.0.86',
+ 'thiserror v1.0.30',
+ 'thiserror-impl v1.0.30 (proc-macro)',
  'timerfd v1.2.0',
  'typenum v1.15.0',
  'unicode-xid v0.2.2',
@@ -59,6 +61,8 @@
  'versionize v0.1.6',
  'versionize_derive v0.1.4 (proc-macro)',
  'virtio_gen v0.1.0 (/firecracker/src/virtio_gen)',
+ 'vm-allocator v0.1.0 '
+ '(https://github.com/rust-vmm/vm-allocator.git?branch=main#8fae1071)',
  'vm-fdt v0.1.0',
  'vm-memory v0.1.0 (/firecracker/src/vm-memory)',
  'vm-memory v0.7.0',

@@ -934,6 +934,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "thiserror"
+version = "1.0.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "854babe52e4df1653706b98fcfc05843010039b406875930a70e4d9644e5c417"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa32fd3f627f367fe16f893e2597ae3c05020f8bba2666a4e6ea73d377e5714b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "timerfd"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1030,6 +1050,15 @@ name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
+name = "vm-allocator"
+version = "0.1.0"
+source = "git+https://github.com/AlexandruCihodaru/vm-allocator.git?branch=small_fixes#e96756b07cf5efe03e0208492a04c03effd72afc"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "vm-fdt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1114,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
+ "vm-allocator",
  "vm-memory 0.1.0",
  "vm-superio",
 ]

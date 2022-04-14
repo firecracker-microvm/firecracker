@@ -28,6 +28,8 @@ snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
+vm-allocator = { git = "https://github.com/AlexandruCihodaru/vm-allocator.git", branch = "small_fixes" }
+
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
