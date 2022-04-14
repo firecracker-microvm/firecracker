@@ -10,6 +10,7 @@ use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
+use vm_allocator::IdAllocator;
 #[cfg(target_arch = "x86_64")]
 use vm_memory::GuestAddress;
 
@@ -96,52 +97,12 @@ pub struct MMIODeviceInfo {
     pub irqs: Vec<u32>,
 }
 
-struct IrqManager {
-    first: u32,
-    last: u32,
-    next_avail: u32,
-}
-
-impl IrqManager {
-    pub fn new(first: u32, last: u32) -> Self {
-        Self {
-            first,
-            last,
-            next_avail: first,
-        }
-    }
-
-    pub fn get(&mut self, count: u32) -> Result<Vec<u32>> {
-        if self.next_avail + count > self.last + 1 {
-            return Err(Error::AllocatorError(
-                vm_allocator::Error::ResourceNotAvailable,
-            ));
-        }
-        let mut irqs = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            irqs.push(self.next_avail);
-            self.next_avail += 1;
-        }
-        Ok(irqs)
-    }
-
-    pub fn check(&self, irqs: &[u32]) -> Result<()> {
-        for irq in irqs {
-            // Check for out of range.
-            if self.first > *irq || *irq > self.last {
-                return Err(Error::InvalidInput);
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
     mmio_base: u64,
     next_avail_mmio: u64,
-    irqs: IrqManager,
+    pub(crate) legacy_irq_allocator: IdAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
@@ -151,7 +112,7 @@ impl MMIODeviceManager {
         MMIODeviceManager {
             mmio_base,
             next_avail_mmio: mmio_base,
-            irqs: IrqManager::new(irq_interval.0, irq_interval.1),
+            legacy_irq_allocator: IdAllocator::new(irq_interval.0, irq_interval.1).unwrap(),
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         }
@@ -159,22 +120,17 @@ impl MMIODeviceManager {
 
     /// Allocates resources for a new device to be added.
     fn allocate_new_slot(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
-        let irqs = self.irqs.get(irq_count)?;
+        let mut irqs: Vec<u32> = Vec::<u32>::new();
+        for _ in 0..irq_count {
+            let res = self.legacy_irq_allocator.allocate_id();
+            irqs.push(res.map_err(Error::AllocatorError)?);
+        }
         let slot = MMIODeviceInfo {
             addr: self.next_avail_mmio,
             len: MMIO_LEN,
             irqs,
         };
-        self.next_avail_mmio += MMIO_LEN;
         Ok(slot)
-    }
-
-    /// Does a slot sanity check against expected values.
-    pub fn slot_sanity_check(&self, slot: &MMIODeviceInfo) -> Result<()> {
-        if slot.addr < self.mmio_base || slot.len != MMIO_LEN {
-            return Err(Error::InvalidInput);
-        }
-        self.irqs.check(&slot.irqs)
     }
 
     /// Register a device at some MMIO address.
@@ -770,10 +726,10 @@ mod tests {
     fn test_slot_irq_allocation() {
         let mut device_manager =
             MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
-        let _addr = device_manager.allocate_new_slot(0);
-        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_BASE);
-        let _addr = device_manager.allocate_new_slot(1);
-        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_BASE + 1);
+        let slot = device_manager.allocate_new_slot(0).unwrap();
+        assert_eq!(slot.irqs.len(), 0);
+        let slot = device_manager.allocate_new_slot(1).unwrap();
+        assert_eq!(slot.irqs[0], arch::IRQ_BASE);
         assert_eq!(
             format!(
                 "{}",
@@ -785,58 +741,19 @@ mod tests {
                 .to_string()
         );
 
-        let _addr = device_manager.allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1);
-        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_MAX);
+        for i in arch::IRQ_BASE..arch::IRQ_MAX {
+            device_manager.legacy_irq_allocator.free_id(i).unwrap();
+        }
+
+        let slot = device_manager
+            .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1)
+            .unwrap();
+        assert_eq!(slot.irqs[16], arch::IRQ_BASE + 16);
         assert_eq!(
             format!("{}", device_manager.allocate_new_slot(2).unwrap_err()),
             "failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
-
-        let _addr = device_manager.allocate_new_slot(1);
-        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_MAX + 1);
         assert!(device_manager.allocate_new_slot(0).is_ok());
-    }
-
-    #[test]
-    fn test_slot_sanity_checks() {
-        let mmio_base = 0xd000_0000;
-        let device_manager = MMIODeviceManager::new(mmio_base, (arch::IRQ_BASE, arch::IRQ_MAX));
-
-        // Valid slot.
-        let slot = MMIODeviceInfo {
-            addr: mmio_base,
-            len: MMIO_LEN,
-            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
-        };
-        device_manager.slot_sanity_check(&slot).unwrap();
-        // 'addr' below base.
-        let slot = MMIODeviceInfo {
-            addr: mmio_base - 1,
-            len: MMIO_LEN,
-            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
-        };
-        device_manager.slot_sanity_check(&slot).unwrap_err();
-        // Invalid 'len'.
-        let slot = MMIODeviceInfo {
-            addr: mmio_base,
-            len: MMIO_LEN - 1,
-            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
-        };
-        device_manager.slot_sanity_check(&slot).unwrap_err();
-        // 'irq' below range.
-        let slot = MMIODeviceInfo {
-            addr: mmio_base,
-            len: MMIO_LEN,
-            irqs: vec![arch::IRQ_BASE - 1, arch::IRQ_BASE + 1],
-        };
-        device_manager.slot_sanity_check(&slot).unwrap_err();
-        // 'irq' above range.
-        let slot = MMIODeviceInfo {
-            addr: mmio_base,
-            len: MMIO_LEN,
-            irqs: vec![arch::IRQ_BASE, arch::IRQ_MAX + 1],
-        };
-        device_manager.slot_sanity_check(&slot).unwrap_err();
     }
 }

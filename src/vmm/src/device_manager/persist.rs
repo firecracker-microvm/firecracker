@@ -339,6 +339,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         Box::new(std::io::stdout()),
                     )
                     .map_err(Error::Legacy)?;
+                    dev_manager
+                        .legacy_irq_allocator
+                        .allocate_id()
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
                     dev_manager
                         .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
@@ -360,16 +364,16 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   slot: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
-            dev_manager
-                .slot_sanity_check(slot)
-                .map_err(Error::DeviceManager)?;
-
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
             };
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+            dev_manager
+                .legacy_irq_allocator
+                .allocate_id()
+                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
             dev_manager
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
@@ -506,7 +510,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
-
         Ok(dev_manager)
     }
 }
