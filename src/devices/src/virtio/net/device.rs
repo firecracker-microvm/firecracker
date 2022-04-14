@@ -1573,6 +1573,56 @@ pub mod tests {
     }
 
     #[test]
+    fn test_deferred_frame() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        let rx_packets_count = METRICS.net.rx_packets_count.count();
+        let _ = inject_tap_tx_frame(&th.net(), 1000);
+        // Trigger a Tap event that. This should fail since there
+        // are not any available descriptors in the queue
+        check_metric_after_block!(
+            &METRICS.net.no_rx_avail_buffer,
+            1,
+            th.simulate_event(NetEvent::Tap)
+        );
+        // The frame we read from the tap should be deferred now and
+        // no frames should have been transmitted
+        assert!(th.net().rx_deferred_frame);
+        assert_eq!(METRICS.net.rx_packets_count.count(), rx_packets_count);
+
+        // Let's add a second frame, which should really have the same
+        // fate.
+        let _ = inject_tap_tx_frame(&th.net(), 1000);
+
+        // Adding a descriptor in the queue. This should handle the first deferred
+        // frame. However, this should try to handle the second tap as well and fail
+        // since there's only one Descriptor Chain in the queue.
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+        check_metric_after_block!(
+            &METRICS.net.no_rx_avail_buffer,
+            1,
+            th.simulate_event(NetEvent::Tap)
+        );
+        // We should still have a deferred frame
+        assert!(th.net().rx_deferred_frame);
+        // However, we should have delivered the first frame
+        assert_eq!(METRICS.net.rx_packets_count.count(), rx_packets_count + 1);
+
+        // Let's add one more descriptor and try to handle the last frame as well.
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+        check_metric_after_block!(
+            &METRICS.net.rx_packets_count,
+            1,
+            th.simulate_event(NetEvent::RxQueue)
+        );
+
+        // We should be done with any deferred frame
+        assert!(!th.net().rx_deferred_frame);
+    }
+
+    #[test]
     fn test_rx_rate_limiter_handling() {
         let mut th = TestHelper::default();
         th.activate_net();
@@ -1630,6 +1680,15 @@ pub mod tests {
                 assert_eq!(th.txq.used.idx.get(), 0);
             }
 
+            // A second TX queue event should be throttled too
+            {
+                th.add_desc_chain(NetQueue::Tx, 0, &[(1, 1024, 0)]);
+                // trigger the RX queue event handler
+                th.simulate_event(NetEvent::TxQueue);
+
+                assert_eq!(METRICS.net.tx_rate_limiter_throttled.count(), 2);
+            }
+
             // wait for 100ms to give the rate-limiter timer a chance to replenish
             // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
             thread::sleep(Duration::from_millis(200));
@@ -1642,10 +1701,27 @@ pub mod tests {
                     2,
                     th.simulate_event(NetEvent::TxRateLimiter)
                 );
-                // validate the rate_limiter is no longer blocked
-                assert!(!th.net().tx_rate_limiter.is_blocked());
+                // This should be still blocked. We managed to send the first frame, but
+                // not enough budget for the second
+                assert!(th.net().tx_rate_limiter.is_blocked());
                 // make sure the data queue advanced
                 assert_eq!(th.txq.used.idx.get(), 1);
+            }
+
+            thread::sleep(Duration::from_millis(200));
+
+            // following TX procedure should succeed to handle the second frame as well
+            {
+                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
+                check_metric_after_block!(
+                    &METRICS.net.tx_count,
+                    2,
+                    th.simulate_event(NetEvent::TxRateLimiter)
+                );
+                // validate the rate_limiter is no longer blocked
+                assert!(!th.net().tx_rate_limiter.is_blocked());
+                // make sure the data queue advance one more place
+                assert_eq!(th.txq.used.idx.get(), 2);
             }
         }
 
@@ -1676,6 +1752,14 @@ pub mod tests {
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
+            }
+
+            // An RX queue event should be throttled too
+            {
+                // trigger the RX queue event handler
+                th.simulate_event(NetEvent::RxQueue);
+
+                assert_eq!(METRICS.net.rx_rate_limiter_throttled.count(), 2);
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
@@ -1870,5 +1954,19 @@ pub mod tests {
 
         // Test interrupts.
         assert!(!&net.irq_trigger.has_pending_irq(IrqType::Vring));
+    }
+
+    #[test]
+    fn test_queues_notification_suppression() {
+        let features = 1 << VIRTIO_RING_F_EVENT_IDX;
+
+        let mut th = TestHelper::default();
+        th.net().set_acked_features(features);
+        th.activate_net();
+
+        let net = th.net();
+        let queues = net.queues();
+        assert!(queues[RX_INDEX].uses_notif_suppression);
+        assert!(queues[TX_INDEX].uses_notif_suppression);
     }
 }
