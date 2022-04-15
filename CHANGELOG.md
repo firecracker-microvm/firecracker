@@ -45,6 +45,8 @@
   for `/machine-config` will reset all optional parameters (`smt`,
   `cpu_template`, `track_dirty_pages`) to their default values if they are
   not specified in the `PUT` request.
+- Fixed incosistency in the swagger definition with the current state of the
+  `/vm/config` endpoint.
 
 ## [1.0.0]
 
