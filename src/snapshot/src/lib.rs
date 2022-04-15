@@ -32,7 +32,6 @@ use versionize::crc::{CRC64Reader, CRC64Writer};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-const SNAPSHOT_FORMAT_VERSION: u16 = 1;
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
 #[cfg(target_arch = "x86_64")]
@@ -71,7 +70,6 @@ struct SnapshotHdr {
 #[derive(Debug)]
 pub struct Snapshot {
     hdr: SnapshotHdr,
-    format_version: u16,
     version_map: VersionMap,
     // Required for serialization.
     target_version: u16,
@@ -96,7 +94,6 @@ impl Snapshot {
         Snapshot {
             version_map,
             hdr: SnapshotHdr::default(),
-            format_version: SNAPSHOT_FORMAT_VERSION,
             target_version,
         }
     }
