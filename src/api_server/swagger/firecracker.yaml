@@ -835,29 +835,29 @@ definitions:
   FullVmConfiguration:
     type: object
     properties:
-      balloon_device:
+      balloon:
         $ref: "#/definitions/Balloon"
-      block_devices:
+      drives:
         type: array
         description: Configurations for all block devices.
         items:
           $ref: "#/definitions/Drive"
-      boot_source:
+      boot-source:
         $ref: "#/definitions/BootSource"
       logger:
         $ref: "#/definitions/Logger"
-      machine_config:
+      machine-config:
         $ref: "#/definitions/MachineConfiguration"
       metrics:
         $ref: "#/definitions/Metrics"
-      mmds_config:
+      mmds-config:
         $ref: "#/definitions/MmdsConfig"
-      net_devices:
+      network-interfaces:
         type: array
         description: Configurations for all net devices.
         items:
           $ref: "#/definitions/NetworkInterface"
-      vsock_device:
+      vsock:
         $ref: "#/definitions/Vsock"
 
   InstanceActionInfo:
