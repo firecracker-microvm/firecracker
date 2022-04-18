@@ -423,8 +423,16 @@ def uffd_handler_paths(test_fc_session_root_path):
         )
     )
 
+    malicious_handler = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'malicious_handler'
+        )
+    )
+
     yield {
         'valid_handler': valid_handler,
+        'malicious_handler': malicious_handler,
     }
 
 
