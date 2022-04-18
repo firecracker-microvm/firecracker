@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test that ensures that all unit tests pass at integration time."""
 
-import platform
 import os
 import logging
 import json
@@ -10,6 +9,7 @@ import shutil
 
 import pytest
 from framework import utils
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from framework.defs import FC_WORKSPACE_DIR
 from host_tools import proc
 
@@ -113,7 +113,7 @@ def _check_statistics(directory, mean):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    get_cpu_vendor() != CpuVendor.INTEL,
     reason="Not supported yet."
 )
 def test_serialization_benchmark():
