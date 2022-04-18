@@ -182,7 +182,8 @@ class MicrovmBuilder:
                             # If specified, establishes that page-faults
                             # resulted when loading the guest memory
                             # are handled by a dedicated UFFD PF handler.
-                            uffd_path=None):
+                            uffd_path=None,
+                            timeout=None):
         """Build a microvm from a snapshot artifact."""
         if vm is None:
             vm = init_microvm(self.root_path, self.bin_cloner_path,
@@ -235,12 +236,14 @@ class MicrovmBuilder:
             response = vm.snapshot.load(mem_backend=mem_backend,
                                         snapshot_path=jailed_vmstate,
                                         diff=diff_snapshots,
-                                        resume=resume)
+                                        resume=resume,
+                                        timeout=timeout)
         else:
             response = vm.snapshot.load(mem_file_path=jailed_mem,
                                         snapshot_path=jailed_vmstate,
                                         diff=diff_snapshots,
-                                        resume=resume)
+                                        resume=resume,
+                                        timeout=timeout)
         status_ok = vm.api_session.is_status_no_content(response.status_code)
 
         # Verify response status and cleanup if needed before assert.

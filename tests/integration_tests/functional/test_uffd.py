@@ -4,9 +4,13 @@
 
 import logging
 import os
+import socket
 from subprocess import TimeoutExpired
 
 import stat
+
+import requests
+import urllib3
 
 from framework.artifacts import SnapshotMemBackendType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
@@ -198,3 +202,51 @@ def test_valid_handler(bin_cloner_path,
     ssh_connection = net_tools.SSHConnection(vm.ssh_config)
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
+
+
+def test_malicious_handler(bin_cloner_path,
+                           test_microvm_with_api,
+                           uffd_handler_paths):
+    """
+    Test malicious uffd handler scenario.
+
+    The page fault handler panics when receiving a page fault,
+    so no events are handled and snapshot memory regions cannot be
+    loaded into memory. In this case, Firecracker is designed to freeze,
+    instead of silently switching to having the kernel handle page
+    faults, so that it becomes obvious that something went wrong.
+
+    @type: negative
+    """
+    logger = logging.getLogger("uffd_unbinded_socket")
+
+    logger.info("Create snapshot")
+    snapshot = create_snapshot(bin_cloner_path)
+
+    logger.info("Load snapshot, mem %s", snapshot.mem)
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm = test_microvm_with_api
+    vm.spawn()
+
+    # Spawn page fault handler process.
+    _pf_handler = spawn_pf_handler(
+        vm,
+        uffd_handler_paths['malicious_handler'],
+        snapshot.mem
+    )
+
+    # We expect Firecracker to freeze while resuming from a snapshot
+    # due to the malicious handler's unavailability.
+    try:
+        vm_builder.build_from_snapshot(
+            snapshot, vm=vm,
+            resume=True,
+            uffd_path=SOCKET_PATH,
+            timeout=30
+        )
+        assert False
+    except (socket.timeout,
+            urllib3.exceptions.ReadTimeoutError,
+            requests.exceptions.ReadTimeout) \
+            as _err:
+        assert True, _err
