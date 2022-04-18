@@ -454,12 +454,13 @@ class SnapshotLoad():
         self._snapshot_cfg_url = api_url + self.SNAPSHOT_LOAD_URL
         self._api_session = api_session
 
-    def put(self, **args):
+    def put(self, timeout=None, **args):
         """Load a snapshot of the microvm."""
         datax = self.create_json(**args)
         return self._api_session.put(
             "{}".format(self._snapshot_cfg_url),
-            json=datax
+            json=datax,
+            timeout=timeout
         )
 
     @staticmethod
@@ -515,7 +516,8 @@ class SnapshotHelper():
             diff=False,
             resume=False,
             mem_file_path=None,
-            mem_backend=None
+            mem_backend=None,
+            timeout=None
     ):
         """Load a snapshot of the microvm."""
         response = self._load.put(
@@ -523,7 +525,8 @@ class SnapshotHelper():
             diff=diff,
             resume=resume,
             mem_file_path=mem_file_path,
-            mem_backend=mem_backend
+            mem_backend=mem_backend,
+            timeout=timeout
         )
 
         if resume and "unknown field `resume_vm`" in response.text:
