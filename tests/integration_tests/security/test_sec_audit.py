@@ -3,15 +3,15 @@
 """Tests ensuring security vulnerabilities are not present in dependencies."""
 
 
-import platform
 import pytest
 
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from framework import utils
 from framework import defs
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    get_cpu_vendor() != CpuVendor.INTEL,
     reason="The audit is based on cargo.lock which "
            "is identical on all platforms"
 )
