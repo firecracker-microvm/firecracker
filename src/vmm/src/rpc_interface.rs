@@ -34,7 +34,7 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{builder::StartMicrovmError, warn, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
-use logger::{info, update_metric_with_elapsed_time, METRICS};
+use logger::{error, info, update_metric_with_elapsed_time, METRICS};
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
@@ -258,8 +258,15 @@ trait MmdsRequestHandler {
     }
 
     fn put_mmds(&mut self, value: serde_json::Value) -> ActionResult {
-        self.mmds().put_data(value);
-        Ok(VmmData::Empty)
+        self.mmds()
+            .put_data(value)
+            .map(|()| VmmData::Empty)
+            .map_err(|e| match e {
+                data_store::Error::DataStoreLimitExceeded => {
+                    VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
+                }
+                _ => VmmActionError::Mmds(e),
+            })
     }
 }
 
@@ -316,7 +323,7 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
-        payload_limit: Option<usize>,
+        mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), ExitCode>
     where
@@ -329,20 +336,23 @@ impl<'a> PrebootApiController<'a> {
         // generate build errors because VmResources contains private fields.
         #[allow(clippy::field_reassign_with_default)]
         {
+            vm_resources.mmds_size_limit = mmds_size_limit;
             vm_resources.boot_timer = boot_timer_enabled;
-        }
-        // Overwrite the data store limit.
-        if let Some(limit) = payload_limit {
-            vm_resources
-                .locked_mmds_or_default()
-                .set_data_store_limit(limit);
         }
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            vm_resources.locked_mmds_or_default().put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-            );
+            vm_resources
+                .locked_mmds_or_default()
+                .put_data(
+                    serde_json::from_str(&data)
+                        .expect("MMDS error: metadata provided not valid json"),
+                )
+                .map_err(|err| {
+                    error!("Populating MMDS from file failed: {:?}", err);
+                    crate::FC_EXIT_CODE_GENERIC_ERROR
+                })?;
+
             info!("Successfully added metadata to mmds from file");
         }
 
@@ -788,6 +798,7 @@ mod tests {
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
     use crate::vmm_config::vsock::VsockBuilder;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
@@ -836,6 +847,7 @@ mod tests {
         vsock_set: bool,
         net_set: bool,
         pub mmds: Option<Arc<Mutex<Mmds>>>,
+        pub mmds_size_limit: usize,
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -950,7 +962,9 @@ mod tests {
         /// If not initialised, create the mmds data store with the default config.
         pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
             self.mmds
-                .get_or_insert(Arc::new(Mutex::new(Mmds::default())))
+                .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
+                    self.mmds_size_limit,
+                ))))
         }
 
         /// If not initialised, create the mmds data store with the default config.
@@ -1152,6 +1166,7 @@ mod tests {
     {
         let mut vm_resources = MockVmRes {
             mmds: Some(mmds),
+            mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             ..Default::default()
         };
         let mut evmgr = EventManager::new().unwrap();
@@ -1386,6 +1401,23 @@ mod tests {
                 assert_eq!(result, Ok(VmmData::Empty));
             },
         );
+        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+            );
+        });
+
+        let filling = (0..51300).map(|_| "X").collect::<String>();
+        let data = "{\"key\": \"".to_string() + &filling + "\"}";
+
+        check_preboot_request_with_mmds(
+            VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
+            mmds.clone(),
+            |result, _| {
+                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
+            },
+        );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
@@ -1403,6 +1435,23 @@ mod tests {
             mmds.clone(),
             |result, _| {
                 assert_eq!(result, Ok(VmmData::Empty));
+            },
+        );
+        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+            );
+        });
+
+        let filling = (0..51300).map(|_| "X").collect::<String>();
+        let data = "{\"key\": \"".to_string() + &filling + "\"}";
+
+        check_runtime_request_with_mmds(
+            VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
+            mmds.clone(),
+            |result, _| {
+                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
             },
         );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
@@ -1450,6 +1499,25 @@ mod tests {
             },
         );
 
+        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
+                ))
+            );
+        });
+
+        let filling = (0..HTTP_MAX_PAYLOAD_SIZE).map(|_| "X").collect::<String>();
+        let data = "{\"key\": \"".to_string() + &filling + "\"}";
+
+        check_preboot_request_with_mmds(
+            VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
+            mmds.clone(),
+            |result, _| {
+                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
+            },
+        );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
@@ -1497,6 +1565,25 @@ mod tests {
             },
         );
 
+        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsValue(
+                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
+                ))
+            );
+        });
+
+        let filling = (0..HTTP_MAX_PAYLOAD_SIZE).map(|_| "X").collect::<String>();
+        let data = "{\"key\": \"".to_string() + &filling + "\"}";
+
+        check_runtime_request_with_mmds(
+            VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
+            mmds.clone(),
+            |result, _| {
+                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
+            },
+        );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
                 result,
@@ -1636,7 +1723,7 @@ mod tests {
             commands,
             expected_resp,
             false,
-            Some(mmds::MAX_DATA_STORE_SIZE),
+            HTTP_MAX_PAYLOAD_SIZE,
             Some(r#""magic""#),
         )
         .unwrap();

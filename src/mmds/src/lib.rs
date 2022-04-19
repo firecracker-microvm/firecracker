@@ -20,8 +20,6 @@ use micro_http::{
 };
 use token_headers::TokenHeaders;
 
-pub const MAX_DATA_STORE_SIZE: usize = 51200;
-
 pub enum Error {
     InvalidToken,
     InvalidURI,
@@ -331,7 +329,8 @@ mod tests {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         mmds.lock()
             .expect("Poisoned lock")
-            .put_data(serde_json::from_str(data).unwrap());
+            .put_data(serde_json::from_str(data).unwrap())
+            .unwrap();
 
         mmds
     }

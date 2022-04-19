@@ -13,6 +13,10 @@
   preserved bidirectionally, to and from a Firecracker version that does not
   support persisting the Mmds version. In such cases, the default V1 option is
   used.
+- Added `--mmds-size-limit` for limiting the mmds data store size instead of
+  piggy-backing on `--http-api-max-payload-size`. If left unconfigured it
+  defaults to the value of `--http-api-max-payload-size`, to provide backwards
+  compatibility.
 
 ### Changed
 

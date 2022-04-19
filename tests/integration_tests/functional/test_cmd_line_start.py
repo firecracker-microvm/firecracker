@@ -376,6 +376,48 @@ def test_start_with_metadata(test_microvm_with_api):
         assert response.json() == json.load(json_file)
 
 
+def test_start_with_metadata_limit(test_microvm_with_api):
+    """
+    Test that the metadata size limit is enforced when populating from a file.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.jailer.extra_args.update(
+        {"mmds-size-limit": "30"})
+
+    metadata_file = "../resources/tests/metadata.json"
+
+    _add_metadata_file(test_microvm, metadata_file)
+
+    test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Populating MMDS from file failed: DataStoreLimitExceeded"
+    )
+
+
+def test_start_with_metadata_default_limit(test_microvm_with_api):
+    """
+    Test that the metadata size limit defaults to the api payload limit.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.jailer.extra_args.update(
+        {"http-api-max-payload-size": "30"})
+
+    metadata_file = "../resources/tests/metadata.json"
+
+    _add_metadata_file(test_microvm, metadata_file)
+
+    test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Populating MMDS from file failed: DataStoreLimitExceeded"
+    )
+
+
 def test_start_with_missing_metadata(test_microvm_with_api):
     """
     Test if a microvm is configured with a missing metadata file.

@@ -123,7 +123,8 @@ pub(crate) fn run_with_api(
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
-    payload_limit: Option<usize>,
+    api_payload_limit: usize,
+    mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> ExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
@@ -149,7 +150,7 @@ pub(crate) fn run_with_api(
                 api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
-                payload_limit,
+                api_payload_limit,
             ) {
                 Ok(_) => (),
                 Err(api_server::Error::Io(inner)) => match inner.kind() {
@@ -182,7 +183,7 @@ pub(crate) fn run_with_api(
             json,
             instance_info,
             boot_timer_enabled,
-            payload_limit,
+            mmds_size_limit,
             metadata_json.as_deref(),
         ),
         None => PrebootApiController::build_microvm_from_requests(
@@ -206,7 +207,7 @@ pub(crate) fn run_with_api(
                     .expect("one-shot channel closed")
             },
             boot_timer_enabled,
-            payload_limit,
+            mmds_size_limit,
             metadata_json,
         ),
     };

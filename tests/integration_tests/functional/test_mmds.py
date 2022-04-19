@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify MMDS related functionality."""
 
+# pylint: disable=too-many-lines
 import json
 import random
 import string
@@ -679,13 +680,17 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     "version",
     MMDS_VERSIONS
 )
-def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
+def test_mmds_limit_scenario(test_microvm_with_api, network_config, version):
     """
     Test the MMDS json endpoint when data store size reaches the limit.
 
     @type: negative
     """
     test_microvm = test_microvm_with_api
+    # Set a large enough limit for the API so that requests actually reach the
+    # MMDS server.
+    test_microvm.jailer.extra_args.update(
+        {"http-api-max-payload-size": "512000", "mmds-size-limit": "51200"})
     test_microvm.spawn()
 
     # Attach network device.
@@ -704,6 +709,23 @@ def test_patch_dos_scenario(test_microvm_with_api, network_config, version):
     # Populate data-store.
     response = test_microvm.mmds.put(json=dummy_json)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Send a request that will exceed the data store.
+    aux = "a" * 51200
+    large_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': "smth",
+                'secret_key': aux
+            }
+        }
+    }
+    response = test_microvm.mmds.put(json=large_json)
+    assert test_microvm.api_session.\
+        is_status_payload_too_large(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert response.json() == dummy_json
 
     # Send a request that will fill the data store.
     aux = "a" * 51137

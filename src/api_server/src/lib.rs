@@ -105,7 +105,6 @@ impl ApiServer {
     /// ```
     /// use api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
-    /// use mmds::MAX_DATA_STORE_SIZE;
     /// use std::env::consts::ARCH;
     /// use std::{
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
@@ -115,6 +114,7 @@ impl ApiServer {
     /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
+    /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -125,7 +125,7 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
-    /// let payload_limit = Some(MAX_DATA_STORE_SIZE);
+    /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -158,15 +158,15 @@ impl ApiServer {
         path: PathBuf,
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
-        maybe_request_size: Option<usize>,
+        api_payload_limit: usize,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
             std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
         });
-        if let Some(request_size) = maybe_request_size {
-            server.set_payload_max_size(request_size);
-        }
+
+        // Set the api payload size limit.
+        server.set_payload_max_size(api_payload_limit);
 
         // Store process start time metric.
         process_time_reporter.report_start_time();
@@ -481,7 +481,7 @@ mod tests {
                         PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
-                        None,
+                        vmm::HTTP_MAX_PAYLOAD_SIZE,
                     )
                     .unwrap();
             })
@@ -527,7 +527,7 @@ mod tests {
                         PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
-                        Some(50),
+                        50,
                     )
                     .unwrap();
             })
