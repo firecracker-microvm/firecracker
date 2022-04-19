@@ -39,6 +39,8 @@ pub enum Error {
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
     Metrics(MetricsConfigError),
+    /// MMDS error.
+    Mmds(mmds::data_store::Error),
     /// MMDS configuration error.
     MmdsConfig(MmdsConfigError),
     /// Net device configuration error.
@@ -58,6 +60,7 @@ impl std::fmt::Display for Error {
             Error::InvalidJson(e) => write!(f, "Invalid JSON: {}", e),
             Error::Logger(e) => write!(f, "Logger error: {}", e),
             Error::Metrics(e) => write!(f, "Metrics error: {}", e),
+            Error::Mmds(e) => write!(f, "MMDS error: {}", e),
             Error::MmdsConfig(e) => write!(f, "MMDS config error: {}", e),
             Error::NetDevice(e) => write!(f, "Network device error: {}", e),
             Error::VmConfig(e) => write!(f, "VM config error: {}", e),
@@ -109,6 +112,8 @@ pub struct VmResources {
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
+    /// Data store limit for the mmds.
+    pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
 }
@@ -118,7 +123,7 @@ impl VmResources {
     pub fn from_json(
         config_json: &str,
         instance_info: &InstanceInfo,
-        mmds_max_size: Option<usize>,
+        mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
@@ -132,7 +137,10 @@ impl VmResources {
             init_metrics(metrics).map_err(Error::Metrics)?;
         }
 
-        let mut resources: Self = Self::default();
+        let mut resources: Self = Self {
+            mmds_size_limit,
+            ..Default::default()
+        };
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = VmUpdateConfig::from(machine_config);
             resources
@@ -168,18 +176,15 @@ impl VmResources {
                 .map_err(Error::BalloonDevice)?;
         }
 
-        // Overwrite the data store limit.
-        if let Some(limit) = mmds_max_size {
-            resources
-                .locked_mmds_or_default()
-                .set_data_store_limit(limit);
-        }
-
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            resources.locked_mmds_or_default().put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-            );
+            resources
+                .locked_mmds_or_default()
+                .put_data(
+                    serde_json::from_str(&data)
+                        .expect("MMDS error: metadata provided not valid json"),
+                )
+                .map_err(Error::Mmds)?;
             info!("Successfully added metadata to mmds from file");
         }
 
@@ -195,7 +200,9 @@ impl VmResources {
     /// If not initialised, create the mmds data store with the default config.
     pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
         self.mmds
-            .get_or_insert(Arc::new(Mutex::new(Mmds::default())))
+            .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
+                self.mmds_size_limit,
+            ))))
     }
 
     /// If not initialised, create the mmds data store with the default config.
@@ -507,6 +514,7 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
@@ -582,6 +590,7 @@ mod tests {
             net_builder: default_net_builder(),
             mmds: None,
             boot_timer: false,
+            mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
         }
     }
 
@@ -619,14 +628,14 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        match VmResources::from_json(r#"}"#, &default_instance_info, None, None) {
+        match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        match VmResources::from_json(r#"{}"#, &default_instance_info, None, None) {
+        match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
@@ -650,7 +659,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
@@ -674,7 +688,12 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
             _ => unreachable!(),
         }
@@ -703,7 +722,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
@@ -734,9 +758,21 @@ mod tests {
         );
 
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_err());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_err());
 
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
@@ -763,9 +799,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_err());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_err());
 
         // Invalid memory size.
         json = format!(
@@ -791,7 +839,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
@@ -819,7 +872,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -850,7 +908,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -885,7 +948,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
                 devices::virtio::net::Error::TapOpen { .. },
             ))) => (),
@@ -929,7 +997,13 @@ mod tests {
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
 
         // Test all configuration, this time trying to set default configuration
         // for version and IPv4 address.
@@ -975,7 +1049,7 @@ mod tests {
         let resources = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
-            Some(1200),
+            1200,
             Some(r#"{"key": "value"}"#),
         )
         .unwrap();
@@ -1033,9 +1107,13 @@ mod tests {
             );
 
             {
-                let resources =
-                    VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                        .unwrap();
+                let resources = VmResources::from_json(
+                    json.as_str(),
+                    &InstanceInfo::default(),
+                    HTTP_MAX_PAYLOAD_SIZE,
+                    None,
+                )
+                .unwrap();
 
                 let initial_vmm_config =
                     serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
@@ -1048,7 +1126,7 @@ mod tests {
                 let resources = VmResources::from_json(
                     json.as_str(),
                     &InstanceInfo::default(),
-                    None,
+                    HTTP_MAX_PAYLOAD_SIZE,
                     Some(r#"{"key": "value"}"#),
                 )
                 .unwrap();
@@ -1106,9 +1184,13 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
+            let resources = VmResources::from_json(
+                json.as_str(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+            )
+            .unwrap();
 
             let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
@@ -1161,9 +1243,13 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
+            let resources = VmResources::from_json(
+                json.as_str(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+            )
+            .unwrap();
 
             let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
@@ -1255,16 +1341,8 @@ mod tests {
 
     #[test]
     fn test_set_balloon_device() {
-        let mut vm_resources = VmResources {
-            vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
-            block: default_blocks(),
-            vsock: Default::default(),
-            balloon: BalloonBuilder::new(),
-            net_builder: default_net_builder(),
-            mmds: None,
-            boot_timer: false,
-        };
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
         let mut new_balloon_cfg = BalloonDeviceConfig {
             amount_mib: 100,
             deflate_on_oom: false,
@@ -1286,16 +1364,8 @@ mod tests {
             new_balloon_cfg.stats_polling_interval_s
         );
 
-        vm_resources = VmResources {
-            vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
-            block: default_blocks(),
-            vsock: Default::default(),
-            balloon: BalloonBuilder::new(),
-            net_builder: default_net_builder(),
-            mmds: None,
-            boot_timer: false,
-        };
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
         new_balloon_cfg.amount_mib = 256;
         assert!(vm_resources.set_balloon_device(new_balloon_cfg).is_err());
     }
