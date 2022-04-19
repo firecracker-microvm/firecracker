@@ -198,12 +198,26 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
                "with older versions of Firecracker: notification suppression" \
                in response.text
 
-        # It should work when we target a version >= 1.0.0
-        response = test_microvm.snapshot.create(
-            mem_file_path="/snapshot/vm.mem",
-            snapshot_path="/snapshot/vm.vmstate",
-            version="1.0.0"
-        )
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
+    # We try to create a snapshot for target version 1.0.0. This should
+    # fail because in 1.0.0 we do not support notification suppression for Net.
+    response = test_microvm.snapshot.create(
+        mem_file_path="/snapshot/vm.mem",
+        snapshot_path="/snapshot/vm.vmstate",
+        version="1.0.0"
+    )
+    assert test_microvm.api_session.is_status_bad_request(
+        response.status_code
+    )
+    assert "The virtio devices use a features that is incompatible " \
+           "with older versions of Firecracker: notification suppression" \
+           in response.text
+
+    # It should work when we target a version >= 1.1.0
+    response = test_microvm.snapshot.create(
+        mem_file_path="/snapshot/vm.mem",
+        snapshot_path="/snapshot/vm.vmstate",
+        version="1.1.0"
+    )
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    )
