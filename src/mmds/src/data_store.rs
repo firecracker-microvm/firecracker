@@ -44,28 +44,6 @@ pub enum OutputFormat {
     Imds,
 }
 
-/// Keeps the MMDS version configuration.
-#[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct MmdsVersionType {
-    /// MMDS configured version
-    #[serde(default)]
-    pub version: MmdsVersion,
-}
-
-impl MmdsVersionType {
-    /// Returns the IMDS version.
-    pub fn version(&self) -> MmdsVersion {
-        self.version
-    }
-}
-
-impl From<MmdsVersion> for MmdsVersionType {
-    fn from(version: MmdsVersion) -> Self {
-        MmdsVersionType { version }
-    }
-}
-
 #[derive(Debug)]
 pub enum Error {
     DataStoreLimitExceeded,
