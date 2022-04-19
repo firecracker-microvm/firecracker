@@ -154,16 +154,16 @@ The Firecracker snapshotting implementation offers support for snapshot versioni
   Firecracker release `v` might drop the possibility to save snapshots at any
   versions older than `v`.
 
-  For example Firecracker v1.0 adds support for some additional virtio features
-  (e.g. notification suppression). These features lead the guest drivers to
-  behave in a very specific way and as a consequence the Firecracker devices
-  have to respond accordingly. As a result, the snapshots that are created
-  while these features are in use will not be backwards compatible with
+  For example Firecracker v1.0 and v1.1 adds support for some additional virtio
+  features (e.g. notification suppression). These features lead the guest
+  drivers to behave in a very specific way and as a consequence the Firecracker
+  devices have to respond accordingly. As a result, the snapshots that are
+  created while these features are in use will not be backwards compatible with
   previous versions of Firecracker since the devices that come with these older
   versions do not behave in a way that’s compatible with the snapshotted guest
   drivers.
 
-  The list of versions that break snapshot backwards compatibility: `1.0`
+  The list of versions that break snapshot backwards compatibility: `1.0`, `1.1`
 - Loading snapshots from older versions (being able to load a snapshot created
   by any Firecracker version in the `[N, N + o]` interval, in a Firecracker
   version `N+o`).
