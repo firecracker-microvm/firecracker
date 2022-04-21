@@ -1740,3 +1740,14 @@ def test_negative_snapshot_load_api(bin_cloner_path):
     err_msg = "missing field: either `mem_backend` or " \
               "`mem_file_path` is required"
     assert err_msg in response.text, response.text
+
+    # Deprecated API should return deprecation response header.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_file_path': 'bar'
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    assert response.headers['deprecation']
