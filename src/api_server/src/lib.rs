@@ -107,8 +107,15 @@ impl ApiServer {
     /// use logger::ProcessTimeReporter;
     /// use std::env::consts::ARCH;
     /// use std::{
-    ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
-    ///     sync::mpsc::channel, thread, time::Duration,
+    ///     convert::TryInto,
+    ///     io::Read,
+    ///     io::Write,
+    ///     os::unix::net::UnixStream,
+    ///     path::PathBuf,
+    ///     sync::mpsc::{channel, Receiver, Sender},
+    ///     sync::{Arc, Barrier},
+    ///     thread,
+    ///     time::Duration,
     /// };
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::rpc_interface::VmmData;
@@ -126,6 +133,7 @@ impl ApiServer {
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
     /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
+    /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -136,12 +144,13 @@ impl ApiServer {
     ///                 time_reporter,
     ///                 seccomp_filters.get("api").unwrap(),
     ///                 payload_limit,
+    ///                 socket_ready_sender,
     ///             )
     ///             .unwrap();
     ///     })
     ///     .unwrap();
     ///
-    /// thread::sleep(Duration::from_millis(10));
+    /// socket_ready_receiver.recv().unwrap();
     /// to_api
     ///     .send(Box::new(Ok(VmmData::InstanceInformation(
     ///         InstanceInfo::default(),
@@ -159,12 +168,18 @@ impl ApiServer {
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
         api_payload_limit: usize,
+        socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
             std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
         });
-
+        // Announce main thread that the socket path was created.
+        // As per the doc, "A send operation can only fail if the receiving end of a channel is disconnected".
+        // so this means that the main thread has exited.
+        socket_ready
+            .send(true)
+            .expect("No one to signal that the socket path is ready!");
         // Set the api payload size limit.
         server.set_payload_max_size(api_payload_limit);
 
@@ -313,7 +328,6 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
     use std::thread;
-    use std::time::Duration;
 
     use super::*;
     use logger::StoreMetric;
@@ -472,6 +486,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -482,13 +497,14 @@ mod tests {
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         vmm::HTTP_MAX_PAYLOAD_SIZE,
+                        socket_ready_sender,
                     )
                     .unwrap();
             })
             .unwrap();
 
         // Wait for the server to set itself up.
-        thread::sleep(Duration::from_millis(10));
+        socket_ready_receiver.recv().unwrap();
         to_api
             .send(Box::new(Ok(VmmData::InstanceInformation(
                 InstanceInfo::default(),
@@ -518,6 +534,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -528,13 +545,14 @@ mod tests {
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         50,
+                        socket_ready_sender,
                     )
                     .unwrap();
             })
             .unwrap();
 
         // Wait for the server to set itself up.
-        thread::sleep(Duration::from_millis(10));
+        socket_ready_receiver.recv().unwrap();
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
         // Send a GET mmds request.
