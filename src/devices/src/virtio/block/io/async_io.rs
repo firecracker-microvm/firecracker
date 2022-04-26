@@ -11,6 +11,7 @@ use io_uring::{
     Error as IoUringError, IoUring,
 };
 
+use logger::{warn, DEV_PREVIEW_LOG_PREFIX};
 use utils::eventfd::EventFd;
 use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
@@ -65,6 +66,11 @@ impl<T> WrappedUserData<T> {
 
 impl<T> AsyncFileEngine<T> {
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
+        warn!(
+            "{} {}",
+            DEV_PREVIEW_LOG_PREFIX, "Async file IO is in development preview."
+        );
+
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let ring = IoUring::new(
             IO_URING_NUM_ENTRIES as u32,

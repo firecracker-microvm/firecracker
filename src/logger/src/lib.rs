@@ -20,6 +20,9 @@ pub use crate::metrics::{
 pub use log::Level::*;
 pub use log::*;
 
+/// Prefix to be used in log lines for functions/modules in Firecracker that are not generally available.
+pub const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
+
 fn extract_guard<G>(lock_result: LockResult<G>) -> G {
     match lock_result {
         Ok(guard) => guard,
