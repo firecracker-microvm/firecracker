@@ -18,10 +18,7 @@ use std::{
     thread,
 };
 
-use crate::{
-    vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
-    FC_EXIT_CODE_OK,
-};
+use crate::{vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FcExitCode};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use logger::{error, info, IncMetric, METRICS};
@@ -294,9 +291,9 @@ impl Vcpu {
                 //   KVM_EXIT_HLT.
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
-                Ok(VcpuEmulation::Stopped) => return self.exit(FC_EXIT_CODE_OK),
+                Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
                 // Emulation errors lead to vCPU exit.
-                Err(_) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
+                Err(_) => return self.exit(FcExitCode::GenericError),
             }
         }
 
@@ -335,7 +332,7 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
-                state = self.exit(FC_EXIT_CODE_GENERIC_ERROR);
+                state = self.exit(FcExitCode::GenericError);
             }
             // All other events or lack thereof have no effect on current 'running' state.
             Err(TryRecvError::Empty) => (),
@@ -399,13 +396,13 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
-                self.exit(FC_EXIT_CODE_GENERIC_ERROR)
+                self.exit(FcExitCode::GenericError)
             }
         }
     }
 
     // Transition to the exited state and finish on command.
-    fn exit(&mut self, exit_code: i32) -> StateMachine<Self> {
+    fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
         /*
            To avoid cycles, all teardown paths take the following route:
            +------------------------+----------------------------+------------------------+
@@ -575,7 +572,7 @@ pub enum VcpuResponse {
     /// Requested action encountered an error.
     Error(Error),
     /// Vcpu is stopped.
-    Exited(i32),
+    Exited(FcExitCode),
     /// Requested action not allowed.
     NotAllowed(String),
     /// Vcpu is paused.

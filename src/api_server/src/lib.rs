@@ -172,7 +172,7 @@ impl ApiServer {
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
-            std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
+            std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
         // Announce main thread that the socket path was created.
         // As per the doc, "A send operation can only fail if the receiving end of a channel is disconnected".

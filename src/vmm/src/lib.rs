@@ -72,34 +72,39 @@ use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
+// Since the exit code names e.g. `SIGBUS` are most appropriate yet trigger a test error with the
+// clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
-pub type ExitCode = i32;
-/// Success exit code.
-pub const FC_EXIT_CODE_OK: ExitCode = 0;
-/// Generic error exit code.
-pub const FC_EXIT_CODE_GENERIC_ERROR: ExitCode = 1;
-/// Generic exit code for an error considered not possible to occur if the program logic is sound.
-pub const FC_EXIT_CODE_UNEXPECTED_ERROR: ExitCode = 2;
-/// Firecracker was shut down after intercepting a restricted system call.
-pub const FC_EXIT_CODE_BAD_SYSCALL: ExitCode = 148;
-/// Firecracker was shut down after intercepting `SIGBUS`.
-pub const FC_EXIT_CODE_SIGBUS: ExitCode = 149;
-/// Firecracker was shut down after intercepting `SIGSEGV`.
-pub const FC_EXIT_CODE_SIGSEGV: ExitCode = 150;
-/// Firecracker was shut down after intercepting `SIGXFSZ`.
-pub const FC_EXIT_CODE_SIGXFSZ: ExitCode = 151;
-/// Firecracker was shut down after intercepting `SIGXCPU`.
-pub const FC_EXIT_CODE_SIGXCPU: ExitCode = 154;
-/// Firecracker was shut down after intercepting `SIGPIPE`.
-pub const FC_EXIT_CODE_SIGPIPE: ExitCode = 155;
-/// Firecracker was shut down after intercepting `SIGHUP`.
-pub const FC_EXIT_CODE_SIGHUP: ExitCode = 156;
-/// Firecracker was shut down after intercepting `SIGILL`.
-pub const FC_EXIT_CODE_SIGILL: ExitCode = 157;
-/// Bad configuration for microvm's resources, when using a single json.
-pub const FC_EXIT_CODE_BAD_CONFIGURATION: ExitCode = 152;
-/// Command line arguments parsing error.
-pub const FC_EXIT_CODE_ARG_PARSING: ExitCode = 153;
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FcExitCode {
+    /// Success exit code.
+    Ok = 0,
+    /// Generic error exit code.
+    GenericError = 1,
+    /// Generic exit code for an error considered not possible to occur if the program logic is sound.
+    UnexpectedError = 2,
+    /// Firecracker was shut down after intercepting a restricted system call.
+    BadSyscall = 148,
+    /// Firecracker was shut down after intercepting `SIGBUS`.
+    SIGBUS = 149,
+    /// Firecracker was shut down after intercepting `SIGSEGV`.
+    SIGSEGV = 150,
+    /// Firecracker was shut down after intercepting `SIGXFSZ`.
+    SIGXFSZ = 151,
+    /// Firecracker was shut down after intercepting `SIGXCPU`.
+    SIGXCPU = 154,
+    /// Firecracker was shut down after intercepting `SIGPIPE`.
+    SIGPIPE = 155,
+    /// Firecracker was shut down after intercepting `SIGHUP`.
+    SIGHUP = 156,
+    /// Firecracker was shut down after intercepting `SIGILL`.
+    SIGILL = 157,
+    /// Bad configuration for microvm's resources, when using a single json.
+    BadConfiguration = 152,
+    /// Command line arguments parsing error.
+    ArgParsing = 153,
+}
 
 /// Timeout used in recv_timeout, when waiting for a vcpu response on
 /// Pause/Resume/Save/Restore. A high enough limit that should not be reached during normal usage,
@@ -247,7 +252,7 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 pub struct Vmm {
     events_observer: Option<Box<dyn VmmEventsObserver>>,
     instance_info: InstanceInfo,
-    shutdown_exit_code: Option<ExitCode>,
+    shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
     vm: Vm,
@@ -278,7 +283,7 @@ impl Vmm {
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
-    pub fn shutdown_exit_code(&self) -> Option<ExitCode> {
+    pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
     }
 
@@ -723,7 +728,7 @@ impl Vmm {
     }
 
     /// Signals Vmm to stop and exit.
-    pub fn stop(&mut self, exit_code: ExitCode) {
+    pub fn stop(&mut self, exit_code: FcExitCode) {
         /*
            To avoid cycles, all teardown paths take the following route:
            +------------------------+----------------------------+------------------------+
@@ -812,7 +817,7 @@ impl Drop for Vmm {
         // and joins the vcpu threads. The Vmm is dropped after everything is
         // ready to be teared down. The line below is a no-op, because the Vmm
         // has already been stopped by the event manager at this point.
-        self.stop(self.shutdown_exit_code.unwrap_or(FC_EXIT_CODE_OK));
+        self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
             if let Err(e) = observer.on_vmm_stop() {
@@ -860,7 +865,7 @@ impl MutEventSubscriber for Vmm {
                     }
                 }
             }
-            self.stop(exit_code.unwrap_or(FC_EXIT_CODE_OK));
+            self.stop(exit_code.unwrap_or(FcExitCode::Ok));
         } else {
             error!("Spurious EventManager event for handler: Vmm");
         }
