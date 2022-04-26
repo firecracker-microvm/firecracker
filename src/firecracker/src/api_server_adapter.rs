@@ -18,7 +18,7 @@ use vmm::{
     resources::VmResources,
     rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
     vmm_config::instance_info::InstanceInfo,
-    EventManager, ExitCode, Vmm,
+    EventManager, FcExitCode, Vmm,
 };
 
 struct ApiServerAdapter {
@@ -38,7 +38,7 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) -> ExitCode {
+    ) -> FcExitCode {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
@@ -126,7 +126,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> ExitCode {
+) -> FcExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.

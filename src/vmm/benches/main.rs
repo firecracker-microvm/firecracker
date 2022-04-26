@@ -20,7 +20,7 @@ use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
 use vmm::utilities::test_utils::create_vmm;
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{persist, FC_EXIT_CODE_OK};
+use vmm::{persist, FcExitCode};
 
 #[inline]
 pub fn bench_restore_snapshot(
@@ -83,7 +83,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
         persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
     }
 
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     // Deserialize the microVM state from `snapshot_file`.
     let snapshot_path = snapshot_file.as_path().to_path_buf();

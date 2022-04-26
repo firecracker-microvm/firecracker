@@ -22,7 +22,7 @@ use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
-use vmm::{resources::VmResources, EventManager, ExitCode, HTTP_MAX_PAYLOAD_SIZE};
+use vmm::{resources::VmResources, EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -64,14 +64,14 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
-fn main_exitable() -> ExitCode {
+fn main_exitable() -> FcExitCode {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     if let Err(e) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", e);
-        return vmm::FC_EXIT_CODE_GENERIC_ERROR;
+        return vmm::FcExitCode::GenericError;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -221,24 +221,24 @@ fn main_exitable() -> ExitCode {
                  For more information try --help.",
                 err
             );
-            return vmm::FC_EXIT_CODE_ARG_PARSING;
+            return vmm::FcExitCode::ArgParsing;
         }
         _ => {
             if arg_parser.arguments().flag_present("help") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 println!("{}", arg_parser.formatted_help());
-                return vmm::FC_EXIT_CODE_OK;
+                return vmm::FcExitCode::Ok;
             }
 
             if arg_parser.arguments().flag_present("version") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 print_supported_snapshot_versions();
-                return vmm::FC_EXIT_CODE_OK;
+                return vmm::FcExitCode::Ok;
             }
 
             if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
                 print_snapshot_data_format(snapshot_path);
-                return vmm::FC_EXIT_CODE_OK;
+                return vmm::FcExitCode::Ok;
             }
 
             arg_parser.arguments()
@@ -397,13 +397,13 @@ fn main() {
     // See process_exitable() method of Subscriber trait for what triggers the exit_code.
     //
     let exit_code = main_exitable();
-    std::process::exit(exit_code);
+    std::process::exit(exit_code as i32);
 }
 
 // Exit gracefully with a generic error code.
-fn generic_error_exit(msg: &str) -> ExitCode {
+fn generic_error_exit(msg: &str) -> FcExitCode {
     error!("{}", msg);
-    vmm::FC_EXIT_CODE_GENERIC_ERROR
+    vmm::FcExitCode::GenericError
 }
 
 // Log a warning for any usage of deprecated parameters.
@@ -429,17 +429,16 @@ fn print_supported_snapshot_versions() {
 // Print data format of provided snapshot state file.
 fn print_snapshot_data_format(snapshot_path: &str) {
     let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
-        process::exit(generic_error_exit(&format!(
-            "Unable to open snapshot state file: {:?}",
-            err
-        )));
+        process::exit(
+            generic_error_exit(&format!("Unable to open snapshot state file: {:?}", err)) as i32,
+        );
     });
     let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
         .unwrap_or_else(|err| {
             process::exit(generic_error_exit(&format!(
                 "Invalid data format version of snapshot file: {:?}",
                 err
-            )));
+            )) as i32);
         });
 
     let (key, _) = FC_VERSION_TO_SNAP_VERSION
@@ -449,7 +448,7 @@ fn print_snapshot_data_format(snapshot_path: &str) {
             process::exit(generic_error_exit(&format!(
                 "Cannot translate snapshot data version {} to Firecracker microVM version",
                 data_format_version
-            )));
+            )) as i32);
         });
     println!("v{}", key);
 }
@@ -463,12 +462,12 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), ExitCode> {
+) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), FcExitCode> {
     let mut vm_resources =
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
             .map_err(|err| {
                 error!("Configuration for VMM from one single json failed: {}", err);
-                vmm::FC_EXIT_CODE_BAD_CONFIGURATION
+                vmm::FcExitCode::BadConfiguration
             })?;
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(
@@ -482,7 +481,7 @@ fn build_microvm_from_json(
             "Building VMM configured from cmdline json failed: {:?}",
             err
         );
-        vmm::FC_EXIT_CODE_BAD_CONFIGURATION
+        vmm::FcExitCode::BadConfiguration
     })?;
     info!("Successfully started microvm that was configured from one single json");
 
@@ -496,7 +495,7 @@ fn run_without_api(
     bool_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> ExitCode {
+) -> FcExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
