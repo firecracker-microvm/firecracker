@@ -88,8 +88,8 @@ More about the particularities of the two mechanisms can be found in the
 [Retrieving metadata in the guest operating system](#retrieving-metadata-in-the-guest-operating-system)
 section. The MMDS version used can be specified when configuring MMDS, through
 the `version` field of the HTTP `PUT` request to `/mmds/config` resource.
-Accepted values are `V1` and `V2` and the default MMDS version used in case the
-`version` field is missing is [Version 1](#version-1).
+Accepted values are `V1`(deprecated) and `V2` and the default MMDS version used
+in case the `version` field is missing is [Version 1](#version-1-deprecated).
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -216,10 +216,13 @@ Output:
 Accessing the contents of the metadata store from the guest operating system
 can be done using one of the following methods:
 
-- `V1`: simple request/response method
+- `V1`: simple request/response method (deprecated)
 - `V2`: session-oriented method
 
-#### Version 1
+#### Version 1 (Deprecated)
+
+**Version 1 is deprecated and will be removed in the next major version change.
+Version 2 should be used instead.**
 
 To retrieve existing MMDS metadata using MMDS version 1, an HTTP `GET`
 request must be issued. The requested resource can be referenced by its

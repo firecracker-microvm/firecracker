@@ -23,6 +23,8 @@
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
 - MmdsV2 is now Generally Available.
+- MmdsV1 is now deprecated and will be removed in Firecracker v2.0.0.
+  Use MmdsV2 instead.
 
 ### Fixed
 
@@ -43,6 +45,8 @@
   for `/machine-config` will reset all optional parameters (`smt`,
   `cpu_template`, `track_dirty_pages`) to their default values if they are
   not specified in the `PUT` request.
+- Fixed incosistency in the swagger definition with the current state of the
+  `/vm/config` endpoint.
 
 ## [1.0.0]
 

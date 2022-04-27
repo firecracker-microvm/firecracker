@@ -5,11 +5,33 @@ use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
+use mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
+use vmm::vmm_config::mmds::MmdsConfig;
 
 pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetMMDS))
+}
+
+fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
+    let config: MmdsConfig = serde_json::from_slice(body.raw()).map_err(|e| {
+        METRICS.put_api_requests.mmds_fails.inc();
+        Error::SerdeJson(e)
+    })?;
+    // Construct the `ParsedRequest` object.
+    let version = config.version;
+    let mut parsed_request = ParsedRequest::new_sync(VmmAction::SetMmdsConfiguration(config));
+
+    // MmdsV1 is deprecated.
+    if version == MmdsVersion::V1 {
+        METRICS.deprecated_api.deprecated_http_api_calls.inc();
+        parsed_request
+            .parsing_info()
+            .append_deprecation_message("PUT /mmds/config: V1 is deprecated. Use V2 instead.");
+    }
+
+    Ok(parsed_request)
 }
 
 pub(crate) fn parse_put_mmds(
@@ -24,12 +46,7 @@ pub(crate) fn parse_put_mmds(
                 Error::SerdeJson(e)
             })?,
         ))),
-        Some(&"config") => Ok(ParsedRequest::new_sync(VmmAction::SetMmdsConfiguration(
-            serde_json::from_slice(body.raw()).map_err(|e| {
-                METRICS.put_api_requests.mmds_fails.inc();
-                Error::SerdeJson(e)
-            })?,
-        ))),
+        Some(&"config") => parse_put_mmds_config(body),
         Some(&unrecognized) => {
             METRICS.put_api_requests.mmds_fails.inc();
             Err(Error::Generic(
@@ -53,6 +70,7 @@ pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsed_request::tests::depr_action_from_req;
 
     #[test]
     fn test_parse_get_mmds_request() {
@@ -83,7 +101,6 @@ mod tests {
         let body = r#"{
                 "network_interfaces": []
               }"#;
-        let config_path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
 
         let body = r#"{
@@ -91,13 +108,11 @@ mod tests {
                 "ipv4_address": "169.254.170.2",
                 "network_interfaces": []
               }"#;
-        let config_path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
 
         let body = r#"{
                 "version": "V2"
               }"#;
-        let config_path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
 
         let body = r#"{
@@ -112,6 +127,40 @@ mod tests {
         assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&config_path)).is_err());
         assert!(parse_put_mmds(&Body::new(body), Some(&"invalid_path")).is_err());
         assert!(parse_put_mmds(&Body::new(invalid_body), Some(&config_path)).is_err());
+    }
+
+    #[test]
+    fn test_deprecated_config() {
+        let config_path = "config";
+
+        let body = r#"{
+            "ipv4_address": "169.254.170.2",
+            "network_interfaces": []
+        }"#;
+        depr_action_from_req(
+            parse_put_mmds(&Body::new(body), Some(&config_path)).unwrap(),
+            Some("PUT /mmds/config: V1 is deprecated. Use V2 instead.".to_string()),
+        );
+
+        let body = r#"{
+            "version": "V1",
+            "ipv4_address": "169.254.170.2",
+            "network_interfaces": []
+        }"#;
+        depr_action_from_req(
+            parse_put_mmds(&Body::new(body), Some(&config_path)).unwrap(),
+            Some("PUT /mmds/config: V1 is deprecated. Use V2 instead.".to_string()),
+        );
+
+        let body = r#"{
+            "version": "V2",
+            "ipv4_address": "169.254.170.2",
+            "network_interfaces": []
+        }"#;
+        let (_, mut parsing_info) = parse_put_mmds(&Body::new(body), Some(&config_path))
+            .unwrap()
+            .into_parts();
+        assert!(parsing_info.take_deprecation_message().is_none());
     }
 
     #[test]
