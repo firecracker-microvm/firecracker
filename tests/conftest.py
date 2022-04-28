@@ -394,6 +394,48 @@ def bin_seccomp_paths(test_fc_session_root_path):
     }
 
 
+@pytest.fixture(scope='session')
+def uffd_handler_paths(test_fc_session_root_path):
+    """Build UFFD handler binaries."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+    uffd_build_path = os.path.join(
+        test_fc_session_root_path,
+        build_tools.CARGO_RELEASE_REL_PATH
+    )
+
+    extra_args = '--release --target {}-unknown-linux-musl'
+    extra_args = extra_args.format(platform.machine())
+    build_tools.cargo_build(uffd_build_path,
+                            extra_args=extra_args,
+                            src_dir='host_tools/uffd')
+
+    release_binaries_path = os.path.join(
+        test_fc_session_root_path,
+        build_tools.CARGO_RELEASE_REL_PATH,
+        build_tools.RELEASE_BINARIES_REL_PATH
+    )
+
+    valid_handler = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'valid_handler'
+        )
+    )
+
+    malicious_handler = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'malicious_handler'
+        )
+    )
+
+    yield {
+        'valid_handler': valid_handler,
+        'malicious_handler': malicious_handler,
+    }
+
+
 @pytest.fixture()
 def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
