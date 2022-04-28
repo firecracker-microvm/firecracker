@@ -5,8 +5,22 @@ use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 use crate::request::{Method, StatusCode};
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
+use logger::{IncMetric, METRICS};
+use serde::de::Error as DeserializeError;
+use vmm::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
+};
 use vmm::vmm_config::snapshot::{Vm, VmState};
+
+/// Deprecation message for the `mem_file_path` field.
+const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
+/// None of the `mem_backend` or `mem_file_path` fields has been specified.
+pub const MISSING_FIELD: &str =
+    "missing field: either `mem_backend` or `mem_file_path` is required";
+/// Both the `mem_backend` and `mem_file_path` fields have been specified.
+/// Only specifying one of them is allowed.
+pub const TOO_MANY_FIELDS: &str =
+    "too many fields: either `mem_backend` or `mem_file_path` exclusively is required";
 
 pub(crate) fn parse_put_snapshot(
     body: &Body,
@@ -18,10 +32,7 @@ pub(crate) fn parse_put_snapshot(
                 serde_json::from_slice::<CreateSnapshotParams>(body.raw())
                     .map_err(Error::SerdeJson)?,
             ))),
-            "load" => Ok(ParsedRequest::new_sync(VmmAction::LoadSnapshot(
-                serde_json::from_slice::<LoadSnapshotParams>(body.raw())
-                    .map_err(Error::SerdeJson)?,
-            ))),
+            "load" => parse_put_snapshot_load(body),
             _ => Err(Error::InvalidPathMethod(
                 format!("/snapshot/{}", request_type),
                 Method::Put,
@@ -43,10 +54,66 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
     }
 }
 
+fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
+    let snapshot_config =
+        serde_json::from_slice::<LoadSnapshotConfig>(body.raw()).map_err(Error::SerdeJson)?;
+
+    match (&snapshot_config.mem_backend, &snapshot_config.mem_file_path) {
+        // Ensure `mem_file_path` and `mem_backend` fields are not present at the same time.
+        (Some(_), Some(_)) => {
+            return Err(Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS)))
+        }
+        // Ensure that one of `mem_file_path` or `mem_backend` fields is always specified.
+        (None, None) => return Err(Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD))),
+        _ => {}
+    }
+
+    // Check for the presence of deprecated `mem_file_path` field and create
+    // deprecation message if found.
+    let mut deprecation_message = None;
+    if snapshot_config.mem_file_path.is_some() {
+        // `mem_file_path` field in request is deprecated.
+        METRICS.deprecated_api.deprecated_http_api_calls.inc();
+        deprecation_message = Some(LOAD_DEPRECATION_MESSAGE);
+    }
+
+    // If `mem_file_path` is specified instead of `mem_backend`, we construct the
+    // `MemBackendConfig` object from the path specified, with `File` as backend type.
+    let mem_backend = match snapshot_config.mem_backend {
+        Some(backend_cfg) => backend_cfg,
+        None => {
+            MemBackendConfig {
+                // This is safe to unwrap() because we ensure above that one of the two:
+                // either `mem_file_path` or `mem_backend` field is always specified.
+                backend_path: snapshot_config.mem_file_path.unwrap(),
+                backend_type: MemBackendType::File,
+            }
+        }
+    };
+
+    let snapshot_params = LoadSnapshotParams {
+        snapshot_path: snapshot_config.snapshot_path,
+        mem_backend,
+        enable_diff_snapshots: snapshot_config.enable_diff_snapshots,
+        resume_vm: snapshot_config.resume_vm,
+    };
+
+    // Construct the `ParsedRequest` object.
+    let mut parsed_req = ParsedRequest::new_sync(VmmAction::LoadSnapshot(snapshot_params));
+
+    // If `mem_file_path` was present, set the deprecation message in `parsing_info`.
+    if let Some(msg) = deprecation_message {
+        parsed_req.parsing_info().append_deprecation_message(msg);
+    }
+
+    Ok(parsed_req)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     #[test]
     fn test_parse_put_snapshot() {
@@ -102,36 +169,87 @@ mod tests {
 
         body = r#"{
                 "snapshot_path": "foo",
-                "mem_file_path": "bar"
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "File"
+                }
               }"#;
 
         let mut expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_file_path: PathBuf::from("bar"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
             enable_diff_snapshots: false,
             resume_vm: false,
         };
-        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
-        {
+
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        assert!(parsed_request
+            .parsing_info()
+            .take_deprecation_message()
+            .is_none());
+
+        match vmm_action_from_request(parsed_request) {
             VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
         body = r#"{
                 "snapshot_path": "foo",
-                "mem_file_path": "bar",
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "File"
+                },
                 "enable_diff_snapshots": true
               }"#;
 
         expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_file_path: PathBuf::from("bar"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
             enable_diff_snapshots: true,
             resume_vm: false,
         };
 
-        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
-        {
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        assert!(parsed_request
+            .parsing_info()
+            .take_deprecation_message()
+            .is_none());
+        match vmm_action_from_request(parsed_request) {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
+            _ => panic!("Test failed."),
+        }
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "Uffd"
+                },
+                "resume_vm": true
+              }"#;
+
+        expected_cfg = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::Uffd,
+            },
+            enable_diff_snapshots: false,
+            resume_vm: true,
+        };
+
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        assert!(parsed_request
+            .parsing_info()
+            .take_deprecation_message()
+            .is_none());
+        match vmm_action_from_request(parsed_request) {
             VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
@@ -144,16 +262,86 @@ mod tests {
 
         expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_file_path: PathBuf::from("bar"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
             enable_diff_snapshots: false,
             resume_vm: true,
         };
 
-        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
-        {
+        let parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        match depr_action_from_req(parsed_request, Some(LOAD_DEPRECATION_MESSAGE.to_string())) {
             VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_backend": {
+                    "backend_path": "bar"
+                }
+              }"#;
+
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some(&"load")).err().unwrap().to_string(),
+            "An error occurred when deserializing the json body of a request: missing field `backend_type` at line 5 column 17."
+        );
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_backend": {
+                    "backend_type": "File",
+                }
+              }"#;
+
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some(&"load"))
+                .err().unwrap().to_string(),
+            "An error occurred when deserializing the json body of a request: trailing comma at line 5 column 17."
+        );
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_file_path": "bar",
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "Uffd"
+                }
+              }"#;
+
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some(&"load"))
+                .err()
+                .unwrap()
+                .to_string(),
+            Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS.to_string())).to_string()
+        );
+
+        body = r#"{
+                "snapshot_path": "foo"
+              }"#;
+
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some(&"load"))
+                .err()
+                .unwrap()
+                .to_string(),
+            Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD.to_string())).to_string()
+        );
+
+        body = r#"{
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "Uffd"
+                }
+              }"#;
+
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some(&"load"))
+                .err().unwrap().to_string(),
+            "An error occurred when deserializing the json body of a request: missing field `snapshot_path` at line 6 column 15."
+        );
 
         assert!(parse_put_snapshot(&Body::new(body), Some(&"invalid")).is_err());
         assert!(parse_put_snapshot(&Body::new(body), None).is_err());

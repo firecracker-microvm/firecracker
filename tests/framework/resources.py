@@ -454,21 +454,37 @@ class SnapshotLoad():
         self._snapshot_cfg_url = api_url + self.SNAPSHOT_LOAD_URL
         self._api_session = api_session
 
-    def put(self, **args):
+    def put(self, timeout=None, **args):
         """Load a snapshot of the microvm."""
         datax = self.create_json(**args)
         return self._api_session.put(
             "{}".format(self._snapshot_cfg_url),
-            json=datax
+            json=datax,
+            timeout=timeout
         )
 
     @staticmethod
-    def create_json(mem_file_path, snapshot_path, diff=False, resume=False):
+    def create_json(
+            snapshot_path,
+            diff=False,
+            resume=False,
+            mem_backend=None,
+            mem_file_path=None
+    ):
         """Compose the json associated to this type of API request."""
-        datax = {
-            'mem_file_path': mem_file_path,
-            'snapshot_path': snapshot_path,
-        }
+        if mem_file_path:
+            datax = {
+                'mem_file_path': mem_file_path,
+                'snapshot_path': snapshot_path,
+            }
+        else:
+            datax = {
+                'mem_backend': {
+                    'backend_type': str(mem_backend['type'].value),
+                    'backend_path': mem_backend['path']
+                },
+                'snapshot_path': snapshot_path,
+            }
         if diff:
             datax['enable_diff_snapshots'] = True
         if resume:
@@ -494,13 +510,23 @@ class SnapshotHelper():
             version=version
         )
 
-    def load(self, mem_file_path, snapshot_path, diff=False, resume=False):
+    def load(
+            self,
+            snapshot_path,
+            diff=False,
+            resume=False,
+            mem_file_path=None,
+            mem_backend=None,
+            timeout=None
+    ):
         """Load a snapshot of the microvm."""
         response = self._load.put(
-            mem_file_path=mem_file_path,
             snapshot_path=snapshot_path,
             diff=diff,
-            resume=resume
+            resume=resume,
+            mem_file_path=mem_file_path,
+            mem_backend=mem_backend,
+            timeout=timeout
         )
 
         if resume and "unknown field `resume_vm`" in response.text:
@@ -548,9 +574,7 @@ class Metrics:
         )
 
     @staticmethod
-    def create_json(
-            metrics_path=None,
-    ):
+    def create_json(metrics_path=None):
         """Compose the json associated to this type of API request."""
         datax = {}
         if metrics_path is not None:

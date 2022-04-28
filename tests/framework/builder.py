@@ -10,8 +10,8 @@ from pathlib import Path
 from conftest import init_microvm, _test_images_s3_bucket
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.artifacts import (
-    ArtifactCollection, Artifact, DiskArtifact, Snapshot,
-    SnapshotType, NetIfaceConfig
+    ArtifactCollection, Artifact, DiskArtifact, NetIfaceConfig,
+    Snapshot, SnapshotMemBackendType, SnapshotType
 )
 from framework import utils
 import host_tools.logging as log_tools
@@ -170,18 +170,27 @@ class MicrovmBuilder:
     # so we do not need to move it around polluting the code.
     def build_from_snapshot(self,
                             snapshot: Snapshot,
+                            vm=None,
                             resume=False,
                             # Enable incremental snapshot capability.
                             diff_snapshots=False,
                             use_ramdisk=False,
                             fc_binary=None, jailer_binary=None,
-                            daemonize=True):
+                            daemonize=True,
+                            # If None, it means that the guest memory is
+                            # backed by a file.
+                            # If specified, establishes that page-faults
+                            # resulted when loading the guest memory
+                            # are handled by a dedicated UFFD PF handler.
+                            uffd_path=None,
+                            timeout=None):
         """Build a microvm from a snapshot artifact."""
-        vm = init_microvm(self.root_path, self.bin_cloner_path,
-                          fc_binary, jailer_binary,)
-        vm.jailer.daemonize = daemonize
-        vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
-        vm.api_session.untime()
+        if vm is None:
+            vm = init_microvm(self.root_path, self.bin_cloner_path,
+                              fc_binary, jailer_binary,)
+            vm.jailer.daemonize = daemonize
+            vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
+            vm.api_session.untime()
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
         metrics_fifo = log_tools.Fifo(metrics_file_path)
@@ -210,10 +219,31 @@ class MicrovmBuilder:
                                          guest_ip=iface.guest_ip,
                                          netmask_len=iface.netmask,
                                          tapname=iface.tap_name)
-        response = vm.snapshot.load(mem_file_path=jailed_mem,
-                                    snapshot_path=jailed_vmstate,
-                                    diff=diff_snapshots,
-                                    resume=resume)
+
+        full_fc_version = \
+            vm.version.get_from_api().json()['firecracker_version']
+        if utils.compare_dirty_versions(full_fc_version, '1.0.0') > 0:
+            if uffd_path:
+                mem_backend = {
+                    'type': SnapshotMemBackendType.UFFD,
+                    'path': uffd_path
+                }
+            else:
+                mem_backend = {
+                    'type': SnapshotMemBackendType.FILE,
+                    'path': jailed_mem
+                }
+            response = vm.snapshot.load(mem_backend=mem_backend,
+                                        snapshot_path=jailed_vmstate,
+                                        diff=diff_snapshots,
+                                        resume=resume,
+                                        timeout=timeout)
+        else:
+            response = vm.snapshot.load(mem_file_path=jailed_mem,
+                                        snapshot_path=jailed_vmstate,
+                                        diff=diff_snapshots,
+                                        resume=resume,
+                                        timeout=timeout)
         status_ok = vm.api_session.is_status_no_content(response.status_code)
 
         # Verify response status and cleanup if needed before assert.

@@ -16,7 +16,7 @@ import platform
 from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
-
+from retry.api import retry_call
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -76,6 +76,33 @@ class ProcessManager:
             cpu_percentages[thread_name][task_id] = cpu_percent
 
         return cpu_percentages
+
+
+class UffdHandler:
+    """Describe the UFFD page fault handler process."""
+
+    def __init__(self, name, args):
+        """Instantiate the handler process with arguments."""
+        self._proc = None
+        self._args = [f"/{name}"]
+        self._args.extend(args)
+
+    def spawn(self):
+        """Spawn handler process using arguments provided."""
+        self._proc = subprocess.Popen(
+            self._args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1
+        )
+
+    def proc(self):
+        """Return UFFD handler process."""
+        return self._proc
+
+    def __del__(self):
+        """Tear down the UFFD handler process."""
+        self._proc.kill()
 
 
 # pylint: disable=R0903
@@ -611,6 +638,49 @@ def compare_versions(first, second):
     return 0
 
 
+def sanitize_version(version):
+    """
+    Get rid of dirty version information.
+
+    Transform version from format `vX.Y.Z-W` to `X.Y.Z`.
+    """
+    if version[0].isalpha():
+        version = version[1:]
+
+    return version.split("-", 1)[0]
+
+
+def compare_dirty_versions(first, second):
+    """
+    Compare two versions out of which one is dirty.
+
+    We do not allow both versions to be dirty, because dirty info
+    does not reveal any ordering information.
+
+    :param first: first version string
+    :param second: second version string
+    :returns: 0 if equal, <0 if first < second, >0 if second < first
+    """
+    is_first_dirty = "-" in first
+    first = sanitize_version(first)
+
+    is_second_dirty = "-" in second
+    second = sanitize_version(second)
+
+    if is_first_dirty and is_second_dirty:
+        raise ValueError
+
+    diff = compare_versions(first, second)
+    if diff != 0:
+        return diff
+    if is_first_dirty:
+        return 1
+    if is_second_dirty:
+        return -1
+
+    return diff
+
+
 def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
@@ -686,3 +756,46 @@ def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None,
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     return response
+
+
+def start_screen_process(screen_log, session_name, binary_path, binary_params):
+    """Start binary process into a screen session."""
+    start_cmd = 'screen -L -Logfile {logfile} ' \
+                '-dmS {session} {binary} {params}'
+    start_cmd = start_cmd.format(
+        logfile=screen_log,
+        session=session_name,
+        binary=binary_path,
+        params=' '.join(binary_params)
+    )
+
+    run_cmd(start_cmd)
+
+    # Build a regex object to match (number).session_name
+    regex_object = re.compile(
+        r'([0-9]+)\.{}'.format(session_name))
+
+    # Run 'screen -ls' in a retry_call loop, 30 times with a 1s
+    # delay between calls.
+    # If the output of 'screen -ls' matches the regex object, it will
+    # return the PID. Otherwise, a RuntimeError will be raised.
+    screen_pid = retry_call(
+        search_output_from_cmd,
+        fkwargs={
+            "cmd": 'screen -ls',
+            "find_regex": regex_object
+        },
+        exceptions=RuntimeError,
+        tries=30,
+        delay=1).group(1)
+
+    binary_clone_pid = int(open(
+        '/proc/{0}/task/{0}/children'.format(screen_pid),
+        encoding='utf-8'
+    ).read().strip())
+
+    # Configure screen to flush stdout to file.
+    flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
+    run_cmd(flush_cmd.format(session=session_name))
+
+    return screen_pid, binary_clone_pid

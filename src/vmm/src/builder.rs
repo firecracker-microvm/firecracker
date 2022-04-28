@@ -53,6 +53,7 @@ use linux_loader::loader::KernelLoader;
 use logger::{error, warn};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
+use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
@@ -237,6 +238,7 @@ fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
+    uffd: Option<Uffd>,
     track_dirty_pages: bool,
     vcpu_count: u8,
 ) -> std::result::Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
@@ -298,6 +300,7 @@ fn create_vmm_and_vcpus(
         shutdown_exit_code: None,
         vm,
         guest_memory,
+        uffd,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         mmio_device_manager,
@@ -362,6 +365,7 @@ pub fn build_microvm_for_boot(
         instance_info,
         event_manager,
         guest_memory,
+        None,
         track_dirty_pages,
         vcpu_config.vcpu_count,
     )?;
@@ -444,11 +448,13 @@ pub fn build_microvm_for_boot(
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
+#[allow(clippy::too_many_arguments)]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
+    uffd: Option<Uffd>,
     track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
@@ -463,6 +469,7 @@ pub fn build_microvm_from_snapshot(
         instance_info,
         event_manager,
         guest_memory.clone(),
+        uffd,
         track_dirty_pages,
         vcpu_count,
     )?;
@@ -1088,6 +1095,7 @@ pub mod tests {
             shutdown_exit_code: None,
             vm,
             guest_memory,
+            uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             mmio_device_manager,

@@ -16,11 +16,11 @@ import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 
-from conftest import _test_images_s3_bucket
+from conftest import _test_images_s3_bucket, init_microvm
 
 from framework.utils import is_io_uring_supported
-from framework.artifacts import ArtifactCollection, SnapshotType, \
-    NetIfaceConfig, DEFAULT_DEV_NAME, DEFAULT_TAP_NAME
+from framework.artifacts import ArtifactCollection, NetIfaceConfig, \
+    DEFAULT_DEV_NAME, DEFAULT_TAP_NAME, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
 
 MEM_LIMIT = 1000000000
@@ -1467,7 +1467,11 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
                                        ssh_key,
                                        SnapshotType.FULL)
 
-    microvm, _ = microvm_builder.build_from_snapshot(snapshot, True, False)
+    microvm, _ = microvm_builder.build_from_snapshot(
+        snapshot,
+        resume=True,
+        diff_snapshots=False
+    )
 
     expected_cfg = setup_cfg.copy()
 
@@ -1640,3 +1644,110 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
     response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+# pylint: disable=protected-access
+def test_negative_snapshot_load_api(bin_cloner_path):
+    """
+    Test snapshot load API.
+
+    @type: negative
+    """
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm = init_microvm(vm_builder.root_path, vm_builder.bin_cloner_path)
+    vm.spawn()
+
+    # Specifying both `mem_backend` and 'mem_file_path` should fail.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_backend': {
+            'backend_type': 'File',
+            'backend_path': 'bar'
+        },
+        'mem_file_path': 'bar',
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "too many fields: either `mem_backend` or " \
+              "`mem_file_path` exclusively is required."
+    assert err_msg in response.text, response.text
+
+    # API request with `mem_backend` but no `backend_type` should fail.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_backend': {
+            'backend_path': 'bar'
+        }
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "missing field `backend_type`"
+    assert err_msg in response.text, response.text
+
+    # API request with `mem_backend` but no `backend_path` should fail.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_backend': {
+            'backend_type': 'File'
+        }
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "missing field `backend_path`"
+    assert err_msg in response.text, response.text
+
+    # API request with invalid `backend_type` should fail.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_backend': {
+            'backend_type': 'foo',
+            'backend_path': 'foo'
+        }
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "unknown variant `foo`, expected `File` or `Uffd`"
+    assert err_msg in response.text, response.text
+
+    # API request without `snapshot_path` should fail.
+    datax = {
+        'mem_backend': {
+            'backend_type': 'File',
+            'backend_path': 'foo'
+        }
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "missing field `snapshot_path`"
+    assert err_msg in response.text, response.text
+
+    # API request without `mem_backend` or `mem_file_path` should fail.
+    datax = {'snapshot_path': 'foo'}
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    err_msg = "missing field: either `mem_backend` or " \
+              "`mem_file_path` is required"
+    assert err_msg in response.text, response.text
+
+    # Deprecated API should return deprecation response header.
+    datax = {
+        'snapshot_path': 'foo',
+        'mem_file_path': 'bar'
+    }
+    response = vm.snapshot._load._api_session.put(
+        "{}".format(vm.snapshot._load._snapshot_cfg_url),
+        json=datax
+    )
+    assert response.headers['deprecation']
