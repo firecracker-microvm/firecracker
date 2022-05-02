@@ -11,7 +11,7 @@ use std::{
 };
 
 use kvm_bindings::KVM_API_VERSION;
-use kvm_ioctls::Kvm;
+use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -20,6 +20,8 @@ pub enum Error {
     KvmApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
     KvmCap(kvm_ioctls::Cap),
+    /// Cannot initialize the KVM context.
+    KvmInit(KvmIoctlsError),
 }
 
 impl Display for Error {
@@ -33,6 +35,19 @@ impl Display for Error {
                 v
             ),
             KvmCap(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            KvmInit(err) => {
+                if err.errno() == libc::EACCES {
+                    write!(
+                        f,
+                        "Error creating KVM object. [{}]\n\
+                         Make sure the user launching the firecracker process \
+                         is configured on the /dev/kvm file's ACL.",
+                        err
+                    )
+                } else {
+                    write!(f, "Error creating KVM object. [{}]", err)
+                }
+            }
         }
     }
 }
@@ -50,7 +65,7 @@ pub struct KvmContext {
 impl KvmContext {
     pub fn new() -> Result<Self> {
         use kvm_ioctls::Cap::*;
-        let kvm = Kvm::new().expect("Error creating the Kvm object");
+        let kvm = Kvm::new().map_err(Error::KvmInit)?;
 
         // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
