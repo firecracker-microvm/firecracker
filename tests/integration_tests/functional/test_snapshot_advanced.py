@@ -130,62 +130,6 @@ def test_restore_old_version(bin_cloner_path):
     platform.machine() != "x86_64",
     reason="TSC is x86_64 specific."
 )
-def test_restore_no_tsc(bin_cloner_path):
-    """
-    Test scenario: restore a snapshot without TSC in current version.
-
-    @type: functional
-    """
-    logger = logging.getLogger("no_tsc_snapshot")
-    builder = MicrovmBuilder(bin_cloner_path)
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch the v0.24.0 firecracker binary as that one does not have
-    # the TSC frequency in the snapshot file.
-    firecracker_artifacts = artifacts.firecrackers(
-        keyword="v0.24.0"
-    )
-    firecracker = firecracker_artifacts[0]
-    firecracker.download()
-    jailer = firecracker.jailer()
-    jailer.download()
-    diff_snapshots = True
-
-    # Create a snapshot.
-    snapshot = create_snapshot_helper(
-        builder,
-        logger,
-        drives=scratch_drives,
-        ifaces=net_ifaces,
-        fc_binary=firecracker.local_path(),
-        jailer_binary=jailer.local_path(),
-        diff_snapshots=diff_snapshots,
-        balloon=True
-    )
-
-    # Resume microvm using current build of FC/Jailer.
-    # The resume should be successful because the CPU model
-    # in the snapshot state is the same as this host's.
-    microvm, _ = builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        diff_snapshots=False
-    )
-    validate_all_devices(
-        logger,
-        microvm,
-        net_ifaces,
-        scratch_drives,
-        diff_snapshots
-    )
-    logger.debug("========== Firecracker restore snapshot log ==========")
-    logger.debug(microvm.log_data)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="TSC is x86_64 specific."
-)
 def test_save_tsc_old_version(bin_cloner_path):
     """
     Test TSC warning message when saving old snapshot.
