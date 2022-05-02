@@ -165,7 +165,7 @@ def test_valid_handler(bin_cloner_path,
 
     @type: functional
     """
-    logger = logging.getLogger("uffd_unbinded_socket")
+    logger = logging.getLogger("uffd_valid_handler")
 
     logger.info("Create snapshot")
     snapshot = create_snapshot(bin_cloner_path)
@@ -218,7 +218,7 @@ def test_malicious_handler(bin_cloner_path,
 
     @type: negative
     """
-    logger = logging.getLogger("uffd_unbinded_socket")
+    logger = logging.getLogger("uffd_malicious_handler")
 
     logger.info("Create snapshot")
     snapshot = create_snapshot(bin_cloner_path)
