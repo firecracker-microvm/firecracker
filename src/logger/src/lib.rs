@@ -20,8 +20,26 @@ pub use crate::metrics::{
 pub use log::Level::*;
 pub use log::*;
 
-/// Prefix to be used in log lines for functions/modules in Firecracker that are not generally available.
-pub const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
+pub use log::warn;
+
+/// Prefix to be used in log lines for functions/modules in Firecracker
+/// that are not generally available.
+const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
+
+/// Log a standard warning message indicating a given feature name
+/// is in development preview.
+pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
+    match msg_opt {
+        None => warn!(
+            "{} {} is in development preview.",
+            DEV_PREVIEW_LOG_PREFIX, feature_name
+        ),
+        Some(msg) => warn!(
+            "{} {} is in development preview - {}",
+            DEV_PREVIEW_LOG_PREFIX, feature_name, msg
+        ),
+    }
+}
 
 fn extract_guard<G>(lock_result: LockResult<G>) -> G {
     match lock_result {

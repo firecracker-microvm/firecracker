@@ -34,7 +34,7 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::FcExitCode;
 use crate::{builder::StartMicrovmError, EventManager};
-use logger::{error, info, update_metric_with_elapsed_time, warn, DEV_PREVIEW_LOG_PREFIX, METRICS};
+use logger::*;
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
@@ -514,10 +514,7 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
-        warn!(
-            "{} {}",
-            DEV_PREVIEW_LOG_PREFIX, "Restoring snapshots is currently in development preview."
-        );
+        log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
@@ -558,11 +555,15 @@ impl<'a> PrebootApiController<'a> {
             VmmActionError::LoadSnapshot(e)
         });
 
-        let elapsed_time_us =
-            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
-        warn!(
-            "{} 'load snapshot' VMM action took {} us.",
-            DEV_PREVIEW_LOG_PREFIX, elapsed_time_us
+        log_dev_preview_warning(
+            "Virtual machine snapshots",
+            Some(format!(
+                "'load snapshot' VMM action took {} us.",
+                update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_load_snapshot,
+                    load_start_us
+                )
+            )),
         );
 
         result
@@ -716,10 +717,7 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
-        warn!(
-            "{} {}",
-            DEV_PREVIEW_LOG_PREFIX, "Creating snapshots is currently in development preview."
-        );
+        log_dev_preview_warning("Virtual machine snapshots", None);
 
         if create_params.snapshot_type == SnapshotType::Diff
             && !self.vm_resources.track_dirty_pages()
