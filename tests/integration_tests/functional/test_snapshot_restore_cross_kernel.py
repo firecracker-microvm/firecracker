@@ -35,14 +35,14 @@ def _test_balloon(microvm, ssh_connection):
 
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
-    # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+    # Dirty 300MB of pages.
+    make_guest_dirty_memory(ssh_connection, amount=(300 * MB_TO_PAGES))
     # Check memory usage again.
     second_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     assert second_reading > first_reading
 
-    # Inflate the balloon.
-    response = microvm.balloon.patch(amount_mib=40)
+    # Inflate the balloon. Get back 200MB.
+    response = microvm.balloon.patch(amount_mib=200)
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
