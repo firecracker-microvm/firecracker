@@ -68,6 +68,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 
     uffd_handler = UffdHandler(handler_name, args)
     real_root = os.open("/", os.O_RDONLY)
+    working_dir = os.getcwd()
 
     os.chroot(vm.chroot())
     os.chdir('/')
@@ -89,6 +90,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 
     os.fchdir(real_root)
     os.chroot(".")
+    os.chdir(working_dir)
 
     return uffd_handler
 
