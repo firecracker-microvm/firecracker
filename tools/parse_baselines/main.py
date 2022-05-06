@@ -104,7 +104,7 @@ def main():
                             were obtained.",
                         action="store",
                         choices=['m5d.metal',
-                                 'm6g.metal'],
+                                 'm6gd.metal'],
                         required=True)
     args = parser.parse_args()
 
