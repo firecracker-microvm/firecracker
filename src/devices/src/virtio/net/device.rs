@@ -25,13 +25,19 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_MAC,
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
+use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
+use dumbo::pdu::ethernet::PAYLOAD_OFFSET;
+
+const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
+
+use crate::virtio::net::iovec::IoVecBuffer;
 use crate::virtio::net::tap::Tap;
 #[cfg(test)]
 use crate::virtio::net::test_utils::Mocks;
 use crate::virtio::net::{
-    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
+    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
 use crate::virtio::{
     ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
@@ -47,8 +53,15 @@ enum FrontendError {
     ReadOnlyDescriptor,
 }
 
-pub(crate) fn vnet_hdr_len() -> usize {
+pub(crate) const fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
+}
+
+// This returns the maximum frame header length. This includes the VNET header plus
+// the maximum L2 frame header bytes which includes the ethernet frame header plus
+// the header IPv4 ARP header which is 28 bytes long.
+const fn frame_hdr_len() -> usize {
+    vnet_hdr_len() + FRAME_HEADER_MAX_LEN
 }
 
 // Frames being sent/received through the network device model have a VNET header. This
@@ -102,8 +115,7 @@ pub struct Net {
     rx_bytes_read: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
 
-    tx_iovec: Vec<(GuestAddress, usize)>,
-    tx_frame_buf: [u8; MAX_BUFFER_SIZE],
+    tx_frame_headers: [u8; frame_hdr_len()],
 
     pub(crate) irq_trigger: IrqTrigger,
 
@@ -176,8 +188,7 @@ impl Net {
             rx_deferred_frame: false,
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
-            tx_frame_buf: [0u8; MAX_BUFFER_SIZE],
-            tx_iovec: Vec::with_capacity(QUEUE_SIZE as usize),
+            tx_frame_headers: [0u8; frame_hdr_len()],
             irq_trigger: IrqTrigger::new().map_err(Error::EventFd)?,
             config_space,
             guest_mac,
@@ -256,24 +267,31 @@ impl Net {
         Ok(())
     }
 
+    // Helper function to consume one op with `size` bytes from a rate limiter
+    fn rate_limiter_consume_op(rate_limiter: &mut RateLimiter, size: u64) -> bool {
+        if !rate_limiter.consume(1, TokenType::Ops) {
+            return false;
+        }
+
+        if !rate_limiter.consume(size, TokenType::Bytes) {
+            rate_limiter.manual_replenish(1, TokenType::Ops);
+            return false;
+        }
+
+        true
+    }
+
+    // Helper function to replenish one operation with `size` bytes from a rate limiter
+    fn rate_limiter_replenish_op(rate_limiter: &mut RateLimiter, size: u64) {
+        rate_limiter.manual_replenish(1, TokenType::Ops);
+        rate_limiter.manual_replenish(size, TokenType::Bytes);
+    }
+
     // Attempts to copy a single frame into the guest if there is enough
     // rate limiting budget.
     // Returns true on successful frame delivery.
     fn rate_limited_rx_single_frame(&mut self) -> bool {
-        // If limiter.consume() fails it means there is no more TokenType::Ops
-        // budget and rate limiting is in effect.
-        if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
-            METRICS.net.rx_rate_limiter_throttled.inc();
-            return false;
-        }
-        // If limiter.consume() fails it means there is no more TokenType::Bytes
-        // budget and rate limiting is in effect.
-        if !self
-            .rx_rate_limiter
-            .consume(self.rx_bytes_read as u64, TokenType::Bytes)
-        {
-            // revert the OPS consume()
-            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+        if !Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, self.rx_bytes_read as u64) {
             METRICS.net.rx_rate_limiter_throttled.inc();
             return false;
         }
@@ -283,12 +301,10 @@ impl Net {
 
         // Undo the tokens consumption if guest delivery failed.
         if !success {
-            // revert the OPS consume()
-            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
-            // revert the BYTES consume()
-            self.rx_rate_limiter
-                .manual_replenish(self.rx_bytes_read as u64, TokenType::Bytes);
+            // revert the rate limiting budget consumption
+            Self::rate_limiter_replenish_op(&mut self.rx_rate_limiter, self.rx_bytes_read as u64);
         }
+
         success
     }
 
@@ -394,29 +410,40 @@ impl Net {
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
     //
-    // `frame_buf` should contain the frame bytes in a slice of exact length.
     // Returns whether MMDS consumed the frame.
     fn write_to_mmds_or_tap(
         mmds_ns: Option<&mut MmdsNetworkStack>,
         rate_limiter: &mut RateLimiter,
-        frame_buf: &[u8],
+        headers: &mut [u8],
+        frame_iovec: &IoVecBuffer,
         tap: &mut Tap,
         guest_mac: Option<MacAddr>,
     ) -> Result<bool> {
-        let checked_frame = |frame_buf| {
-            frame_bytes_from_buf(frame_buf).map_err(|err| {
-                error!("VNET header missing in the TX frame.");
-                METRICS.net.tx_malformed_frames.inc();
-                err
-            })
-        };
+        // Read the frame headers from the IoVecBuffer. This will return None
+        // if the frame_iovec is empty.
+        let header_len = frame_iovec.read_at(headers, 0).ok_or_else(|| {
+            error!("Received empty TX buffer");
+            METRICS.net.tx_malformed_frames.inc();
+            Error::VnetHeaderMissing
+        })?;
+
+        let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
+            error!("VNET headers missing in TX frame");
+            METRICS.net.tx_malformed_frames.inc();
+            e
+        })?;
+
         if let Some(ns) = mmds_ns {
-            if ns.detour_frame(checked_frame(frame_buf)?) {
+            if ns.is_mmds_frame(headers) {
+                let mut frame = vec![0u8; frame_iovec.len() - vnet_hdr_len()];
+                // Ok to unwrap here, because we are passing a buffer that has the exact size
+                // of the `IoVecBuffer` minus the VNET headers.
+                frame_iovec.read_at(&mut frame, vnet_hdr_len()).unwrap();
+                let _ = ns.detour_frame(&frame);
                 METRICS.mmds.rx_accepted.inc();
 
                 // MMDS frames are not accounted by the rate limiter.
-                rate_limiter.manual_replenish(frame_buf.len() as u64, TokenType::Bytes);
-                rate_limiter.manual_replenish(1, TokenType::Ops);
+                Self::rate_limiter_replenish_op(rate_limiter, frame_iovec.len() as u64);
 
                 // MMDS consumed the frame.
                 return Ok(true);
@@ -426,17 +453,17 @@ impl Net {
         // This frame goes to the TAP.
 
         // Check for guest MAC spoofing.
-        if let Some(mac) = guest_mac {
-            let _ = EthernetFrame::from_bytes(checked_frame(frame_buf)?).map(|eth_frame| {
-                if mac != eth_frame.src_mac() {
+        if let Some(guest_mac) = guest_mac {
+            let _ = EthernetFrame::from_bytes(headers).map(|eth_frame| {
+                if guest_mac != eth_frame.src_mac() {
                     METRICS.net.tx_spoofed_mac_count.inc();
                 }
             });
         }
 
-        match tap.write(frame_buf) {
+        match tap.write_vectored(frame_iovec) {
             Ok(_) => {
-                METRICS.net.tx_bytes_count.add(frame_buf.len());
+                METRICS.net.tx_bytes_count.add(frame_iovec.len());
                 METRICS.net.tx_packets_count.inc();
                 METRICS.net.tx_count.inc();
             }
@@ -534,77 +561,29 @@ impl Net {
         let tx_queue = &mut self.queues[TX_INDEX];
 
         while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
-            // If limiter.consume() fails it means there is no more TokenType::Ops
-            // budget and rate limiting is in effect.
-            if !self.tx_rate_limiter.consume(1, TokenType::Ops) {
-                // Stop processing the queue and return this descriptor chain to the
-                // avail ring, for later processing.
-                tx_queue.undo_pop();
-                METRICS.net.tx_rate_limiter_throttled.inc();
-                break;
-            }
-
             let head_index = head.index;
-            let mut read_count = 0;
-            let mut next_desc = Some(head);
-
-            self.tx_iovec.clear();
-            while let Some(desc) = next_desc {
-                if desc.is_write_only() {
-                    self.tx_iovec.clear();
-                    break;
+            // Parse IoVecBuffer from descriptor head
+            let buffer = match IoVecBuffer::from_descriptor_chain(mem, head) {
+                Ok(buffer) => buffer,
+                Err(_) => {
+                    METRICS.net.tx_fails.inc();
+                    tx_queue
+                        .add_used(mem, head_index, 0)
+                        .map_err(DeviceError::QueueError)?;
+                    continue;
                 }
-                self.tx_iovec.push((desc.addr, desc.len as usize));
-                read_count += desc.len as usize;
-                next_desc = desc.next_descriptor();
-            }
-
-            // If limiter.consume() fails it means there is no more TokenType::Bytes
-            // budget and rate limiting is in effect.
-            if !self
-                .tx_rate_limiter
-                .consume(read_count as u64, TokenType::Bytes)
-            {
-                // revert the OPS consume()
-                self.tx_rate_limiter.manual_replenish(1, TokenType::Ops);
-                // Stop processing the queue and return this descriptor chain to the
-                // avail ring, for later processing.
+            };
+            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, buffer.len() as u64) {
                 tx_queue.undo_pop();
                 METRICS.net.tx_rate_limiter_throttled.inc();
                 break;
-            }
-
-            read_count = 0;
-            // Copy buffer from across multiple descriptors.
-            // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
-            // and get rid of the intermediate buffer.
-            for (desc_addr, desc_len) in self.tx_iovec.drain(..) {
-                let limit = cmp::min(read_count + desc_len, self.tx_frame_buf.len());
-
-                let read_result =
-                    mem.read_slice(&mut self.tx_frame_buf[read_count..limit], desc_addr);
-                match read_result {
-                    Ok(()) => {
-                        read_count += limit - read_count;
-                        METRICS.net.tx_count.inc();
-                    }
-                    Err(err) => {
-                        error!("Failed to read slice: {:?}", err);
-                        match err {
-                            GuestMemoryError::PartialBuffer { .. } => &METRICS.net.tx_partial_reads,
-                            _ => &METRICS.net.tx_fails,
-                        }
-                        .inc();
-                        read_count = 0;
-                        break;
-                    }
-                }
             }
 
             let frame_consumed_by_mmds = Self::write_to_mmds_or_tap(
                 self.mmds_ns.as_mut(),
                 &mut self.tx_rate_limiter,
-                &self.tx_frame_buf[..read_count],
+                &mut self.tx_frame_headers,
+                &buffer,
                 &mut self.tap,
                 self.guest_mac,
             )
@@ -894,10 +873,6 @@ pub mod tests {
     #[test]
     fn test_vnet_helpers() {
         let mut frame_buf = vec![42u8; vnet_hdr_len() - 1];
-        assert_eq!(
-            format!("{:?}", frame_bytes_from_buf(&frame_buf)),
-            "Err(VnetHeaderMissing)"
-        );
         assert_eq!(
             format!("{:?}", frame_bytes_from_buf_mut(&mut frame_buf)),
             "Err(VnetHeaderMissing)"
@@ -1271,23 +1246,17 @@ pub mod tests {
     }
 
     #[test]
-    fn test_tx_partial_read() {
+    fn test_tx_empty_frame() {
         let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
-        // The descriptor chain is created so that the last descriptor doesn't fit in the
-        // guest memory.
-        let offset = th.mem.last_addr().raw_value() + 1 - th.data_addr() - 300;
-        let desc_list = [(0, 100, 0), (1, 50, 0), (2, 4096, 0)];
-        th.add_desc_chain(NetQueue::Tx, offset, &desc_list);
-        let expected_len =
-            (150 + th.mem.last_addr().raw_value() + 1 - th.txq.dtable[2].addr.get()) as usize;
-        th.write_tx_frame(&desc_list, expected_len);
+        // Send an invalid frame (too small, VNET header missing).
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 0, 0)]);
         check_metric_after_block!(
-            METRICS.net.tx_partial_reads,
+            &METRICS.net.tx_malformed_frames,
             1,
-            th.event_manager.run_with_timeout(100).unwrap()
+            th.event_manager.run_with_timeout(100)
         );
 
         // Check that the used queue advanced.
@@ -1320,9 +1289,11 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
         let frame = th.write_tx_frame(&desc_list, 1000);
 
+        // One frame is valid, one will not be handled because it includes write-only memory
+        // so that leaves us with 2 malformed (no vnet header) frames.
         check_metric_after_block!(
             &METRICS.net.tx_malformed_frames,
-            3,
+            2,
             th.event_manager.run_with_timeout(100)
         );
 
@@ -1444,6 +1415,10 @@ pub mod tests {
         let dst_ip = Ipv4Addr::new(169, 254, 169, 254);
 
         let (frame_buf, frame_len) = create_arp_request(src_mac, src_ip, dst_mac, dst_ip);
+        let buffer = IoVecBuffer::from(&frame_buf[..frame_len]);
+
+        let mut headers = vec![0; frame_hdr_len()];
+        buffer.read_at(&mut headers, 0).unwrap();
 
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.
@@ -1453,7 +1428,8 @@ pub mod tests {
             assert!(Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &frame_buf[..frame_len],
+                &mut headers,
+                &buffer,
                 &mut net.tap,
                 Some(src_mac),
             )
@@ -1479,6 +1455,8 @@ pub mod tests {
         let dst_ip = Ipv4Addr::new(10, 1, 1, 1);
 
         let (frame_buf, frame_len) = create_arp_request(guest_mac, guest_ip, dst_mac, dst_ip);
+        let buffer = IoVecBuffer::from(&frame_buf[..frame_len]);
+        let mut headers = vec![0; frame_hdr_len()];
 
         // Check that a legit MAC doesn't affect the spoofed MAC metric.
         check_metric_after_block!(
@@ -1487,7 +1465,8 @@ pub mod tests {
             Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &frame_buf[..frame_len],
+                &mut headers,
+                &buffer,
                 &mut net.tap,
                 Some(guest_mac),
             )
@@ -1500,7 +1479,8 @@ pub mod tests {
             Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &frame_buf[..frame_len],
+                &mut headers,
+                &buffer,
                 &mut net.tap,
                 Some(not_guest_mac),
             )
@@ -1683,10 +1663,10 @@ pub mod tests {
 
             // following TX procedure should succeed because bandwidth should now be available
             {
-                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
+                // tx_count increments 1 from write_to_mmds_or_tap()
                 check_metric_after_block!(
                     &METRICS.net.tx_count,
-                    2,
+                    1,
                     th.simulate_event(NetEvent::TxRateLimiter)
                 );
                 // This should be still blocked. We managed to send the first frame, but
@@ -1700,10 +1680,10 @@ pub mod tests {
 
             // following TX procedure should succeed to handle the second frame as well
             {
-                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
+                // tx_count increments 1 from write_to_mmds_or_tap()
                 check_metric_after_block!(
                     &METRICS.net.tx_count,
-                    2,
+                    1,
                     th.simulate_event(NetEvent::TxRateLimiter)
                 );
                 // validate the rate_limiter is no longer blocked
