@@ -25,6 +25,10 @@
                 "syscall": "write"
             },
             {
+                "syscall": "writev",
+                "comment": "Used by the VirtIO net device to write to tap"
+            },
+            {
                 "syscall": "fsync"
             },
             {

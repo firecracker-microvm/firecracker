@@ -127,30 +127,43 @@ impl MmdsNetworkStack {
         Ipv4Addr::from(DEFAULT_IPV4_ADDR)
     }
 
-    // This is the entry point into the MMDS network stack. The src slice should hold the contents
-    // of an Ethernet frame (of that exact size, without the CRC).
+    /// Check if a frame is destined for `mmds`
+    ///
+    /// This returns `true` if the frame is an ARP or IPv4 frame destined for
+    /// the `mmds` service, or `false` otherwise. It does not consume the frame.
+    pub fn is_mmds_frame(&self, src: &[u8]) -> bool {
+        if let Ok(eth) = EthernetFrame::from_bytes(src) {
+            match eth.ethertype() {
+                ETHERTYPE_ARP => test_speculative_tpa(src, self.ipv4_addr),
+                ETHERTYPE_IPV4 => test_speculative_dst_addr(src, self.ipv4_addr),
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    // TODO: We should probably make this return an Error, or at least rely on
+    // the fact that `is_mmds_frame` has been called before so no error can occur.
+    /// Handles a frame destined for `mmds`
+    ///
+    /// It assumes that the frame is indeed destined for `mmds`, so the caller
+    /// must make a call to `is_mmds_frame` to ensure that.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the frame was consumed by `mmds` or `false` if an error occured
     pub fn detour_frame(&mut self, src: &[u8]) -> bool {
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {
-                ETHERTYPE_ARP => {
-                    if !test_speculative_tpa(src, self.ipv4_addr) {
-                        return false;
-                    }
-                    return self.detour_arp(eth);
-                }
-                ETHERTYPE_IPV4 => {
-                    if !test_speculative_dst_addr(src, self.ipv4_addr) {
-                        return false;
-                    }
-                    return self.detour_ipv4(eth);
-                }
-                _ => (),
-            };
+                ETHERTYPE_ARP => self.detour_arp(eth),
+                ETHERTYPE_IPV4 => self.detour_ipv4(eth),
+                _ => false,
+            }
         } else {
             METRICS.mmds.rx_bad_eth.inc();
+            false
         }
-
-        false
     }
 
     fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
