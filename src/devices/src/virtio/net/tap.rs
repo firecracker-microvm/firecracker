@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::{Error as IoError, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, IoSlice, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
@@ -182,6 +182,10 @@ impl Read for Tap {
 impl Write for Tap {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         self.tap_file.write(buf)
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<usize> {
+        self.tap_file.write_vectored(bufs)
     }
 
     fn flush(&mut self) -> IoResult<()> {
