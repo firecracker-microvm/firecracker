@@ -17,7 +17,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 
 from conftest import _test_images_s3_bucket, init_microvm
-
+from framework import utils as test_utils
 from framework.utils import is_io_uring_supported
 from framework.artifacts import ArtifactCollection, NetIfaceConfig, \
     DEFAULT_DEV_NAME, DEFAULT_TAP_NAME, SnapshotType
@@ -1184,10 +1184,19 @@ def test_api_version(test_microvm_with_api):
     assert 'firecracker_version' in postboot_response.json()
     # Validate VM version post-boot is the same as pre-boot.
     assert preboot_response.json() == postboot_response.json()
+
+    test_utils.configure_git_safe_directory()
     # Check that the version is the same as `git describe --dirty`.
-    out = subprocess.check_output(['git', 'describe', '--dirty']).decode()
-    # Skip the "v" at the start and the newline at the end.
-    assert out.strip()[1:] == preboot_response.json()['firecracker_version']
+    # Abbreviated to post-tag commit metadata
+    out = subprocess.check_output(['git', 'describe', '--dirty', '--abbrev=0']).decode()
+
+    # Skip the "v" at the start
+    # Strip the metadata appended to the tag
+    tagVersion = out[1:out.index('-')]
+
+    # Git tag should match API version
+    assert tagVersion == preboot_response.json()['firecracker_version'],\
+        "Expected [{}], Actual [{}]".format(preboot_response.json()['firecracker_version'], tagVersion)
 
 
 def test_api_vsock(bin_cloner_path):

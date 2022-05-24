@@ -13,7 +13,7 @@ IPERF_BINARY = 'iperf3'
 IPERF_TRANSMIT_TIME = 4
 
 # Use a fixed-size TCP window so we get constant flow
-IPERF_TCP_WINDOW = '1000K'
+IPERF_TCP_WINDOW = '256K'
 
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
@@ -539,7 +539,11 @@ def _start_local_iperf(netns_cmd_prefix):
 
 def _run_local_iperf(iperf_cmd):
     """Execute a client related iperf command locally."""
-    process = utils.run_cmd(iperf_cmd)
+    try:
+        process = utils.run_cmd(iperf_cmd)
+    except ChildProcessError as error:
+        assert False, "Failed to launch local iperf process: {}".format(error)
+
     return process.stdout
 
 
