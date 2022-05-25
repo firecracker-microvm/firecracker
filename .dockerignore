@@ -1,0 +1,5 @@
+.git/
+build/
+src/
+tests/
+docs/
