@@ -11,6 +11,9 @@ versions and other kernel configs might work, they are not periodically
 validated in our test suite, and using them might result in unexpected behaviour.
 Once enabled, a kernel version is supported for a **minimum of 2 years**.
 
+
+
+
 We are validating the currently supported Firecracker releases as per
 [Firecracker’s release policy](../docs/RELEASE_POLICY.md).
 Starting with release `v1.0` each major and minor release will specify
