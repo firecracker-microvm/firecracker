@@ -5,6 +5,7 @@
 import filecmp
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -186,6 +187,90 @@ def _test_compare_mem_files(context):
     assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
 
     basevm.kill()
+
+
+def _test_overwrite_diff_snapshot(context):
+    logger = context.custom['logger']
+    vm_builder = context.custom['builder']
+
+    # Create a rw copy artifact.
+    root_disk = context.disk.copy()
+    # Get ssh key from read-only artifact.
+    ssh_key = context.disk.ssh_key()
+    # Create a fresh microvm from artifacts.
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=True)
+    microvm = vm_instance.vm
+    microvm.start()
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+    # Verify if guest can run commands.
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0
+
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(microvm)
+
+    logger.info("Create full snapshot.")
+    # Create full snapshot.
+    full_snapshot = snapshot_builder.create([root_disk.local_path()],
+                                            ssh_key,
+                                            SnapshotType.DIFF,
+                                            mem_file_name="vm.mem",
+                                            snapshot_name="vm.vmstate")
+
+    microvm.kill()
+
+    logger.info("Load VM from snapshot.")
+
+    logger.info("Load snapshot, mem %s", full_snapshot.mem)
+    microvm, _ = vm_builder.build_from_snapshot(
+        full_snapshot,
+        resume=True,
+        diff_snapshots=True
+    )
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+    # Verify that guest is able to run commands.
+    exit_code, _, _ = ssh_connection.execute_command("cat /proc/cpuinfo")
+    assert exit_code == 0
+
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(microvm)
+
+    # Copy over the existing snapshot to the snapshot save location,
+    # this snapshot will be overwritten.
+    snapshot_dir = snapshot_builder.create_snapshot_dir()
+    shutil.copyfile(full_snapshot.mem, os.path.join(snapshot_dir, "vm.mem"))
+    os.chown(os.path.join(snapshot_dir, "vm.mem"),
+             microvm.jailer.uid, microvm.jailer.gid)
+
+    logger.info("Create diff snapshot.")
+    # Create diff snapshot _on top_ of full snapshot.
+    new_snapshot = snapshot_builder.create([root_disk.local_path()],
+                                           ssh_key,
+                                           SnapshotType.DIFF,
+                                           mem_file_name="vm.mem",
+                                           snapshot_name="vm.vmstate")
+    microvm.kill()
+
+    logger.info("Load VM from combined snapshot.")
+    # Verify that we can load from new snapshot
+    logger.info("Load snapshot, mem %s", new_snapshot.mem)
+    microvm, _ = vm_builder.build_from_snapshot(
+        new_snapshot,
+        resume=True,
+        diff_snapshots=True
+    )
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+    # Run command to verify it loaded
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0
+
+    microvm.kill()
 
 
 def test_patch_drive_snapshot(bin_cloner_path):
@@ -414,6 +499,43 @@ def test_cmp_full_and_first_diff_mem(network_config,
                              ])
 
     test_matrix.run_test(_test_compare_mem_files)
+
+
+def test_overwrite_diff_snapshot(network_config,
+                                 bin_cloner_path):
+    """
+    Can write a diff snapshot on top of a full snapshot.
+
+    @type: functional
+    """
+    logger = logging.getLogger("snapshot_diff_overwrite")
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Testing matrix:
+    # - Guest kernel: All supported ones
+    # - Rootfs: Ubuntu 18.04
+    # - Microvm: 2vCPU with 512 MB RAM
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    # Create a test context and add builder, logger, network.
+    test_context = TestContext()
+    test_context.custom = {
+        'builder': MicrovmBuilder(bin_cloner_path),
+        'network_config': network_config,
+        'logger': logger
+    }
+
+    # Create the test matrix.
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 microvm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
+
+    test_matrix.run_test(_test_overwrite_diff_snapshot)
 
 
 def test_negative_postload_api(bin_cloner_path):

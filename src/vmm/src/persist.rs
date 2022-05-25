@@ -328,14 +328,20 @@ fn snapshot_memory_to_file(
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(true)
         .open(mem_file_path)
         .map_err(|e| MemoryBackingFile("open", e))?;
 
-    // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    file.set_len((mem_size_mib * 1024 * 1024) as u64)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
+    let expected_size = (mem_size_mib * 1024 * 1024) as u64;
+    let file_size = file
+        .metadata()
+        .map_err(|e| MemoryBackingFile("get_metadata", e))?
+        .len();
+    if file_size != expected_size {
+        // Set the length of the file to the full size of the memory area.
+        file.set_len(expected_size)
+            .map_err(|e| MemoryBackingFile("set_length", e))?;
+    }
 
     match snapshot_type {
         SnapshotType::Diff => {
