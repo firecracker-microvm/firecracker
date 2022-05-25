@@ -107,20 +107,16 @@ pub struct MMIODeviceManager {
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
-    pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
+    pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> Result<MMIODeviceManager> {
         #[cfg(target_arch = "x86_64")]
         let size = arch::x86_64::MEM_32BIT_GAP_SIZE;
         #[cfg(target_arch = "aarch64")]
         let size = arch::aarch64::layout::DRAM_MEM_START - arch::aarch64::layout::MAPPED_IO_START; //>> 1GB
         Ok(MMIODeviceManager {
-            // All instances of `MMIODeviceManager::new()` use constants such
-            // that `IdAllocator::new()` will always return `Ok()` and thus
-            // `unwrap` will never panic.
-            irq_allocator: IdAllocator::new(irq_interval.0, irq_interval.1).unwrap(),
-            // All instances of `MMIODeviceManager::new()` use constants such
-            // that `AddressAllocator::new()` will always return `Ok()` and thus
-            // `unwrap` will never panic.
-            address_allocator: AddressAllocator::new(mmio_base, size).unwrap(),
+            irq_allocator: IdAllocator::new(irq_interval.0, irq_interval.1)
+                .map_err(Error::AllocatorError)?,
+            address_allocator: AddressAllocator::new(mmio_base, size)
+                .map_err(Error::AllocatorError)?,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         })
@@ -579,7 +575,7 @@ mod tests {
         .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX)).unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
@@ -604,7 +600,7 @@ mod tests {
         .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX)).unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         #[cfg(target_arch = "x86_64")]
@@ -700,7 +696,7 @@ mod tests {
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
 
         let mut device_manager =
-            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX)).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
@@ -750,7 +746,7 @@ mod tests {
     #[test]
     fn test_slot_irq_allocation() {
         let mut device_manager =
-            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX)).unwrap();
         let slot = device_manager.allocate_new_slot(0).unwrap();
         assert_eq!(slot.irqs.len(), 0);
         let slot = device_manager.allocate_new_slot(1).unwrap();
