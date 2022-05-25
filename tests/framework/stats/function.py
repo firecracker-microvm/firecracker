@@ -135,8 +135,7 @@ class Stddev(Function):
         """Get the stddev."""
         assert isinstance(result, list)
         assert len(result) > 0
-        # pylint: disable=R0123
-        if len(result) is 1:
+        if len(result) == 1:
             return 0
         return stdev(result)
 
@@ -155,9 +154,8 @@ class Percentile(Function, ABC):
 
     def __call__(self, result: List) -> Any:
         """Get the kth percentile of the statistical exercise."""
-        # pylint: disable=R0123
         assert isinstance(result, list)
-        if len(result) is 1:
+        if len(result) == 1:
             return result[0]
 
         length = len(result)
