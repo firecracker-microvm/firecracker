@@ -10,7 +10,6 @@ use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
-use vm_allocator::IdAllocator;
 #[cfg(target_arch = "x86_64")]
 use vm_memory::GuestAddress;
 
@@ -31,6 +30,7 @@ use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -83,7 +83,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
 /// Currently hardcoded to 4K.
-const MMIO_LEN: u64 = 0x1000;
+pub const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
 #[derive(Clone, Debug, PartialEq, Versionize)]
@@ -100,25 +100,30 @@ pub struct MMIODeviceInfo {
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
-    mmio_base: u64,
-    next_avail_mmio: u64,
     pub(crate) irq_allocator: IdAllocator,
+    pub(crate) address_allocator: AddressAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
-        MMIODeviceManager {
-            mmio_base,
-            next_avail_mmio: mmio_base,
+        #[cfg(target_arch = "x86_64")]
+        let size = arch::x86_64::MEM_32BIT_GAP_SIZE;
+        #[cfg(target_arch = "aarch64")]
+        let size = arch::aarch64::layout::DRAM_MEM_START - arch::aarch64::layout::MAPPED_IO_START; //>> 1GB
+        Ok(MMIODeviceManager {
             // All instances of `MMIODeviceManager::new()` use constants such
             // that `IdAllocator::new()` will always return `Ok()` and thus
             // `unwrap` will never panic.
             irq_allocator: IdAllocator::new(irq_interval.0, irq_interval.1).unwrap(),
+            // All instances of `MMIODeviceManager::new()` use constants such
+            // that `AddressAllocator::new()` will always return `Ok()` and thus
+            // `unwrap` will never panic.
+            address_allocator: AddressAllocator::new(mmio_base, size).unwrap(),
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
-        }
+        })
     }
 
     /// Allocates resources for a new device to be added.
@@ -128,7 +133,11 @@ impl MMIODeviceManager {
             .collect::<vm_allocator::Result<_>>()
             .map_err(Error::AllocatorError)?;
         let slot = MMIODeviceInfo {
-            addr: self.next_avail_mmio,
+            addr: self
+                .address_allocator
+                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+                .map_err(Error::AllocatorError)?
+                .start(),
             len: MMIO_LEN,
             irqs,
         };
@@ -220,7 +229,13 @@ impl MMIODeviceManager {
         serial: Arc<Mutex<SerialDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
-        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path.
+        let slot = if let Some(dev_info) = dev_info_opt {
+            dev_info
+        } else {
+            self.allocate_new_slot(1)?
+        };
 
         vm.register_irqfd(
             &serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
@@ -229,6 +244,7 @@ impl MMIODeviceManager {
         .map_err(Error::RegisterIrqFd)?;
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        // Register the newly created Serial object.
         self.register_mmio_device(identifier, slot, serial)
     }
 
@@ -245,17 +261,24 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Create and register a MMIO RTC device at the specified MMIO address if given as parameter,
-    /// otherwise allocate a new MMIO slot for it.
+    /// Create and register a MMIO RTC device at the specified MMIO address if
+    /// given as parameter, otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
         rtc: Arc<Mutex<RTCDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
-        // Create and attach a new RTC device.
-        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(0)?);
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path.
+        let slot = if let Some(dev_info) = dev_info_opt {
+            dev_info
+        } else {
+            self.allocate_new_slot(0)?
+        };
 
+        // Create a new identifier for the RTC device.
         let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
+        // Attach the newly created RTC device.
         self.register_mmio_device(identifier, slot, rtc)
     }
 

@@ -5,6 +5,7 @@
 
 use std::result::Result;
 use std::sync::{Arc, Mutex};
+use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
 use crate::EventManager;
@@ -341,11 +342,28 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     .map_err(Error::Legacy)?;
 
                     dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+
+                    dev_manager
                         .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
+                    dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
                     dev_manager
                         .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
@@ -366,6 +384,22 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             };
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+
+            // We do not currently require exact re-allocation of IDs via
+            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do 
+            // this effectively as `IdAllocator` does not implement an exact 
+            // match API.
+            // In the future we may require preserving `IdAllocator`'s state 
+            // after snapshot restore so as to restore the exact interrupt IDs 
+            // from the original device's state for implementing hot-plug.
+            // For now this is why we do not restore the state of the
+            // `IdAllocator` under `dev_manager`.
+
+            dev_manager
+                .address_allocator
+                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
+                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+
             dev_manager
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
