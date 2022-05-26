@@ -12,7 +12,7 @@ pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.vsock_count.inc();
     let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|e| {
         METRICS.put_api_requests.vsock_fails.inc();
-        Error::SerdeJson(e)
+        e
     })?;
 
     // Check for the presence of deprecated `vsock_id` field.

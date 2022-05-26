@@ -64,7 +64,7 @@ where
 }
 
 /// Errors associated with dumping guest memory to file.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Cannot access file.
     FileHandle(std::io::Error),
@@ -124,7 +124,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         dirty_bitmap: &DirtyBitmap,
     ) -> std::result::Result<(), Error> {
         let mut writer_offset = 0;
-        let page_size = get_page_size().map_err(Error::PageSize)?;
+        let page_size = get_page_size()?;
 
         self.iter()
             .enumerate()
@@ -188,10 +188,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         let mut regions = vec![];
         for region in state.regions.iter() {
             let f = match file {
-                Some(f) => Some(FileOffset::new(
-                    f.try_clone().map_err(Error::FileHandle)?,
-                    region.offset,
-                )),
+                Some(f) => Some(FileOffset::new(f.try_clone()?, region.offset)),
                 None => None,
             };
 

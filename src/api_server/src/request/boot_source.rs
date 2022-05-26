@@ -13,7 +13,7 @@ pub(crate) fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error>
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureBootSource(
         serde_json::from_slice::<BootSourceConfig>(body.raw()).map_err(|e| {
             METRICS.put_api_requests.boot_source_fails.inc();
-            Error::SerdeJson(e)
+            e
         })?,
     )))
 }

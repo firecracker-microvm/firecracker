@@ -36,7 +36,7 @@ use crate::vmm_config::mmds::MmdsConfigError;
 use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     Balloon(BalloonError),
     Block(BlockError),
@@ -342,8 +342,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         constructor_args.event_manager,
                         Box::new(crate::builder::SerialStdin::get()),
                         Box::new(std::io::stdout()),
-                    )
-                    .map_err(Error::Legacy)?;
+                    )?;
 
                     dev_manager
                         .address_allocator
@@ -354,9 +353,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
-                    dev_manager
-                        .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
-                        .map_err(Error::DeviceManager)?;
+                    dev_manager.register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
@@ -368,9 +365,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             AllocPolicy::ExactMatch(state.mmio_slot.addr),
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
-                    dev_manager
-                        .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))
-                        .map_err(Error::DeviceManager)?;
+                    dev_manager.register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))?;
                 }
             }
         }
@@ -404,22 +399,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
                 .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
-            dev_manager
-                .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
-                .map_err(Error::DeviceManager)?;
+            dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, slot)?;
 
             event_manager.add_subscriber(as_subscriber);
             Ok(())
         };
 
         if let Some(balloon_state) = &state.balloon_device {
-            let device = Arc::new(Mutex::new(
-                Balloon::restore(
-                    BalloonConstructorArgs { mem: mem.clone() },
-                    &balloon_state.device_state,
-                )
-                .map_err(Error::Balloon)?,
-            ));
+            let device = Arc::new(Mutex::new(Balloon::restore(
+                BalloonConstructorArgs { mem: mem.clone() },
+                &balloon_state.device_state,
+            )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
@@ -437,13 +427,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(
-                Block::restore(
-                    BlockConstructorArgs { mem: mem.clone() },
-                    &block_state.device_state,
-                )
-                .map_err(Error::Block)?,
-            ));
+            let device = Arc::new(Mutex::new(Block::restore(
+                BlockConstructorArgs { mem: mem.clone() },
+                &block_state.device_state,
+            )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
@@ -464,8 +451,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         if let Some(mmds_version) = &state.mmds_version {
             constructor_args
                 .vm_resources
-                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)
-                .map_err(Error::MmdsConfig)?;
+                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)?;
         } else if state
             .net_devices
             .iter()
@@ -478,21 +464,18 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         for net_state in &state.net_devices {
-            let device = Arc::new(Mutex::new(
-                Net::restore(
-                    NetConstructorArgs {
-                        mem: mem.clone(),
-                        mmds: constructor_args
-                            .vm_resources
-                            .mmds
-                            .as_ref()
-                            // Clone the Arc reference.
-                            .cloned(),
-                    },
-                    &net_state.device_state,
-                )
-                .map_err(Error::Net)?,
-            ));
+            let device = Arc::new(Mutex::new(Net::restore(
+                NetConstructorArgs {
+                    mem: mem.clone(),
+                    mmds: constructor_args
+                        .vm_resources
+                        .mmds
+                        .as_ref()
+                        // Clone the Arc reference.
+                        .cloned(),
+                },
+                &net_state.device_state,
+            )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
@@ -513,18 +496,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let ctor_args = VsockUdsConstructorArgs {
                 cid: vsock_state.device_state.frontend.cid,
             };
-            let backend = VsockUnixBackend::restore(ctor_args, &vsock_state.device_state.backend)
-                .map_err(Error::VsockUnixBackend)?;
-            let device = Arc::new(Mutex::new(
-                Vsock::restore(
-                    VsockConstructorArgs {
-                        mem: mem.clone(),
-                        backend,
-                    },
-                    &vsock_state.device_state.frontend,
-                )
-                .map_err(Error::Vsock)?,
-            ));
+            let backend = VsockUnixBackend::restore(ctor_args, &vsock_state.device_state.backend)?;
+            let device = Arc::new(Mutex::new(Vsock::restore(
+                VsockConstructorArgs {
+                    mem: mem.clone(),
+                    backend,
+                },
+                &vsock_state.device_state.frontend,
+            )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,

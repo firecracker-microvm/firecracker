@@ -5,7 +5,6 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 pub use devices::virtio::balloon::device::BalloonStats;
-use devices::virtio::balloon::Error as BalloonError;
 pub use devices::virtio::BALLOON_DEV_ID;
 use devices::virtio::{Balloon, BalloonConfig};
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ use serde::{Deserialize, Serialize};
 type MutexBalloon = Arc<Mutex<Balloon>>;
 
 /// Errors associated with the operations allowed on the balloon.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum BalloonConfigError {
     /// The user made a request on an inexistent balloon device.
     DeviceNotFound,
@@ -50,20 +49,6 @@ impl fmt::Display for BalloonConfigError {
                 "Error updating the balloon device configuration: {:?}",
                 e
             ),
-        }
-    }
-}
-
-impl From<BalloonError> for BalloonConfigError {
-    fn from(error: BalloonError) -> Self {
-        match error {
-            BalloonError::DeviceNotFound => Self::DeviceNotFound,
-            BalloonError::DeviceNotActive => Self::DeviceNotActive,
-            BalloonError::InterruptError(io_error) => Self::UpdateFailure(io_error),
-            BalloonError::StatisticsStateChange => Self::InvalidStatsUpdate,
-            BalloonError::StatisticsDisabled => Self::StatsNotFound,
-            BalloonError::TooManyPagesRequested => Self::TooManyPagesRequested,
-            e => Self::CreateFailure(e),
         }
     }
 }
@@ -135,17 +120,14 @@ impl BalloonBuilder {
     /// Inserts a Balloon device in the store.
     /// If an entry already exists, it will overwrite it.
     pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<()> {
-        self.inner = Some(Arc::new(Mutex::new(
-            Balloon::new(
-                cfg.amount_mib,
-                cfg.deflate_on_oom,
-                cfg.stats_polling_interval_s,
-                // `restored` flag is false because this code path
-                // is never called by snapshot restore functionality.
-                false,
-            )
-            .map_err(BalloonConfigError::CreateFailure)?,
-        )));
+        self.inner = Some(Arc::new(Mutex::new(Balloon::new(
+            cfg.amount_mib,
+            cfg.deflate_on_oom,
+            cfg.stats_polling_interval_s,
+            // `restored` flag is false because this code path
+            // is never called by snapshot restore functionality.
+            false,
+        )?)));
 
         Ok(())
     }

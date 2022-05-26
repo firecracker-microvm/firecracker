@@ -30,7 +30,7 @@ impl VmSpec {
     /// Creates a new instance of VmSpec with the specified parameters
     /// The brand string is deduced from the vendor_id
     pub fn new(cpu_index: u8, cpu_count: u8, smt: bool) -> Result<VmSpec, Error> {
-        let cpu_vendor_id = get_vendor_id_from_host().map_err(Error::InternalError)?;
+        let cpu_vendor_id = get_vendor_id_from_host()?;
 
         Ok(VmSpec {
             cpu_vendor_id,
@@ -53,7 +53,7 @@ impl VmSpec {
 }
 
 /// Errors associated with processing the CPUID leaves.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From)]
 pub enum Error {
     /// A FamStructWrapper operation has failed
     FamError(utils::fam::Error),

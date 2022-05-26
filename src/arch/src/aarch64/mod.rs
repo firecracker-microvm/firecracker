@@ -21,7 +21,7 @@ use self::gic::GICDevice;
 use crate::DeviceType;
 
 /// Errors thrown while configuring aarch64 system.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM.
     SetupFDT(fdt::Error),
@@ -67,8 +67,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
         device_info,
         gic_device,
         initrd,
-    )
-    .map_err(Error::SetupFDT)?;
+    )?;
     Ok(())
 }
 

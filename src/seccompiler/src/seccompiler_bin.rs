@@ -55,7 +55,7 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 enum Error {
     Bincode(BincodeError),
     FileOpen(PathBuf, io::Error),
@@ -131,11 +131,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     if arch_string.is_none() {
         return Err(Error::MissingTargetArch);
     }
-    let target_arch: TargetArch = arch_string
-        .unwrap()
-        .as_str()
-        .try_into()
-        .map_err(Error::Arch)?;
+    let target_arch: TargetArch = arch_string.unwrap().as_str().try_into()?;
 
     let input_file = arguments.single_value("input-file");
     if input_file.is_none() {
@@ -171,9 +167,7 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: HashMap<String, BpfProgram> = compiler
-        .compile_blob(filters.0, args.is_basic)
-        .map_err(Error::FileFormat)?;
+    let bpf_data: HashMap<String, BpfProgram> = compiler.compile_blob(filters.0, args.is_basic)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)

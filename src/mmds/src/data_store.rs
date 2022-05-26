@@ -46,7 +46,7 @@ pub enum OutputFormat {
     Imds,
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     DataStoreLimitExceeded,
     NotFound,
@@ -107,8 +107,7 @@ impl Mmds {
             }
             MmdsVersion::V2 => {
                 if self.token_authority.is_none() {
-                    self.token_authority =
-                        Some(TokenAuthority::new().map_err(Error::TokenAuthority)?);
+                    self.token_authority = Some(TokenAuthority::new()?);
                 }
                 Ok(())
             }

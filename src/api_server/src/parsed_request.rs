@@ -255,7 +255,7 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub(crate) enum Error {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),

@@ -27,7 +27,7 @@ use crate::InitrdConfig;
 const E820_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, derive_more::From)]
 pub enum Error {
     /// Invalid e820 setup params.
     E820Configuration,
@@ -114,7 +114,7 @@ pub fn configure_system(
     let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
+    mptable::setup_mptable(guest_mem, num_cpus)?;
 
     let mut params = boot_params::default();
 

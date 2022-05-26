@@ -13,7 +13,7 @@ pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureMetrics(
         serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|e| {
             METRICS.put_api_requests.metrics_fails.inc();
-            Error::SerdeJson(e)
+            e
         })?,
     )))
 }

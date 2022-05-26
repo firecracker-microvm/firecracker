@@ -17,7 +17,7 @@ use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
 /// Errors corresponding to the `PortIODeviceManager`.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Cannot add legacy device to Bus.
     BusError(devices::BusError),
@@ -41,7 +41,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 fn create_serial(com_event: EventFdTrigger) -> Result<Arc<Mutex<SerialDevice>>> {
     let serial_device = Arc::new(Mutex::new(SerialDevice {
         serial: Serial::with_events(
-            com_event.try_clone().map_err(Error::EventFd)?,
+            com_event.try_clone()?,
             SerialEventsWrapper {
                 metrics: METRICS.uart.clone(),
                 buffer_ready_event_fd: None,
@@ -101,14 +101,13 @@ impl PortIODeviceManager {
             .expect("Poisoned lock")
             .serial
             .interrupt_evt()
-            .try_clone()
-            .map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
-        let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+            .try_clone()?;
+        let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+        let kbd_evt = EventFd::new(libc::EFD_NONBLOCK)?;
 
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
             i8042_reset_evfd,
-            kbd_evt.try_clone().map_err(Error::EventFd)?,
+            kbd_evt.try_clone()?,
         )));
 
         Ok(PortIODeviceManager {
@@ -123,43 +122,33 @@ impl PortIODeviceManager {
 
     /// Register supported legacy devices.
     pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<()> {
-        let serial_2_4 = create_serial(self.com_evt_2_4.try_clone().map_err(Error::EventFd)?)?;
-        let serial_1_3 = create_serial(self.com_evt_1_3.try_clone().map_err(Error::EventFd)?)?;
-        self.io_bus
-            .insert(
-                self.stdio_serial.clone(),
-                Self::SERIAL_PORT_ADDRESSES[0],
-                Self::SERIAL_PORT_SIZE,
-            )
-            .map_err(Error::BusError)?;
-        self.io_bus
-            .insert(
-                serial_2_4.clone(),
-                Self::SERIAL_PORT_ADDRESSES[1],
-                Self::SERIAL_PORT_SIZE,
-            )
-            .map_err(Error::BusError)?;
-        self.io_bus
-            .insert(
-                serial_1_3.clone(),
-                Self::SERIAL_PORT_ADDRESSES[2],
-                Self::SERIAL_PORT_SIZE,
-            )
-            .map_err(Error::BusError)?;
-        self.io_bus
-            .insert(
-                serial_2_4,
-                Self::SERIAL_PORT_ADDRESSES[3],
-                Self::SERIAL_PORT_SIZE,
-            )
-            .map_err(Error::BusError)?;
-        self.io_bus
-            .insert(
-                self.i8042.clone(),
-                Self::I8042_KDB_DATA_REGISTER_ADDRESS,
-                Self::I8042_KDB_DATA_REGISTER_SIZE,
-            )
-            .map_err(Error::BusError)?;
+        let serial_2_4 = create_serial(self.com_evt_2_4.try_clone()?)?;
+        let serial_1_3 = create_serial(self.com_evt_1_3.try_clone()?)?;
+        self.io_bus.insert(
+            self.stdio_serial.clone(),
+            Self::SERIAL_PORT_ADDRESSES[0],
+            Self::SERIAL_PORT_SIZE,
+        )?;
+        self.io_bus.insert(
+            serial_2_4.clone(),
+            Self::SERIAL_PORT_ADDRESSES[1],
+            Self::SERIAL_PORT_SIZE,
+        )?;
+        self.io_bus.insert(
+            serial_1_3.clone(),
+            Self::SERIAL_PORT_ADDRESSES[2],
+            Self::SERIAL_PORT_SIZE,
+        )?;
+        self.io_bus.insert(
+            serial_2_4,
+            Self::SERIAL_PORT_ADDRESSES[3],
+            Self::SERIAL_PORT_SIZE,
+        )?;
+        self.io_bus.insert(
+            self.i8042.clone(),
+            Self::I8042_KDB_DATA_REGISTER_ADDRESS,
+            Self::I8042_KDB_DATA_REGISTER_SIZE,
+        )?;
 
         vm_fd
             .register_irqfd(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)

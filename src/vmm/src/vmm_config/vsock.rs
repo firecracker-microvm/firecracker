@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum VsockConfigError {
     /// Failed to create the backend for the vsock device.
     CreateVsockBackend(VsockUnixBackendError),
@@ -94,9 +94,7 @@ impl VsockBuilder {
     pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<()> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
-            std::fs::remove_file(existing.uds_path)
-                .map_err(VsockUnixBackendError::UnixBind)
-                .map_err(VsockConfigError::CreateVsockBackend)?;
+            std::fs::remove_file(existing.uds_path).map_err(VsockUnixBackendError::UnixBind)?;
         }
         self.inner = Some(VsockAndUnixPath {
             uds_path: cfg.uds_path.clone(),
@@ -112,8 +110,7 @@ impl VsockBuilder {
 
     /// Creates a Vsock device from a VsockDeviceConfig.
     pub fn create_unixsock_vsock(cfg: VsockDeviceConfig) -> Result<Vsock<VsockUnixBackend>> {
-        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)
-            .map_err(VsockConfigError::CreateVsockBackend)?;
+        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
     }

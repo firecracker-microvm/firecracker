@@ -26,7 +26,7 @@ use crate::vstate::vcpu::VcpuConfig;
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Balloon device configuration error.
     BalloonDevice(BalloonConfigError),
@@ -127,15 +127,14 @@ impl VmResources {
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> std::result::Result<Self, Error> {
-        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
-            .map_err(Error::InvalidJson)?;
+        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, instance_info).map_err(Error::Logger)?;
+            init_logger(logger, instance_info)?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
-            init_metrics(metrics).map_err(Error::Metrics)?;
+            init_metrics(metrics)?;
         }
 
         let mut resources: Self = Self {
@@ -144,55 +143,37 @@ impl VmResources {
         };
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = VmUpdateConfig::from(machine_config);
-            resources
-                .update_vm_config(&machine_config)
-                .map_err(Error::VmConfig)?;
+            resources.update_vm_config(&machine_config)?;
         }
 
-        resources
-            .set_boot_source(vmm_config.boot_source)
-            .map_err(Error::BootSource)?;
+        resources.set_boot_source(vmm_config.boot_source)?;
 
         for drive_config in vmm_config.block_devices.into_iter() {
-            resources
-                .set_block_device(drive_config)
-                .map_err(Error::BlockDevice)?;
+            resources.set_block_device(drive_config)?;
         }
 
         for net_config in vmm_config.net_devices.into_iter() {
-            resources
-                .build_net_device(net_config)
-                .map_err(Error::NetDevice)?;
+            resources.build_net_device(net_config)?;
         }
 
         if let Some(vsock_config) = vmm_config.vsock_device {
-            resources
-                .set_vsock_device(vsock_config)
-                .map_err(Error::VsockDevice)?;
+            resources.set_vsock_device(vsock_config)?;
         }
 
         if let Some(balloon_config) = vmm_config.balloon_device {
-            resources
-                .set_balloon_device(balloon_config)
-                .map_err(Error::BalloonDevice)?;
+            resources.set_balloon_device(balloon_config)?;
         }
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            resources
-                .locked_mmds_or_default()
-                .put_data(
-                    serde_json::from_str(&data)
-                        .expect("MMDS error: metadata provided not valid json"),
-                )
-                .map_err(Error::Mmds)?;
+            resources.locked_mmds_or_default().put_data(
+                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+            )?;
             info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
-            resources
-                .set_mmds_config(mmds_config, &instance_info.id)
-                .map_err(Error::MmdsConfig)?;
+            resources.set_mmds_config(mmds_config, &instance_info.id)?;
         }
 
         Ok(resources)

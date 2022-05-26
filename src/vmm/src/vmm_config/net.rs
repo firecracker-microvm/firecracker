@@ -61,7 +61,7 @@ pub struct NetworkInterfaceUpdateConfig {
 }
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum NetworkInterfaceError {
     /// Could not create Network Device.
     CreateNetworkDevice(devices::virtio::net::Error),
@@ -176,13 +176,11 @@ impl NetBuilder {
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(NetworkInterfaceError::CreateRateLimiter)?;
+            .transpose()?;
         let tx_rate_limiter = cfg
             .tx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(NetworkInterfaceError::CreateRateLimiter)?;
+            .transpose()?;
 
         // Create and return the Net device
         devices::virtio::net::Net::new_with_tap(

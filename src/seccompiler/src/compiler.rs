@@ -34,7 +34,7 @@ use crate::syscall_table::SyscallTable;
 type Result<T> = result::Result<T, Error>;
 
 /// Errors compiling Filters into BPF.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, derive_more::From)]
 pub(crate) enum Error {
     /// Filter and default actions are equal.
     IdenticalActions,
@@ -197,17 +197,10 @@ impl Compiler {
             if is_basic {
                 bpf_map.insert(
                     thread_name,
-                    self.make_basic_seccomp_filter(filter)?
-                        .try_into()
-                        .map_err(Error::SeccompFilter)?,
+                    self.make_basic_seccomp_filter(filter)?.try_into()?,
                 );
             } else {
-                bpf_map.insert(
-                    thread_name,
-                    self.make_seccomp_filter(filter)?
-                        .try_into()
-                        .map_err(Error::SeccompFilter)?,
-                );
+                bpf_map.insert(thread_name, self.make_seccomp_filter(filter)?.try_into()?);
             }
         }
         Ok(bpf_map)

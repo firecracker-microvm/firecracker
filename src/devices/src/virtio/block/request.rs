@@ -21,7 +21,7 @@ use super::{io as block_io, Error, SECTOR_SHIFT};
 use crate::virtio::block::device::DiskProperties;
 use crate::virtio::SECTOR_SIZE;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum IoErr {
     GetId(GuestMemoryError),
     PartialTransfer { completed: u32, expected: u32 },

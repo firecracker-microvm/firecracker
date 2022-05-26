@@ -19,6 +19,7 @@
  'cpuid v0.1.0 (/firecracker/src/cpuid)',
  'crc64 v1.0.0',
  'ctr v0.8.0',
+ 'derive_more v0.99.17 (proc-macro)',
  'devices v0.1.0 (/firecracker/src/devices)',
  'dumbo v0.1.0 (/firecracker/src/dumbo)',
  'event-manager v0.2.1',

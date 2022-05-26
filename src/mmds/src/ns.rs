@@ -21,7 +21,7 @@ use dumbo::pdu::ipv4::{
 };
 use dumbo::pdu::tcp::Error as TcpSegmentError;
 use dumbo::pdu::Incomplete;
-use dumbo::tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
+use dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
 use dumbo::tcp::NextSegmentStatus;
 use logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
@@ -35,6 +35,7 @@ const DEFAULT_TCP_PORT: u16 = 80;
 const DEFAULT_MAX_CONNECTIONS: usize = 30;
 const DEFAULT_MAX_PENDING_RESETS: usize = 100;
 
+#[derive(derive_more::From)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 enum WriteArpFrameError {
     NoPendingArpReply,
@@ -42,20 +43,13 @@ enum WriteArpFrameError {
     Ethernet(EthernetFrameError),
 }
 
+#[derive(derive_more::From)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 enum WritePacketError {
     IPv4Packet(IPv4PacketError),
     Ethernet(EthernetFrameError),
     TcpSegment(TcpSegmentError),
-}
-
-impl From<handler::WriteNextError> for WritePacketError {
-    fn from(error: handler::WriteNextError) -> Self {
-        match error {
-            handler::WriteNextError::IPv4Packet(inner) => WritePacketError::IPv4Packet(inner),
-            handler::WriteNextError::TcpSegment(inner) => WritePacketError::TcpSegment(inner),
-        }
-    }
+    WriteNext(WriteNextError),
 }
 
 pub struct MmdsNetworkStack {
@@ -261,9 +255,7 @@ impl MmdsNetworkStack {
             .pending_arp_reply_dest
             .ok_or(WriteArpFrameError::NoPendingArpReply)?;
 
-        let mut eth_unsized = self
-            .prepare_eth_unsized(buf, ETHERTYPE_ARP)
-            .map_err(WriteArpFrameError::Ethernet)?;
+        let mut eth_unsized = self.prepare_eth_unsized(buf, ETHERTYPE_ARP)?;
 
         let arp_len = EthIPv4ArpFrame::write_reply(
             eth_unsized
@@ -275,8 +267,7 @@ impl MmdsNetworkStack {
             self.ipv4_addr,
             self.remote_mac_addr,
             arp_reply_dest,
-        )
-        .map_err(WriteArpFrameError::Arp)?
+        )?
         .len();
 
         Ok(Some(
@@ -286,9 +277,7 @@ impl MmdsNetworkStack {
     }
 
     fn write_packet(&mut self, buf: &mut [u8]) -> Result<Option<NonZeroUsize>, WritePacketError> {
-        let mut eth_unsized = self
-            .prepare_eth_unsized(buf, ETHERTYPE_IPV4)
-            .map_err(WritePacketError::Ethernet)?;
+        let mut eth_unsized = self.prepare_eth_unsized(buf, ETHERTYPE_IPV4)?;
 
         let (maybe_len, event) = self
             .tcp_handler
