@@ -249,7 +249,7 @@ The session must start with an HTTP `PUT` request that generates the session tok
 In order to be successful, the request must respect the following constraints:
 
 - must be directed towards `/latest/api/token` path
-- must contain a `X-ametadata-token-ttl-seconds` header specifying the token lifetime
+- must contain a `X-metadata-token-ttl-seconds` header specifying the token lifetime
   in seconds. The value cannot be lower than 1 or greater than 21600 (6 hours).
 - must not contain a `X-Forwarded-For` header.
 

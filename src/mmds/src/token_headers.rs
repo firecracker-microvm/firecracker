@@ -38,12 +38,19 @@ impl TokenHeaders {
     /// Return `TokenHeaders` from headers map.
     pub fn try_from(map: &HashMap<String, String>) -> Result<TokenHeaders, RequestError> {
         let mut headers = Self::default();
+        let lowercased_headers: HashMap<String, String> = map
+            .iter()
+            .map(|(k, v)| (k.to_lowercase(), v.clone()))
+            .collect();
 
-        if let Some(token) = map.get(TokenHeaders::X_METADATA_TOKEN) {
+        if let Some(token) = lowercased_headers.get(&TokenHeaders::X_METADATA_TOKEN.to_lowercase())
+        {
             headers.x_metadata_token = Some(token.to_string());
         }
 
-        if let Some(value) = map.get(TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS) {
+        if let Some(value) =
+            lowercased_headers.get(&TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_lowercase())
+        {
             match value.parse::<u32>() {
                 Ok(seconds) => {
                     headers.x_metadata_token_ttl_seconds = Some(seconds);
@@ -125,6 +132,17 @@ mod tests {
         map.insert(TokenHeaders::X_METADATA_TOKEN.to_string(), "".to_string());
         let headers = TokenHeaders::try_from(&map).unwrap();
         assert_eq!(*headers.x_metadata_token().unwrap(), "".to_string());
+
+        // Lowercased headers
+        let mut map: HashMap<String, String> = HashMap::default();
+        map.insert(
+            TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS
+                .to_string()
+                .to_lowercase(),
+            "60".to_string(),
+        );
+        let headers = TokenHeaders::try_from(&map).unwrap();
+        assert_eq!(headers.x_metadata_token_ttl_seconds().unwrap(), 60);
 
         // Invalid value.
         let mut map: HashMap<String, String> = HashMap::default();
