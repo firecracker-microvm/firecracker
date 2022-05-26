@@ -22,7 +22,7 @@ pub(crate) fn parse_put_drive(
 
     let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body.raw()).map_err(|e| {
         METRICS.put_api_requests.drive_fails.inc();
-        Error::SerdeJson(e)
+        e
     })?;
 
     if id != device_cfg.drive_id {
@@ -53,7 +53,7 @@ pub(crate) fn parse_patch_drive(
     let block_device_update_cfg: BlockDeviceUpdateConfig =
         serde_json::from_slice::<BlockDeviceUpdateConfig>(body.raw()).map_err(|e| {
             METRICS.patch_api_requests.drive_fails.inc();
-            Error::SerdeJson(e)
+            e
         })?;
 
     if id != block_device_update_cfg.drive_id {

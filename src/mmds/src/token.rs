@@ -46,7 +46,7 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Failed to extract entropy from pool.
     EntropyPool(io::Error),
@@ -99,7 +99,7 @@ pub struct TokenAuthority {
 impl TokenAuthority {
     /// Create a new token authority entity.
     pub fn new() -> Result<TokenAuthority, Error> {
-        let mut file = File::open(Path::new(RANDOMNESS_POOL)).map_err(Error::EntropyPool)?;
+        let mut file = File::open(Path::new(RANDOMNESS_POOL))?;
 
         Ok(TokenAuthority {
             cipher: TokenAuthority::create_cipher(&mut file)?,
@@ -140,9 +140,7 @@ impl TokenAuthority {
 
         // Generate 12-byte random nonce.
         let mut iv = [0u8; IV_LEN];
-        self.entropy_pool
-            .read_exact(&mut iv)
-            .map_err(Error::EntropyPool)?;
+        self.entropy_pool.read_exact(&mut iv)?;
 
         // Compute expiration time in milliseconds from ttl.
         let expiry = TokenAuthority::compute_expiry(ttl_seconds);
@@ -232,9 +230,7 @@ impl TokenAuthority {
     fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, Error> {
         // Randomly generate a 256-bit key to be used for encryption/decryption purposes.
         let mut key = [0u8; KEY_LEN];
-        entropy_pool
-            .read_exact(&mut key)
-            .map_err(Error::EntropyPool)?;
+        entropy_pool.read_exact(&mut key)?;
 
         // Create cipher entity to handle encryption/decryption.
         Ok(Aes256Gcm::new(Key::from_slice(&key)))
@@ -304,7 +300,7 @@ impl Token {
 
     /// Encode token structure into a string using base64 encoding.
     fn base64_encode(&self) -> Result<String, Error> {
-        let token_bytes: Vec<u8> = bincode::serialize(self).map_err(Error::Serialization)?;
+        let token_bytes: Vec<u8> = bincode::serialize(self)?;
 
         // Encode token structure bytes into base64.
         Ok(base64::encode_config(token_bytes, base64::STANDARD))

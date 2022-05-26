@@ -126,7 +126,7 @@ pub enum VmmAction {
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
     BalloonConfig(BalloonConfigError),
@@ -151,10 +151,12 @@ pub enum VmmActionError {
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
     /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
+    #[from(ignore)]
     Mmds(data_store::Error),
     /// The action `SetMmdsConfiguration` failed because of bad user input.
     MmdsConfig(MmdsConfigError),
     /// Mmds contents update failed due to exceeding the data store limit.
+    #[from(ignore)]
     MmdsLimitExceeded(data_store::Error),
     /// The action `InsertNetworkDevice` failed because of bad user input.
     NetworkConfig(NetworkInterfaceError),
@@ -668,11 +670,7 @@ impl RuntimeApiController {
     pub fn pause(&mut self) -> ActionResult {
         let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .pause_vm()
-            .map_err(VmmActionError::InternalVmm)?;
+        self.vmm.lock().expect("Poisoned lock").pause_vm()?;
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
@@ -685,11 +683,7 @@ impl RuntimeApiController {
     pub fn resume(&mut self) -> ActionResult {
         let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .resume_vm()
-            .map_err(VmmActionError::InternalVmm)?;
+        self.vmm.lock().expect("Poisoned lock").resume_vm()?;
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);
@@ -738,8 +732,7 @@ impl RuntimeApiController {
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
-            .map_err(VmmActionError::CreateSnapshot)?;
+        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())?;
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
@@ -775,8 +768,7 @@ impl RuntimeApiController {
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
-                .map_err(DriveError::DeviceUpdate)
-                .map_err(VmmActionError::DriveConfig)?;
+                .map_err(DriveError::DeviceUpdate)?;
         }
         if new_cfg.rate_limiter.is_some() {
             vmm.update_block_rate_limiter(
@@ -785,8 +777,7 @@ impl RuntimeApiController {
                 RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
-            .map_err(DriveError::DeviceUpdate)
-            .map_err(VmmActionError::DriveConfig)?;
+            .map_err(DriveError::DeviceUpdate)?;
         }
         Ok(VmmData::Empty)
     }

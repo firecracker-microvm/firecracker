@@ -7,6 +7,7 @@ license = "Apache-2.0"
 
 [dependencies]
 bitflags = ">=1.0.4"
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }

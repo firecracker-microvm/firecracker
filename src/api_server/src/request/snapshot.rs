@@ -29,8 +29,7 @@ pub(crate) fn parse_put_snapshot(
     match request_type_from_path {
         Some(&request_type) => match request_type {
             "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
-                serde_json::from_slice::<CreateSnapshotParams>(body.raw())
-                    .map_err(Error::SerdeJson)?,
+                serde_json::from_slice::<CreateSnapshotParams>(body.raw())?,
             ))),
             "load" => parse_put_snapshot_load(body),
             _ => Err(Error::InvalidPathMethod(
@@ -46,7 +45,7 @@ pub(crate) fn parse_put_snapshot(
 }
 
 pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
-    let vm = serde_json::from_slice::<Vm>(body.raw()).map_err(Error::SerdeJson)?;
+    let vm = serde_json::from_slice::<Vm>(body.raw())?;
 
     match vm.state {
         VmState::Paused => Ok(ParsedRequest::new_sync(VmmAction::Pause)),
@@ -55,8 +54,7 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
 }
 
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
-    let snapshot_config =
-        serde_json::from_slice::<LoadSnapshotConfig>(body.raw()).map_err(Error::SerdeJson)?;
+    let snapshot_config = serde_json::from_slice::<LoadSnapshotConfig>(body.raw())?;
 
     match (&snapshot_config.mem_backend, &snapshot_config.mem_file_path) {
         // Ensure `mem_file_path` and `mem_backend` fields are not present at the same time.

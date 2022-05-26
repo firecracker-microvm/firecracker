@@ -19,6 +19,7 @@ versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 vm-superio = ">=0.4.0"
 vm-allocator = "0.1.0"
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }

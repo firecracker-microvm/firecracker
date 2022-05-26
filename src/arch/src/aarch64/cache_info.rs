@@ -10,7 +10,7 @@ use logger::warn;
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub(crate) enum Error {
     FailedToReadCacheInfo(io::Error),
     InvalidCacheAttr(String, String),
@@ -228,7 +228,7 @@ impl CacheType {
 }
 
 fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
-    let line = fs::read_to_string(file_path).map_err(Error::FailedToReadCacheInfo)?;
+    let line = fs::read_to_string(file_path)?;
     Ok(line.trim_end().to_string())
 }
 

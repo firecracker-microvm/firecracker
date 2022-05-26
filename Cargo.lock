@@ -41,6 +41,7 @@ dependencies = [
 name = "api_server"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "libc",
  "logger",
  "micro_http",
@@ -58,6 +59,7 @@ name = "arch"
 version = "0.1.0"
 dependencies = [
  "arch_gen",
+ "derive_more",
  "device_tree",
  "kvm-bindings",
  "kvm-ioctls",
@@ -236,6 +238,7 @@ dependencies = [
 name = "cpuid"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "kvm-bindings",
  "kvm-ioctls",
  "utils",
@@ -359,6 +362,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "0.99.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "device_tree"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -368,6 +382,7 @@ checksum = "f18f717c5c7c2e3483feb64cccebd077245ad6d19007c2db0fd341d38595353c"
 name = "devices"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "dumbo",
  "event-manager",
  "io_uring",
@@ -393,6 +408,7 @@ name = "dumbo"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "derive_more",
  "logger",
  "micro_http",
  "serde_json",
@@ -488,6 +504,7 @@ dependencies = [
 name = "io_uring"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "libc",
  "proptest",
  "utils",
@@ -650,6 +667,7 @@ dependencies = [
  "aes-gcm",
  "base64",
  "bincode",
+ "derive_more",
  "dumbo",
  "logger",
  "micro_http",
@@ -959,6 +977,7 @@ name = "seccompiler"
 version = "1.1.0"
 dependencies = [
  "bincode",
+ "derive_more",
  "libc",
  "serde",
  "serde_json",
@@ -1150,6 +1169,7 @@ dependencies = [
 name = "utils"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "libc",
  "net_gen",
  "serde",
@@ -1243,6 +1263,7 @@ dependencies = [
  "arch",
  "cpuid",
  "criterion",
+ "derive_more",
  "devices",
  "event-manager",
  "kvm-bindings",

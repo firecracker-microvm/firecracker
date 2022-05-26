@@ -97,6 +97,7 @@ pub enum RecvError {
 }
 
 /// Describes errors which may occur when a connection attempts to write a segment.
+#[derive(derive_more::From)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum WriteNextError {
     /// The connection cannot write the segment because it has been previously reset.
@@ -751,8 +752,7 @@ impl Connection {
                 .checked_sub(mss_reserved)
                 .ok_or(WriteNextError::MssRemaining)?,
             payload,
-        )
-        .map_err(WriteNextError::TcpSegment)?;
+        )?;
 
         if flags_after_ns.intersects(TcpFlags::ACK) {
             self.pending_ack = false;

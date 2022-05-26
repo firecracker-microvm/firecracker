@@ -13,7 +13,7 @@ pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(
         serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|e| {
             METRICS.put_api_requests.logger_fails.inc();
-            Error::SerdeJson(e)
+            e
         })?,
     )))
 }

@@ -46,7 +46,7 @@ pub struct NetConstructorArgs {
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     CreateNet(super::Error),
     CreateRateLimiter(io::Error),
@@ -78,18 +78,15 @@ impl Persist<'_> for Net {
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
         // RateLimiter::restore() can fail at creating a timerfd.
-        let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)
-            .map_err(Error::CreateRateLimiter)?;
-        let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)
-            .map_err(Error::CreateRateLimiter)?;
+        let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)?;
+        let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
         let mut net = Net::new_with_tap(
             state.id.clone(),
             state.tap_if_name.clone(),
             None,
             rx_rate_limiter,
             tx_rate_limiter,
-        )
-        .map_err(Error::CreateNet)?;
+        )?;
 
         // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if
         // there is at least one net device having the MMDS NS present and/or the mmds version was
@@ -108,10 +105,12 @@ impl Persist<'_> for Net {
             );
         }
 
-        net.queues = state
-            .virtio_state
-            .build_queues_checked(&constructor_args.mem, TYPE_NET, NUM_QUEUES, QUEUE_SIZE)
-            .map_err(Error::VirtioState)?;
+        net.queues = state.virtio_state.build_queues_checked(
+            &constructor_args.mem,
+            TYPE_NET,
+            NUM_QUEUES,
+            QUEUE_SIZE,
+        )?;
         net.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;

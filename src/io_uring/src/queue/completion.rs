@@ -12,7 +12,7 @@ use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;
 use crate::operation::Cqe;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 /// CQueue Error.
 pub enum Error {
     /// Error mapping the ring.
@@ -47,13 +47,10 @@ impl CompletionQueue {
         // To this we add an offset as per the io_uring specifications.
         let ring_size = (params.cq_off.cqes as usize)
             + (params.cq_entries as usize) * std::mem::size_of::<bindings::io_uring_cqe>();
-        let cqes = mmap(ring_size, io_uring_fd, bindings::IORING_OFF_CQ_RING.into())
-            .map_err(Error::Mmap)?;
+        let cqes = mmap(ring_size, io_uring_fd, bindings::IORING_OFF_CQ_RING.into())?;
 
         let ring = cqes.as_volatile_slice();
-        let ring_mask = ring
-            .read_obj(offsets.ring_mask as usize)
-            .map_err(Error::VolatileMemory)?;
+        let ring_mask = ring.read_obj(offsets.ring_mask as usize)?;
 
         Ok(Self {
             // safe because it's an u32 offset
@@ -82,22 +79,17 @@ impl CompletionQueue {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;
-        let unmasked_tail = ring
-            .load::<u32>(self.tail_off, Ordering::Acquire)
-            .map_err(Error::VolatileMemory)?;
+        let unmasked_tail = ring.load::<u32>(self.tail_off, Ordering::Acquire)?;
 
         // validate that we have smth to fetch
         if Wrapping(unmasked_tail) - self.unmasked_head > Wrapping(0) {
-            let cqe: bindings::io_uring_cqe = ring
-                .read_obj(
-                    self.cqes_off + (head as usize) * std::mem::size_of::<bindings::io_uring_cqe>(),
-                )
-                .map_err(Error::VolatileMemory)?;
+            let cqe: bindings::io_uring_cqe = ring.read_obj(
+                self.cqes_off + (head as usize) * std::mem::size_of::<bindings::io_uring_cqe>(),
+            )?;
 
             // increase the head
             self.unmasked_head += Wrapping(1u32);
-            ring.store(self.unmasked_head.0, self.head_off, Ordering::Release)
-                .map_err(Error::VolatileMemory)?;
+            ring.store(self.unmasked_head.0, self.head_off, Ordering::Release)?;
 
             Ok(Some(Cqe::new(cqe)))
         } else {

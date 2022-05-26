@@ -6,7 +6,6 @@ use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 use super::*;
 use crate::bit_helper::BitHelper;
 use crate::common::get_cpuid;
-use crate::transformer::Error::FamError;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -115,18 +114,16 @@ pub fn use_host_cpuid_function(
             break;
         }
 
-        cpuid
-            .push(kvm_cpuid_entry2 {
-                function,
-                index: count,
-                flags: 0,
-                eax: entry.eax,
-                ebx: entry.ebx,
-                ecx: entry.ecx,
-                edx: entry.edx,
-                padding: [0, 0, 0],
-            })
-            .map_err(FamError)?;
+        cpuid.push(kvm_cpuid_entry2 {
+            function,
+            index: count,
+            flags: 0,
+            eax: entry.eax,
+            ebx: entry.ebx,
+            ecx: entry.ecx,
+            edx: entry.edx,
+            padding: [0, 0, 0],
+        })?;
 
         count += 1;
     }

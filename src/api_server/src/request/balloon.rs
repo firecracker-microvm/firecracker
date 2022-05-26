@@ -25,7 +25,7 @@ pub(crate) fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<Pars
 
 pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::SetBalloonDevice(
-        serde_json::from_slice::<BalloonDeviceConfig>(body.raw()).map_err(Error::SerdeJson)?,
+        serde_json::from_slice::<BalloonDeviceConfig>(body.raw())?,
     )))
 }
 
@@ -36,8 +36,7 @@ pub(crate) fn parse_patch_balloon(
     match path_second_token {
         Some(config_path) => match *config_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloonStatistics(
-                serde_json::from_slice::<BalloonUpdateStatsConfig>(body.raw())
-                    .map_err(Error::SerdeJson)?,
+                serde_json::from_slice::<BalloonUpdateStatsConfig>(body.raw())?,
             ))),
             _ => Err(Error::Generic(
                 StatusCode::BadRequest,
@@ -45,7 +44,7 @@ pub(crate) fn parse_patch_balloon(
             )),
         },
         None => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloon(
-            serde_json::from_slice::<BalloonUpdateConfig>(body.raw()).map_err(Error::SerdeJson)?,
+            serde_json::from_slice::<BalloonUpdateConfig>(body.raw())?,
         ))),
     }
 }
