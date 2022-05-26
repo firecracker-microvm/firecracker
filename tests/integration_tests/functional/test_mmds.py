@@ -832,7 +832,7 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
     cmd = f"curl -m 2 -s -X PUT http://{DEFAULT_IPV4}/latest/api/token"
     expected = (
         "Token time to live value not found. Use "
-        "`X-metadata-token-ttl_seconds` header to specify "
+        "`X-metadata-token-ttl-seconds` header to specify "
         "the token's lifetime."
     )
     _run_guest_cmd(ssh_connection, cmd, expected)

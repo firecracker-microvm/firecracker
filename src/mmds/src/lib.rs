@@ -42,7 +42,7 @@ impl fmt::Display for Error {
             ),
             Error::NoTtlProvided => write!(
                 f,
-                "Token time to live value not found. Use `X-metadata-token-ttl_seconds` header to \
+                "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
                  specify the token's lifetime."
             ),
             Error::ResourceNotFound(ref uri) => {
@@ -705,8 +705,8 @@ mod tests {
 
         assert_eq!(
             Error::NoTtlProvided.to_string(),
-            "Token time to live value not found. Use `X-metadata-token-ttl_seconds` header to \
-             specify the token's lifetime."
+            "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
+                     specify the token's lifetime."
         );
 
         assert_eq!(
