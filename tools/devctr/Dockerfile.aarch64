@@ -74,7 +74,7 @@ RUN apt-get update \
         setuptools \
         setuptools_rust \
         wheel \
-    && python3 -m pip install --upgrade pip \ 
+    && python3 -m pip install --upgrade pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Update Python to 3.10
@@ -97,7 +97,7 @@ RUN cd "$TMP_POETRY_DIR" \
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
         && cd "$TMP_BUILD_DIR" \
                     && cargo install cargo-kcov \
