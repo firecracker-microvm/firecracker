@@ -29,6 +29,16 @@ RUN apt-get update \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
         cmake \
+        build-essential \
+        zlib1g-dev \
+        libncurses5-dev \
+        libgdbm-dev  \
+        libnss3-dev \
+        libreadline-dev \
+        libffi-dev \
+        libsqlite3-dev \
+        wget \
+        libbz2-dev \
         curl \
         file \
         g++ \
@@ -66,6 +76,16 @@ RUN apt-get update \
         wheel \
     && python3 -m pip install --upgrade pip \ 
     && gem install chef-utils:16.6.14 mdl
+
+# Update Python to 3.10
+# This method isn't ideal, compiling from source can be dropped
+# once the container definition is based on ubuntu:22.04
+RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
+    && tar -xf Python-3.10.4.tgz \
+    && cd ./Python-3.10.4 \
+    && ./configure --enable-optimizations \
+    && make -j 8 \
+    && make install
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"

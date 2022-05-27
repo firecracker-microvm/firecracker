@@ -61,12 +61,31 @@ RUN apt-get update \
         bc \
         flex \
         bison \
+        build-essential \
+        zlib1g-dev \
+        libncurses5-dev \
+        libgdbm-dev \
+        libnss3-dev \
+        libssl-dev \
+        libreadline-dev \
+        libffi-dev \
+        wget \
     && python3 -m pip install \
         setuptools \
         setuptools_rust \
         wheel \
     && python3 -m pip install --upgrade pip \ 
     && rm -rf /var/lib/apt/lists/*
+
+# Update Python to 3.10
+# This method isn't ideal, compiling from source can be dropped
+# once the container definition is based on ubuntu:22.04
+RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
+    && tar -xf Python-3.10.4.tgz \
+    && cd ./Python-3.10.4 \
+    && ./configure --enable-optimizations \
+    && make -j 8 \
+    && make install
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
