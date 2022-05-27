@@ -325,9 +325,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager =
-            MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX))
-                .map_err(Self::Error::DeviceManager)?;
+        let mut dev_manager = MMIODeviceManager::new(
+            arch::MMIO_MEM_START,
+            arch::MMIO_MEM_SIZE,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        )
+        .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
 
@@ -645,7 +648,9 @@ mod tests {
             let dummy_irq_range = (0, 0);
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
-            let mut clone = MMIODeviceManager::new(dummy_mmio_base, dummy_irq_range).unwrap();
+            let mut clone =
+                MMIODeviceManager::new(dummy_mmio_base, arch::MMIO_MEM_SIZE, dummy_irq_range)
+                    .unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone
