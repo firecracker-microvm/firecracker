@@ -588,7 +588,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a5e77493808403a6bd56a301a64ea6b9342e36ea845044bf0dfdf56fe52fa08"
 dependencies = [
- "vm-memory 0.7.0",
+ "vm-memory 0.8.0",
 ]
 
 [[package]]
@@ -1207,14 +1207,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "utils",
- "vm-memory 0.7.0",
+ "vm-memory 0.8.0",
 ]
 
 [[package]]
 name = "vm-memory"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339d4349c126fdcd87e034631d7274370cf19eb0e87b33166bcd956589fc72c5"
+checksum = "767ed8aaebbff902e02e6d3749dc2baef55e46565f8a6414a065e5baee4b4a81"
 dependencies = [
  "libc",
  "winapi",
