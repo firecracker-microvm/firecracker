@@ -25,8 +25,8 @@
 //! use logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
-//! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
-//!     println!("Could not configure the log subsystem: {}", e);
+//! if let Err(err) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
+//!     println!("Could not configure the log subsystem: {}", err);
 //!     return;
 //! }
 //! warn!("this is a warning");
@@ -400,7 +400,7 @@ pub enum LoggerError {
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::Init(ref e) => format!("Logger initialization failure: {}", e),
+            LoggerError::Init(ref err) => format!("Logger initialization failure: {}", err),
         };
         write!(f, "{}", printable)
     }

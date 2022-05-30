@@ -301,8 +301,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     // Send Transport event to reset connections if device
                     // is activated.
                     if vsock.is_activated() {
-                        vsock.send_transport_reset_event().unwrap_or_else(|e| {
-                            error!("Failed to send reset transport event: {:?}", e);
+                        vsock.send_transport_reset_event().unwrap_or_else(|err| {
+                            error!("Failed to send reset transport event: {:?}", err);
                         });
                     }
 

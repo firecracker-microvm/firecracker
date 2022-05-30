@@ -48,8 +48,8 @@ where
         }
 
         let mut raise_irq = false;
-        if let Err(e) = self.queue_events[RXQ_INDEX].read() {
-            error!("Failed to get vsock rx queue event: {:?}", e);
+        if let Err(err) = self.queue_events[RXQ_INDEX].read() {
+            error!("Failed to get vsock rx queue event: {:?}", err);
             METRICS.vsock.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
@@ -68,8 +68,8 @@ where
         }
 
         let mut raise_irq = false;
-        if let Err(e) = self.queue_events[TXQ_INDEX].read() {
-            error!("Failed to get vsock tx queue event: {:?}", e);
+        if let Err(err) = self.queue_events[TXQ_INDEX].read() {
+            error!("Failed to get vsock tx queue event: {:?}", err);
             METRICS.vsock.tx_queue_event_fails.inc();
         } else {
             raise_irq |= self.process_tx();
@@ -93,8 +93,8 @@ where
             return false;
         }
 
-        if let Err(e) = self.queue_events[EVQ_INDEX].read() {
-            error!("Failed to consume vsock evq event: {:?}", e);
+        if let Err(err) = self.queue_events[EVQ_INDEX].read() {
+            error!("Failed to consume vsock evq event: {:?}", err);
             METRICS.vsock.ev_queue_event_fails.inc();
         }
         false
@@ -117,34 +117,34 @@ where
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register rx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
+            error!("Failed to register rx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register tx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
+            error!("Failed to register tx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
-            error!("Failed to register ev queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
+            error!("Failed to register ev queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
-            error!("Failed to register vsock backend event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
+            error!("Failed to register vsock backend event: {}", err);
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 
     fn handle_activate_event(&self, ops: &mut EventOps) {
         debug!("vsock: activate event");
-        if let Err(e) = self.activate_evt.read() {
-            error!("Failed to consume net activate event: {:?}", e);
+        if let Err(err) = self.activate_evt.read() {
+            error!("Failed to consume net activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(e) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to un-register activate event: {}", e);
+        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to un-register activate event: {}", err);
         }
     }
 }

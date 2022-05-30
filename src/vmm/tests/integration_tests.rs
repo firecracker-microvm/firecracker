@@ -127,7 +127,7 @@ fn test_disallow_snapshots_without_pausing() {
     // Verify saving state while running is not allowed.
     // Can't do unwrap_err() because MicrovmState doesn't impl Debug.
     match vmm.lock().unwrap().save_state() {
-        Err(e) => assert!(format!("{:?}", e).contains("NotAllowed")),
+        Err(err) => assert!(format!("{:?}", err).contains("NotAllowed")),
         Ok(_) => panic!("Should not be allowed."),
     };
 

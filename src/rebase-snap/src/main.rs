@@ -44,10 +44,10 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
 }
 
 fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
-    arg_parser.parse_from_cmdline().unwrap_or_else(|e| {
+    arg_parser.parse_from_cmdline().unwrap_or_else(|err| {
         panic!(
             "Arguments parsing error: {} \n\nFor more information try --help.",
-            e
+            err
         );
     });
 
@@ -120,10 +120,10 @@ fn main() {
     let mut arg_parser = build_arg_parser();
     let args = extract_args(&mut arg_parser);
     let (mut base_file, mut diff_file) =
-        parse_args(args).unwrap_or_else(|e| panic!("Error parsing the cmd line args: {:?}", e));
+        parse_args(args).unwrap_or_else(|err| panic!("Error parsing the cmd line args: {:?}", err));
 
     rebase(&mut base_file, &mut diff_file)
-        .unwrap_or_else(|e| panic!("Error merging the files: {:?}", e));
+        .unwrap_or_else(|err| panic!("Error merging the files: {:?}", err));
 }
 
 #[cfg(test)]
@@ -139,8 +139,8 @@ mod tests {
         ($expression:expr, $($pattern:tt)+) => {
             match $expression {
                 Err($($pattern)+) => (),
-                ref e =>  {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e);
+                ref err =>  {
+                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
                     assert!(false)
                 }
             }

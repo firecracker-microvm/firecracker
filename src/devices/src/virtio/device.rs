@@ -66,9 +66,9 @@ impl IrqTrigger {
         };
         self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
 
-        self.irq_evt.write(1).map_err(|e| {
-            error!("Failed to send irq to the guest: {:?}", e);
-            e
+        self.irq_evt.write(1).map_err(|err| {
+            error!("Failed to send irq to the guest: {:?}", err);
+            err
         })?;
 
         Ok(())

@@ -284,10 +284,10 @@ impl std::fmt::Display for Error {
                 std::str::from_utf8(method.raw()).expect("Cannot convert from UTF-8"),
                 path
             ),
-            Error::SerdeJson(ref e) => write!(
+            Error::SerdeJson(ref err) => write!(
                 f,
                 "An error occurred when deserializing the json body of a request: {}.",
-                e
+                err
             ),
         }
     }
@@ -295,9 +295,9 @@ impl std::fmt::Display for Error {
 
 // It's convenient to turn errors into HTTP responses directly.
 impl From<Error> for Response {
-    fn from(e: Error) -> Self {
-        let msg = ApiServer::json_fault_message(format!("{}", e));
-        match e {
+    fn from(err: Error) -> Self {
+        let msg = ApiServer::json_fault_message(format!("{}", err));
+        match err {
             Error::Generic(status, _) => ApiServer::json_response(status, msg),
             Error::EmptyID
             | Error::InvalidID

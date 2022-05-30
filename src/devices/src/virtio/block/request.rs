@@ -121,8 +121,8 @@ impl PendingRequest {
                 // Account for the status byte
                 num_bytes_to_mem + 1
             })
-            .unwrap_or_else(|e| {
-                error!("Failed to write virtio block status: {:?}", e);
+            .unwrap_or_else(|err| {
+                error!("Failed to write virtio block status: {:?}", err);
                 // If we can't write the status, discard the virtio descriptor
                 0
             });
@@ -385,12 +385,12 @@ impl Request {
             Ok(block_io::FileEngineOk::Executed(res)) => {
                 ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count)))
             }
-            Err(e) => {
-                if e.error.is_throttling_err() {
+            Err(err) => {
+                if err.error.is_throttling_err() {
                     ProcessingResult::Throttled
                 } else {
                     ProcessingResult::Executed(
-                        e.user_data.finish(mem, Err(IoErr::FileEngine(e.error))),
+                        err.user_data.finish(mem, Err(IoErr::FileEngine(err.error))),
                     )
                 }
             }
@@ -967,8 +967,8 @@ mod tests {
         ($expression:expr, $($pattern:tt)+) => {
             match $expression {
                 $($pattern)+ => (),
-                ref e =>  {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e);
+                ref err =>  {
+                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
                     prop_assert!(false)
                 }
             }
@@ -982,16 +982,16 @@ mod tests {
             let result = Request::parse(&request.2.pop(&request.1).unwrap(), &request.1, NUM_DISK_SECTORS);
             match result {
                 Ok(r) => prop_assert!(r == request.0.unwrap()),
-                Err(e) => {
+                Err(err) => {
                     // Avoiding implementation of PartialEq which requires that even more types like
                     // GuestMemoryError implement it.
                     match request.0.unwrap_err() {
-                        Error::DescriptorChainTooShort => assert_err!(e, Error::DescriptorChainTooShort),
-                        Error::DescriptorLengthTooSmall => assert_err!(e, Error::DescriptorLengthTooSmall),
-                        Error::InvalidDataLength => assert_err!(e, Error::InvalidDataLength),
-                        Error::InvalidOffset => assert_err!(e, Error::InvalidOffset),
-                        Error::UnexpectedWriteOnlyDescriptor => assert_err!(e, Error::UnexpectedWriteOnlyDescriptor),
-                        Error::UnexpectedReadOnlyDescriptor => assert_err!(e, Error::UnexpectedReadOnlyDescriptor),
+                        Error::DescriptorChainTooShort => assert_err!(err, Error::DescriptorChainTooShort),
+                        Error::DescriptorLengthTooSmall => assert_err!(err, Error::DescriptorLengthTooSmall),
+                        Error::InvalidDataLength => assert_err!(err, Error::InvalidDataLength),
+                        Error::InvalidOffset => assert_err!(err, Error::InvalidOffset),
+                        Error::UnexpectedWriteOnlyDescriptor => assert_err!(err, Error::UnexpectedWriteOnlyDescriptor),
+                        Error::UnexpectedReadOnlyDescriptor => assert_err!(err, Error::UnexpectedReadOnlyDescriptor),
                         _ => unreachable!()
                     }
                 }

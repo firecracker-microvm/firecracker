@@ -15,9 +15,9 @@ pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
 
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
+    let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
-        e
+        err
     })?;
 
     let vm_config = VmUpdateConfig::from(vm_config);
@@ -29,9 +29,9 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
 
 pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmUpdateConfig>(body.raw()).map_err(|e| {
+    let vm_config = serde_json::from_slice::<VmUpdateConfig>(body.raw()).map_err(|err| {
         METRICS.patch_api_requests.machine_cfg_fails.inc();
-        e
+        err
     })?;
 
     if vm_config.is_empty() {

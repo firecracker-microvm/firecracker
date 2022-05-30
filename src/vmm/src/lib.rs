@@ -185,40 +185,44 @@ impl Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
-            DeviceManager(e) => write!(f, "{}", e),
-            DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
-            EventFd(e) => write!(f, "Event fd error: {}", e),
-            I8042Error(e) => write!(f, "I8042 error: {}", e),
-            KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
-            KvmContext(e) => write!(f, "Failed to validate KVM support: {}", e),
+            CreateLegacyDevice(err) => write!(f, "Error creating legacy device: {}", err),
+            DeviceManager(err) => write!(f, "{}", err),
+            DirtyBitmap(err) => write!(f, "Error getting the KVM dirty bitmap. {}", err),
+            EventFd(err) => write!(f, "Event fd error: {}", err),
+            I8042Error(err) => write!(f, "I8042 error: {}", err),
+            KernelFile(err) => write!(f, "Cannot access kernel file: {}", err),
+            KvmContext(err) => write!(f, "Failed to validate KVM support: {}", err),
             #[cfg(target_arch = "x86_64")]
-            LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
-            Logger(e) => write!(f, "Logger error: {}", e),
-            Metrics(e) => write!(f, "Metrics error: {}", e),
-            RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
-            SeccompFilters(e) => write!(f, "Cannot install seccomp filters: {}", e),
-            Serial(e) => write!(f, "Error writing to the serial console: {}", e),
-            TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
-            VcpuConfigure(e) => write!(f, "Error configuring the vcpu for boot: {}", e),
-            VcpuCreate(e) => write!(f, "Error creating the vcpu: {}", e),
-            VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
-            VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
+            LegacyIOBus(err) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", err),
+            Logger(err) => write!(f, "Logger error: {}", err),
+            Metrics(err) => write!(f, "Metrics error: {}", err),
+            RegisterMMIODevice(err) => write!(f, "Cannot add a device to the MMIO Bus. {}", err),
+            SeccompFilters(err) => write!(f, "Cannot install seccomp filters: {}", err),
+            Serial(err) => write!(f, "Error writing to the serial console: {}", err),
+            TimerFd(err) => write!(f, "Error creating timer fd: {}", err),
+            VcpuConfigure(err) => write!(f, "Error configuring the vcpu for boot: {}", err),
+            VcpuCreate(err) => write!(f, "Error creating the vcpu: {}", err),
+            VcpuEvent(err) => write!(f, "Cannot send event to vCPU. {}", err),
+            VcpuHandle(err) => write!(f, "Cannot create a vCPU handle. {}", err),
             #[cfg(target_arch = "aarch64")]
-            VcpuInit(e) => write!(f, "Error initializing the vcpu: {}", e),
+            VcpuInit(err) => write!(f, "Error initializing the vcpu: {}", err),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
             VcpuExit => write!(f, "Failed to exit the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),
             VcpuMessage => write!(f, "Failed to message the vCPUs."),
-            VcpuSpawn(e) => write!(f, "Cannot spawn Vcpu thread: {}", e),
-            Vm(e) => write!(f, "Vm error: {}", e),
-            VmmObserverInit(e) => write!(
+            VcpuSpawn(err) => write!(f, "Cannot spawn Vcpu thread: {}", err),
+            Vm(err) => write!(f, "Vm error: {}", err),
+            VmmObserverInit(err) => write!(
                 f,
                 "Error thrown by observer object on Vmm initialization: {}",
-                e
+                err
             ),
-            VmmObserverTeardown(e) => {
-                write!(f, "Error thrown by observer object on Vmm teardown: {}", e)
+            VmmObserverTeardown(err) => {
+                write!(
+                    f,
+                    "Error thrown by observer object on Vmm teardown: {}",
+                    err
+                )
             }
         }
     }
@@ -480,7 +484,7 @@ impl Vmm {
             .into_iter()
             .map(|response| match response {
                 VcpuResponse::SavedState(state) => Ok(*state),
-                VcpuResponse::Error(e) => Err(SaveVcpuState(e)),
+                VcpuResponse::Error(err) => Err(SaveVcpuState(err)),
                 VcpuResponse::NotAllowed(reason) => Err(MicrovmStateError::NotAllowed(reason)),
                 _ => Err(UnexpectedVcpuResponse),
             })
@@ -516,7 +520,7 @@ impl Vmm {
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => return Err(MicrovmStateError::RestoreVcpuState(e)),
+                VcpuResponse::Error(err) => return Err(MicrovmStateError::RestoreVcpuState(err)),
                 VcpuResponse::NotAllowed(reason) => {
                     return Err(MicrovmStateError::NotAllowed(reason))
                 }
@@ -564,7 +568,7 @@ impl Vmm {
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
-                    .map_err(|e| format!("{:?}", e))
+                    .map_err(|err| format!("{:?}", err))
             })
             .map_err(Error::DeviceManager)
     }
@@ -751,8 +755,8 @@ impl Vmm {
         // message it will accept... but running and paused will take it as well.
         // It breaks out of the state machine loop so that the thread can be joined.
         for (idx, handle) in self.vcpus_handles.iter().enumerate() {
-            if let Err(e) = handle.send_event(VcpuEvent::Finish) {
-                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, e);
+            if let Err(err) = handle.send_event(VcpuEvent::Finish) {
+                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
             }
         }
         // The actual thread::join() that runs to release the thread's resource is done in
@@ -817,14 +821,14 @@ impl Drop for Vmm {
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            if let Err(e) = observer.on_vmm_stop() {
-                warn!("{}", Error::VmmObserverTeardown(e));
+            if let Err(err) = observer.on_vmm_stop() {
+                warn!("{}", Error::VmmObserverTeardown(err));
             }
         }
 
         // Write the metrics before exiting.
-        if let Err(e) = METRICS.write() {
-            error!("Failed to write metrics while stopping: {}", e);
+        if let Err(err) = METRICS.write() {
+            error!("Failed to write metrics while stopping: {}", err);
         }
 
         if !self.vcpus_handles.is_empty() {
@@ -854,8 +858,8 @@ impl MutEventSubscriber for Vmm {
                     }
                     Ok(_response) => {} // Don't care about these, we are exiting.
                     Err(TryRecvError::Empty) => {} // Nothing pending in channel
-                    Err(e) => {
-                        panic!("Error while looking for VCPU exit status: {}", e);
+                    Err(err) => {
+                        panic!("Error while looking for VCPU exit status: {}", err);
                     }
                 }
             }
@@ -866,8 +870,8 @@ impl MutEventSubscriber for Vmm {
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
-            error!("Failed to register vmm exit event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
+            error!("Failed to register vmm exit event: {}", err);
         }
     }
 }

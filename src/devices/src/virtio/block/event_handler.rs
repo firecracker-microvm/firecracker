@@ -12,33 +12,33 @@ use crate::virtio::VirtioDevice;
 
 impl Block {
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.queue_evts[0], EventSet::IN)) {
-            error!("Failed to register queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_evts[0], EventSet::IN)) {
+            error!("Failed to register queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.rate_limiter, EventSet::IN)) {
-            error!("Failed to register ratelimiter event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.rate_limiter, EventSet::IN)) {
+            error!("Failed to register ratelimiter event: {}", err);
         }
         if let FileEngine::Async(engine) = self.disk.file_engine() {
-            if let Err(e) = ops.add(Events::new(engine.completion_evt(), EventSet::IN)) {
-                error!("Failed to register IO engine completion event: {}", e);
+            if let Err(err) = ops.add(Events::new(engine.completion_evt(), EventSet::IN)) {
+                error!("Failed to register IO engine completion event: {}", err);
             }
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
         debug!("block: activate event");
-        if let Err(e) = self.activate_evt.read() {
-            error!("Failed to consume block activate event: {:?}", e);
+        if let Err(err) = self.activate_evt.read() {
+            error!("Failed to consume block activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(e) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to un-register activate event: {}", e);
+        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to un-register activate event: {}", err);
         }
     }
 }

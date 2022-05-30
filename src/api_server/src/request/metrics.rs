@@ -11,9 +11,9 @@ use crate::request::Body;
 pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.metrics_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureMetrics(
-        serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|e| {
+        serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|err| {
             METRICS.put_api_requests.metrics_fails.inc();
-            e
+            err
         })?,
     )))
 }

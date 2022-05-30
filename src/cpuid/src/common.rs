@@ -76,7 +76,7 @@ pub fn get_vendor_id_from_host() -> Result<[u8; 12], Error> {
             };
             Ok(bytes)
         }
-        Err(e) => Err(e),
+        Err(err) => Err(err),
     }
 }
 

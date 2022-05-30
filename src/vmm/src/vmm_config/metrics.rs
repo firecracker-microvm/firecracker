@@ -37,11 +37,11 @@ impl Display for MetricsConfigError {
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> std::result::Result<(), MetricsConfigError> {
     let writer = FcLineWriter::new(
         open_file_nonblock(&metrics_cfg.metrics_path)
-            .map_err(|e| MetricsConfigError::InitializationFailure(e.to_string()))?,
+            .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?,
     );
     METRICS
         .init(Box::new(writer))
-        .map_err(|e| MetricsConfigError::InitializationFailure(e.to_string()))
+        .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]

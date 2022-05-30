@@ -106,10 +106,10 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
         }
         match ops.add(Events::new(&input_fd, EventSet::IN)) {
             Err(event_manager::Error::FdAlreadyRegistered) => (),
-            Err(e) => {
+            Err(err) => {
                 error!(
                     "Could not register the serial input to the event manager: {:?}",
-                    e
+                    err
                 );
             }
             Ok(()) => {
@@ -214,8 +214,8 @@ impl<W: std::io::Write> MutEventSubscriber
                     warn!("Detached the serial input due to peer close/error.");
                 }
             }
-            Err(e) => {
-                match e.raw_os_error() {
+            Err(err) => {
+                match err.raw_os_error() {
                     Some(errno) if errno == libc::ENOBUFS => {
                         unregister_source(ops, &input_fd);
                     }
@@ -245,12 +245,12 @@ impl<W: std::io::Write> MutEventSubscriber
             let serial_fd = self.serial_input_fd();
             let buf_ready_evt = self.buffer_ready_evt_fd();
             if serial_fd != -1 {
-                if let Err(e) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
-                    warn!("Failed to register serial input fd: {}", e);
+                if let Err(err) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
+                    warn!("Failed to register serial input fd: {}", err);
                 }
             }
-            if let Err(e) = ops.add(Events::new(&buf_ready_evt, EventSet::IN)) {
-                warn!("Failed to register serial buffer ready event: {}", e);
+            if let Err(err) = ops.add(Events::new(&buf_ready_evt, EventSet::IN)) {
+                warn!("Failed to register serial buffer ready event: {}", err);
             }
         }
     }
@@ -272,9 +272,9 @@ impl<W: Write + Send + 'static> BusDevice
             self.serial.events().metrics.missed_write_count.inc();
             return;
         }
-        if let Err(e) = self.serial.write(offset as u8, data[0]) {
+        if let Err(err) = self.serial.write(offset as u8, data[0]) {
             // Counter incremented for any handle_write() error.
-            error!("Failed the write to serial: {:?}", e);
+            error!("Failed the write to serial: {:?}", err);
             self.serial.events().metrics.error_count.inc();
         }
     }

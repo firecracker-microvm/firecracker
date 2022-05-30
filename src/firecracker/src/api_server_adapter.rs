@@ -108,8 +108,8 @@ impl MutEventSubscriber for ApiServerAdapter {
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 }

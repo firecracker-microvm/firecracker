@@ -138,7 +138,7 @@ pub fn init_logger(
 
     let writer = FcLineWriter::new(
         open_file_nonblock(&logger_cfg.log_path)
-            .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+            .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))?,
     );
     LOGGER
         .init(
@@ -148,7 +148,7 @@ pub fn init_logger(
             ),
             Box::new(writer),
         )
-        .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
+        .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]

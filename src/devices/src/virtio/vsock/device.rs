@@ -144,11 +144,11 @@ where
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
                             Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
-                            Err(e) => {
+                            Err(err) => {
                                 warn!(
                                     "vsock: Error writing packet header to guest memory: \
                                      {:?}.Discarding the package.",
-                                    e
+                                    err
                                 );
                                 0
                             }
@@ -161,8 +161,8 @@ where
                         break;
                     }
                 }
-                Err(e) => {
-                    warn!("vsock: RX queue error: {:?}. Discarding the package.", e);
+                Err(err) => {
+                    warn!("vsock: RX queue error: {:?}. Discarding the package.", err);
                     0
                 }
             };
@@ -170,8 +170,8 @@ where
             have_used = true;
             self.queues[RXQ_INDEX]
                 .add_used(mem, head.index, used_len)
-                .unwrap_or_else(|e| {
-                    error!("Failed to add available descriptor {}: {}", head.index, e)
+                .unwrap_or_else(|err| {
+                    error!("Failed to add available descriptor {}: {}", head.index, err)
                 });
         }
 
@@ -191,13 +191,13 @@ where
         while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
             let pkt = match VsockPacket::from_tx_virtq_head(&head) {
                 Ok(pkt) => pkt,
-                Err(e) => {
-                    error!("vsock: error reading TX packet: {:?}", e);
+                Err(err) => {
+                    error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
                     self.queues[TXQ_INDEX]
                         .add_used(mem, head.index, 0)
-                        .unwrap_or_else(|e| {
-                            error!("Failed to add available descriptor {}: {}", head.index, e);
+                        .unwrap_or_else(|err| {
+                            error!("Failed to add available descriptor {}: {}", head.index, err);
                         });
                     continue;
                 }
@@ -211,8 +211,8 @@ where
             have_used = true;
             self.queues[TXQ_INDEX]
                 .add_used(mem, head.index, 0)
-                .unwrap_or_else(|e| {
-                    error!("Failed to add available descriptor {}: {}", head.index, e);
+                .unwrap_or_else(|err| {
+                    error!("Failed to add available descriptor {}: {}", head.index, err);
                 });
         }
 
@@ -232,12 +232,12 @@ where
         })?;
 
         mem.write_obj::<u32>(VIRTIO_VSOCK_EVENT_TRANSPORT_RESET, head.addr)
-            .unwrap_or_else(|e| error!("Failed to write virtio vsock reset event: {:?}", e));
+            .unwrap_or_else(|err| error!("Failed to write virtio vsock reset event: {:?}", err));
 
         self.queues[EVQ_INDEX]
             .add_used(mem, head.index, head.len)
-            .unwrap_or_else(|e| {
-                error!("Failed to add used descriptor {}: {}", head.index, e);
+            .unwrap_or_else(|err| {
+                error!("Failed to add used descriptor {}: {}", head.index, err);
             });
 
         self.signal_used_queue()?;

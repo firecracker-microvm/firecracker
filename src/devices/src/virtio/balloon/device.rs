@@ -305,12 +305,12 @@ impl Balloon {
                 let guest_addr =
                     GuestAddress((page_frame_number as u64) << VIRTIO_BALLOON_PFN_SHIFT);
 
-                if let Err(e) = remove_range(
+                if let Err(err) = remove_range(
                     mem,
                     (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
                     self.restored,
                 ) {
-                    error!("Error removing memory range: {:?}", e);
+                    error!("Error removing memory range: {:?}", err);
                 }
             }
         }
@@ -383,9 +383,9 @@ impl Balloon {
     }
 
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
-        self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
+        self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|err| {
             METRICS.balloon.event_fails.inc();
-            BalloonError::InterruptError(e)
+            BalloonError::InterruptError(err)
         })
     }
 

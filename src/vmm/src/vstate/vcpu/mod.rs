@@ -65,11 +65,11 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            FaultyKvmExit(ref e) => write!(f, "Received error signaling kvm exit: {}", e),
-            SignalVcpu(e) => write!(f, "Failed to signal vcpu: {}", e),
-            UnhandledKvmExit(ref e) => write!(f, "Unexpected kvm exit received: {}", e),
-            VcpuResponse(e) => write!(f, "Failed to run action on vcpu: {}", e),
-            VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
+            FaultyKvmExit(ref err) => write!(f, "Received error signaling kvm exit: {}", err),
+            SignalVcpu(err) => write!(f, "Failed to signal vcpu: {}", err),
+            UnhandledKvmExit(ref err) => write!(f, "Unexpected kvm exit received: {}", err),
+            VcpuResponse(err) => write!(f, "Failed to run action on vcpu: {}", err),
+            VcpuSpawn(err) => write!(f, "Cannot spawn a new vCPU thread: {}", err),
             VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
             VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
         }
@@ -262,10 +262,10 @@ impl Vcpu {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
+        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
-                self.kvm_vcpu.index, e
+                self.kvm_vcpu.index, err
             );
         }
 
@@ -364,9 +364,9 @@ impl Vcpu {
                             .send(VcpuResponse::SavedState(Box::new(vcpu_state)))
                             .expect("vcpu channel unexpectedly closed");
                     })
-                    .unwrap_or_else(|e| {
+                    .unwrap_or_else(|err| {
                         self.response_sender
-                            .send(VcpuResponse::Error(Error::VcpuResponse(e)))
+                            .send(VcpuResponse::Error(Error::VcpuResponse(err)))
                             .expect("vcpu channel unexpectedly closed");
                     });
 
@@ -380,9 +380,9 @@ impl Vcpu {
                             .send(VcpuResponse::RestoredState)
                             .expect("vcpu channel unexpectedly closed");
                     })
-                    .unwrap_or_else(|e| {
+                    .unwrap_or_else(|err| {
                         self.response_sender
-                            .send(VcpuResponse::Error(Error::VcpuResponse(e)))
+                            .send(VcpuResponse::Error(Error::VcpuResponse(err)))
                             .expect("vcpu channel unexpectedly closed")
                     });
 
@@ -417,9 +417,9 @@ impl Vcpu {
         // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
         // responsibility to break main event loop and propagate the exit code value.
         // Signal Vmm of Vcpu exit.
-        if let Err(e) = self.exit_evt.write(1) {
+        if let Err(err) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
-            error!("Failed signaling vcpu exit event: {}", e);
+            error!("Failed signaling vcpu exit event: {}", err);
         }
         // From this state we only accept going to finished.
         loop {
@@ -511,8 +511,8 @@ impl Vcpu {
             },
             // The unwrap on raw_os_error can only fail if we have a logic
             // error in our code in which case it is better to panic.
-            Err(ref e) => {
-                match e.errno() {
+            Err(ref err) => {
+                match err.errno() {
                     libc::EAGAIN => Ok(VcpuEmulation::Handled),
                     libc::EINTR => {
                         self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
@@ -531,8 +531,8 @@ impl Vcpu {
                     }
                     _ => {
                         METRICS.vcpu.failures.inc();
-                        error!("Failure during vcpu run: {}", e);
-                        Err(Error::FaultyKvmExit(format!("{}", e)))
+                        error!("Failure during vcpu run: {}", err);
+                        Err(Error::FaultyKvmExit(format!("{}", err)))
                     }
                 }
             }

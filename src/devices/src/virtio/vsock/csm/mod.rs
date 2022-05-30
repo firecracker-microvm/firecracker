@@ -39,15 +39,15 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::TxBufFull => write!(f, "Attempted to push data to a full TX buffer"),
-            Self::TxBufFlush(e) => write!(
+            Self::TxBufFlush(err) => write!(
                 f,
                 "An I/O error occurred, when attempting to flush the connection TX buffer: {}",
-                e
+                err
             ),
-            Self::StreamWrite(e) => write!(
+            Self::StreamWrite(err) => write!(
                 f,
                 "An I/O error occurred, when attempting to write data to the host-side stream: {}",
-                e
+                err
             ),
         }
     }

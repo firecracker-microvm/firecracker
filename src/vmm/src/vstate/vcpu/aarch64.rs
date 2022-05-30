@@ -39,14 +39,20 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            ConfigureRegisters(e) => {
-                write!(f, "Error configuring the general purpose registers: {}", e)
+            ConfigureRegisters(err) => {
+                write!(
+                    f,
+                    "Error configuring the general purpose registers: {}",
+                    err
+                )
             }
-            CreateFd(e) => write!(f, "Error in opening the VCPU file descriptor: {}", e),
-            GetPreferredTarget(e) => write!(f, "Error retrieving the vcpu preferred target: {}", e),
-            Init(e) => write!(f, "Error initializing the vcpu: {}", e),
-            RestoreState(e) => write!(f, "Failed to restore the state of the vcpu: {}", e),
-            SaveState(e) => write!(f, "Failed to save the state of the vcpu: {}", e),
+            CreateFd(err) => write!(f, "Error in opening the VCPU file descriptor: {}", err),
+            GetPreferredTarget(err) => {
+                write!(f, "Error retrieving the vcpu preferred target: {}", err)
+            }
+            Init(err) => write!(f, "Error initializing the vcpu: {}", err),
+            RestoreState(err) => write!(f, "Failed to restore the state of the vcpu: {}", err),
+            SaveState(err) => write!(f, "Failed to save the state of the vcpu: {}", err),
         }
     }
 }

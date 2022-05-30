@@ -68,8 +68,8 @@ fn main_exitable() -> FcExitCode {
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
-    if let Err(e) = register_signal_handlers() {
-        error!("Failed to register signal handlers: {}", e);
+    if let Err(err) = register_signal_handlers() {
+        error!("Failed to register signal handlers: {}", err);
         return vmm::FcExitCode::GenericError;
     }
 
@@ -87,18 +87,18 @@ fn main_exitable() -> FcExitCode {
         // origin of the panic, including the payload passed to panic! and the source code location
         // from which the panic originated.
         error!("Firecracker {}", info);
-        if let Err(e) = stdin.lock().set_canon_mode() {
+        if let Err(err) = stdin.lock().set_canon_mode() {
             error!(
                 "Failure while trying to reset stdin to canonical mode: {}",
-                e
+                err
             );
         }
 
         METRICS.vmm.panic_count.store(1);
 
         // Write the metrics before aborting.
-        if let Err(e) = METRICS.write() {
-            error!("Failed to write metrics while panicking: {}", e);
+        if let Err(err) = METRICS.write() {
+            error!("Failed to write metrics while panicking: {}", err);
         }
     }));
 
@@ -271,11 +271,11 @@ fn main_exitable() -> FcExitCode {
         let level = arguments.single_value("level").unwrap().to_owned();
         let logger_level = match LoggerLevel::from_string(level) {
             Ok(level) => level,
-            Err(e) => {
+            Err(err) => {
                 return generic_error_exit(&format!(
                     "Invalid value for logger level: {}.Possible values: [Error, Warning, Info, \
                      Debug]",
-                    e
+                    err
                 ));
             }
         };
@@ -288,8 +288,8 @@ fn main_exitable() -> FcExitCode {
             show_level,
             show_log_origin,
         );
-        if let Err(e) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger:: {}", e));
+        if let Err(err) = init_logger(logger_config, &instance_info) {
+            return generic_error_exit(&format!("Could not initialize logger:: {}", err));
         };
     }
 
@@ -300,8 +300,8 @@ fn main_exitable() -> FcExitCode {
     .and_then(get_filters)
     {
         Ok(filters) => filters,
-        Err(e) => {
-            return generic_error_exit(&format!("Seccomp error: {}", e));
+        Err(err) => {
+            return generic_error_exit(&format!("Seccomp error: {}", err));
         }
     };
 

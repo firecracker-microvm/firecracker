@@ -75,7 +75,7 @@ impl VsockChannel for TestBackend {
                 self.rx_ok_cnt += 1;
                 Ok(())
             }
-            Some(e) => Err(e),
+            Some(err) => Err(err),
         }
     }
 
@@ -85,7 +85,7 @@ impl VsockChannel for TestBackend {
                 self.tx_ok_cnt += 1;
                 Ok(())
             }
-            Some(e) => Err(e),
+            Some(err) => Err(err),
         }
     }
 

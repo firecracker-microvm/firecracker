@@ -143,7 +143,7 @@ impl I8042Device {
 
         match self.trigger_kbd_interrupt() {
             Ok(_) | Err(Error::KbdInterruptDisabled) => Ok(()),
-            Err(e) => Err(e),
+            Err(err) => Err(err),
         }
     }
 
@@ -246,8 +246,8 @@ impl BusDevice for I8042Device {
                 // The guest wants to assert the CPU reset line. We handle that by triggering
                 // our exit event fd. Meaning Firecracker will be exiting as soon as the VMM
                 // thread wakes up to handle this event.
-                if let Err(e) = self.reset_evt.write(1) {
-                    error!("Failed to trigger i8042 reset event: {:?}", e);
+                if let Err(err) = self.reset_evt.write(1) {
+                    error!("Failed to trigger i8042 reset event: {:?}", err);
                     METRICS.i8042.error_count.inc();
                 }
                 METRICS.i8042.reset_count.inc();

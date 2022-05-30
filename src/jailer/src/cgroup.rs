@@ -48,8 +48,8 @@ impl CgroupBuilder {
         };
 
         // search PROC_MOUNTS for cgroup mount points
-        let f =
-            File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
+        let f = File::open(PROC_MOUNTS)
+            .map_err(|err| Error::FileOpen(PathBuf::from(PROC_MOUNTS), err))?;
 
         // Regex courtesy of Filippo.
         // This will match on each line from /proc/mounts for both v1 and v2 mount points.
@@ -69,7 +69,7 @@ impl CgroupBuilder {
         ).map_err(Error::RegEx)?;
 
         for l in BufReader::new(f).lines() {
-            let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
+            let l = l.map_err(|err| Error::ReadLine(PathBuf::from(PROC_MOUNTS), err))?;
             if let Some(capture) = re.captures(&l) {
                 if ver == 2 && capture["ver"].len() == 1 {
                     // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
@@ -136,8 +136,8 @@ impl CgroupBuilder {
     fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf> {
         // First try and see if the path is already discovered.
         match self.hierarchies.entry(controller.to_string()) {
-            Occupied(e) => Ok(e.into_mut()),
-            Vacant(e) => {
+            Occupied(entry) => Ok(entry.into_mut()),
+            Vacant(entry) => {
                 // Since the path for this controller type was not already discovered
                 // we need to search through the mount points to find it
                 let mut path = None;
@@ -151,7 +151,7 @@ impl CgroupBuilder {
                 // It's possible that the controller is not mounted or a bad controller
                 // name was specified. Return an error in this case
                 match path {
-                    Some(p) => Ok(e.insert(p)),
+                    Some(p) => Ok(entry.insert(p)),
                     None => Err(Error::CgroupControllerUnavailable(controller.to_string())),
                 }
             }
@@ -297,7 +297,7 @@ impl Cgroup for CgroupV1 {
 
         // Create the cgroup directory for the controller.
         fs::create_dir_all(&self.base.location)
-            .map_err(|e| Error::CreateDir(self.base.location.clone(), e))?;
+            .map_err(|err| Error::CreateDir(self.base.location.clone(), err))?;
 
         // Write the corresponding cgroup value. inherit_from_parent is used to
         // correctly propagate the value if not defined.
@@ -396,7 +396,7 @@ impl Cgroup for CgroupV2 {
 
         // Create the cgroup directory for the controller.
         fs::create_dir_all(&self.0.location)
-            .map_err(|e| Error::CreateDir(self.0.location.clone(), e))?;
+            .map_err(|err| Error::CreateDir(self.0.location.clone(), err))?;
 
         // Ok to unwrap since the path was just created.
         let parent = location.parent().unwrap();

@@ -23,10 +23,10 @@ impl fmt::Display for VsockConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::VsockConfigError::*;
         match *self {
-            CreateVsockBackend(ref e) => {
-                write!(f, "Cannot create backend for vsock device: {:?}", e)
+            CreateVsockBackend(ref err) => {
+                write!(f, "Cannot create backend for vsock device: {:?}", err)
             }
-            CreateVsockDevice(ref e) => write!(f, "Cannot create vsock device: {:?}", e),
+            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
         }
     }
 }

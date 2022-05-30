@@ -79,18 +79,18 @@ impl fmt::Display for NetworkInterfaceError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::NetworkInterfaceError::*;
         match self {
-            CreateNetworkDevice(e) => write!(f, "Could not create Network Device: {:?}", e),
-            CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
+            CreateNetworkDevice(err) => write!(f, "Could not create Network Device: {:?}", err),
+            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
             GuestMacAddressInUse(mac_addr) => write!(
                 f,
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
-            DeviceUpdate(e) => write!(f, "Error during interface update (patch): {}", e),
-            OpenTap(e) => {
+            DeviceUpdate(err) => write!(f, "Error during interface update (patch): {}", err),
+            OpenTap(err) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
-                let mut tap_err = format!("{:?}", e);
+                let mut tap_err = format!("{:?}", err);
                 tap_err = tap_err.replace("\"", "");
 
                 write!(

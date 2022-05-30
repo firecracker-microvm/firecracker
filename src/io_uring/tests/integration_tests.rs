@@ -29,7 +29,7 @@ fn test_ring_new() {
     // Invalid entries count: 0.
     assert!(matches!(
         IoUring::new(0, vec![], vec![], None),
-        Err(Error::Setup(e)) if e.kind() == std::io::ErrorKind::InvalidInput
+        Err(Error::Setup(err)) if err.kind() == std::io::ErrorKind::InvalidInput
     ));
     // Try to register too many files.
     let dummy_file = TempFile::new().unwrap().into_file();
@@ -106,7 +106,7 @@ fn test_restrictions() {
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
         assert!(
             matches!(unsafe{ring.pop::<u8>().unwrap().unwrap().result()},
-            Err(e) if e.kind() == std::io::ErrorKind::Other)
+            Err(err) if err.kind() == std::io::ErrorKind::Other)
         );
     }
 }

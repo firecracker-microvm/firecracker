@@ -99,8 +99,8 @@ pub enum StartMicrovmError {
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
 impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
-    fn from(e: linux_loader::cmdline::Error) -> StartMicrovmError {
-        StartMicrovmError::KernelCmdline(e.to_string())
+    fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
+        StartMicrovmError::KernelCmdline(err.to_string())
     }
 }
 
@@ -111,7 +111,7 @@ impl Display for StartMicrovmError {
             AttachBlockDevice(err) => {
                 write!(f, "Unable to attach block device to Vmm: {}", err)
             }
-            ConfigureSystem(e) => write!(f, "System configuration error: {:?}", e),
+            ConfigureSystem(err) => write!(f, "System configuration error: {:?}", err),
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
             CreateNetDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
@@ -207,21 +207,21 @@ impl ReadableFd for SerialStdin {}
 impl VmmEventsObserver for SerialStdin {
     fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
         // Set raw mode for stdin.
-        self.0.lock().set_raw_mode().map_err(|e| {
-            warn!("Cannot set raw mode for the terminal. {:?}", e);
-            e
+        self.0.lock().set_raw_mode().map_err(|err| {
+            warn!("Cannot set raw mode for the terminal. {:?}", err);
+            err
         })?;
 
         // Set non blocking stdin.
-        self.0.lock().set_non_block(true).map_err(|e| {
-            warn!("Cannot set non block for the terminal. {:?}", e);
-            e
+        self.0.lock().set_non_block(true).map_err(|err| {
+            warn!("Cannot set non block for the terminal. {:?}", err);
+            err
         })
     }
     fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        self.0.lock().set_canon_mode().map_err(|e| {
-            warn!("Cannot set canonical mode for the terminal. {:?}", e);
-            e
+        self.0.lock().set_canon_mode().map_err(|err| {
+            warn!("Cannot set canonical mode for the terminal. {:?}", err);
+            err
         })
     }
 }
@@ -492,13 +492,13 @@ pub fn build_microvm_from_snapshot(
         if vcpus[0]
             .kvm_vcpu
             .is_tsc_scaling_required(state_tsc)
-            .map_err(|e| MicrovmStateError::IncompatibleState(e.to_string()))
+            .map_err(|err| MicrovmStateError::IncompatibleState(err.to_string()))
             .map_err(RestoreMicrovmState)?
         {
             for vcpu in &vcpus {
                 vcpu.kvm_vcpu
                     .set_tsc_khz(state_tsc)
-                    .map_err(|e| MicrovmStateError::IncompatibleState(e.to_string()))
+                    .map_err(|err| MicrovmStateError::IncompatibleState(err.to_string()))
                     .map_err(RestoreMicrovmState)?;
             }
         }
@@ -603,7 +603,7 @@ fn load_kernel(
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
-        .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
+        .map_err(|err| StartMicrovmError::Internal(Error::KernelFile(err)))?;
 
     #[cfg(target_arch = "x86_64")]
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
@@ -659,7 +659,7 @@ where
     let size: usize;
     // Get the image size
     match image.seek(SeekFrom::End(0)) {
-        Err(e) => return Err(InitrdRead(e)),
+        Err(err) => return Err(InitrdRead(err)),
         Ok(0) => {
             return Err(InitrdRead(io::Error::new(
                 io::ErrorKind::InvalidData,

@@ -319,12 +319,12 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
     let request = Request::try_from(byte_stream, None);
     match request {
         Ok(request) => callback(request),
-        Err(e) => match e {
+        Err(err) => match err {
             RequestError::BodyWithoutPendingRequest
             | RequestError::HeadersWithoutPendingRequest
             | RequestError::Overflow
             | RequestError::Underflow => {
-                build_response(StatusCode::BadRequest, Body::new(e.to_string()))
+                build_response(StatusCode::BadRequest, Body::new(err.to_string()))
             }
             RequestError::InvalidUri(err_msg) => {
                 build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
@@ -341,7 +341,7 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
                 Body::new("Invalid request.".to_string()),
             ),
             RequestError::SizeLimitExceeded(_, _) => {
-                build_response(StatusCode::PayloadTooLarge, Body::new(e.to_string()))
+                build_response(StatusCode::PayloadTooLarge, Body::new(err.to_string()))
             }
         },
     }
@@ -391,14 +391,14 @@ mod tests {
         // Fix the SYN and create an endpoint.
         syn.set_flags_after_ns(TcpFlags::SYN);
         let remote_isn = syn.sequence_number();
-        let mut e = Endpoint::new_with_defaults(&syn).unwrap();
+        let mut endpoint = Endpoint::new_with_defaults(&syn).unwrap();
 
         // Let's complete the three-way handshake. The next segment sent by the endpoint should
         // be a SYNACK.
-        assert_eq!(e.next_segment_status(), NextSegmentStatus::Available);
+        assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Available);
         let endpoint_isn = {
             // We need this block to delimit the mut borrow of write_buf.
-            let s = e
+            let s = endpoint
                 .write_next_segment(write_buf.as_mut(), t.mss_reserved)
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::SYN | TcpFlags::ACK);
@@ -406,10 +406,10 @@ mod tests {
         };
 
         // A RTO should be pending until the SYNACK is ACKed.
-        if let NextSegmentStatus::Timeout(_) = e.next_segment_status() {
+        if let NextSegmentStatus::Timeout(_) = endpoint.next_segment_status() {
             assert_eq!(
-                e.next_segment_status(),
-                e.connection().control_segment_or_timeout_status()
+                endpoint.next_segment_status(),
+                endpoint.connection().control_segment_or_timeout_status()
             );
         } else {
             panic!("missing expected timeout.");
@@ -419,12 +419,12 @@ mod tests {
         let mut ctrl = t.write_ctrl(buf2.as_mut());
         ctrl.set_flags_after_ns(TcpFlags::ACK);
         ctrl.set_ack_number(endpoint_isn.wrapping_add(1));
-        assert!(!e.connection.is_established());
-        e.receive_segment(&ctrl, mock_callback);
-        assert!(e.connection.is_established());
+        assert!(!endpoint.connection.is_established());
+        endpoint.receive_segment(&ctrl, mock_callback);
+        assert!(endpoint.connection.is_established());
 
         // Also, there should be nothing to send now anymore, nor any timeout pending.
-        assert_eq!(e.next_segment_status(), NextSegmentStatus::Nothing);
+        assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Incomplete because it's missing the newlines at the end.
         let incomplete_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1";
@@ -433,10 +433,10 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_isn.wrapping_add(1));
             data.set_ack_number(endpoint_isn.wrapping_add(1));
-            e.receive_segment(&data, mock_callback);
+            endpoint.receive_segment(&data, mock_callback);
         }
 
-        assert_eq!(e.receive_buf_left, incomplete_request.len());
+        assert_eq!(endpoint.receive_buf_left, incomplete_request.len());
 
         // 1 for the SYN.
         let mut remote_first_not_sent =
@@ -444,8 +444,8 @@ mod tests {
 
         // The endpoint should write an ACK at this point.
         {
-            assert_eq!(e.next_segment_status(), NextSegmentStatus::Available);
-            let s = e
+            assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Available);
+            let s = endpoint
                 .write_next_segment(write_buf.as_mut(), t.mss_reserved)
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::ACK);
@@ -453,7 +453,7 @@ mod tests {
         }
 
         // There should be nothing else to send.
-        assert_eq!(e.next_segment_status(), NextSegmentStatus::Nothing);
+        assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Nothing);
 
         let rest_of_the_request = b"\r\n\r\n";
         // Let's also send the newlines.
@@ -462,7 +462,7 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_first_not_sent);
             data.set_ack_number(endpoint_isn + 1);
-            e.receive_segment(&data, mock_callback);
+            endpoint.receive_segment(&data, mock_callback);
         }
 
         remote_first_not_sent =
@@ -472,8 +472,8 @@ mod tests {
 
         // We should get a data segment that also ACKs the latest bytes received.
         {
-            assert_eq!(e.next_segment_status(), NextSegmentStatus::Available);
-            let s = e
+            assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Available);
+            let s = endpoint
                 .write_next_segment(write_buf.as_mut(), t.mss_reserved)
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::ACK);
@@ -498,7 +498,7 @@ mod tests {
         let last_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n123";
 
         // Send one request for each byte in receive_buf, just to be sure.
-        let max_iter = e.receive_buf.len();
+        let max_iter = endpoint.receive_buf.len();
         for i in 1..=max_iter {
             // We want to use last_request for the last request.
             let request = if i == max_iter {
@@ -514,14 +514,14 @@ mod tests {
                 data.set_flags_after_ns(TcpFlags::ACK);
                 data.set_sequence_number(remote_first_not_sent);
                 data.set_ack_number(endpoint_first_not_sent);
-                e.receive_segment(&data, mock_callback);
+                endpoint.receive_segment(&data, mock_callback);
             }
 
             remote_first_not_sent = remote_first_not_sent.wrapping_add(request.len() as u32);
 
             // Check response.
             {
-                let s = e
+                let s = endpoint
                     .write_next_segment(write_buf.as_mut(), t.mss_reserved)
                     .unwrap();
                 assert_eq!(s.inner().flags_after_ns(), TcpFlags::ACK);
@@ -537,20 +537,20 @@ mod tests {
 
         // The value of receive_buf_left should be 3 right now, because of the trailing chars from
         // last_request.
-        assert_eq!(e.receive_buf_left, 3);
+        assert_eq!(endpoint.receive_buf_left, 3);
 
         // Unless the machine running the tests is super slow for some reason, we should be nowhere
         // near the expiry of the eviction timer.
-        assert!(!e.is_evictable());
+        assert!(!endpoint.is_evictable());
 
         // Let's hack this a bit and change the eviction_threshold to 0.
-        e.set_eviction_threshold(0);
+        endpoint.set_eviction_threshold(0);
         // The endpoint should be evictable now.
-        assert!(e.is_evictable());
+        assert!(endpoint.is_evictable());
 
         // Finally, let's fill self.receive_buf with the following request, and see if we get the
         // reset we expect on the next segment.
-        let request_to_fill = vec![0u8; RCV_BUF_MAX_SIZE - e.receive_buf_left];
+        let request_to_fill = vec![0u8; RCV_BUF_MAX_SIZE - endpoint.receive_buf_left];
 
         {
             // Hack: have to artificially increase t.mss to create this segment which is 2k+.
@@ -560,11 +560,11 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_first_not_sent);
             data.set_ack_number(endpoint_first_not_sent);
-            e.receive_segment(&data, mock_callback);
+            endpoint.receive_segment(&data, mock_callback);
         }
 
         {
-            let s = e
+            let s = endpoint
                 .write_next_segment(write_buf.as_mut(), t.mss_reserved)
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::RST);

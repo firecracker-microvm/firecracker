@@ -518,13 +518,13 @@ mod tests {
         h: &mut TcpIPv4Handler,
         buf: &'a mut [u8],
     ) -> Result<(Option<IPv4Packet<'a, &'a mut [u8]>>, WriteEvent), WriteNextError> {
-        h.write_next_packet(buf).map(|(o, e)| {
+        h.write_next_packet(buf).map(|(o, err)| {
             (
                 o.map(move |len| {
                     let len = len.get();
                     IPv4Packet::from_bytes(buf.split_at_mut(len).0, true).unwrap()
                 }),
-                e,
+                err,
             )
         })
     }
@@ -535,8 +535,8 @@ mod tests {
         expected_event: WriteEvent,
     ) -> TcpSegment<'a, &'a mut [u8]> {
         let (segment_start, segment_end) = {
-            let (o, e) = write_next(h, buf).unwrap();
-            assert_eq!(e, expected_event);
+            let (o, event) = write_next(h, buf).unwrap();
+            assert_eq!(event, expected_event);
             let p = o.unwrap();
             (p.header_len(), p.len())
         };

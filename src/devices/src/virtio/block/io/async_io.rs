@@ -108,10 +108,10 @@ impl<T> AsyncFileEngine<T> {
     ) -> Result<(), UserDataError<T, Error>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
-            Err(e) => {
+            Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(e),
+                    error: Error::GuestMemory(err),
                 });
             }
         };
@@ -145,10 +145,10 @@ impl<T> AsyncFileEngine<T> {
     ) -> Result<(), UserDataError<T, Error>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
-            Err(e) => {
+            Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(e),
+                    error: Error::GuestMemory(err),
                 });
             }
         };
