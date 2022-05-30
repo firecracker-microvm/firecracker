@@ -9,10 +9,15 @@
 mod parsed_request;
 mod request;
 
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread::JoinHandle;
+use std::time::Duration;
 use std::{fmt, io};
 
+use libc::{c_int, c_void, siginfo_t};
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
@@ -20,9 +25,10 @@ pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
-use seccompiler::BpfProgramRef;
+use seccompiler::{BpfProgram, BpfProgramRef};
 use serde_json::json;
 use utils::eventfd::EventFd;
+use utils::signal::{register_signal_handler, sigrtmax, Killable};
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
@@ -61,6 +67,49 @@ impl fmt::Debug for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Repeatedly tries to connect to unix socket specified by `socket_path`.
+///
+/// Retries to connect `retries` times, with `interval` duration between tries.
+pub fn try_connect(
+    socket_path: PathBuf,
+    mut retries: u32,
+    interval: Duration,
+) -> io::Result<UnixStream> {
+    let mut sock = UnixStream::connect(socket_path.clone());
+    while retries > 0 {
+        if sock.is_ok() {
+            break;
+        }
+        std::thread::sleep(interval);
+        retries = retries - 1;
+        sock = UnixStream::connect(socket_path.clone());
+    }
+    sock
+}
+
+/// An owned handle to an ApiServer thread, used to stop and join the thread.
+pub struct ThreadedApiServerHandle {
+    stop_signum: c_int,
+    stop_flag: Arc<AtomicBool>,
+    thread_handle: JoinHandle<()>,
+}
+
+impl ThreadedApiServerHandle {
+    /// Signals the ApiServer to stop and waits for the associated thread to finish.
+    ///
+    /// This function will return immediately if the associated thread has already finished.
+    pub fn stop_and_join(self) {
+        // Set the stop/shutdown flag for the ApiServer.
+        self.stop_flag.store(true, Ordering::Release);
+        // Kick the Api thread so it sees it should shut down.
+        // Only reason for error here is if thread is already down, safely ignore it.
+        let _ = self.thread_handle.kill(self.stop_signum);
+        // Wait for the thread to cleanly finish.
+        // Only returns error on panics, so unwrap() to cascade the panic.
+        self.thread_handle.join().unwrap();
+    }
+}
+
 /// Structure associated with the API server implementation.
 pub struct ApiServer {
     /// Sender which allows passing messages to the VMM.
@@ -71,10 +120,129 @@ pub struct ApiServer {
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
     /// If this flag is set, the API thread will go down.
-    shutdown_flag: bool,
+    shutdown_flag: Arc<AtomicBool>,
 }
 
 impl ApiServer {
+    /// Creates, binds and runs the ApiServer in its own thread.
+    ///
+    /// Returns a `ThreadedApiServerHandle` object for stopping the server and joining the thread.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::env::consts::ARCH;
+    /// use std::io::{Read, Write};
+    /// use std::os::unix::net::UnixStream;
+    /// use std::path::PathBuf;
+    /// use std::sync::mpsc::{channel, Receiver, Sender};
+    /// use std::sync::{Arc, Barrier};
+    /// use std::thread;
+    ///
+    /// use api_server::{try_connect, ApiServer};
+    /// use logger::ProcessTimeReporter;
+    /// use utils::eventfd::EventFd;
+    /// use utils::tempfile::TempFile;
+    /// use vmm::rpc_interface::VmmData;
+    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use vmm::vmm_config::instance_info::InstanceInfo;
+    ///
+    /// let mut tmp_socket = TempFile::new().unwrap();
+    /// tmp_socket.remove().unwrap();
+    /// let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+    /// let api_thread_path_to_socket = path_to_socket.clone();
+    /// let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+    /// let (api_request_sender, _from_api) = channel();
+    /// let (to_api, vmm_response_receiver) = channel();
+    /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
+    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    ///
+    /// let handle = ApiServer::start_threaded(
+    ///     api_request_sender,
+    ///     vmm_response_receiver,
+    ///     to_vmm_fd,
+    ///     PathBuf::from(api_thread_path_to_socket),
+    ///     time_reporter,
+    ///     seccomp_filters.get("api").unwrap().clone(),
+    ///     vmm::HTTP_MAX_PAYLOAD_SIZE,
+    /// )
+    /// .unwrap();
+    ///
+    /// to_api
+    ///     .send(Box::new(Ok(VmmData::InstanceInformation(
+    ///         InstanceInfo::default(),
+    ///     ))))
+    ///     .unwrap();
+    ///
+    /// let mut sock = try_connect(
+    ///     PathBuf::from(path_to_socket),
+    ///     5,
+    ///     std::time::Duration::from_millis(10),
+    /// )
+    /// .unwrap();
+    /// // Send a GET instance-info request.
+    /// assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+    /// let mut buf: [u8; 100] = [0; 100];
+    /// assert!(sock.read(&mut buf[..]).unwrap() > 0);
+    ///
+    /// handle.stop_and_join();
+    /// ```
+    pub fn start_threaded(
+        api_request_sender: mpsc::Sender<ApiRequest>,
+        vmm_response_receiver: mpsc::Receiver<ApiResponse>,
+        to_vmm_fd: EventFd,
+        api_bind_path: PathBuf,
+        process_time_reporter: ProcessTimeReporter,
+        seccomp_filter: Arc<BpfProgram>,
+        api_payload_limit: usize,
+    ) -> std::io::Result<ThreadedApiServerHandle> {
+        let stop_signum = sigrtmax();
+        // We register a noop signal handler for `SIGRTMAX` whose purpose is to wake
+        // the api thread so it can check `stop_flag` in its main loop and terminate.
+        extern "C" fn noop_handle(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
+        register_signal_handler(stop_signum, noop_handle)
+            .expect("Failed to register vcpu signal handler");
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_clone = stop_flag.clone();
+        // Create api thread and run ApiServer.
+        let thread_handle = std::thread::Builder::new()
+            .name("fc_api".to_owned())
+            .spawn(move || {
+                match ApiServer::new(
+                    api_request_sender,
+                    vmm_response_receiver,
+                    to_vmm_fd,
+                    stop_flag_clone,
+                )
+                .bind_and_run(
+                    api_bind_path,
+                    process_time_reporter,
+                    &seccomp_filter,
+                    api_payload_limit,
+                ) {
+                    Ok(_) => (),
+                    Err(Error::Io(inner)) => match inner.kind() {
+                        std::io::ErrorKind::AddrInUse => {
+                            panic!("Failed to open the API socket: {:?}", Error::Io(inner))
+                        }
+                        _ => panic!(
+                            "Failed to communicate with the API socket: {:?}",
+                            Error::Io(inner)
+                        ),
+                    },
+                    Err(eventfd_err @ Error::Eventfd(_)) => {
+                        panic!("Failed to open the API socket: {:?}", eventfd_err)
+                    }
+                }
+            })?;
+        Ok(ThreadedApiServerHandle {
+            stop_signum,
+            stop_flag,
+            thread_handle,
+        })
+    }
+
     /// Constructor for `ApiServer`.
     ///
     /// Returns the newly formed `ApiServer`.
@@ -82,12 +250,13 @@ impl ApiServer {
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
+        shutdown_flag: Arc<AtomicBool>,
     ) -> Self {
         ApiServer {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-            shutdown_flag: false,
+            shutdown_flag,
         }
     }
 
@@ -114,7 +283,7 @@ impl ApiServer {
     /// use std::thread;
     /// use std::time::Duration;
     ///
-    /// use api_server::ApiServer;
+    /// use api_server::{try_connect, ApiServer};
     /// use logger::ProcessTimeReporter;
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
@@ -133,30 +302,37 @@ impl ApiServer {
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
     /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
-    /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
     ///     .spawn(move || {
-    ///         ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
-    ///             .bind_and_run(
-    ///                 PathBuf::from(api_thread_path_to_socket),
-    ///                 time_reporter,
-    ///                 seccomp_filters.get("api").unwrap(),
-    ///                 payload_limit,
-    ///                 socket_ready_sender,
-    ///             )
-    ///             .unwrap();
+    ///         ApiServer::new(
+    ///             api_request_sender,
+    ///             vmm_response_receiver,
+    ///             to_vmm_fd,
+    ///             Default::default(),
+    ///         )
+    ///         .bind_and_run(
+    ///             PathBuf::from(api_thread_path_to_socket),
+    ///             time_reporter,
+    ///             seccomp_filters.get("api").unwrap(),
+    ///             payload_limit,
+    ///         )
+    ///         .unwrap();
     ///     })
     ///     .unwrap();
     ///
-    /// socket_ready_receiver.recv().unwrap();
     /// to_api
     ///     .send(Box::new(Ok(VmmData::InstanceInformation(
     ///         InstanceInfo::default(),
     ///     ))))
     ///     .unwrap();
-    /// let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
+    /// let mut sock = try_connect(
+    ///     PathBuf::from(path_to_socket),
+    ///     5,
+    ///     std::time::Duration::from_millis(10),
+    /// )
+    /// .unwrap();
     /// // Send a GET instance-info request.
     /// assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
     /// let mut buf: [u8; 100] = [0; 100];
@@ -168,18 +344,11 @@ impl ApiServer {
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
         api_payload_limit: usize,
-        socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|err| {
             error!("Error creating the HTTP server: {}", err);
             std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
-        // Announce main thread that the socket path was created.
-        // As per the doc, "A send operation can only fail if the receiving end of a channel is
-        // disconnected". so this means that the main thread has exited.
-        socket_ready
-            .send(true)
-            .expect("No one to signal that the socket path is ready!");
         // Set the api payload size limit.
         server.set_payload_max_size(api_payload_limit);
 
@@ -227,14 +396,11 @@ impl ApiServer {
                 let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
                     - request_processing_start_us;
                 debug!("Total previous API call duration: {} us.", delta_us);
-
-                if self.shutdown_flag {
-                    server.flush_outgoing_writes();
-                    debug!(
-                        "/shutdown-internal request received, API server thread now ending itself"
-                    );
-                    return Ok(());
-                }
+            }
+            if self.shutdown_flag.load(Ordering::Acquire) {
+                server.flush_outgoing_writes();
+                debug!("Api shutdown flag set, API server thread now ending itself");
+                return Ok(());
             }
         }
     }
@@ -250,10 +416,6 @@ impl ApiServer {
                 let mut response = match req_action {
                     RequestAction::Sync(vmm_action) => {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-                    }
-                    RequestAction::ShutdownInternal => {
-                        self.shutdown_flag = true;
-                        Response::new(Version::Http11, StatusCode::NoContent)
                     }
                 };
                 if let Some(message) = parsing_info.take_deprecation_message() {
@@ -328,6 +490,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
     use std::thread;
+    use std::time::Duration;
 
     use logger::StoreMetric;
     use micro_http::HttpConnection;
@@ -375,7 +538,12 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
 
-        let mut api_server = ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd);
+        let mut api_server = ApiServer::new(
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+            Default::default(),
+        );
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MissingKernelConfig,
@@ -430,7 +598,12 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
 
-        let mut api_server = ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd);
+        let mut api_server = ApiServer::new(
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+            Default::default(),
+        );
 
         // Test an Actions request.
         let (mut sender, receiver) = UnixStream::pair().unwrap();
@@ -487,31 +660,33 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
-        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
             .spawn(move || {
-                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
-                    .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
-                        ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                        seccomp_filters.get("api").unwrap(),
-                        vmm::HTTP_MAX_PAYLOAD_SIZE,
-                        socket_ready_sender,
-                    )
-                    .unwrap();
+                ApiServer::new(
+                    api_request_sender,
+                    vmm_response_receiver,
+                    to_vmm_fd,
+                    Default::default(),
+                )
+                .bind_and_run(
+                    PathBuf::from(api_thread_path_to_socket),
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                    seccomp_filters.get("api").unwrap(),
+                    vmm::HTTP_MAX_PAYLOAD_SIZE,
+                )
+                .unwrap();
             })
             .unwrap();
 
-        // Wait for the server to set itself up.
-        socket_ready_receiver.recv().unwrap();
         to_api
             .send(Box::new(Ok(VmmData::InstanceInformation(
                 InstanceInfo::default(),
             ))))
             .unwrap();
-        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
+        let mut sock =
+            try_connect(PathBuf::from(path_to_socket), 5, Duration::from_millis(10)).unwrap();
 
         // Send a GET InstanceInfo request.
         assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
@@ -535,26 +710,28 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
-        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
             .spawn(move || {
-                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
-                    .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
-                        ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                        seccomp_filters.get("api").unwrap(),
-                        50,
-                        socket_ready_sender,
-                    )
-                    .unwrap();
+                ApiServer::new(
+                    api_request_sender,
+                    vmm_response_receiver,
+                    to_vmm_fd,
+                    Default::default(),
+                )
+                .bind_and_run(
+                    PathBuf::from(api_thread_path_to_socket),
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                    seccomp_filters.get("api").unwrap(),
+                    50,
+                )
+                .unwrap();
             })
             .unwrap();
 
-        // Wait for the server to set itself up.
-        socket_ready_receiver.recv().unwrap();
-        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
+        let mut sock =
+            try_connect(PathBuf::from(path_to_socket), 5, Duration::from_millis(10)).unwrap();
 
         // Send a GET mmds request.
         assert!(sock

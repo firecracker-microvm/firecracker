@@ -314,6 +314,19 @@
                 ]
             },
             {
+                "syscall": "tkill",
+                "comment": "Used to signal api thread shutdown",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 64,
+                        "comment": "sigrtmax()"
+                    }
+                ]
+            },
+            {
                 "syscall": "timerfd_settime",
                 "comment": "Needed for rate limiting and metrics",
                 "args": [

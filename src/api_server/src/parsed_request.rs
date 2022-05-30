@@ -27,7 +27,6 @@ use crate::ApiServer;
 
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
-    ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
 #[derive(Default)]
@@ -111,9 +110,6 @@ impl ParsedRequest {
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.get(1)),
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
-            }
-            (Method::Put, "shutdown-internal", None) => {
-                Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
@@ -348,7 +344,6 @@ pub(crate) mod tests {
                 (RequestAction::Sync(ref sync_req), RequestAction::Sync(ref other_sync_req)) => {
                     sync_req == other_sync_req
                 }
-                _ => false,
             }
         }
     }
@@ -356,7 +351,6 @@ pub(crate) mod tests {
     pub(crate) fn vmm_action_from_request(req: ParsedRequest) -> VmmAction {
         match req.action {
             RequestAction::Sync(vmm_action) => *vmm_action,
-            _ => panic!("Invalid request"),
         }
     }
 
@@ -369,7 +363,6 @@ pub(crate) mod tests {
                 assert_eq!(req_msg, msg);
                 *vmm_action
             }
-            _ => panic!("Invalid request"),
         }
     }
 
@@ -870,21 +863,6 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
-    }
-
-    #[test]
-    fn test_try_from_put_shutdown() {
-        let (mut sender, receiver) = UnixStream::pair().unwrap();
-        let mut connection = HttpConnection::new(receiver);
-        sender
-            .write_all(http_request("PUT", "/shutdown-internal", None).as_bytes())
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        match ParsedRequest::try_from_request(&req).unwrap().into_parts() {
-            (RequestAction::ShutdownInternal, _) => (),
-            _ => panic!("wrong parsed request"),
-        };
     }
 
     #[test]
