@@ -285,7 +285,7 @@ Output:
 
 Now, verifying the criteria:
 ```
-# Start the exercise without checking the criteria.
+# Start the exercise by checking the criteria.
 st_core.run_exercise()
 ```
 
