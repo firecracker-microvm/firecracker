@@ -3,7 +3,8 @@
 
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
 use kvm_ioctls::DeviceFd;
 
@@ -143,9 +144,10 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_save_pending_tables() {

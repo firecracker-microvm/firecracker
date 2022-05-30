@@ -50,7 +50,8 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
-    /// Returns the [LocalTime](struct.LocalTime.html) structure for the calling moment.
+    /// Returns the [LocalTime](struct.LocalTime.html) structure for the calling
+    /// moment.
     pub fn now() -> LocalTime {
         let mut timespec = libc::timespec {
             tv_sec: 0,
@@ -104,7 +105,8 @@ impl fmt::Display for LocalTime {
     }
 }
 
-/// Holds a micro-second resolution timestamp with both the real time and cpu time.
+/// Holds a micro-second resolution timestamp with both the real time and cpu
+/// time.
 #[derive(Clone)]
 pub struct TimestampUs {
     /// Real time in microseconds.
@@ -124,7 +126,8 @@ impl Default for TimestampUs {
 
 /// Returns a timestamp in nanoseconds from a monotonic clock.
 ///
-/// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.
+/// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other
+/// architectures.
 pub fn timestamp_cycles() -> u64 {
     #[cfg(target_arch = "x86_64")]
     // Safe because there's nothing that can go wrong with this call.

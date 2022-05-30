@@ -12,11 +12,11 @@ use logger::warn;
 use utils::byte_order;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-use super::device_status;
-use super::*;
+use super::{device_status, *};
 use crate::bus::BusDevice;
 
-//TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
+//TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that
+// should be used
 const VENDOR_ID: u32 = 0;
 
 /// Interrupt flags (re: interrupt status & acknowledge registers).
@@ -36,14 +36,15 @@ const MMIO_VERSION: u32 = 2;
 ///
 /// This requires 3 points of installation to work with a VM:
 ///
-/// 1. Mmio reads and writes must be sent to this device at what is referred to here as MMIO base.
-/// 1. `Mmio::queue_evts` must be installed at `virtio::NOTIFY_REG_OFFSET` offset from the MMIO
-/// base. Each event in the array must be signaled if the index is written at that offset.
-/// 1. `Mmio::interrupt_evt` must signal an interrupt that the guest driver is listening to when it
-/// is written to.
+/// 1. Mmio reads and writes must be sent to this device at what is referred to
+/// here as MMIO base. 1. `Mmio::queue_evts` must be installed at
+/// `virtio::NOTIFY_REG_OFFSET` offset from the MMIO base. Each event in the
+/// array must be signaled if the index is written at that offset.
+/// 1. `Mmio::interrupt_evt` must signal an interrupt that the guest driver is
+/// listening to when it is written to.
 ///
-/// Typically one page (4096 bytes) of MMIO address space is sufficient to handle this transport
-/// and inner virtio device.
+/// Typically one page (4096 bytes) of MMIO address space is sufficient to
+/// handle this transport and inner virtio device.
 #[derive(Debug)]
 pub struct MmioTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
@@ -154,13 +155,14 @@ impl MmioTransport {
         }
     }
 
-    /// Update device status according to the state machine defined by VirtIO Spec 1.0.
-    /// Please refer to VirtIO Spec 1.0, section 2.1.1 and 3.1.1.
+    /// Update device status according to the state machine defined by VirtIO
+    /// Spec 1.0. Please refer to VirtIO Spec 1.0, section 2.1.1 and 3.1.1.
     ///
-    /// The driver MUST update device status, setting bits to indicate the completed steps
-    /// of the driver initialization sequence specified in 3.1. The driver MUST NOT clear
-    /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
-    /// the device before attempting to re-initialize.
+    /// The driver MUST update device status, setting bits to indicate the
+    /// completed steps of the driver initialization sequence specified in
+    /// 3.1. The driver MUST NOT clear a device status bit. If the driver
+    /// sets the FAILED bit, the driver MUST later reset the device before
+    /// attempting to re-initialize.
     #[allow(unused_assignments)]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
@@ -231,7 +233,8 @@ impl BusDevice for MmioTransport {
                             .locked_device()
                             .avail_features_by_page(self.features_select);
                         if self.features_select == 1 {
-                            features |= 0x1; // enable support of VirtIO Version 1
+                            features |= 0x1; // enable support of VirtIO Version
+                                             // 1
                         }
                         features
                     }
@@ -329,10 +332,10 @@ impl BusDevice for MmioTransport {
 #[cfg(test)]
 pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
-
-    use super::*;
     use utils::eventfd::EventFd;
     use vm_memory::GuestMemoryMmap;
+
+    use super::*;
 
     pub(crate) struct DummyDevice {
         acked_features: u64,
@@ -440,8 +443,9 @@ pub(crate) mod tests {
         assert!(dummy.reset().is_none());
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)));
 
-        // We just make sure here that the implementation of a mmio device behaves as we expect,
-        // given a known virtio device implementation (the dummy device).
+        // We just make sure here that the implementation of a mmio device behaves as we
+        // expect, given a known virtio device implementation (the dummy
+        // device).
 
         assert_eq!(d.locked_device().queue_events().len(), 2);
 
@@ -474,7 +478,8 @@ pub(crate) mod tests {
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
 
-        // The following read shouldn't be valid, because the length of the buf is not 4.
+        // The following read shouldn't be valid, because the length of the buf is not
+        // 4.
         buf.push(0);
         d.read(0, &mut buf[..]);
         assert_eq!(buf[..4], buf_copy[..]);
@@ -527,9 +532,10 @@ pub(crate) mod tests {
         d.read(0xfc, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 5);
 
-        // This read shouldn't do anything, as it's past the readable generic registers, and
-        // before the device specific configuration space. Btw, reads from the device specific
-        // conf space are going to be tested a bit later, alongside writes.
+        // This read shouldn't do anything, as it's past the readable generic registers,
+        // and before the device specific configuration space. Btw, reads from
+        // the device specific conf space are going to be tested a bit later,
+        // alongside writes.
         buf = buf_copy.to_vec();
         d.read(0xfd, &mut buf[..]);
         assert_eq!(buf[..], buf_copy[..]);
@@ -571,7 +577,8 @@ pub(crate) mod tests {
         d.write(0x20, &buf[..]);
         assert_eq!(d.locked_device().acked_features(), 0x0);
 
-        // Write to device specific configuration space should be ignored before setting device_status::DRIVER
+        // Write to device specific configuration space should be ignored before setting
+        // device_status::DRIVER
         let buf1 = vec![1; 0xeff];
         for i in (0..0xeff).rev() {
             let mut buf2 = vec![0; 0xeff];
@@ -755,7 +762,8 @@ pub(crate) mod tests {
 
         // Device should be ready for activation now.
 
-        // A couple of invalid writes; will trigger warnings; shouldn't activate the device.
+        // A couple of invalid writes; will trigger warnings; shouldn't activate the
+        // device.
         d.write(0xa8, &buf[..]);
         d.write(0x1000, &buf[..]);
         assert!(!d.locked_device().is_activated());
@@ -776,8 +784,8 @@ pub(crate) mod tests {
         );
         assert!(d.locked_device().is_activated());
 
-        // A write which changes the size of a queue after activation; currently only triggers
-        // a warning path and have no effect on queue state.
+        // A write which changes the size of a queue after activation; currently only
+        // triggers a warning path and have no effect on queue state.
         write_le_u32(&mut buf[..], 0);
         d.queue_select = 0;
         d.write(0x44, &buf[..]);

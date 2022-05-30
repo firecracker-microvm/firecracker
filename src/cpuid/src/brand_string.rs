@@ -1,9 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
+
+use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -11,7 +12,8 @@ pub enum Error {
     Overflow(String),
 }
 
-/// Register designations used to get/set specific register values within the brand string buffer.
+/// Register designations used to get/set specific register values within the
+/// brand string buffer.
 pub enum Reg {
     Eax = 0,
     Ebx = 1,
@@ -22,10 +24,11 @@ pub enum Reg {
 const BRAND_STRING_INTEL: &[u8] = b"Intel(R) Xeon(R) Processor";
 const BRAND_STRING_AMD: &[u8] = b"AMD EPYC";
 
-/// A CPUID brand string wrapper, providing some efficient manipulation primitives.
+/// A CPUID brand string wrapper, providing some efficient manipulation
+/// primitives.
 ///
-/// This is achieved by bypassing the `O(n)` indexing, heap allocation, and the unicode checks
-/// done by `std::string::String`.
+/// This is achieved by bypassing the `O(n)` indexing, heap allocation, and the
+/// unicode checks done by `std::string::String`.
 #[derive(Clone)]
 pub struct BrandString {
     /// Flattened buffer, holding an array of 32-bit register values.
@@ -39,7 +42,8 @@ pub struct BrandString {
     ///   ...
     ///   reg_buf[10] = leaf_0x80000004.ECX
     ///   reg_buf[11] = leaf_0x80000004.EDX
-    /// When seen as a byte-array, this buffer holds the ASCII-encoded CPU brand string.
+    /// When seen as a byte-array, this buffer holds the ASCII-encoded CPU brand
+    /// string.
     reg_buf: [u32; BrandString::REG_BUF_SIZE],
 
     /// Actual string length, in bytes.
@@ -51,13 +55,15 @@ pub struct BrandString {
 impl BrandString {
     /// Register buffer size (in number of registers).
     ///
-    /// There are 3 leaves (0x800000002 through 0x80000004), each with 4 regs (EAX, EBX, ECX, EDX).
+    /// There are 3 leaves (0x800000002 through 0x80000004), each with 4 regs
+    /// (EAX, EBX, ECX, EDX).
     const REG_BUF_SIZE: usize = 3 * 4;
 
-    /// Max Brand string length, in bytes (also in chars, since it is ASCII-encoded).
+    /// Max Brand string length, in bytes (also in chars, since it is
+    /// ASCII-encoded).
     ///
-    /// The string is NULL-terminated, so the max string length is actually one byte
-    /// less than the buffer size in bytes
+    /// The string is NULL-terminated, so the max string length is actually one
+    /// byte less than the buffer size in bytes
     const MAX_LEN: usize = Self::REG_BUF_SIZE * 4 - 1;
 
     /// Creates an empty brand string (0-initialized)
@@ -79,8 +85,8 @@ impl BrandString {
     ///
     /// For other CPUs, we'll just expose an empty string.
     ///
-    /// This is safe because we know BRAND_STRING_INTEL and BRAND_STRING_AMD to hold valid data
-    /// (allowed length and holding only valid ASCII chars).
+    /// This is safe because we know BRAND_STRING_INTEL and BRAND_STRING_AMD to
+    /// hold valid data (allowed length and holding only valid ASCII chars).
     pub fn from_vendor_id(vendor_id: &[u8; 12]) -> BrandString {
         match vendor_id {
             VENDOR_ID_INTEL => {
@@ -99,8 +105,8 @@ impl BrandString {
         }
     }
 
-    /// Creates a brand string, initialized from the CPUID leaves 0x80000002 through 0x80000004
-    /// of the host CPU.
+    /// Creates a brand string, initialized from the CPUID leaves 0x80000002
+    /// through 0x80000004 of the host CPU.
     pub fn from_host_cpuid() -> Result<Self, Error> {
         let mut this = Self::new();
         let mut cpuid_regs = unsafe { host_cpuid(0x8000_0000) };
@@ -125,8 +131,8 @@ impl BrandString {
 
     /// Creates a (custom) brand string, initialized from `src`.
     ///
-    /// No checks are performed on the length of `src` or its contents (`src` should be an
-    /// ASCII-encoded string).
+    /// No checks are performed on the length of `src` or its contents (`src`
+    /// should be an ASCII-encoded string).
     #[inline]
     pub fn from_bytes_unchecked(src: &[u8]) -> Self {
         let mut this = Self::new();
@@ -174,7 +180,8 @@ impl BrandString {
         }
     }
 
-    /// Asserts whether or not there is enough room to append `src` to the brand string.
+    /// Asserts whether or not there is enough room to append `src` to the brand
+    /// string.
     fn check_push(&mut self, src: &[u8]) -> bool {
         src.len() <= Self::MAX_LEN - self.len
     }
@@ -194,10 +201,11 @@ impl BrandString {
         Ok(())
     }
 
-    /// Searches the brand string for the CPU frequency data it may contain (e.g. 4.01GHz),
-    /// and, if found, returns it as an `u8` slice.
+    /// Searches the brand string for the CPU frequency data it may contain
+    /// (e.g. 4.01GHz), and, if found, returns it as an `u8` slice.
     ///
-    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MGT]Hz)".
+    /// Basically, we're implementing a search for this regex:
+    /// "([0-9]+\.[0-9]+[MGT]Hz)".
     pub fn find_freq(&self) -> Option<&[u8]> {
         // The algorithm for matching the regular expression above is based
         // on a Moore machine, and 'stage' represents the current state of

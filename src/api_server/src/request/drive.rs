@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
 pub(crate) fn parse_put_drive(
     body: &Body,
@@ -100,7 +101,8 @@ mod tests {
               }"#;
         assert!(parse_patch_drive(&Body::new(body), Some(&"2")).is_err());
 
-        // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
+        // PATCH with invalid types on fields. Adding a drive_id as number instead of
+        // string.
         let body = r#"{
                 "drive_id": 1000,
                 "path_on_host": "dummy"
@@ -108,7 +110,8 @@ mod tests {
         let res = parse_patch_drive(&Body::new(body), Some(&"1000"));
         assert!(res.is_err());
 
-        // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
+        // PATCH with invalid types on fields. Adding a path_on_host as bool instead of
+        // string.
         let body = r#"{
                 "drive_id": 1000,
                 "path_on_host": true
@@ -232,7 +235,8 @@ mod tests {
         }"#;
         assert!(parse_put_drive(&Body::new(body), Some(&"1000")).is_ok());
 
-        // PUT with invalid types on fields. Adding a drive_id as number instead of string.
+        // PUT with invalid types on fields. Adding a drive_id as number instead of
+        // string.
         assert!(parse_put_drive(&Body::new(body), Some(&"foo")).is_err());
 
         // PUT with the complete configuration.

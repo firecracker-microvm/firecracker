@@ -3,9 +3,10 @@
 
 use std::io;
 
-use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use logger::error;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+
+use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -39,12 +40,13 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
             continue;
         }
 
-        // Check if the current page frame number is adjacent to the most recent page range.
-        // This operation will never overflow because for whatever value `v[previous]`
-        // has in the u32 range, we know there are at least `length` consecutive numbers
-        // greater than it in the array (the greatest so far being `page_frame_number`),
-        // since `v[previous]` is before all of them in the sorted array and `length`
-        // was incremented for each consecutive one. This is true only because we skip
+        // Check if the current page frame number is adjacent to the most recent page
+        // range. This operation will never overflow because for whatever value
+        // `v[previous]` has in the u32 range, we know there are at least
+        // `length` consecutive numbers greater than it in the array (the
+        // greatest so far being `page_frame_number`), since `v[previous]` is
+        // before all of them in the sorted array and `length` was incremented
+        // for each consecutive one. This is true only because we skip
         // duplicates.
         if page_frame_number == v[previous] + length {
             // If so, extend that range.
@@ -80,8 +82,9 @@ pub(crate) fn remove_range(
             .map_err(|_| RemoveRegionError::AddressTranslation)?;
 
         // Mmap a new anonymous region over the present one in order to create a hole.
-        // This workaround is (only) needed after resuming from a snapshot because the guest memory
-        // is mmaped from file as private and there is no `madvise` flag that works for this case.
+        // This workaround is (only) needed after resuming from a snapshot because the
+        // guest memory is mmaped from file as private and there is no `madvise`
+        // flag that works for this case.
         if restored {
             let ret = unsafe {
                 libc::mmap(
@@ -118,8 +121,9 @@ pub(crate) fn remove_range(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_memory::Bytes;
+
+    use super::*;
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {
@@ -277,17 +281,19 @@ mod tests {
     use proptest::prelude::*;
 
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
-        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32 elements.
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled
+        // with random u32 elements.
         prop::collection::vec(0..std::u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
     }
 
     fn random_pfn_100() -> impl Strategy<Value = Vec<u32>> {
-        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32 elements (0 - 100).
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with
+        // random u32 elements (0 - 100).
         prop::collection::vec(0..100u32, 0..MAX_PAGE_COMPACT_BUFFER / 8)
     }
 
-    // The uncompactor will output deduplicated and sorted elements as compaction algorithm
-    // guarantees it.
+    // The uncompactor will output deduplicated and sorted elements as compaction
+    // algorithm guarantees it.
     fn uncompact(compacted: Vec<(u32, u32)>) -> Vec<u32> {
         let mut result = Vec::new();
         for (start, len) in compacted {

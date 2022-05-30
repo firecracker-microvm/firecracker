@@ -1,17 +1,18 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Defines state and support structures for persisting Vsock devices and backends.
+//! Defines state and support structures for persisting Vsock devices and
+//! backends.
 
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use super::*;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
+use super::*;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_VSOCK};
 
@@ -127,12 +128,13 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use utils::byte_order;
+
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::defs::uapi;
     use crate::virtio::vsock::test_utils::{TestBackend, TestContext};
-    use utils::byte_order;
 
     impl Persist<'_> for TestBackend {
         type State = VsockBackendState;

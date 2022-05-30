@@ -3,21 +3,22 @@
 
 use std::ffi::{CStr, OsString};
 use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
+use std::io;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use utils::arg_parser::Error::MissingValue;
+use utils::syscall::SyscallReturnCode;
+use utils::{arg_parser, validators};
+
 use crate::cgroup::{Cgroup, CgroupBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::{Error, Result};
-use std::io;
-use std::io::Write;
-use utils::arg_parser::Error::MissingValue;
-use utils::syscall::SyscallReturnCode;
-use utils::{arg_parser, validators};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -44,19 +45,21 @@ const DEV_URANDOM_MINOR: u32 = 9;
 
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 
-// Relevant folders inside the jail that we create or/and for which we change ownership.
-// We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
-// We need /run for the default location of the api socket.
-// Since libc::chown is not recursive, we cannot specify only /dev/net as we want
-// to walk through the entire folder hierarchy.
+// Relevant folders inside the jail that we create or/and for which we change
+// ownership. We need /dev in order to be able to create /dev/kvm and
+// /dev/net/tun device. We need /run for the default location of the api socket.
+// Since libc::chown is not recursive, we cannot specify only /dev/net as we
+// want to walk through the entire folder hierarchy.
 const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
 const FOLDER_PERMISSIONS: u32 = 0o700;
 
-// When running with `--new-pid-ns` flag, the PID of the process running the exec_file differs
-// from jailer's and it is stored inside a dedicated file, prefixed with the below extension.
+// When running with `--new-pid-ns` flag, the PID of the process running the
+// exec_file differs from jailer's and it is stored inside a dedicated file,
+// prefixed with the below extension.
 const PID_FILE_EXTENSION: &str = ".pid";
 
-// Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
+// Helper function, since we'll use libc::dup2 a bunch of times for
+// daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // This is safe because we are using a library function with valid parameters.
     SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
@@ -64,10 +67,11 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
         .map_err(Error::Dup2)
 }
 
-// This is a wrapper for the clone system call. When we want to create a new process in a new
-// pid namespace, we will call clone with a NULL stack pointer. We can do this because we will
-// not use the CLONE_VM flag, this will result with the original stack replicated, in a similar
-// manner to the fork syscall. The libc wrapper prevents use of a NULL stack pointer, so we will
+// This is a wrapper for the clone system call. When we want to create a new
+// process in a new pid namespace, we will call clone with a NULL stack pointer.
+// We can do this because we will not use the CLONE_VM flag, this will result
+// with the original stack replicated, in a similar manner to the fork syscall.
+// The libc wrapper prevents use of a NULL stack pointer, so we will
 // call the syscall directly.
 fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int> {
     // Clone parameters order is different between x86_64 and aarch64.
@@ -108,7 +112,8 @@ impl Env {
         start_time_us: u64,
         start_time_cpu_us: u64,
     ) -> Result<Self> {
-        // Unwraps should not fail because the arguments are mandatory arguments or with default values.
+        // Unwraps should not fail because the arguments are mandatory arguments or with
+        // default values.
         let id = arguments
             .single_value("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
@@ -268,9 +273,10 @@ impl Env {
         self.jailer_cpu_time_us =
             utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
 
-        // Duplicate the current process. The child process will belong to the previously created
-        // PID namespace. The current process will not be moved into the newly created namespace,
-        // but its first child will assume the role of init(1) in the new namespace.
+        // Duplicate the current process. The child process will belong to the
+        // previously created PID namespace. The current process will not be
+        // moved into the newly created namespace, but its first child will
+        // assume the role of init(1) in the new namespace.
         let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
             0 => {
@@ -315,8 +321,8 @@ impl Env {
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
         // S_IWUSR -> write permission, owner
-        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
-        // more clarity.
+        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration'
+        // chapter for more clarity.
         SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
@@ -362,15 +368,16 @@ impl Env {
             .exec_file_path
             .file_name()
             .ok_or_else(|| Error::FileName(self.exec_file_path.clone()))?;
-        // We do a quick push here to get the global path of the executable inside the chroot,
-        // without having to create a new PathBuf. We'll then do a pop to revert to the actual
-        // chroot_dir right after the copy.
-        // TODO: just now wondering ... is doing a push()/pop() thing better than just creating
-        // a new PathBuf, with something like chroot_dir.join(exec_file_name) ?!
+        // We do a quick push here to get the global path of the executable inside the
+        // chroot, without having to create a new PathBuf. We'll then do a pop
+        // to revert to the actual chroot_dir right after the copy.
+        // TODO: just now wondering ... is doing a push()/pop() thing better than just
+        // creating a new PathBuf, with something like
+        // chroot_dir.join(exec_file_name) ?!
         self.chroot_dir.push(exec_file_name);
 
-        // TODO: hard link instead of copy? This would save up disk space, but hard linking is
-        // not always possible :(
+        // TODO: hard link instead of copy? This would save up disk space, but hard
+        // linking is not always possible :(
         fs::copy(&self.exec_file_path, &self.chroot_dir)
             .map_err(|e| Error::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), e))?;
 
@@ -380,8 +387,9 @@ impl Env {
     }
 
     fn join_netns(path: &str) -> Result<()> {
-        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately) instead
-        // used `into_raw_fd` which provides underlying fd ownership to caller.
+        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed
+        // immediately) instead used `into_raw_fd` which provides underlying fd
+        // ownership to caller.
         let netns_fd = File::open(path)
             .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
             .into_raw_fd();
@@ -420,8 +428,8 @@ impl Env {
         const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
         // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
         const MAX_CACHE_LEVEL: u8 = 7;
-        // These are the files that we need to copy in the chroot so that we can create the
-        // cache topology.
+        // These are the files that we need to copy in the chroot so that we can create
+        // the cache topology.
         const FOLDER_HIERARCHY: [&str; 6] = [
             "size",
             "level",
@@ -442,8 +450,8 @@ impl Env {
             let host_path = PathBuf::from(HOST_CACHE_INFO).join(&index_folder);
 
             if fs::metadata(&host_path).is_err() {
-                // It means the folder does not exist, i.e we exhausted the number of cache levels
-                // existent on the host.
+                // It means the folder does not exist, i.e we exhausted the number of cache
+                // levels existent on the host.
                 break;
             }
 
@@ -452,8 +460,8 @@ impl Env {
             fs::create_dir_all(&jailer_path)
                 .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
 
-            // We now read the contents of the current directory and copy the files we are interested in
-            // to the destination path.
+            // We now read the contents of the current directory and copy the files we are
+            // interested in to the destination path.
             for entry in FOLDER_HIERARCHY.iter() {
                 let host_cache_file = host_path.join(&entry);
                 let jailer_cache_file = jailer_path.join(&entry);
@@ -512,9 +520,10 @@ impl Env {
         // Set limits on resources.
         self.resource_limits.install()?;
 
-        // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
-        // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
-        // cpuset.mems and cpuset.cpus) to be set before attaching any pid.
+        // We have to setup cgroups at this point, because we can't do it anymore after
+        // chrooting. cgroups are iterated two times as some cgroups may require
+        // others (e.g cpuset requires cpuset.mems and cpuset.cpus) to be set
+        // before attaching any pid.
         for cgroup in &self.cgroups {
             // it will panic if any cgroup fails to write
             cgroup.write_value().unwrap();
@@ -549,8 +558,8 @@ impl Env {
         // Jail self.
         chroot(self.chroot_dir())?;
 
-        // This will not only create necessary directories, but will also change ownership
-        // for all of them.
+        // This will not only create necessary directories, but will also change
+        // ownership for all of them.
         FOLDER_HIERARCHY
             .iter()
             .try_for_each(|f| self.setup_jailed_folder(*f))?;
@@ -560,14 +569,14 @@ impl Env {
         // $: mkdir -p $chroot_dir/dev/net
         // $: dev_net_tun_path={$chroot_dir}/"tun"
         // $: mknod $dev_net_tun_path c 10 200
-        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
-        // and minor for the /dev/net/tun device.
+        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200
+        // as the major and minor for the /dev/net/tun device.
         self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
         self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
         // And for /dev/urandom with (major, minor) = (1, 9).
-        // If the device is not accessible on the host, output a warning to inform user that MMDS
-        // version 2 will not be available to use.
+        // If the device is not accessible on the host, output a warning to inform user
+        // that MMDS version 2 will not be available to use.
         let _ = self
             .mknod_and_own_dev(DEV_URANDOM_WITH_NUL, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
             .map_err(|err| {
@@ -607,14 +616,15 @@ impl Env {
 
 #[cfg(test)]
 mod tests {
+    use std::os::linux::fs::MetadataExt;
+    use std::os::unix::ffi::OsStrExt;
+
+    use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::build_arg_parser;
     use crate::cgroup::test_util::MockCgroupFs;
-
-    use std::os::linux::fs::MetadataExt;
-    use std::os::unix::ffi::OsStrExt;
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
@@ -851,15 +861,17 @@ mod tests {
         args.parse(&make_args(&invalid_format)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
-        // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
-        // actually attempt to create the folder structure (the same goes for netns).
+        // The chroot-base-dir param is not validated by Env::new, but rather in
+        // run, when we actually attempt to create the folder structure
+        // (the same goes for netns).
     }
 
     #[test]
     fn test_dup2() {
         // Open /dev/kvm since it should be available anyway.
         let fd1 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
-        // We open a second file to make sure its associated fd is not used by something else.
+        // We open a second file to make sure its associated fd is not used by something
+        // else.
         let fd2 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
 
         dup2(fd1, fd2).unwrap();
@@ -885,8 +897,8 @@ mod tests {
             "Failed to decode string from byte array: data provided contains an interior nul byte at byte pos 0"
         );
 
-        // Error case: inaccessible path - can't be triggered with unit tests running as root.
-        // assert_eq!(
+        // Error case: inaccessible path - can't be triggered with unit tests running as
+        // root. assert_eq!(
         //     format!("{}", env.setup_jailed_folders(vec!["/foo/bar"]).err().unwrap()),
         //     "Failed to create directory /foo/bar: Permission denied (os error 13)"
         // );
@@ -905,7 +917,8 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        // The mode bits will also have S_IFDIR set because the path belongs to a directory.
+        // The mode bits will also have S_IFDIR set because the path belongs to a
+        // directory.
         assert_eq!(
             metadata.permissions().mode(),
             FOLDER_PERMISSIONS | libc::S_IFDIR
@@ -913,11 +926,12 @@ mod tests {
         assert_eq!(metadata.st_uid(), env.uid);
         assert_eq!(metadata.st_gid(), env.gid);
 
-        // Can't safely test that permissions remain unchanged by umask settings without affecting
-        // the umask of the whole unit test process.
-        // This crate produces a binary, so Rust integ tests aren't an option either.
-        // And changing the umask in the Python integration tests is unsafe because of pytest's
-        // process management; it can't be isolated from side effects.
+        // Can't safely test that permissions remain unchanged by umask settings
+        // without affecting the umask of the whole unit test process.
+        // This crate produces a binary, so Rust integ tests aren't an option
+        // either. And changing the umask in the Python integration
+        // tests is unsafe because of pytest's process management; it
+        // can't be isolated from side effects.
     }
 
     #[test]
@@ -931,7 +945,8 @@ mod tests {
         // Ensure path buffers without NULL-termination are handled well.
         assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
 
-        // Ensure device nodes are created with correct major/minor numbers and permissions.
+        // Ensure device nodes are created with correct major/minor numbers and
+        // permissions.
         let dev_infos: Vec<(&[u8], u32, u32)> = vec![
             (b"/dev/net/tun-test\0", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
             (b"/dev/kvm-test\0", DEV_KVM_MAJOR, DEV_KVM_MINOR),
@@ -1013,7 +1028,8 @@ mod tests {
         );
 
         let dest_path = env.chroot_dir.join(some_file_name);
-        // Check that `fs::copy()` copied src content and permission bits to destination.
+        // Check that `fs::copy()` copied src content and permission bits to
+        // destination.
         let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
         let metadata_dest = fs::metadata(&dest_path).unwrap();
         let content_src = fs::read(&env.exec_file_path).unwrap();
@@ -1044,8 +1060,9 @@ mod tests {
             "Failed to join network namespace: netns: Invalid argument (os error 22)"
         );
 
-        // Testing `join_netns()` with a valid network namespace is not that easy
-        // as Rust std library doesn't offer support for creating such namespaces.
+        // Testing `join_netns()` with a valid network namespace is not that
+        // easy as Rust std library doesn't offer support for creating
+        // such namespaces.
     }
 
     #[test]

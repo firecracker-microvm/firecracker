@@ -6,16 +6,18 @@
 // found in the THIRD-PARTY file.
 
 use std::result;
-/// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
-/// device logic: feature negociation, device configuration, and device activation.
+/// This is the `VirtioDevice` implementation for our vsock device. It handles
+/// the virtio-level device logic: feature negociation, device configuration,
+/// and device activation.
 ///
 /// We aim to conform to the VirtIO v1.1 spec:
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
 ///
-/// The vsock device has two input parameters: a CID to identify the device, and a `VsockBackend`
-/// to use for offloading vsock traffic.
+/// The vsock device has two input parameters: a CID to identify the device, and
+/// a `VsockBackend` to use for offloading vsock traffic.
 ///
-/// Upon its activation, the vsock device registers handlers for the following events/FDs:
+/// Upon its activation, the vsock device registers handlers for the following
+/// events/FDs:
 /// - an RX queue FD;
 /// - a TX queue FD;
 /// - an event queue FD; and
@@ -29,10 +31,9 @@ use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
+use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use super::VsockBackend;
-use super::{defs, defs::uapi};
-
+use super::{defs, VsockBackend};
 use crate::virtio::{
     ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
     VirtioDevice, VsockError,
@@ -45,9 +46,10 @@ pub(crate) const EVQ_INDEX: usize = 2;
 pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 
 /// The virtio features supported by our vsock device:
-/// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
-/// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
-///   them available.
+/// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the
+///   VirtIO spec.
+/// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that
+///   the driver makes them available.
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
@@ -69,9 +71,9 @@ pub struct Vsock<B> {
 }
 
 // TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it
-//    can unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume
-//    its EPOLLIN events.
+// 1. If the driver halts RX queue processing, we'll need to notify
+// `self.backend`, so that it    can unregister any EPOLLIN listeners, since
+// otherwise it will keep spinning, unable to consume    its EPOLLIN events.
 
 impl<B> Vsock<B>
 where
@@ -96,7 +98,8 @@ where
         })
     }
 
-    /// Create a new virtio-vsock device with the given VM CID and vsock backend.
+    /// Create a new virtio-vsock device with the given VM CID and vsock
+    /// backend.
     pub fn new(cid: u64, backend: B) -> super::Result<Vsock<B>> {
         let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
             .iter()
@@ -117,8 +120,8 @@ where
         &self.backend
     }
 
-    /// Signal the guest driver that we've used some virtio buffers that it had previously made
-    /// available.
+    /// Signal the guest driver that we've used some virtio buffers that it had
+    /// previously made available.
     pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
         self.irq_trigger
@@ -126,12 +129,13 @@ where
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
-    /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
-    /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
-    /// otherwise.
+    /// Walk the driver-provided RX queue buffers and attempt to fill them up
+    /// with any data that we have pending. Return `true` if descriptors
+    /// have been added to the used ring, and `false` otherwise.
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
@@ -155,8 +159,9 @@ where
                             }
                         }
                     } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we can't
-                        // fill in this buffer, we'll need to undo the last iterator step.
+                        // We are using a consuming iterator over the virtio buffers, so, if we
+                        // can't fill in this buffer, we'll need to undo the
+                        // last iterator step.
                         self.queues[RXQ_INDEX].undo_pop();
                         break;
                     }
@@ -178,12 +183,14 @@ where
         have_used
     }
 
-    /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
-    /// to the backend for processing. Return `true` if descriptors have been added to the used
-    /// ring, and `false` otherwise.
+    /// Walk the driver-provided TX queue buffers, package them up as vsock
+    /// packets, and send them to the backend for processing. Return `true`
+    /// if descriptors have been added to the used ring, and `false`
+    /// otherwise.
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
@@ -219,11 +226,13 @@ where
         have_used
     }
 
-    // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
-    // connections and the guest_cid configuration field is fetched again. Existing listen sockets remain
-    // but their CID is updated to reflect the current guest_cid.
+    // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts
+    // down established connections and the guest_cid configuration field is
+    // fetched again. Existing listen sockets remain but their CID is updated to
+    // reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
-        // This is safe since we checked in the caller function that the device is activated.
+        // This is safe since we checked in the caller function that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
@@ -374,8 +383,8 @@ mod tests {
         ctx.device.ack_features_by_page(2, 0);
         // Attempt to un-ack the first feature page. This should have no side effect.
         ctx.device.ack_features_by_page(0, !driver_pages[0]);
-        // Check that no side effect are present, and that the acked features are exactly the same
-        // as the device features.
+        // Check that no side effect are present, and that the acked features are
+        // exactly the same as the device features.
         assert_eq!(ctx.device.acked_features, device_features & driver_features);
 
         // Test reading 32-bit chunks.
@@ -402,7 +411,8 @@ mod tests {
         assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
 
         // Just covering lines here, since the vsock device has no writable config.
-        // A warning is, however, logged, if the guest driver attempts to write any config data.
+        // A warning is, however, logged, if the guest driver attempts to write any
+        // config data.
         ctx.device.write_config(0, &data[..4]);
 
         // Test a bad activation.

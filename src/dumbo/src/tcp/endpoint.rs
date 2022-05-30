@@ -1,44 +1,49 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// When designing the MMDS, we thought about a split in functionality, were we have some basic
-// building blocks (such as the simplified TCP implementation, and the micro HTTP server) which can
-// even be exported as libraries at some point, and then we have things built on top of those.
-// That's why the Connection struct (and the upcoming TcpHandler) do not log things, or increase
-// metrics, but rather express status via return values. The Endpoint struct implements our HTTP
-// based interaction with the MMDS, making use of the aforementioned building blocks, and is
-// totally specific to Firecracker. Ideally, the current crate should only contain the generic
-// components, but since the separation/interface is not very well defined yet, we keep the
+// When designing the MMDS, we thought about a split in functionality, were we
+// have some basic building blocks (such as the simplified TCP implementation,
+// and the micro HTTP server) which can even be exported as libraries at some
+// point, and then we have things built on top of those. That's why the
+// Connection struct (and the upcoming TcpHandler) do not log things, or
+// increase metrics, but rather express status via return values. The Endpoint
+// struct implements our HTTP based interaction with the MMDS, making use of the
+// aforementioned building blocks, and is totally specific to Firecracker.
+// Ideally, the current crate should only contain the generic components, but
+// since the separation/interface is not very well defined yet, we keep the
 // Endpoint in here too for the time being.
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use crate::pdu::{bytes::NetworkBytes, tcp::TcpSegment, Incomplete};
-use crate::tcp::{
-    connection::{Connection, PassiveOpenError, RecvStatusFlags},
-    seq_after, NextSegmentStatus, MAX_WINDOW_SIZE,
-};
 use logger::{IncMetric, METRICS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 
-// TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
-// certain duration, depending on the frequency of the CPU, but we still have a bit to go until
-// that functionality is available, so we just use some conservative-ish values. Even on a fast
-// 4GHz CPU, the first is roughly equal to 10 seconds, and the other is ~300 ms.
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::TcpSegment;
+use crate::pdu::Incomplete;
+use crate::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
+use crate::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+
+// TODO: These are currently expressed in cycles. Normally, they would be the
+// equivalent of a certain duration, depending on the frequency of the CPU, but
+// we still have a bit to go until that functionality is available, so we just
+// use some conservative-ish values. Even on a fast 4GHz CPU, the first is
+// roughly equal to 10 seconds, and the other is ~300 ms.
 const EVICTION_THRESHOLD: u64 = 40_000_000_000;
 const CONNECTION_RTO_PERIOD: u64 = 1_200_000_000;
 const CONNECTION_RTO_COUNT_MAX: u16 = 15;
 
-// This is one plus the size of the largest bytestream carrying an HTTP request we are willing to
-// accept. It's limited in order to have a bound on memory usage. This value should be plenty for
-// imaginable regular MMDS requests.
-// TODO: Maybe at some point include this in the checks we do when populating the MMDS via the API,
-// since it effectively limits the size of the keys (URIs) we're willing to use.
+// This is one plus the size of the largest bytestream carrying an HTTP request
+// we are willing to accept. It's limited in order to have a bound on memory
+// usage. This value should be plenty for imaginable regular MMDS requests.
+// TODO: Maybe at some point include this in the checks we do when populating
+// the MMDS via the API, since it effectively limits the size of the keys (URIs)
+// we're willing to use.
 const RCV_BUF_MAX_SIZE: usize = 2500;
 
-// Represents the local endpoint of a HTTP over TCP connection which carries GET requests
-// to the MMDS.
+// Represents the local endpoint of a HTTP over TCP connection which carries GET
+// requests to the MMDS.
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
@@ -63,19 +68,22 @@ pub struct Endpoint {
     stop_receiving: bool,
 }
 
-// The "contract" for the Endpoint (if it implemented a trait or something) is something along
-// these lines:
+// The "contract" for the Endpoint (if it implemented a trait or something) is
+// something along these lines:
 // - Incoming segments are passed by calling receive_segment().
-// - To check whether the Endpoint has something to transmit, we must call write_next_segment()
-// (the buf parameter should point to where the TCP segment begins). This function will return
-// None if there's nothing to write (or there was an error writing, in which case it also
-// increases a metric).
-// - After calling either of the previous functions, the user should also call is_done() to see
+// - To check whether the Endpoint has something to transmit, we must call
+//   write_next_segment()
+// (the buf parameter should point to where the TCP segment begins). This
+// function will return None if there's nothing to write (or there was an error
+// writing, in which case it also increases a metric).
+// - After calling either of the previous functions, the user should also call
+//   is_done() to see
 // if the Endpoint is finished.
-// - The is_evictable() function returns true if the Endpoint can be destroyed as far as its
-// internal logic is concerned. It's going to be used by the connection handler when trying to
-// find a new slot for incoming connections if none are free (when replacing an existing connection
-// is the only option).
+// - The is_evictable() function returns true if the Endpoint can be destroyed
+//   as far as its
+// internal logic is concerned. It's going to be used by the connection handler
+// when trying to find a new slot for incoming connections if none are free
+// (when replacing an existing connection is the only option).
 
 impl Endpoint {
     pub fn new<T: NetworkBytes>(
@@ -136,10 +144,10 @@ impl Endpoint {
 
         self.last_segment_received_timestamp = now;
 
-        // As long as new segments arrive, we save data in the buffer. We don't have to worry
-        // about writing out of bounds because we set the receive window of the connection to
-        // match the size of the buffer. When space frees up, we'll advance the window
-        // accordingly.
+        // As long as new segments arrive, we save data in the buffer. We don't have to
+        // worry about writing out of bounds because we set the receive window
+        // of the connection to match the size of the buffer. When space frees
+        // up, we'll advance the window accordingly.
         let (value, status) = match self.connection.receive_segment(
             &s,
             &mut self.receive_buf[self.receive_buf_left..],
@@ -181,12 +189,13 @@ impl Endpoint {
         }
 
         if self.response_buf.is_empty() {
-            // There's no pending response currently, so we're back to waiting for a request to be
-            // available in self.receive_buf.
+            // There's no pending response currently, so we're back to waiting for a request
+            // to be available in self.receive_buf.
 
-            // The following is some ugly but workable code that attempts to find the end of an
-            // HTTP 1.x request in receive_buf. We need to do this for now because parse_request_bytes()
-            // expects the entire request contents as parameter.
+            // The following is some ugly but workable code that attempts to find the end of
+            // an HTTP 1.x request in receive_buf. We need to do this for now
+            // because parse_request_bytes() expects the entire request contents
+            // as parameter.
             if self.receive_buf_left > 2 {
                 let b = self.receive_buf.as_mut();
                 for i in 0..self.receive_buf_left - 1 {
@@ -226,16 +235,17 @@ impl Endpoint {
             }
 
             if self.receive_buf_left == self.receive_buf.len() {
-                // If we get here the buffer is full, but we still couldn't identify the end of a
-                // request, so we reset because we are over the maximum request size.
+                // If we get here the buffer is full, but we still couldn't identify the end of
+                // a request, so we reset because we are over the maximum
+                // request size.
                 self.connection.reset();
                 self.stop_receiving = true;
                 return;
             }
         }
 
-        // We close the connection after receiving a FIN, and making sure there are no more
-        // responses to send.
+        // We close the connection after receiving a FIN, and making sure there are no
+        // more responses to send.
         if self.connection.fin_received() && self.response_buf.is_empty() {
             self.connection.close();
         }
@@ -310,7 +320,8 @@ fn build_response(status_code: StatusCode, body: Body) -> Response {
     response
 }
 
-/// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
+/// Parses the request bytes and builds a `micro_http::Response` by the given
+/// callback function.
 fn parse_request_bytes<F: FnOnce(Request) -> Response>(
     byte_stream: &[u8],
     callback: F,
@@ -348,11 +359,10 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::fmt;
     use std::str::from_utf8;
 
+    use super::*;
     use crate::pdu::tcp::Flags as TcpFlags;
     use crate::tcp::connection::tests::ConnectionTester;
     use crate::tcp::tests::mock_callback;
@@ -393,8 +403,8 @@ mod tests {
         let remote_isn = syn.sequence_number();
         let mut e = Endpoint::new_with_defaults(&syn).unwrap();
 
-        // Let's complete the three-way handshake. The next segment sent by the endpoint should
-        // be a SYNACK.
+        // Let's complete the three-way handshake. The next segment sent by the endpoint
+        // should be a SYNACK.
         assert_eq!(e.next_segment_status(), NextSegmentStatus::Available);
         let endpoint_isn = {
             // We need this block to delimit the mut borrow of write_buf.
@@ -489,10 +499,11 @@ mod tests {
                 .wrapping_add(s.inner().payload_len() as u32);
         }
 
-        // Cool, now let's check that even though receive_buf is limited to some value, we can
-        // respond to any number of requests, as long as each fits individually inside the buffer.
-        // We're going to use the simple approach where we send the same request over and over
-        // again, for a relatively large number of iterations.
+        // Cool, now let's check that even though receive_buf is limited to some value,
+        // we can respond to any number of requests, as long as each fits
+        // individually inside the buffer. We're going to use the simple
+        // approach where we send the same request over and over again, for a
+        // relatively large number of iterations.
 
         let complete_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n";
         let last_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n123";
@@ -535,12 +546,12 @@ mod tests {
             }
         }
 
-        // The value of receive_buf_left should be 3 right now, because of the trailing chars from
-        // last_request.
+        // The value of receive_buf_left should be 3 right now, because of the trailing
+        // chars from last_request.
         assert_eq!(e.receive_buf_left, 3);
 
-        // Unless the machine running the tests is super slow for some reason, we should be nowhere
-        // near the expiry of the eviction timer.
+        // Unless the machine running the tests is super slow for some reason, we should
+        // be nowhere near the expiry of the eviction timer.
         assert!(!e.is_evictable());
 
         // Let's hack this a bit and change the eviction_threshold to 0.
@@ -548,12 +559,13 @@ mod tests {
         // The endpoint should be evictable now.
         assert!(e.is_evictable());
 
-        // Finally, let's fill self.receive_buf with the following request, and see if we get the
-        // reset we expect on the next segment.
+        // Finally, let's fill self.receive_buf with the following request, and see if
+        // we get the reset we expect on the next segment.
         let request_to_fill = vec![0u8; RCV_BUF_MAX_SIZE - e.receive_buf_left];
 
         {
-            // Hack: have to artificially increase t.mss to create this segment which is 2k+.
+            // Hack: have to artificially increase t.mss to create this segment which is
+            // 2k+.
             t.mss = RCV_BUF_MAX_SIZE as u16;
             let mut data = t.write_data(write_buf.as_mut(), request_to_fill.as_ref());
 

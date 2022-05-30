@@ -6,22 +6,19 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::TryFrom;
-use std::io;
-use std::mem;
-use std::result;
-use std::slice;
-
-use libc::c_char;
+use std::{io, mem, result, slice};
 
 use arch_gen::x86::mpspec;
+use libc::c_char;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::IRQ_MAX;
 
-// This is a workaround to the Rust enforcement specifying that any implementation of a foreign
-// trait (in this case `ByteValued`) where:
-// *    the type that is implementing the trait is foreign or
-// *    all of the parameters being passed to the trait (if there are any) are also foreign
+// This is a workaround to the Rust enforcement specifying that any
+// implementation of a foreign trait (in this case `ByteValued`) where:
+// * the type that is implementing the trait is foreign or
+// * all of the parameters being passed to the trait (if there are any) are also
+//   foreign
 // is prohibited.
 #[derive(Copy, Clone, Default)]
 struct MpcBusWrapper(mpspec::mpc_bus);
@@ -38,7 +35,8 @@ struct MpcLintsrcWrapper(mpspec::mpc_lintsrc);
 #[derive(Copy, Clone, Default)]
 struct MpfIntelWrapper(mpspec::mpf_intel);
 
-// These `mpspec` wrapper types are only data, reading them from data is a safe initialization.
+// These `mpspec` wrapper types are only data, reading them from data is a safe
+// initialization.
 unsafe impl ByteValued for MpcBusWrapper {}
 unsafe impl ByteValued for MpcCpuWrapper {}
 unsafe impl ByteValued for MpcIntsrcWrapper {}
@@ -105,7 +103,8 @@ const CPU_FEATURE_APIC: u32 = 0x200;
 const CPU_FEATURE_FPU: u32 = 0x001;
 
 fn compute_checksum<T: Copy>(v: &T) -> u8 {
-    // Safe because we are only reading the bytes within the size of the `T` reference `v`.
+    // Safe because we are only reading the bytes within the size of the `T`
+    // reference `v`.
     let v_slice = unsafe { slice::from_raw_parts(v as *const T as *const u8, mem::size_of::<T>()) };
     let mut checksum: u8 = 0;
     for i in v_slice.iter() {
@@ -143,8 +142,8 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
     let mut checksum: u8 = 0;
     let ioapicid: u8 = num_cpus + 1;
 
-    // The checked_add here ensures the all of the following base_mp.unchecked_add's will be without
-    // overflow.
+    // The checked_add here ensures the all of the following base_mp.unchecked_add's
+    // will be without overflow.
     if let Some(end_mp) = base_mp.checked_add((mp_size - 1) as u64) {
         if !mem.address_in_range(end_mp) {
             return Err(Error::NotEnoughMemory);
@@ -169,8 +168,8 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         base_mp = base_mp.unchecked_add(size);
     }
 
-    // We set the location of the mpc_table here but we can't fill it out until we have the length
-    // of the entire table later.
+    // We set the location of the mpc_table here but we can't fill it out until we
+    // have the length of the entire table later.
     let table_base = base_mp;
     base_mp = base_mp.unchecked_add(mem::size_of::<MpcTableWrapper>() as u64);
 
@@ -290,8 +289,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_memory::Bytes;
+
+    use super::*;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {

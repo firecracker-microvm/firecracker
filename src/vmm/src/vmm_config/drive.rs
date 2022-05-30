@@ -4,21 +4,19 @@
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::ops::Deref;
 use std::path::PathBuf;
-use std::result;
 use std::sync::{Arc, Mutex};
+use std::{io, result};
+
+pub use devices::virtio::block::device::FileEngineType;
+use devices::virtio::block::Error as BlockError;
+use devices::virtio::Block;
+pub use devices::virtio::CacheType;
+use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-
-pub use devices::virtio::block::device::FileEngineType;
-pub use devices::virtio::CacheType;
-
-use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -27,8 +25,8 @@ type Result<T> = result::Result<T, DriveError>;
 pub enum DriveError {
     /// Cannot update the block device.
     BlockDeviceUpdateFailed(io::Error),
-    /// Unable to seek the block device backing file due to invalid permissions or
-    /// the file was corrupted.
+    /// Unable to seek the block device backing file due to invalid permissions
+    /// or the file was corrupted.
     CreateBlockDevice(BlockError),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
@@ -73,8 +71,9 @@ pub struct BlockDeviceConfig {
     /// Setting this flag to true will mount the block device in the
     /// guest under /dev/vda unless the partuuid is present.
     pub is_root_device: bool,
-    /// Part-UUID. Represents the unique id of the boot partition of this device. It is
-    /// optional and it will be used only if the `is_root_device` field is true.
+    /// Part-UUID. Represents the unique id of the boot partition of this
+    /// device. It is optional and it will be used only if the
+    /// `is_root_device` field is true.
     pub partuuid: Option<String>,
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
@@ -124,7 +123,8 @@ pub struct BlockDeviceUpdateConfig {
 #[derive(Default)]
 pub struct BlockBuilder {
     /// The list of block devices.
-    /// There can be at most one root block device and it would be the first in the list.
+    /// There can be at most one root block device and it would be the first in
+    /// the list.
     // Root Device should be the first in the list whether or not PARTUUID is
     // specified in order to avoid bugs in case of switching from partuuid boot
     // scenarios to /dev/vda boot type.
@@ -139,7 +139,8 @@ impl BlockBuilder {
         }
     }
 
-    /// Specifies whether there is a root block device already present in the list.
+    /// Specifies whether there is a root block device already present in the
+    /// list.
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
         if let Some(block) = self.list.get(0) {
@@ -149,7 +150,8 @@ impl BlockBuilder {
         }
     }
 
-    /// Gets the index of the device with the specified `drive_id` if it exists in the list.
+    /// Gets the index of the device with the specified `drive_id` if it exists
+    /// in the list.
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
         self.list
             .iter()
@@ -165,22 +167,24 @@ impl BlockBuilder {
         }
     }
 
-    /// Inserts a `Block` in the block devices list using the specified configuration.
-    /// If a block with the same id already exists, it will overwrite it.
-    /// Inserting a secondary root block device will fail.
+    /// Inserts a `Block` in the block devices list using the specified
+    /// configuration. If a block with the same id already exists, it will
+    /// overwrite it. Inserting a secondary root block device will fail.
     pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<()> {
         let is_root_device = config.is_root_device;
         let position = self.get_index_of_drive_id(&config.drive_id);
         let has_root_block = self.has_root_device();
 
         // Don't allow adding a second root block device.
-        // If the new device cfg is root and not an update to the existing root, fail fast.
+        // If the new device cfg is root and not an update to the existing root, fail
+        // fast.
         if is_root_device && has_root_block && position != Some(0) {
             return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
 
         let block_dev = Arc::new(Mutex::new(Self::create_block(config)?));
-        // If the id of the drive already exists in the list, the operation is update/overwrite.
+        // If the id of the drive already exists in the list, the operation is
+        // update/overwrite.
         match position {
             // New block device.
             None => {
@@ -247,9 +251,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {
@@ -377,7 +382,8 @@ mod tests {
     }
 
     #[test]
-    // Test BlockDevicesConfigs::add when you first add the root device and then the other devices.
+    // Test BlockDevicesConfigs::add when you first add the root device and then the
+    // other devices.
     fn test_add_root_block_device_first() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
@@ -441,7 +447,8 @@ mod tests {
     }
 
     #[test]
-    // Test BlockDevicesConfigs::add when you add other devices first and then the root device.
+    // Test BlockDevicesConfigs::add when you add other devices first and then the
+    // root device.
     fn test_root_block_device_add_last() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();

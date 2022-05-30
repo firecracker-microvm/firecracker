@@ -6,22 +6,25 @@
 // found in the THIRD-PARTY file.
 
 /// The vsock object implements the runtime logic of our vsock device:
-/// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending those
-///    packets to the `VsockBackend`;
+/// 1. Respond to TX queue events by wrapping virtio buffers into
+/// `VsockPacket`s, then sending those    packets to the `VsockBackend`;
 /// 2. Forward backend FD event notifications to the `VsockBackend`;
-/// 3. Fetch incoming packets from the `VsockBackend` and place them into the virtio RX queue;
-/// 4. Whenever we have processed some virtio buffers (either TX or RX), let the driver know by
-///    raising our assigned IRQ.
+/// 3. Fetch incoming packets from the `VsockBackend` and place them into the
+/// virtio RX queue; 4. Whenever we have processed some virtio buffers (either
+/// TX or RX), let the driver know by    raising our assigned IRQ.
 ///
 /// In a nutshell, the logic looks like this:
 /// - on TX queue event:
 ///   - fetch all packets from the TX queue and send them to the backend; then
-///   - if the backend has queued up any incoming packets, fetch them into any available RX buffers.
+///   - if the backend has queued up any incoming packets, fetch them into any
+///     available RX buffers.
 /// - on RX queue event:
-///   - fetch any incoming packets, queued up by the backend, into newly available RX buffers.
+///   - fetch any incoming packets, queued up by the backend, into newly
+///     available RX buffers.
 /// - on backend event:
 ///   - forward the event to the backend; then
-///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
+///   - again, attempt to fetch any incoming packets queued by the backend into
+///     virtio RX buffers.
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
@@ -104,9 +107,9 @@ where
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
-        // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
-        // reurning an error) at some point in the past, now is the time to try walking the
-        // TX queue again.
+        // In particular, if `self.backend.send_pkt()` halted the TX queue processing
+        // (by reurning an error) at some point in the past, now is the time to
+        // try walking the TX queue again.
         let mut raise_irq = self.process_tx();
         if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
@@ -202,13 +205,13 @@ where
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::super::*;
-    use super::*;
-
-    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
-    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
     use event_manager::{EventManager, SubscriberOps};
     use vm_memory::Bytes;
+
+    use super::super::*;
+    use super::*;
+    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
 
     #[test]
     fn test_txq_event() {
@@ -401,11 +404,12 @@ mod tests {
         }
     }
 
-    // Creates an epoll handler context and attempts to assemble a VsockPkt from the descriptor
-    // chains available on the rx and tx virtqueues, but first it will set the addr and len
-    // of the descriptor specified by desc_idx to the provided values. We are only using this
-    // function for testing error cases, so the asserts always expect is_err() to be true. When
-    // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
+    // Creates an epoll handler context and attempts to assemble a VsockPkt from the
+    // descriptor chains available on the rx and tx virtqueues, but first it
+    // will set the addr and len of the descriptor specified by desc_idx to the
+    // provided values. We are only using this function for testing error cases,
+    // so the asserts always expect is_err() to be true. When desc_idx = 0 we
+    // are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
         use vm_memory::GuestAddress;
@@ -416,8 +420,8 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.guest_rxvq.dtable[desc_idx].addr.set(addr);
             ctx.guest_rxvq.dtable[desc_idx].len.set(len);
-            // If the descriptor chain is already declared invalid, there's no reason to assemble
-            // a packet.
+            // If the descriptor chain is already declared invalid, there's no reason to
+            // assemble a packet.
             if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem) {
                 assert!(VsockPacket::from_rx_virtq_head(&rx_desc).is_err());
             }
@@ -426,8 +430,8 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
 
-            // When modifiyng the buffer descriptor, make sure the len field is altered in the
-            // vsock packet header descriptor as well.
+            // When modifiyng the buffer descriptor, make sure the len field is altered in
+            // the vsock packet header descriptor as well.
             if desc_idx == 1 {
                 // The vsock packet len field has offset 24 in the header.
                 let hdr_len_addr = GuestAddress(ctx.guest_txvq.dtable[0].addr.get() + 24);
@@ -487,8 +491,8 @@ mod tests {
             VSOCK_PKT_HDR_SIZE as u32,
         );
 
-        // Let's check what happens when the buffer descriptor crosses into the gap, but does
-        // not go past its right edge.
+        // Let's check what happens when the buffer descriptor crosses into the gap, but
+        // does not go past its right edge.
         vsock_bof_helper(
             &mut test_ctx,
             1,
@@ -496,8 +500,8 @@ mod tests {
             GAP_SIZE as u32 + 4,
         );
 
-        // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
-        // and check we cannot assemble the VsockPkts.
+        // Let's modify the buffer descriptor addr and len such that it crosses over the
+        // MMIO gap, and check we cannot assemble the VsockPkts.
         vsock_bof_helper(
             &mut test_ctx,
             1,
@@ -530,7 +534,8 @@ mod tests {
         }
 
         // EventManager should report no events since vsock has only registered
-        // its activation event so far (even though there is also a queue event pending).
+        // its activation event so far (even though there is also a queue event
+        // pending).
         let ev_count = event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 0);
 

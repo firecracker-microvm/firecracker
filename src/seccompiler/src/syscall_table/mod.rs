@@ -4,10 +4,12 @@
 mod aarch64;
 mod x86_64;
 
-use crate::backend::TargetArch;
 use std::collections::HashMap;
 
-/// Creates and owns a mapping from the arch-specific syscall name to the right number.
+use crate::backend::TargetArch;
+
+/// Creates and owns a mapping from the arch-specific syscall name to the right
+/// number.
 #[derive(Debug)]
 pub(crate) struct SyscallTable {
     map: HashMap<String, i64>,

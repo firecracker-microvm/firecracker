@@ -57,8 +57,8 @@ impl SubmissionQueue {
         let (ring, sqes) = Self::mmap(io_uring_fd, params)?;
         let ring_slice = ring.as_volatile_slice();
 
-        // since we don't need the extra layer of indirection, we can simply map the index array
-        // to be array[i] = i;
+        // since we don't need the extra layer of indirection, we can simply map the
+        // index array to be array[i] = i;
         let sq_array = ring_slice
             .offset(params.sq_off.array as usize)
             .map_err(Error::VolatileMemory)?;
@@ -88,7 +88,8 @@ impl SubmissionQueue {
 
     /// # Safety
     /// Unsafe because we pass a raw `user_data` pointer to the kernel.
-    /// It's up to the caller to make sure that this value is ever freed (not leaked).
+    /// It's up to the caller to make sure that this value is ever freed (not
+    /// leaked).
     pub(crate) unsafe fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
@@ -153,8 +154,8 @@ impl SubmissionQueue {
         // It's safe to convert to u32 since the syscall didn't return an error.
         as u32;
 
-        // This is safe since submitted <= self.to_submit. However we use a saturating_sub
-        // for extra safety.
+        // This is safe since submitted <= self.to_submit. However we use a
+        // saturating_sub for extra safety.
         self.to_submit = self.to_submit.saturating_sub(submitted);
 
         Ok(submitted)
@@ -164,8 +165,9 @@ impl SubmissionQueue {
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
     ) -> Result<(MmapRegion, MmapRegion), Error> {
-        // map the SQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
-        // To this we add an offset as per the io_uring specifications.
+        // map the SQ_ring. The actual size of the ring is `num_entries *
+        // size_of(entry_type)`. To this we add an offset as per the io_uring
+        // specifications.
         let sqe_ring_size =
             (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
 

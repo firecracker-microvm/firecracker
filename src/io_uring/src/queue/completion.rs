@@ -5,6 +5,7 @@ use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::result::Result;
 use std::sync::atomic::Ordering;
+
 use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
@@ -42,8 +43,9 @@ impl CompletionQueue {
     ) -> Result<Self, Error> {
         let offsets = params.cq_off;
 
-        // Map the CQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
-        // To this we add an offset as per the io_uring specifications.
+        // Map the CQ_ring. The actual size of the ring is `num_entries *
+        // size_of(entry_type)`. To this we add an offset as per the io_uring
+        // specifications.
         let ring_size = (params.cq_off.cqes as usize)
             + (params.cq_entries as usize) * std::mem::size_of::<bindings::io_uring_cqe>();
         let cqes = mmap(ring_size, io_uring_fd, bindings::IORING_OFF_CQ_RING.into())
@@ -74,9 +76,10 @@ impl CompletionQueue {
     }
 
     /// # Safety
-    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
-    /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
-    /// the raw pointer is valid and that we have full ownership of that address.
+    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed
+    /// by the kernel. It's up to the caller to make sure that `T` is the
+    /// correct type of the `user_data`, that the raw pointer is valid and
+    /// that we have full ownership of that address.
     pub(crate) unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail

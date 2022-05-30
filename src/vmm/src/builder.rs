@@ -3,54 +3,29 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use devices::legacy::serial::ReadableFd;
-use devices::legacy::EventFdTrigger;
-use devices::legacy::SerialDevice;
-use devices::legacy::SerialEventsWrapper;
-use devices::legacy::SerialWrapper;
-use libc::EFD_NONBLOCK;
-use logger::METRICS;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
-use vm_superio::Serial;
 
-#[cfg(target_arch = "aarch64")]
-use crate::construct_kvm_mpidrs;
+use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-
+use cpuid::common::is_same_model;
+use devices::legacy::serial::ReadableFd;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCDevice;
+use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
+use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use event_manager::{MutEventSubscriber, SubscriberOps};
+use libc::EFD_NONBLOCK;
+use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
-
-use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::vmm_config::boot_source::BootConfig;
-use crate::vstate::{
-    system::KvmContext,
-    vcpu::{Vcpu, VcpuConfig},
-    vm::Vm,
-};
-use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
-
-use crate::resources::VmResources;
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
-use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::is_same_model;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
-use event_manager::{MutEventSubscriber, SubscriberOps};
-use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use linux_loader::loader::KernelLoader;
-use logger::{error, warn};
+use logger::{error, warn, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use userfaultfd::Uffd;
@@ -60,6 +35,23 @@ use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
+use vm_superio::Serial;
+
+#[cfg(target_arch = "aarch64")]
+use crate::construct_kvm_mpidrs;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::resources::VmResources;
+use crate::vmm_config::boot_source::BootConfig;
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
+use crate::vstate::system::KvmContext;
+use crate::vstate::vcpu::{Vcpu, VcpuConfig};
+use crate::vstate::vm::Vm;
+use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -82,13 +74,15 @@ pub enum StartMicrovmError {
     Internal(Error),
     /// The kernel command line is invalid.
     KernelCmdline(String),
-    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel
+    /// image.
     KernelLoader(linux_loader::loader::Error),
     /// Cannot load command line string.
     LoadCommandline(linux_loader::loader::Error),
     /// Cannot start the VM because the kernel was not configured.
     MissingKernelConfig,
-    /// Cannot start the VM because the size of the guest memory  was not specified.
+    /// Cannot start the VM because the size of the guest memory  was not
+    /// specified.
     MissingMemSizeConfig,
     /// The seccomp filter map is missing a key.
     MissingSeccompFilters(String),
@@ -96,7 +90,8 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
     OpenBlockDevice(io::Error),
-    /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline.
+    /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or
+    /// cmdline.
     RegisterMmioDevice(device_manager::mmio::Error),
     /// Cannot restore microvm state.
     RestoreMicrovmState(MicrovmStateError),
@@ -188,7 +183,8 @@ impl Display for StartMicrovmError {
     }
 }
 
-// Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
+// Wrapper over io::Stdin that implements `Serial::ReadableFd` and
+// `vmm::VmmEventsObserver`.
 pub(crate) struct SerialStdin(io::Stdin);
 impl SerialStdin {
     /// Returns a `SerialStdin` wrapper over `io::stdin`.
@@ -258,8 +254,9 @@ fn create_vmm_and_vcpus(
         MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
 
     let vcpus;
-    // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
-    // while on aarch64 we need to do it the other way around.
+    // For x86_64 we need to create the interrupt controller before calling
+    // `KVM_CREATE_VCPUS` while on aarch64 we need to do it the other way
+    // around.
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
         setup_interrupt_controller(&mut vm)?;
@@ -284,9 +281,9 @@ fn create_vmm_and_vcpus(
             .map_err(Internal)?
     };
 
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
-    // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
-    // was already initialized.
+    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before
+    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return
+    // error if the IRQCHIP was already initialized.
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
     {
@@ -311,13 +308,15 @@ fn create_vmm_and_vcpus(
     Ok((vmm, vcpus))
 }
 
-/// Builds and starts a microVM based on the current Firecracker VmResources configuration.
+/// Builds and starts a microVM based on the current Firecracker VmResources
+/// configuration.
 ///
-/// This is the default build recipe, one could build other microVM flavors by using the
-/// independent functions in this module instead of calling this recipe.
+/// This is the default build recipe, one could build other microVM flavors by
+/// using the independent functions in this module instead of calling this
+/// recipe.
 ///
-/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
-/// is returned.
+/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`,
+/// while another is returned.
 pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
@@ -413,7 +412,8 @@ pub fn build_microvm_for_boot(
         boot_cmdline,
     )?;
 
-    // Move vcpus to their own threads and start their state machine in the 'Paused' state.
+    // Move vcpus to their own threads and start their state machine in the 'Paused'
+    // state.
     vmm.start_vcpus(
         vcpus,
         seccomp_filters
@@ -424,8 +424,8 @@ pub fn build_microvm_for_boot(
     .map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
-    // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
-    // altogether is the desired behaviour.
+    // Execution panics if filters cannot be loaded, use --no-seccomp if skipping
+    // filters altogether is the desired behaviour.
     // Keep this as the last step before resuming vcpus.
     seccompiler::apply_filter(
         seccomp_filters
@@ -446,8 +446,8 @@ pub fn build_microvm_for_boot(
 
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
-/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
-/// is returned.
+/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`,
+/// while another is returned.
 #[allow(clippy::too_many_arguments)]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
@@ -553,7 +553,8 @@ pub fn build_microvm_from_snapshot(
     vmm.emulate_serial_init()
         .map_err(StartMicrovmError::Internal)?;
 
-    // Move vcpus to their own threads and start their state machine in the 'Paused' state.
+    // Move vcpus to their own threads and start their state machine in the 'Paused'
+    // state.
     vmm.start_vcpus(
         vcpus,
         seccomp_filters
@@ -837,8 +838,8 @@ pub fn configure_system_for_boot(
                 .map_err(Internal)?;
         }
 
-        // Write the kernel command line to guest memory. This is x86_64 specific, since on
-        // aarch64 the command line will be specified through the FDT.
+        // Write the kernel command line to guest memory. This is x86_64 specific, since
+        // on aarch64 the command line will be specified through the FDT.
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
@@ -995,13 +996,6 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
-    use super::*;
-    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
-    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
-    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
@@ -1010,6 +1004,14 @@ pub mod tests {
     use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use vm_memory::GuestMemory;
+
+    use super::*;
+    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
+    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,

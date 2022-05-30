@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Contains support for parsing and writing User Datagram Protocol (UDP) packets,
-//! with no support for jumbograms.
+//! Contains support for parsing and writing User Datagram Protocol (UDP)
+//! packets, with no support for jumbograms.
 //!
 //! Details of the UDP packet specification can be found at [1] [2].
 //!
@@ -11,10 +11,9 @@
 
 use std::net::Ipv4Addr;
 
+use super::bytes::{InnerBytes, NetworkBytes};
 use crate::pdu::bytes::NetworkBytesMut;
 use crate::pdu::{ChecksumProto, Incomplete};
-
-use super::bytes::{InnerBytes, NetworkBytes};
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -51,8 +50,8 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
     ///
     /// # Panics
     ///
-    ///  This method does not panic, but further method calls on the resulting object may panic if
-    /// `bytes` contains invalid input.
+    ///  This method does not panic, but further method calls on the resulting
+    /// object may panic if `bytes` contains invalid input.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         UdpDatagram {
@@ -74,8 +73,8 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
         let datagram = UdpDatagram::from_bytes_unchecked(bytes);
         if let Some((src_addr, dst_addr)) = verify_checksum {
             // Since compute_checksum is shared between TCP and UDP and the UDP's RFC
-            // requires that a computed checksum of 0 is transmitted as all ones value, we're
-            // checking against 0xffff not 0
+            // requires that a computed checksum of 0 is transmitted as all ones value,
+            // we're checking against 0xffff not 0
             if datagram.checksum() != 0 && datagram.compute_checksum(src_addr, dst_addr) != 0xffff {
                 return Err(Error::Checksum);
             }
@@ -123,7 +122,8 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
-    /// Writes an incomplete UDP datagram, which is missing the `checksum`, `src_port` and `dst_port` fields.
+    /// Writes an incomplete UDP datagram, which is missing the `checksum`,
+    /// `src_port` and `dst_port` fields.
     ///
     /// # Arguments
     ///
@@ -183,8 +183,9 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
-    /// Transforms `self` into a `UdpDatagram<T>` by specifying values for the `source port`,
-    /// `destination port`, and (optionally) the information required to compute the checksum.
+    /// Transforms `self` into a `UdpDatagram<T>` by specifying values for the
+    /// `source port`, `destination port`, and (optionally) the information
+    /// required to compute the checksum.
     #[inline]
     pub fn finalize(
         mut self,
@@ -209,9 +210,8 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
 mod tests {
     use std::fmt;
 
-    use crate::pdu::udp::UdpDatagram;
-
     use super::*;
+    use crate::pdu::udp::UdpDatagram;
 
     impl<'a, T: NetworkBytes> fmt::Debug for UdpDatagram<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

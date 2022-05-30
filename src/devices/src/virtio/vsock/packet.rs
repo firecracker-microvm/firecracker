@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-/// `VsockPacket` provides a thin wrapper over the buffers exchanged via virtio queues.
-/// There are two components to a vsock packet, each using its own descriptor in a
-/// virtio queue:
+/// `VsockPacket` provides a thin wrapper over the buffers exchanged via virtio
+/// queues. There are two components to a vsock packet, each using its own
+/// descriptor in a virtio queue:
 /// - the packet header; and
 /// - the packet data/buffer.
-/// There is a 1:1 relation between descriptor chains and packets: the first (chain head) holds
-/// the header, and an optional second descriptor holds the data. The second descriptor is only
-/// present for data packets (VSOCK_OP_RW).
+/// There is a 1:1 relation between descriptor chains and packets: the first
+/// (chain head) holds the header, and an optional second descriptor holds the
+/// data. The second descriptor is only present for data packets (VSOCK_OP_RW).
 ///
-/// `VsockPacket` wraps these two buffers and provides direct access to the data stored
-/// in guest memory. This is done to avoid unnecessarily copying data from guest memory
-/// to temporary buffers, before passing it on to the vsock backend.
+/// `VsockPacket` wraps these two buffers and provides direct access to the data
+/// stored in guest memory. This is done to avoid unnecessarily copying data
+/// from guest memory to temporary buffers, before passing it on to the vsock
+/// backend.
 use std::io::{Read, Write};
 
 use vm_memory::{
@@ -22,8 +23,7 @@ use vm_memory::{
 };
 
 use super::super::DescriptorChain;
-use super::defs;
-use super::{Result, VsockError};
+use super::{defs, Result, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -41,8 +41,9 @@ use super::{Result, VsockError};
 // } __attribute__((packed));
 // ```
 // We create a rust structure that mirrors it.
-// The mirroring struct is only used privately by `VsockPacket`, that offers getter and setter
-// methods, for each struct field, that will also handle the correct endianess.
+// The mirroring struct is only used privately by `VsockPacket`, that offers
+// getter and setter methods, for each struct field, that will also handle the
+// correct endianess.
 
 #[repr(packed)]
 #[derive(Copy, Clone, Debug, Default)]
@@ -71,9 +72,9 @@ pub struct VsockPacketHeader {
     // Size (in bytes) of the packet sender receive buffer (for the connection to which this packet
     // belongs).
     buf_alloc: u32,
-    // Number of bytes the sender has received and consumed (for the connection to which this packet
-    // belongs). For instance, for our Unix backend, this counter would be the total number of bytes
-    // we have successfully written to a backing Unix socket.
+    // Number of bytes the sender has received and consumed (for the connection to which this
+    // packet belongs). For instance, for our Unix backend, this counter would be the total
+    // number of bytes we have successfully written to a backing Unix socket.
     fwd_cnt: u32,
 }
 
@@ -84,7 +85,8 @@ unsafe impl ByteValued for VsockPacketHeader {}
 
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:
 /// - the chain head, holding the packet header; and
-/// - (an optional) data/buffer descriptor, only present for data packets (VSOCK_OP_RW).
+/// - (an optional) data/buffer descriptor, only present for data packets
+///   (VSOCK_OP_RW).
 pub struct VsockPacket {
     hdr_addr: GuestAddress,
     // For performance purposes we hold a local copy of the Packet header.
@@ -147,9 +149,9 @@ impl VsockPacket {
 
     /// Create the packet wrapper from a TX virtq chain head.
     ///
-    /// The chain head is expected to hold valid packet header data. A following packet buffer
-    /// descriptor can optionally end the chain. Bounds and pointer checks are performed when
-    /// creating the wrapper.
+    /// The chain head is expected to hold valid packet header data. A following
+    /// packet buffer descriptor can optionally end the chain. Bounds and
+    /// pointer checks are performed when creating the wrapper.
     pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
         Self::check_hdr_desc(hdr_desc, false)?;
 
@@ -170,7 +172,8 @@ impl VsockPacket {
             buf_size: 0,
         };
 
-        // No point looking for a data/buffer descriptor, if the packet is zero-lengthed.
+        // No point looking for a data/buffer descriptor, if the packet is
+        // zero-lengthed.
         if pkt.len() == 0 {
             return Ok(pkt);
         }
@@ -180,8 +183,8 @@ impl VsockPacket {
 
         pkt.init_buf(hdr_desc, false)?;
 
-        // The data buffer should be large enough to fit the size of the data, as described by
-        // the header descriptor.
+        // The data buffer should be large enough to fit the size of the data, as
+        // described by the header descriptor.
         if pkt.buf_size < pkt.len() as usize {
             return Err(VsockError::BufDescTooSmall);
         }
@@ -191,8 +194,9 @@ impl VsockPacket {
 
     /// Create the packet wrapper from an RX virtq chain head.
     ///
-    /// There must be two descriptors in the chain, both writable: a header descriptor and a data
-    /// descriptor. Bounds and pointer checks are performed when creating the wrapper.
+    /// There must be two descriptors in the chain, both writable: a header
+    /// descriptor and a data descriptor. Bounds and pointer checks are
+    /// performed when creating the wrapper.
     pub fn from_rx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
         Self::check_hdr_desc(hdr_desc, true)?;
 
@@ -241,20 +245,22 @@ impl VsockPacket {
 
     /// Gets the GuestRegion and the MemoryRegionAddress where the buf starts.
     ///
-    /// As they are currently implemented, `GuestMemory::write_to()` and `GuestMemory::read_from()`
-    /// have 2 significant disadvantages:
-    /// 1. Performance: They process chunks of length 4K and they copy data to an auxiliary buffer.
-    /// 2. Error handling: They don't handle `EWOULDBLOCK` correctly. So for example if it manages to
-    ///    write 1K bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
-    ///    `GuestMemory::IoError`. On the Rx path we read from a stream, but we don't know its
-    ///    length. We just try to write as much as possible. This is guaranteed to lead to an
-    ///    `EWOULDBLOCK` error eventually.
-    /// This makes them unusable. But the entire buffer should be placed inside a single
-    /// `GuestRegion`. Also `GuestRegion::write_to()` and `GuestRegion::read_from()` don't have
-    /// the problems mentioned above. So we will read/write directly to/from the `GuestRegion`.
+    /// As they are currently implemented, `GuestMemory::write_to()` and
+    /// `GuestMemory::read_from()` have 2 significant disadvantages:
+    /// 1. Performance: They process chunks of length 4K and they copy data to
+    /// an auxiliary buffer. 2. Error handling: They don't handle
+    /// `EWOULDBLOCK` correctly. So for example if it manages to    write 1K
+    /// bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
+    ///    `GuestMemory::IoError`. On the Rx path we read from a stream, but we
+    /// don't know its    length. We just try to write as much as possible.
+    /// This is guaranteed to lead to an    `EWOULDBLOCK` error eventually.
+    /// This makes them unusable. But the entire buffer should be placed inside
+    /// a single `GuestRegion`. Also `GuestRegion::write_to()` and
+    /// `GuestRegion::read_from()` don't have the problems mentioned above.
+    /// So we will read/write directly to/from the `GuestRegion`.
     ///
-    /// TODO: use `GuestMemory::write_to()` and `GuestMemory::read_from()` when they are stable
-    /// enough:
+    /// TODO: use `GuestMemory::write_to()` and `GuestMemory::read_from()` when
+    /// they are stable enough:
     /// 1. https://github.com/rust-vmm/vm-memory/pull/125 should be merged.
     /// 2. The `EWOULDBLOCK` scenario should be fixed.
     fn buf_region_addr<'a>(
@@ -489,7 +495,8 @@ mod tests {
             expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::UnreadableDescriptor);
         }
 
-        // Test case: header descriptor has insufficient space to hold the packet header.
+        // Test case: header descriptor has insufficient space to hold the packet
+        // header.
         {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_txvq.dtable[0]
@@ -541,8 +548,8 @@ mod tests {
             expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::UnreadableDescriptor);
         }
 
-        // Test case: the buffer descriptor cannot fit all the data advertised by the the
-        // packet header `len` field.
+        // Test case: the buffer descriptor cannot fit all the data advertised by the
+        // the packet header `len` field.
         {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(8 * 1024, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);

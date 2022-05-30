@@ -5,24 +5,26 @@ mod gicv2;
 mod gicv3;
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
-use kvm_ioctls::{DeviceFd, VmFd};
-
-use super::layout;
 use gicv2::GICv2;
 use gicv3::GICv3;
-
+use kvm_ioctls::{DeviceFd, VmFd};
 pub use regs::GicState;
+
+use super::layout;
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
 pub enum Error {
-    /// Error while calling KVM ioctl for setting up the global interrupt controller.
+    /// Error while calling KVM ioctl for setting up the global interrupt
+    /// controller.
     CreateGIC(kvm_ioctls::Error),
     /// Error while setting or getting device attributes for the GIC.
     DeviceAttribute(kvm_ioctls::Error, bool, u32),
-    /// The number of vCPUs in the GicState doesn't match the number of vCPUs on the system
+    /// The number of vCPUs in the GicState doesn't match the number of vCPUs on
+    /// the system
     InconsistentVcpuCount,
     /// The VgicSysRegsState is invalid
     InvalidVgicSysRegState,
@@ -111,11 +113,13 @@ pub trait GICDevice {
     where
         Self: Sized,
     {
-        /* On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
-         * SPIs are used to signal interrupts from various peripherals accessible across
-         * the whole system so these are the ones that we increment when adding a new virtio device.
-         * KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a total
-         * of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
+        /* On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI
+         * (32-1020). SPIs are used to signal interrupts from various
+         * peripherals accessible across the whole system so these are the
+         * ones that we increment when adding a new virtio
+         * device. KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number.
+         * Consequently, we will have a total of `super::layout::IRQ_MAX - 32` usable
+         * SPIs in our microVM.
          */
         let nr_irqs: u32 = super::layout::IRQ_MAX;
         let nr_irqs_ptr = &nr_irqs as *const u32;
@@ -166,9 +170,10 @@ pub trait GICDevice {
 
 /// Create a GIC device.
 
-/// If "version" parameter is "None" the function will try to create by default a GICv3 device.
-/// If that fails it will try to fall-back to a GICv2 device.
-/// If version is Some the function will try to create a device of exactly the specified version.
+/// If "version" parameter is "None" the function will try to create by default
+/// a GICv3 device. If that fails it will try to fall-back to a GICv2 device.
+/// If version is Some the function will try to create a device of exactly the
+/// specified version.
 pub fn create_gic(
     vm: &VmFd,
     vcpu_count: u64,
@@ -184,8 +189,9 @@ pub fn create_gic(
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     #[test]
     fn test_create_gic() {

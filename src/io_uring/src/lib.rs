@@ -4,9 +4,10 @@
 #![deny(missing_docs)]
 //! High-level interface over Linux io_uring.
 //!
-//! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
-//! assumptions. The crate does not currently aim at supporting all io_uring features and use
-//! cases. For example, it only works with pre-registered fds and read/write/fsync requests.
+//! Aims to provide an easy-to-use interface, while making some
+//! Firecracker-specific simplifying assumptions. The crate does not currently
+//! aim at supporting all io_uring features and use cases. For example, it only
+//! works with pre-registered fds and read/write/fsync requests.
 //!
 //! Requires at least kernel version 5.10.51.
 //! For more information on io_uring, refer to the man pages.
@@ -18,22 +19,20 @@ mod probe;
 mod queue;
 pub mod restriction;
 
-pub use queue::completion::Error as CQueueError;
-pub use queue::submission::Error as SQueueError;
-
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use utils::syscall::SyscallReturnCode;
-
 use bindings::io_uring_params;
 use operation::{Cqe, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
 use queue::completion::CompletionQueue;
+pub use queue::completion::Error as CQueueError;
+pub use queue::submission::Error as SQueueError;
 use queue::submission::SubmissionQueue;
 use restriction::Restriction;
+use utils::syscall::SyscallReturnCode;
 
 // IO_uring operations that we require to be supported by the host kernel.
 const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
@@ -78,7 +77,8 @@ pub enum Error {
 }
 
 impl Error {
-    /// Return true if this error is caused by a full submission or completion queue.
+    /// Return true if this error is caused by a full submission or completion
+    /// queue.
     pub fn is_throttling_err(&self) -> bool {
         matches!(
             self,
@@ -108,10 +108,12 @@ impl IoUring {
     ///
     /// # Arguments
     ///
-    /// * `num_entries` - Requested number of entries in the ring. Will be rounded up to the
+    /// * `num_entries` - Requested number of entries in the ring. Will be
+    ///   rounded up to the
     /// nearest power of two.
     /// * `files` - Files to be registered for IO.
-    /// * `restrictions` - Vector of [`Restriction`](restriction/enum.Restriction.html)s
+    /// * `restrictions` - Vector of
+    ///   [`Restriction`](restriction/enum.Restriction.html)s
     /// * `eventfd` - Optional eventfd for receiving completion notifications.
     pub fn new(
         num_entries: u32,
@@ -168,11 +170,13 @@ impl IoUring {
         Ok(instance)
     }
 
-    /// Push an [`Operation`](operation/struct.Operation.html) onto the submission queue.
+    /// Push an [`Operation`](operation/struct.Operation.html) onto the
+    /// submission queue.
     ///
     /// # Safety
     /// Unsafe because we pass a raw user_data pointer to the kernel.
-    /// It's up to the caller to make sure that this value is ever freed (not leaked).
+    /// It's up to the caller to make sure that this value is ever freed (not
+    /// leaked).
     pub unsafe fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
@@ -199,13 +203,15 @@ impl IoUring {
         }
     }
 
-    /// Pop a completed entry off the completion queue. Returns `Ok(None)` if there are no entries.
-    /// The type `T` must be the same as the `user_data` type used for `push`-ing the operation.
+    /// Pop a completed entry off the completion queue. Returns `Ok(None)` if
+    /// there are no entries. The type `T` must be the same as the
+    /// `user_data` type used for `push`-ing the operation.
     ///
     /// # Safety
-    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
-    /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
-    /// the raw pointer is valid and that we have full ownership of that address.
+    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed
+    /// by the kernel. It's up to the caller to make sure that `T` is the
+    /// correct type of the `user_data`, that the raw pointer is valid and
+    /// that we have full ownership of that address.
     pub unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
         self.cqueue
             .pop()
@@ -239,8 +245,8 @@ impl IoUring {
         self.squeue.pending().map_err(Error::SQueue)
     }
 
-    /// A total of the number of ops in the submission and completion queues, as well as the
-    /// in-flight ops.
+    /// A total of the number of ops in the submission and completion queues, as
+    /// well as the in-flight ops.
     pub fn num_ops(&self) -> u32 {
         self.num_ops
     }
@@ -334,12 +340,12 @@ impl IoUring {
     }
 
     fn check_features(params: io_uring_params) -> Result<()> {
-        // We require that the host kernel will never drop completed entries due to an (unlikely)
-        // overflow in the completion queue.
+        // We require that the host kernel will never drop completed entries due to an
+        // (unlikely) overflow in the completion queue.
         // This feature is supported for kernels greater than 5.7.
-        // An alternative fix would be to keep an internal counter that tracks the number of
-        // submitted entries that haven't been completed and makes sure it doesn't exceed
-        // (2 * num_entries).
+        // An alternative fix would be to keep an internal counter that tracks the
+        // number of submitted entries that haven't been completed and makes
+        // sure it doesn't exceed (2 * num_entries).
         if (params.features & bindings::IORING_FEAT_NODROP) == 0 {
             return Err(Error::UnsupportedFeature("IORING_FEAT_NODROP"));
         }
@@ -382,18 +388,20 @@ impl IoUring {
 
 #[cfg(test)]
 mod tests {
-    /// -------------------------------------
-    /// BEGIN PROPERTY BASED TESTING
-    use super::*;
+    use std::os::unix::fs::FileExt;
+
     use proptest::prelude::*;
     use proptest::strategy::Strategy;
     use proptest::test_runner::{Config, TestRunner};
-    use std::os::unix::fs::FileExt;
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
     use vm_memory::{Bytes, MmapRegion, VolatileMemory};
+
+    /// -------------------------------------
+    /// BEGIN PROPERTY BASED TESTING
+    use super::*;
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
@@ -453,15 +461,16 @@ mod tests {
                 )
             })
             .prop_map(move |(op, len, off, mem_off)| {
-                // We actually use an offset instead of an address, because we later need to modify
-                // the memory region on which the operation is performed, based on the opcode.
+                // We actually use an offset instead of an address, because we later need to
+                // modify the memory region on which the operation is performed,
+                // based on the opcode.
                 let mut operation = match op {
                     0 => Operation::write(0, mem_off as usize, len, off.into(), len),
                     _ => Operation::read(0, mem_off as usize, len, off.into(), len),
                 };
 
-                // Make sure the operations are executed in-order, so that they are equivalent to
-                // their sync counterparts.
+                // Make sure the operations are executed in-order, so that they are equivalent
+                // to their sync counterparts.
                 operation.set_linked();
                 operation
             })
@@ -470,17 +479,18 @@ mod tests {
     #[test]
     fn proptest_read_write_correctness() {
         skip_if_io_uring_unsupported!();
-        // Performs a sequence of random read and write operations on two files, with sync and
-        // async IO, respectively.
-        // Verifies that the files are identical afterwards and that the read operations returned
-        // the same values.
+        // Performs a sequence of random read and write operations on two files, with
+        // sync and async IO, respectively.
+        // Verifies that the files are identical afterwards and that the read operations
+        // returned the same values.
 
         const FILE_LEN: usize = 1024;
         // The number of arbitrary operations in a testrun.
         const OPS_COUNT: usize = 2000;
         const RING_SIZE: u32 = 128;
 
-        // Allocate and init memory for holding the data that will be written into the file.
+        // Allocate and init memory for holding the data that will be written into the
+        // file.
         let write_mem_region = setup_mem_region(FILE_LEN);
 
         let sync_read_mem_region = setup_mem_region(FILE_LEN);
@@ -503,8 +513,8 @@ mod tests {
         let file_sync = TempFile::new().unwrap().into_file();
         file_sync.write_all_at(&init_contents, 0).unwrap();
 
-        // Create a custom test runner since we had to add some state buildup to the test.
-        // (Referring to the the above initializations).
+        // Create a custom test runner since we had to add some state buildup to the
+        // test. (Referring to the the above initializations).
         let mut runner = TestRunner::new(Config {
             #[cfg(target_arch = "x86_64")]
             cases: 1000, // Should run for about a minute.

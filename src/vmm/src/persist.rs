@@ -6,33 +6,17 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::{io::AsRawFd, net::UnixStream};
+use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::builder::{self, StartMicrovmError};
-use crate::device_manager::persist::Error as DevicePersistError;
-use crate::mem_size_mib;
-use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
-use crate::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
-};
-use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
-
-use crate::device_manager::persist::DeviceStates;
-use crate::memory_snapshot;
-use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
-#[cfg(target_arch = "x86_64")]
-use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
-use crate::{Error as VmmError, EventManager, Vmm};
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
-
-use crate::resources::VmResources;
-use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+#[cfg(target_arch = "aarch64")]
+use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+#[cfg(target_arch = "x86_64")]
+use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use devices::virtio::TYPE_NET;
 use logger::{error, info};
 use seccompiler::BpfThreadMap;
@@ -44,6 +28,31 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{GuestMemory, GuestMemoryMmap};
+
+use crate::builder::{self, StartMicrovmError};
+use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
+use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::resources::VmResources;
+#[cfg(target_arch = "x86_64")]
+use crate::version_map::FC_V0_23_SNAP_VERSION;
+#[cfg(target_arch = "x86_64")]
+use crate::version_map::FC_V0_23_SNAP_VERSION;
+use crate::version_map::{
+    FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION,
+    FC_VERSION_TO_SNAP_VERSION,
+};
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
+};
+use crate::vstate::vcpu::VcpuState;
+use crate::vstate::vm::VmState;
+use crate::vstate::{self};
+use crate::{
+    mem_size_mib, memory_snapshot, Error as VmmError, Error as VmmError, EventManager,
+    EventManager, Vmm, Vmm,
+};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
@@ -72,16 +81,18 @@ pub struct MicrovmState {
     pub device_states: DeviceStates,
 }
 
-/// This describes the mapping between Firecracker base virtual address and offset in the
-/// buffer or file backend for a guest memory region. It is used to tell an external
-/// process/thread where to populate the guest memory data for this range.
+/// This describes the mapping between Firecracker base virtual address and
+/// offset in the buffer or file backend for a guest memory region. It is used
+/// to tell an external process/thread where to populate the guest memory data
+/// for this range.
 ///
-/// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
-/// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
+/// E.g. Guest memory contents for a region of `size` bytes can be found in the
+/// backend at `offset` bytes from the beginning, and should be copied/populated
+/// into `base_host_address`.
 #[derive(Clone, Debug, Serialize)]
 pub struct GuestRegionUffdMapping {
-    /// Base host virtual address where the guest memory contents for this region
-    /// should be copied/populated.
+    /// Base host virtual address where the guest memory contents for this
+    /// region should be copied/populated.
     pub base_host_virt_addr: u64,
     /// Region size.
     pub size: usize,
@@ -137,7 +148,8 @@ impl Display for MicrovmStateError {
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
     DirtyBitmap(VmmError),
-    /// The virtio devices uses a features that is incompatible with older versions of Firecracker.
+    /// The virtio devices uses a features that is incompatible with older
+    /// versions of Firecracker.
     IncompatibleVirtioFeature(&'static str),
     /// Invalid microVM version format
     InvalidVersionFormat,
@@ -154,7 +166,8 @@ pub enum CreateSnapshotError {
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(&'static str, io::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Number of devices exceeds the maximum supported devices for the snapshot data version.
+    /// Number of devices exceeds the maximum supported devices for the snapshot
+    /// data version.
     TooManyDevices(usize),
 }
 
@@ -226,9 +239,9 @@ pub enum LoadSnapshotError {
     UdsConnection(io::Error),
     /// Failed to register guest memory regions to UFFD.
     UffdMemoryRegionsRegister(userfaultfd::Error),
-    /// Failed to send guest memory layout and path to user fault FD used to handle
-    /// guest memory page faults. This information is sent to a UDS where a custom
-    /// page-fault handler process is listening.
+    /// Failed to send guest memory layout and path to user fault FD used to
+    /// handle guest memory page faults. This information is sent to a UDS
+    /// where a custom page-fault handler process is listening.
     UffdSend(kvm_ioctls::Error),
 }
 
@@ -351,7 +364,8 @@ fn snapshot_memory_to_file(
         .map_err(|e| MemoryBackingFile("sync_all", e))
 }
 
-/// Validate the microVM version and translate it to its corresponding snapshot data format.
+/// Validate the microVM version and translate it to its corresponding snapshot
+/// data format.
 pub fn get_snapshot_data_version(
     maybe_fc_version: &Option<String>,
     version_map: &VersionMap,
@@ -466,8 +480,8 @@ pub fn snapshot_state_sanity_check(
     }
 
     // Check if the snapshot contains at least 1 mem region.
-    // Upper bound check will be done when creating guest memory by comparing against
-    // KVM max supported value kvm_context.max_memslots().
+    // Upper bound check will be done when creating guest memory by comparing
+    // against KVM max supported value kvm_context.max_memslots().
     if microvm_state.memory_state.regions.is_empty() {
         return Err(LoadSnapshotError::InvalidSnapshot(
             "No memory region defined.".to_owned(),
@@ -663,6 +677,10 @@ fn validate_fc_version_format(version: &str) -> Result<(), CreateSnapshotError> 
 
 #[cfg(test)]
 mod tests {
+    use snapshot::Persist;
+    use utils::errno;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::builder::tests::{
         default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
@@ -677,9 +695,6 @@ mod tests {
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
-
-    use snapshot::Persist;
-    use utils::{errno, tempfile::TempFile};
 
     #[cfg(target_arch = "aarch64")]
     const FC_VERSION_0_23_0: &str = "0.23.0";
@@ -826,8 +841,9 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use crate::persist::CreateSnapshotError::*;
         use vm_memory::GuestMemoryError;
+
+        use crate::persist::CreateSnapshotError::*;
 
         let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
         let _ = format!("{}{:?}", err, err);

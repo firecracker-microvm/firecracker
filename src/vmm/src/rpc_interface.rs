@@ -1,10 +1,19 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde_json::Value;
 use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
+
+use logger::*;
+use mmds::data_store::{self, Mmds};
+use seccompiler::BpfThreadMap;
+use serde_json::Value;
+#[cfg(test)]
+use tests::{
+    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    MockVmm as Vmm,
+};
 
 use super::Error as VmmError;
 #[cfg(not(test))]
@@ -12,6 +21,7 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
+use crate::builder::StartMicrovmError;
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -32,32 +42,25 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::FcExitCode;
-use crate::{builder::StartMicrovmError, EventManager};
-use logger::*;
-use mmds::data_store::{self, Mmds};
-use seccompiler::BpfThreadMap;
-#[cfg(test)]
-use tests::{
-    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
-    MockVmm as Vmm,
-};
+use crate::{EventManager, FcExitCode};
 
-/// This enum represents the public interface of the VMM. Each action contains various
-/// bits of information (ids, paths, etc.).
+/// This enum represents the public interface of the VMM. Each action contains
+/// various bits of information (ids, paths, etc.).
 #[derive(PartialEq)]
 pub enum VmmAction {
-    /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
-    /// action can only be called before the microVM has booted.
+    /// Configure the boot source of the microVM using as input the
+    /// `ConfigureBootSource`. This action can only be called before the
+    /// microVM has booted.
     ConfigureBootSource(BootSourceConfig),
-    /// Configure the logger using as input the `LoggerConfig`. This action can only be called
-    /// before the microVM has booted.
+    /// Configure the logger using as input the `LoggerConfig`. This action can
+    /// only be called before the microVM has booted.
     ConfigureLogger(LoggerConfig),
-    /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
-    /// before the microVM has booted.
+    /// Configure the metrics using as input the `MetricsConfig`. This action
+    /// can only be called before the microVM has booted.
     ConfigureMetrics(MetricsConfig),
-    /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
-    /// after the microVM has booted and only when the microVM is in `Paused` state.
+    /// Create a snapshot using as input the `CreateSnapshotParams`. This action
+    /// can only be called after the microVM has booted and only when the
+    /// microVM is in `Paused` state.
     CreateSnapshot(CreateSnapshotParams),
     /// Get the balloon device configuration.
     GetBalloonConfig,
@@ -73,18 +76,21 @@ pub enum VmmAction {
     GetVmInstanceInfo,
     /// Get microVM version.
     GetVmmVersion,
-    /// Flush the metrics. This action can only be called after the logger has been configured.
+    /// Flush the metrics. This action can only be called after the logger has
+    /// been configured.
     FlushMetrics,
-    /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
-    /// input. This action can only be called before the microVM has booted.
+    /// Add a new block device or update one that already exists using the
+    /// `BlockDeviceConfig` as input. This action can only be called before
+    /// the microVM has booted.
     InsertBlockDevice(BlockDeviceConfig),
-    /// Add a new network interface config or update one that already exists using the
-    /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
-    /// booted.
+    /// Add a new network interface config or update one that already exists
+    /// using the `NetworkInterfaceConfig` as input. This action can only be
+    /// called before the microVM has booted.
     InsertNetworkDevice(NetworkInterfaceConfig),
-    /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
-    /// called before the microVM has booted. If this action is successful, the loaded microVM will
-    /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
+    /// Load the microVM state using as input the `LoadSnapshotParams`. This
+    /// action can only be called before the microVM has booted. If this
+    /// action is successful, the loaded microVM will be in `Paused` state.
+    /// Should change this state to `Resumed` for the microVM to run.
     LoadSnapshot(LoadSnapshotParams),
     /// Partial update of the MMDS contents.
     PatchMMDS(Value),
@@ -95,32 +101,36 @@ pub enum VmmAction {
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
-    /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
-    /// has booted.
+    /// `BalloonDeviceConfig` as input. This action can only be called before
+    /// the microVM has booted.
     SetBalloonDevice(BalloonDeviceConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
-    /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
-    /// booted.
+    /// `VsockDeviceConfig` as input. This action can only be called before the
+    /// microVM has booted.
     SetVsockDevice(VsockDeviceConfig),
-    /// Launch the microVM. This action can only be called before the microVM has booted.
+    /// Launch the microVM. This action can only be called before the microVM
+    /// has booted.
     StartMicroVm,
-    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
-    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
+    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If
+    /// an AT-keyboard driver is listening on the guest end, this can be
+    /// used to shut down the microVM gracefully.
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
     /// Update the balloon size, after microVM start.
     UpdateBalloon(BalloonUpdateConfig),
     /// Update the balloon statistics polling interval, after microVM start.
     UpdateBalloonStatistics(BalloonUpdateStatsConfig),
-    /// Update existing block device properties such as `path_on_host` or `rate_limiter`.
+    /// Update existing block device properties such as `path_on_host` or
+    /// `rate_limiter`.
     UpdateBlockDevice(BlockDeviceUpdateConfig),
-    /// Update a network interface, after microVM start. Currently, the only updatable properties
-    /// are the RX and TX rate limiters.
+    /// Update a network interface, after microVM start. Currently, the only
+    /// updatable properties are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
-    /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
-    /// action can only be called before the microVM has booted.
+    /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig`
+    /// as input. This action can only be called before the microVM has
+    /// booted.
     UpdateVmConfiguration(VmUpdateConfig),
 }
 
@@ -140,11 +150,13 @@ pub enum VmmActionError {
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
     LoadSnapshot(LoadSnapshotError),
-    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
+    /// Loading a microVM snapshot not allowed after configuring boot-specific
+    /// resources.
     LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad input.
+    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration`
+    /// failed because of bad input.
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
@@ -210,8 +222,9 @@ impl Display for VmmActionError {
     }
 }
 
-/// The enum represents the response sent by the VMM in case of success. The response is either
-/// empty, when no data needs to be sent, or an internal VMM structure.
+/// The enum represents the response sent by the VMM in case of success. The
+/// response is either empty, when no data needs to be sent, or an internal VMM
+/// structure.
 #[derive(Debug, PartialEq)]
 pub enum VmmData {
     /// The balloon device configuration.
@@ -235,9 +248,10 @@ pub enum VmmData {
 /// Shorthand result type for external VMM commands.
 pub type ActionResult = result::Result<VmmData, VmmActionError>;
 
-/// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
-/// The methods get a mutable reference to self because the methods should initialise the data
-/// store with the defaults if it's not already initialised.
+/// Trait used for deduplicating the MMDS request handling across the two
+/// ApiControllers. The methods get a mutable reference to self because the
+/// methods should initialise the data store with the defaults if it's not
+/// already initialised.
 trait MmdsRequestHandler {
     fn mmds(&mut self) -> MutexGuard<'_, Mmds>;
 
@@ -310,9 +324,9 @@ impl<'a> PrebootApiController<'a> {
         }
     }
 
-    /// Default implementation for the function that builds and starts a microVM.
-    /// It takes two closures `recv_req` and `respond` as params which abstract away
-    /// the message transport.
+    /// Default implementation for the function that builds and starts a
+    /// microVM. It takes two closures `recv_req` and `respond` as params
+    /// which abstract away the message transport.
     ///
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     #[allow(clippy::too_many_arguments)]
@@ -332,8 +346,9 @@ impl<'a> PrebootApiController<'a> {
     {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
-        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
-        // generate build errors because VmResources contains private fields.
+        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but
+        // this will generate build errors because VmResources contains private
+        // fields.
         #[allow(clippy::field_reassign_with_default)]
         {
             vm_resources.mmds_size_limit = mmds_size_limit;
@@ -364,7 +379,8 @@ impl<'a> PrebootApiController<'a> {
         );
         // Configure and start microVM through successive API calls.
         // Iterate through API calls to configure microVm.
-        // The loop breaks when a microVM is successfully started, and a running Vmm is built.
+        // The loop breaks when a microVM is successfully started, and a running Vmm is
+        // built.
         while preboot_controller.built_vmm.is_none() {
             // Get request, process it, send back the response.
             respond(preboot_controller.handle_preboot_request(recv_req()));
@@ -380,7 +396,8 @@ impl<'a> PrebootApiController<'a> {
     }
 
     /// Handles the incoming preboot request and provides a response for it.
-    /// Returns a built/running `Vmm` after handling a successful `StartMicroVm` request.
+    /// Returns a built/running `Vmm` after handling a successful `StartMicroVm`
+    /// request.
     pub fn handle_preboot_request(&mut self, request: VmmAction) -> ActionResult {
         use self::VmmAction::*;
 
@@ -583,7 +600,8 @@ impl MmdsRequestHandler for RuntimeApiController {
 }
 
 impl RuntimeApiController {
-    /// Handles the incoming runtime `VmmAction` request and provides a response for it.
+    /// Handles the incoming runtime `VmmAction` request and provides a response
+    /// for it.
     pub fn handle_request(&mut self, request: VmmAction) -> ActionResult {
         use self::VmmAction::*;
         match request {
@@ -692,10 +710,11 @@ impl RuntimeApiController {
         Ok(VmmData::Empty)
     }
 
-    /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
-    /// that the metrics will be written immediately.
-    /// Defer to inner Vmm. We'll move to a variant where the Vmm simply exposes functionality like
-    /// getting the dirty pages, and then we'll have the metrics flushing logic entirely on the outside.
+    /// Write the metrics on user demand (flush). We use the word `flush` here
+    /// to highlight the fact that the metrics will be written immediately.
+    /// Defer to inner Vmm. We'll move to a variant where the Vmm simply exposes
+    /// functionality like getting the dirty pages, and then we'll have the
+    /// metrics flushing logic entirely on the outside.
     fn flush_metrics(&mut self) -> ActionResult {
         // FIXME: we're losing the bool saying whether metrics were actually written.
         METRICS
@@ -760,8 +779,8 @@ impl RuntimeApiController {
     }
 
     /// Updates block device properties:
-    ///  - path of the host file backing the emulated block device,
-    ///    update the disk image on the device and its virtio configuration
+    ///  - path of the host file backing the emulated block device, update the
+    ///    disk image on the device and its virtio configuration
     ///  - rate limiter configuration.
     fn update_block_device(&mut self, new_cfg: BlockDeviceUpdateConfig) -> ActionResult {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
@@ -784,7 +803,8 @@ impl RuntimeApiController {
         Ok(VmmData::Empty)
     }
 
-    /// Updates configuration for an emulated net device as described in `new_cfg`.
+    /// Updates configuration for an emulated net device as described in
+    /// `new_cfg`.
     fn update_net_rate_limiters(&mut self, new_cfg: NetworkInterfaceUpdateConfig) -> ActionResult {
         self.vmm
             .lock()
@@ -804,19 +824,20 @@ impl RuntimeApiController {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use devices::virtio::VsockError;
+    use mmds::data_store::MmdsVersion;
+    use seccompiler::BpfThreadMap;
+
     use super::*;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
-    use seccompiler::BpfThreadMap;
-
-    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-    use mmds::data_store::MmdsVersion;
-    use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
@@ -971,7 +992,8 @@ mod tests {
             Ok(())
         }
 
-        /// If not initialised, create the mmds data store with the default config.
+        /// If not initialised, create the mmds data store with the default
+        /// config.
         pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
             self.mmds
                 .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
@@ -979,7 +1001,8 @@ mod tests {
                 ))))
         }
 
-        /// If not initialised, create the mmds data store with the default config.
+        /// If not initialised, create the mmds data store with the default
+        /// config.
         pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
             let mmds = self.mmds_or_default();
             mmds.lock().expect("Poisoned lock")
@@ -2083,7 +2106,8 @@ mod tests {
 
     #[test]
     fn test_preboot_load_snap_disallowed_after_boot_resources() {
-        // Verify LoadSnapshot not allowed after configuring various boot-specific resources.
+        // Verify LoadSnapshot not allowed after configuring various boot-specific
+        // resources.
         let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
         verify_load_snap_disallowed_after_boot_resources(req, "ConfigureBootSource");
 

@@ -4,11 +4,9 @@ mod api_server_adapter;
 mod metrics;
 
 use std::fs::{self, File};
-use std::io;
-use std::panic;
 use std::path::PathBuf;
-use std::process;
 use std::sync::{Arc, Mutex};
+use std::{io, panic, process};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
@@ -17,12 +15,13 @@ use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
-use vmm::{resources::VmResources, EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
+use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -82,11 +81,12 @@ fn main_exitable() -> FcExitCode {
 
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
-    // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
+    // It's worth noting that the abort is caused by sending a SIG_ABORT signal to
+    // the process.
     panic::set_hook(Box::new(move |info| {
-        // We're currently using the closure parameter, which is a &PanicInfo, for printing the
-        // origin of the panic, including the payload passed to panic! and the source code location
-        // from which the panic originated.
+        // We're currently using the closure parameter, which is a &PanicInfo, for
+        // printing the origin of the panic, including the payload passed to
+        // panic! and the source code location from which the panic originated.
         error!("Firecracker {}", info);
         if let Err(e) = stdin.lock().set_canon_mode() {
             error!(
@@ -246,11 +246,12 @@ fn main_exitable() -> FcExitCode {
     };
 
     // Display warnings for any used deprecated parameters.
-    // Currently unused since there are no deprecated parameters. Uncomment the line when
-    // deprecating one.
+    // Currently unused since there are no deprecated parameters. Uncomment the line
+    // when deprecating one.
     // warn_deprecated_parameters(&arguments);
 
-    // It's safe to unwrap here because the field's been provided with a default value.
+    // It's safe to unwrap here because the field's been provided with a default
+    // value.
     let instance_id = arguments.single_value("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
@@ -264,7 +265,8 @@ fn main_exitable() -> FcExitCode {
     LOGGER.set_instance_id(instance_id.to_owned());
 
     if let Some(log) = arguments.single_value("log-path") {
-        // It's safe to unwrap here because the field's been provided with a default value.
+        // It's safe to unwrap here because the field's been provided with a default
+        // value.
         let level = arguments.single_value("level").unwrap().to_owned();
         let logger_level = match LoggerLevel::from_string(level) {
             Ok(level) => level,
@@ -386,15 +388,17 @@ fn main_exitable() -> FcExitCode {
 }
 
 fn main() {
-    // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
-    // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
-    // cleanup, and std::process::exit() does more--but does not run destructors.  So the
-    // best thing to do is to is bubble up the exit code through the whole stack, and
-    // only exit when everything potentially destructible has cleaned itself up.
+    // This idiom is the prescribed way to get a clean shutdown of Rust (that will
+    // report no leaks in Valgrind or sanitizers).  Calling `unsafe {
+    // libc::exit() }` does no cleanup, and std::process::exit() does more--but
+    // does not run destructors.  So the best thing to do is to is bubble up the
+    // exit code through the whole stack, and only exit when everything
+    // potentially destructible has cleaned itself up.
     //
     // https://doc.rust-lang.org/std/process/fn.exit.html
     //
-    // See process_exitable() method of Subscriber trait for what triggers the exit_code.
+    // See process_exitable() method of Subscriber trait for what triggers the
+    // exit_code.
     //
     let exit_code = main_exitable();
     std::process::exit(exit_code as i32);
@@ -498,7 +502,8 @@ fn run_without_api(
 ) -> FcExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
-    // Create the firecracker metrics object responsible for periodically printing metrics.
+    // Create the firecracker metrics object responsible for periodically printing
+    // metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
     event_manager.add_subscriber(firecracker_metrics.clone());
 

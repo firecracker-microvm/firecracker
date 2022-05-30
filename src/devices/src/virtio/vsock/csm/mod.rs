@@ -1,8 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-/// This module implements our vsock connection state machine. The heavy lifting is done by
-/// `connection::VsockConnection`, while this file only defines some constants and helper structs.
+/// This module implements our vsock connection state machine. The heavy lifting
+/// is done by `connection::VsockConnection`, while this file only defines some
+/// constants and helper structs.
 mod connection;
 mod txbuf;
 
@@ -14,8 +15,8 @@ pub mod defs {
     /// Vsock connection TX buffer capacity.
     pub const CONN_TX_BUF_SIZE: u32 = 64 * 1024;
 
-    /// When the guest thinks we have less than this amount of free buffer space,
-    /// we will send them a credit update packet.
+    /// When the guest thinks we have less than this amount of free buffer
+    /// space, we will send them a credit update packet.
     pub const CONN_CREDIT_UPDATE_THRESHOLD: u32 = 4 * 1024;
 
     /// Connection request timeout, in millis.
@@ -29,9 +30,11 @@ pub mod defs {
 pub enum Error {
     /// Attempted to push data to a full TX buffer.
     TxBufFull,
-    /// An I/O error occurred, when attempting to flush the connection TX buffer.
+    /// An I/O error occurred, when attempting to flush the connection TX
+    /// buffer.
     TxBufFlush(std::io::Error),
-    /// An I/O error occurred, when attempting to write data to the host-side stream.
+    /// An I/O error occurred, when attempting to write data to the host-side
+    /// stream.
     StreamWrite(std::io::Error),
 }
 
@@ -60,41 +63,48 @@ type Result<T> = std::result::Result<T, Error>;
 /// A vsock connection state.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ConnState {
-    /// The connection has been initiated by the host end, but is yet to be confirmed by the guest.
+    /// The connection has been initiated by the host end, but is yet to be
+    /// confirmed by the guest.
     LocalInit,
-    /// The connection has been initiated by the guest, but we are yet to confirm it, by sending
-    /// a response packet (VSOCK_OP_RESPONSE).
+    /// The connection has been initiated by the guest, but we are yet to
+    /// confirm it, by sending a response packet (VSOCK_OP_RESPONSE).
     PeerInit,
-    /// The connection handshake has been performed successfully, and data can now be exchanged.
+    /// The connection handshake has been performed successfully, and data can
+    /// now be exchanged.
     Established,
     /// The host (AF_UNIX) socket was closed.
     LocalClosed,
-    /// A VSOCK_OP_SHUTDOWN packet was received from the guest. The tuple represents the guest R/W
-    /// indication: (will_not_recv_anymore_data, will_not_send_anymore_data).
+    /// A VSOCK_OP_SHUTDOWN packet was received from the guest. The tuple
+    /// represents the guest R/W indication: (will_not_recv_anymore_data,
+    /// will_not_send_anymore_data).
     PeerClosed(bool, bool),
-    /// The connection is scheduled to be forcefully terminated as soon as possible.
+    /// The connection is scheduled to be forcefully terminated as soon as
+    /// possible.
     Killed,
 }
 
-/// An RX indication, used by `VsockConnection` to schedule future `recv_pkt()` responses.
-/// For instance, after being notified that there is available data to be read from the host stream
-/// (via `notify()`), the connection will store a `PendingRx::Rw` to be later inspected by
-/// `recv_pkt()`.
+/// An RX indication, used by `VsockConnection` to schedule future `recv_pkt()`
+/// responses. For instance, after being notified that there is available data
+/// to be read from the host stream (via `notify()`), the connection will store
+/// a `PendingRx::Rw` to be later inspected by `recv_pkt()`.
 #[derive(Clone, Copy, PartialEq)]
 enum PendingRx {
     /// We need to yield a connection request packet (VSOCK_OP_REQUEST).
     Request = 0,
     /// We need to yield a connection response packet (VSOCK_OP_RESPONSE).
     Response = 1,
-    /// We need to yield a forceful connection termination packet (VSOCK_OP_RST).
+    /// We need to yield a forceful connection termination packet
+    /// (VSOCK_OP_RST).
     Rst = 2,
-    /// We need to yield a data packet (VSOCK_OP_RW), by reading from the AF_UNIX socket.
+    /// We need to yield a data packet (VSOCK_OP_RW), by reading from the
+    /// AF_UNIX socket.
     Rw = 3,
     /// We need to yield a credit update packet (VSOCK_OP_CREDIT_UPDATE).
     CreditUpdate = 4,
 }
 impl PendingRx {
-    /// Transform the enum value into a bitmask, that can be used for set operations.
+    /// Transform the enum value into a bitmask, that can be used for set
+    /// operations.
     fn into_mask(self) -> u16 {
         1u16 << (self as u16)
     }

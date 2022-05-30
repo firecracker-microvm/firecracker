@@ -1,19 +1,19 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use kvm_bindings::{kvm_cpuid_entry2, CpuId};
+
 use super::*;
 use crate::bit_helper::BitHelper;
 use crate::common::get_cpuid;
-
 use crate::transformer::Error::FamError;
-use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
 const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
 
-/// The maximum number of logical processors per package is computed as the closest power of 2
-/// higher or equal to the CPU count configured by the user.
+/// The maximum number of logical processors per package is computed as the
+/// closest power of 2 higher or equal to the CPU count configured by the user.
 fn get_max_cpus_per_package(cpu_count: u8) -> Result<u8, Error> {
     let mut max_cpus_per_package: u8 = 1;
     while max_cpus_per_package < cpu_count {
@@ -48,8 +48,8 @@ pub fn update_feature_info_entry(
         .write_bits_in_range(&ebx::CPU_COUNT_BITRANGE, max_cpus_per_package);
 
     // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
-    // (the Maximum number of addressable IDs for logical processors in this package)
-    // is valid for the package
+    // (the Maximum number of addressable IDs for logical processors in this
+    // package) is valid for the package
     entry
         .edx
         .write_bit(edx::HTT_BITINDEX, vm_spec.cpu_count > 1);
@@ -99,7 +99,8 @@ pub fn update_cache_parameters_entry(
     Ok(())
 }
 
-/// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
+/// Replaces the `cpuid` entries corresponding to `function` with the entries
+/// from the host's cpuid.
 pub fn use_host_cpuid_function(
     cpuid: &mut CpuId,
     function: u32,
@@ -136,10 +137,11 @@ pub fn use_host_cpuid_function(
 
 #[cfg(test)]
 mod tests {
+    use kvm_bindings::kvm_cpuid_entry2;
+
     use super::*;
     use crate::common::tests::get_topoext_fn;
     use crate::transformer::VmSpec;
-    use kvm_bindings::kvm_cpuid_entry2;
 
     #[test]
     fn test_get_max_cpus_per_package() {
@@ -297,7 +299,8 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_use_host_cpuid_function_err() {
         let topoext_fn = get_topoext_fn();
-        // check that it returns Err when there are too many entriesentry.function == topoext_fn
+        // check that it returns Err when there are too many entriesentry.function ==
+        // topoext_fn
         let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES).unwrap();
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
             Err(Error::FamError(utils::fam::Error::SizeLimitExceeded)) => {}

@@ -102,10 +102,10 @@ fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {
     // As per ARMv8 documentation:
     // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf
     // page 178,
-    // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more bits of
-    // priority.
-    // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that support
-    // 7 bits of priority.
+    // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more
+    // bits of priority.
+    // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that
+    // support 7 bits of priority.
     if (reg == &SYS_ICC_AP0R1_EL1 || reg == &SYS_ICC_AP1R1_EL1) && num_priority_bits < 6 {
         return false;
     }
@@ -165,10 +165,12 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_icc_regs() {

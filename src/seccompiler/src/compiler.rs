@@ -1,26 +1,28 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Module defining the logic for compiling the deserialized filter objects into the IR.
-//! Used by seccompiler-bin.
+//! Module defining the logic for compiling the deserialized filter objects into
+//! the IR. Used by seccompiler-bin.
 //!
-//! Via the `Compiler::compile_blob()` method, it also drives the entire JSON -> BLOB
-//! transformation process.
+//! Via the `Compiler::compile_blob()` method, it also drives the entire JSON ->
+//! BLOB transformation process.
 //!
-//! It also defines some of the objects that a JSON seccomp filter is deserialized into:
-//! [`Filter`](struct.Filter.html),
+//! It also defines some of the objects that a JSON seccomp filter is
+//! deserialized into: [`Filter`](struct.Filter.html),
 //! [`SyscallRule`](struct.SyscallRule.html).
 //
-//! The rest of objects are deserialized directly into the IR (intermediate representation):
-//! [`SeccompCondition`](../backend/struct.SeccompCondition.html),
-//! [`SeccompAction`](../backend/enum.SeccompAction.html),
+//! The rest of objects are deserialized directly into the IR (intermediate
+//! representation): [`SeccompCondition`](../backend/struct.SeccompCondition.
+//! html), [`SeccompAction`](../backend/enum.SeccompAction.html),
 //! [`SeccompCmpOp`](../backend/enum.SeccompCmpOp.html),
 //! [`SeccompCmpArgLen`](../backend/enum.SeccompCmpArgLen.html).
 
 use std::collections::HashMap;
 use std::convert::{Into, TryInto};
-use std::fmt;
-use std::result;
+use std::{fmt, result};
+
+use serde::de::{self, Error as _, MapAccess, Visitor};
+use serde::Deserialize;
 
 use crate::backend::{
     Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition, SeccompFilter,
@@ -28,8 +30,6 @@ use crate::backend::{
 };
 use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
-use serde::de::{self, Error as _, MapAccess, Visitor};
-use serde::Deserialize;
 
 type Result<T> = result::Result<T, Error>;
 
@@ -63,7 +63,8 @@ impl fmt::Display for Error {
 /// Deserializable object that represents the Json filter file.
 pub(crate) struct JsonFile(pub HashMap<String, Filter>);
 
-// Implement a custom deserializer, that returns an error for duplicate thread keys.
+// Implement a custom deserializer, that returns an error for duplicate thread
+// keys.
 impl<'de> Deserialize<'de> for JsonFile {
     fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
     where
@@ -157,7 +158,8 @@ impl Filter {
 
 /// Object responsible for compiling [`Filter`](struct.Filter.html)s into
 /// [`BpfProgram`](../common/type.BpfProgram.html)s.
-/// Uses the [`SeccompFilter`](../backend/struct.SeccompFilter.html) interface as an IR language.
+/// Uses the [`SeccompFilter`](../backend/struct.SeccompFilter.html) interface
+/// as an IR language.
 pub(crate) struct Compiler {
     /// Target architecture. Can be different from the current `target_arch`.
     arch: TargetArch,
@@ -213,7 +215,8 @@ impl Compiler {
         Ok(bpf_map)
     }
 
-    /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR language).
+    /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR
+    /// language).
     fn make_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -237,9 +240,10 @@ impl Compiler {
             .map_err(Error::SeccompFilter)
     }
 
-    /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR language).
-    /// This filter will drop any argument checks and any rule-level action.
-    /// All rules will trigger the filter-level `filter_action`.
+    /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR
+    /// language). This filter will drop any argument checks and any
+    /// rule-level action. All rules will trigger the filter-level
+    /// `filter_action`.
     fn make_basic_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -267,14 +271,17 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use super::{Compiler, Error, Filter, SyscallRule};
-    use crate::backend::{
-        Error as SeccompFilterError, SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*,
-        SeccompCondition as Cond, SeccompFilter, SeccompRule, TargetArch,
-    };
     use std::collections::HashMap;
     use std::convert::TryInto;
     use std::env::consts::ARCH;
+
+    use super::{Compiler, Error, Filter, SyscallRule};
+    use crate::backend::SeccompCmpArgLen::*;
+    use crate::backend::SeccompCmpOp::*;
+    use crate::backend::{
+        Error as SeccompFilterError, SeccompAction, SeccompCondition as Cond, SeccompFilter,
+        SeccompRule, TargetArch,
+    };
 
     impl Filter {
         pub fn new(
@@ -314,7 +321,8 @@ mod tests {
     // Filter -> SeccompFilter transformation is done correctly.
     fn test_make_seccomp_filter() {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
-        // Test a well-formed filter. Malformed filters are tested in test_compile_blob().
+        // Test a well-formed filter. Malformed filters are tested in
+        // test_compile_blob().
         let filter = Filter::new(
             SeccompAction::Trap,
             SeccompAction::Allow,
@@ -398,10 +406,12 @@ mod tests {
 
     #[test]
     // Test the transformation of Filter objects into SeccompFilter objects.
-    // This `basic` alternative version of the make_seccomp_filter method drops argument checks.
+    // This `basic` alternative version of the make_seccomp_filter method drops
+    // argument checks.
     fn test_make_basic_seccomp_filter() {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
-        // Test a well-formed filter. Malformed filters are tested in test_compile_blob().
+        // Test a well-formed filter. Malformed filters are tested in
+        // test_compile_blob().
         let filter = Filter::new(
             SeccompAction::Trap,
             SeccompAction::Allow,
@@ -524,7 +534,8 @@ mod tests {
 
         // We don't test the BPF compilation in this module.
         // This is done in the seccomp/lib.rs module.
-        // Here, we only test the (Filter -> SeccompFilter) transformations. (High-level -> IR)
+        // Here, we only test the (Filter -> SeccompFilter) transformations. (High-level
+        // -> IR)
         assert!(compiler
             .compile_blob(correct_filters.clone(), false)
             .is_ok());

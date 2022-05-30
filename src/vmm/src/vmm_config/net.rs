@@ -2,21 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryInto;
-use std::fmt;
-use std::result;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::{fmt, result};
+
+use devices::virtio::net::TapError;
+use devices::virtio::Net;
+use serde::{Deserialize, Serialize};
+use utils::net::mac::MacAddr;
 
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
-use devices::virtio::net::TapError;
-use devices::virtio::Net;
-use utils::net::mac::MacAddr;
 
-use serde::{Deserialize, Serialize};
-use std::ops::Deref;
-
-/// This struct represents the strongly typed equivalent of the json body from net iface
-/// related requests.
+/// This struct represents the strongly typed equivalent of the json body from
+/// net iface related requests.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
@@ -46,18 +45,20 @@ impl From<&Net> for NetworkInterfaceConfig {
     }
 }
 
-/// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
-/// can be updated.
+/// The data fed into a network iface update request. Currently, only the RX and
+/// TX rate limiters can be updated.
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceUpdateConfig {
     /// The net iface ID, as provided by the user at iface creation time.
     pub iface_id: String,
-    /// New RX rate limiter config. Only provided data will be updated. I.e. if any optional data
-    /// is missing, it will not be nullified, but left unchanged.
+    /// New RX rate limiter config. Only provided data will be updated. I.e. if
+    /// any optional data is missing, it will not be nullified, but left
+    /// unchanged.
     pub rx_rate_limiter: Option<RateLimiterConfig>,
-    /// New TX rate limiter config. Only provided data will be updated. I.e. if any optional data
-    /// is missing, it will not be nullified, but left unchanged.
+    /// New TX rate limiter config. Only provided data will be updated. I.e. if
+    /// any optional data is missing, it will not be nullified, but left
+    /// unchanged.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
 }
 
@@ -137,8 +138,8 @@ impl NetBuilder {
         self.net_devices.push(device);
     }
 
-    /// Builds a network device based on a network interface config. Keeps a device reference
-    /// in the builder's internal list.
+    /// Builds a network device based on a network interface config. Keeps a
+    /// device reference in the builder's internal list.
     pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {
         let mac_conflict = |net: &Arc<Mutex<Net>>| {
             let net = net.lock().expect("Poisoned lock");
@@ -208,8 +209,9 @@ impl NetBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
     use std::str;
+
+    use rate_limiter::RateLimiter;
 
     use super::*;
 
@@ -328,7 +330,8 @@ mod tests {
             expected_error
         );
 
-        // Error Case: Update netif_2 dev_host_name using the same dev_host_name as netif_1.
+        // Error Case: Update netif_2 dev_host_name using the same dev_host_name as
+        // netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),

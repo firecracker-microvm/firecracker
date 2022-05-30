@@ -2,19 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-//! Implements the interface for intercepting API requests, forwarding them to the VMM
-//! and responding to the user.
-//! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
-//! handle multiple connections on the same thread.
+//! Implements the interface for intercepting API requests, forwarding them to
+//! the VMM and responding to the user.
+//! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and
+//! `EPOLL` to handle multiple connections on the same thread.
 mod parsed_request;
 mod request;
 
-use serde_json::json;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::{fmt, io};
 
-use crate::parsed_request::{ParsedRequest, RequestAction};
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
@@ -23,9 +21,12 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use seccompiler::BpfProgramRef;
+use serde_json::json;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
+
+use crate::parsed_request::{ParsedRequest, RequestAction};
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -96,28 +97,29 @@ impl ApiServer {
     /// # Arguments
     ///
     /// * `path` - the socket path on which the server will wait for requests.
-    /// * `start_time_us` - the timestamp for when the process was started in us.
-    /// * `start_time_cpu_us` - the timestamp for when the process was started in CPU us.
+    /// * `start_time_us` - the timestamp for when the process was started in
+    ///   us.
+    /// * `start_time_cpu_us` - the timestamp for when the process was started
+    ///   in CPU us.
     /// * `seccomp_filter` - the seccomp filter to apply.
     ///
     /// # Example
     ///
     /// ```
+    /// use std::convert::TryInto;
+    /// use std::env::consts::ARCH;
+    /// use std::io::{Read, Write};
+    /// use std::os::unix::net::UnixStream;
+    /// use std::path::PathBuf;
+    /// use std::sync::mpsc::{channel, Receiver, Sender};
+    /// use std::sync::{Arc, Barrier};
+    /// use std::thread;
+    /// use std::time::Duration;
+    ///
     /// use api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
-    /// use std::env::consts::ARCH;
-    /// use std::{
-    ///     convert::TryInto,
-    ///     io::Read,
-    ///     io::Write,
-    ///     os::unix::net::UnixStream,
-    ///     path::PathBuf,
-    ///     sync::mpsc::{channel, Receiver, Sender},
-    ///     sync::{Arc, Barrier},
-    ///     thread,
-    ///     time::Duration,
-    /// };
-    /// use utils::{eventfd::EventFd, tempfile::TempFile};
+    /// use utils::eventfd::EventFd;
+    /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
@@ -175,8 +177,9 @@ impl ApiServer {
             std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
         // Announce main thread that the socket path was created.
-        // As per the doc, "A send operation can only fail if the receiving end of a channel is disconnected".
-        // so this means that the main thread has exited.
+        // As per the doc, "A send operation can only fail if the receiving end of a
+        // channel is disconnected". so this means that the main thread has
+        // exited.
         socket_ready
             .send(true)
             .expect("No one to signal that the socket path is ready!");
@@ -189,8 +192,8 @@ impl ApiServer {
         process_time_reporter.report_cpu_start_time();
 
         // Load seccomp filters on the API thread.
-        // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
-        // altogether is the desired behaviour.
+        // Execution panics if filters cannot be loaded, use --no-seccomp if skipping
+        // filters altogether is the desired behaviour.
         if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: {}",
@@ -329,7 +332,6 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
@@ -339,6 +341,8 @@ mod tests {
     use vmm::seccomp_filters::{get_filters, SeccompConfig};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
+
+    use super::*;
 
     #[test]
     fn test_error_messages() {

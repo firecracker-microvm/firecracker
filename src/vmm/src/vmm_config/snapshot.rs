@@ -68,18 +68,20 @@ pub struct LoadSnapshotParams {
     pub resume_vm: bool,
 }
 
-/// Stores the configuration for loading a snapshot that is provided by the user.
+/// Stores the configuration for loading a snapshot that is provided by the
+/// user.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoadSnapshotConfig {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,
-    /// Path to the file that contains the guest memory to be loaded. To be used only if
-    /// `mem_backend` is not specified.
+    /// Path to the file that contains the guest memory to be loaded. To be used
+    /// only if `mem_backend` is not specified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_file_path: Option<PathBuf>,
-    /// Guest memory backend configuration. Is not to be used in conjunction with `mem_file_path`.
-    /// None value is allowed only if `mem_file_path` is present.
+    /// Guest memory backend configuration. Is not to be used in conjunction
+    /// with `mem_file_path`. None value is allowed only if `mem_file_path`
+    /// is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_backend: Option<MemBackendConfig>,
     /// Whether or not to enable KVM dirty page tracking.
@@ -105,7 +107,8 @@ pub struct MemBackendConfig {
 pub enum VmState {
     /// The microVM is paused, which means that we can create a snapshot of it.
     Paused,
-    /// The microVM is resumed; this state should be set after we load a snapshot.
+    /// The microVM is resumed; this state should be set after we load a
+    /// snapshot.
     Resumed,
 }
 

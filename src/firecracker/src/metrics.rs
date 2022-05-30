@@ -31,7 +31,8 @@ impl PeriodicMetrics {
         }
     }
 
-    /// Start the periodic metrics engine which will flush metrics every `interval_ms` millisecs.
+    /// Start the periodic metrics engine which will flush metrics every
+    /// `interval_ms` millisecs.
     pub(crate) fn start(&mut self, interval_ms: u64) {
         // Arm the log write timer.
         let timer_state = TimerState::Periodic {
@@ -94,8 +95,9 @@ impl MutEventSubscriber for PeriodicMetrics {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::*;
     use event_manager::{EventManager, SubscriberOps};
+
+    use super::*;
 
     #[test]
     fn test_periodic_metrics() {

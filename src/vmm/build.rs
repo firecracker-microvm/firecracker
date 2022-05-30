@@ -1,10 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
 const ADVANCED_BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
 
@@ -12,9 +11,10 @@ const JSON_DIR: &str = "../../resources/seccomp";
 const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
 const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 
-// This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
-// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
-// The generated binary code will get included in Firecracker's code, at compile-time.
+// This script is run on every modification in the target-specific JSON file in
+// `resources/seccomp`. It compiles the JSON seccomp policies into a
+// serializable BPF format, using seccompiler-bin. The generated binary code
+// will get included in Firecracker's code, at compile-time.
 fn main() {
     let target = env::var("TARGET").expect("Missing target.");
     let out_dir = env::var("OUT_DIR").expect("Missing build-level OUT_DIR.");
@@ -23,9 +23,10 @@ fn main() {
     let mut json_path = PathBuf::from(JSON_DIR);
     json_path.push(format!("{}.json", target));
 
-    // If the current target doesn't have a default filter, use a default, empty filter.
-    // This is to make sure that Firecracker builds even with libc toolchains for which we don't provide
-    // a default filter. For example, GNU libc.
+    // If the current target doesn't have a default filter, use a default, empty
+    // filter. This is to make sure that Firecracker builds even with libc
+    // toolchains for which we don't provide a default filter. For example, GNU
+    // libc.
     if !json_path.exists() {
         json_path.pop();
         json_path.push("unimplemented.json");
@@ -94,8 +95,8 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
     }
 }
 
-// Recursively traverse the entire seccompiler source folder and trigger a re-run of this build
-// script on any modification of these files.
+// Recursively traverse the entire seccompiler source folder and trigger a
+// re-run of this build script on any modification of these files.
 fn register_seccompiler_src_watchlist(src_dir: &Path) {
     let contents = fs::read_dir(src_dir).expect("Unable to read folder contents.");
     for entry in contents {

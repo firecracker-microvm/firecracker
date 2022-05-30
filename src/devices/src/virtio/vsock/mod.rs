@@ -15,17 +15,15 @@ mod unix;
 
 use std::os::unix::io::AsRawFd;
 
-use crate::virtio::persist::Error as VirtioStateError;
+use packet::VsockPacket;
+use utils::epoll::EventSet;
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
-
-use utils::epoll::EventSet;
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
-
-use packet::VsockPacket;
+use crate::virtio::persist::Error as VirtioStateError;
 
 mod defs {
     /// Device ID used in MMIO device identification.
@@ -48,8 +46,8 @@ mod defs {
         /// Virtio feature flags.
         /// Defined in `/include/uapi/linux/virtio_config.h`.
         ///
-        /// The device processes available buffers in the same order in which the device
-        /// offers them.
+        /// The device processes available buffers in the same order in which
+        /// the device offers them.
         pub const VIRTIO_F_IN_ORDER: usize = 35;
         /// The device conforms to the virtio spec version 1.0.
         pub const VIRTIO_F_VERSION_1: u32 = 32;
@@ -79,9 +77,11 @@ mod defs {
         /// Vsock packet flags.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///
-        /// Valid with a VSOCK_OP_SHUTDOWN packet: the packet sender will receive no more data.
+        /// Valid with a VSOCK_OP_SHUTDOWN packet: the packet sender will
+        /// receive no more data.
         pub const VSOCK_FLAGS_SHUTDOWN_RCV: u32 = 1;
-        /// Valid with a VSOCK_OP_SHUTDOWN packet: the packet sender will send no more data.
+        /// Valid with a VSOCK_OP_SHUTDOWN packet: the packet sender will send
+        /// no more data.
         pub const VSOCK_FLAGS_SHUTDOWN_SEND: u32 = 2;
 
         /// Vsock packet type.
@@ -127,10 +127,12 @@ pub enum VsockError {
 
 type Result<T> = std::result::Result<T, VsockError>;
 
-/// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
-/// An event-polling control loop will use `as_raw_fd()` and `get_polled_evset()` to query
-/// the listener for the file descriptor and the set of events it's interested in. When such an
-/// event occurs, the control loop will route the event to the listener via `notify()`.
+/// A passive, event-driven object, that needs to be notified whenever an
+/// epoll-able event occurs. An event-polling control loop will use
+/// `as_raw_fd()` and `get_polled_evset()` to query the listener for the file
+/// descriptor and the set of events it's interested in. When such an
+/// event occurs, the control loop will route the event to the listener via
+/// `notify()`.
 pub trait VsockEpollListener: AsRawFd {
     /// Get the set of events for which the listener wants to be notified.
     fn get_polled_evset(&self) -> EventSet;
@@ -139,15 +141,18 @@ pub trait VsockEpollListener: AsRawFd {
     fn notify(&mut self, evset: EventSet);
 }
 
-/// Any channel that handles vsock packet traffic: sending and receiving packets. Since we're
-/// implementing the device model here, our responsibility is to always process the sending of
-/// packets (i.e. the TX queue). So, any locally generated data, addressed to the driver (e.g.
-/// a connection response or RST), will have to be queued, until we get to processing the RX queue.
+/// Any channel that handles vsock packet traffic: sending and receiving
+/// packets. Since we're implementing the device model here, our responsibility
+/// is to always process the sending of packets (i.e. the TX queue). So, any
+/// locally generated data, addressed to the driver (e.g. a connection response
+/// or RST), will have to be queued, until we get to processing the RX queue.
 ///
-/// Note: `recv_pkt()` and `send_pkt()` are named analogous to `Read::read()` and `Write::write()`,
-///       respectively. I.e.
-///       - `recv_pkt(&mut pkt)` will read data from the channel, and place it into `pkt`; and
-///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
+/// Note: `recv_pkt()` and `send_pkt()` are named analogous to `Read::read()`
+/// and `Write::write()`,       respectively. I.e.
+///       - `recv_pkt(&mut pkt)` will read data from the channel, and place it
+///         into `pkt`; and
+///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the
+///         channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
@@ -155,12 +160,13 @@ pub trait VsockChannel {
     /// Write/send a packet through the channel.
     fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
 
-    /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
-    /// call to `recv_pkt()` won't fail.
+    /// Checks whether there is pending incoming data inside the channel,
+    /// meaning that a subsequent call to `recv_pkt()` won't fail.
     fn has_pending_rx(&self) -> bool;
 }
 
 /// The vsock backend, which is basically an epoll-event-driven vsock channel.
-/// Currently, the only implementation we have is `crate::virtio::unix::muxer::VsockMuxer`, which
-/// translates guest-side vsock connections to host-side Unix domain socket connections.
+/// Currently, the only implementation we have is
+/// `crate::virtio::unix::muxer::VsockMuxer`, which translates guest-side vsock
+/// connections to host-side Unix domain socket connections.
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}

@@ -7,18 +7,18 @@ pub mod persist;
 mod token;
 pub mod token_headers;
 
-use serde_json::{Map, Value};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
-use crate::token::PATH_TO_TOKEN;
-
-use crate::token_headers::REJECTED_HEADER;
 use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
+use serde_json::{Map, Value};
 use token_headers::TokenHeaders;
+
+use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
+use crate::token::PATH_TO_TOKEN;
+use crate::token_headers::REJECTED_HEADER;
 
 pub enum Error {
     InvalidToken,
@@ -61,19 +61,21 @@ impl From<MediaType> for OutputFormat {
     }
 }
 
-// Builds the `micro_http::Response` with a given HTTP version, status code, and body.
+// Builds the `micro_http::Response` with a given HTTP version, status code, and
+// body.
 fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(http_version, status_code);
     response.set_body(body);
     response
 }
 
-/// Patch provided JSON document (given as `serde_json::Value`) in-place with JSON Merge Patch
-/// [RFC 7396](https://tools.ietf.org/html/rfc7396).
+/// Patch provided JSON document (given as `serde_json::Value`) in-place with
+/// JSON Merge Patch [RFC 7396](https://tools.ietf.org/html/rfc7396).
 pub fn json_patch(target: &mut Value, patch: &Value) {
     if patch.is_object() {
         if !target.is_object() {
-            // Replace target with a serde_json object so we can recursively copy patch values.
+            // Replace target with a serde_json object so we can recursively copy patch
+            // values.
             *target = Value::Object(Map::new());
         }
 
@@ -307,9 +309,10 @@ fn respond_to_put_request(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
-    use std::time::Duration;
 
     fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{

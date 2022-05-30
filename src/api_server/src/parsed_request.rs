@@ -1,8 +1,11 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{error, info};
+use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;
 use crate::request::actions::parse_put_actions;
@@ -17,15 +20,10 @@ use crate::request::machine_configuration::{
 use crate::request::metrics::parse_put_metrics;
 use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use crate::request::net::{parse_patch_net, parse_put_net};
-use crate::request::snapshot::parse_patch_vm_state;
-use crate::request::snapshot::parse_put_snapshot;
+use crate::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
-use micro_http::{Body, Method, Request, Response, StatusCode, Version};
-
-use logger::{error, info};
-use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
@@ -326,8 +324,6 @@ pub(crate) fn checked_id(id: &str) -> Result<&str, Error> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
     use std::io::{Cursor, Write};
     use std::os::unix::net::UnixStream;
     use std::str::FromStr;
@@ -339,6 +335,8 @@ pub(crate) mod tests {
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::VmConfig;
+
+    use super::*;
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {

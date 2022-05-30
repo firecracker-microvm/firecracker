@@ -5,30 +5,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc::{c_int, c_void, siginfo_t};
+use std::cell::Cell;
+use std::fmt::{Display, Formatter};
+use std::sync::atomic::{fence, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 #[cfg(test)]
 use std::sync::Mutex;
 use std::sync::{Arc, Barrier};
-use std::{
-    cell::Cell,
-    fmt::{Display, Formatter},
-    io, result,
-    sync::atomic::{fence, Ordering},
-    sync::mpsc::{channel, Receiver, Sender, TryRecvError},
-    thread,
-};
+use std::{io, result, thread};
 
-use crate::{vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FcExitCode};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
+use libc::{c_int, c_void, siginfo_t};
 use logger::{error, info, IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
-use utils::{
-    errno,
-    eventfd::EventFd,
-    signal::{register_signal_handler, sigrtmin, Killable},
-    sm::StateMachine,
-};
+use utils::errno;
+use utils::eventfd::EventFd;
+use utils::signal::{register_signal_handler, sigrtmin, Killable};
+use utils::sm::StateMachine;
+
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::vstate::vm::Vm;
+use crate::FcExitCode;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
@@ -37,7 +35,6 @@ pub(crate) mod x86_64;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) use aarch64::{Error as VcpuError, *};
-
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
 
@@ -121,9 +118,10 @@ impl Vcpu {
 
     /// Associates `self` with the current thread.
     ///
-    /// It is a prerequisite to successfully run `init_thread_local_data()` before using
-    /// `run_on_thread_local()` on the current thread.
-    /// This function will return an error if there already is a `Vcpu` present in the TLS.
+    /// It is a prerequisite to successfully run `init_thread_local_data()`
+    /// before using `run_on_thread_local()` on the current thread.
+    /// This function will return an error if there already is a `Vcpu` present
+    /// in the TLS.
     fn init_thread_local_data(&mut self) -> Result<()> {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if cell.get().is_some() {
@@ -136,8 +134,9 @@ impl Vcpu {
 
     /// Deassociates `self` from the current thread.
     ///
-    /// Should be called if the current `self` had called `init_thread_local_data()` and
-    /// now needs to move to a different thread.
+    /// Should be called if the current `self` had called
+    /// `init_thread_local_data()` and now needs to move to a different
+    /// thread.
     ///
     /// Fails if `self` was not previously associated with the current thread.
     fn reset_thread_local_data(&mut self) -> Result<()> {
@@ -181,8 +180,8 @@ impl Vcpu {
         })
     }
 
-    /// Registers a signal handler which makes use of TLS and kvm immediate exit to
-    /// kick the vcpu running on the current thread, if there is one.
+    /// Registers a signal handler which makes use of TLS and kvm immediate exit
+    /// to kick the vcpu running on the current thread, if there is one.
     pub fn register_kick_signal_handler() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
             // This is safe because it's temporarily aliasing the `Vcpu` object, but we are
@@ -205,7 +204,8 @@ impl Vcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
+    /// * `exit_evt` - An `EventFd` that will be written into when this vcpu
+    ///   exits.
     pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
@@ -258,13 +258,13 @@ impl Vcpu {
 
     /// Main loop of the vCPU thread.
     ///
-    /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
-    /// Note that the state of the VCPU and associated VM must be setup first for this to do
-    /// anything useful.
+    /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back
+    /// in. Note that the state of the VCPU and associated VM must be setup
+    /// first for this to do anything useful.
     pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
         // Load seccomp filters for this vCPU thread.
-        // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
-        // altogether is the desired behaviour.
+        // Execution panics if filters cannot be loaded, use --no-seccomp if skipping
+        // filters altogether is the desired behaviour.
         if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
@@ -287,8 +287,7 @@ impl Vcpu {
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
                 // If the guest was rebooted or halted:
-                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or
-                //   KVM_EXIT_HLT.
+                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or KVM_EXIT_HLT.
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
@@ -447,7 +446,8 @@ impl Vcpu {
 
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
-    /// Returns error or enum specifying whether emulation was handled or interrupted.
+    /// Returns error or enum specifying whether emulation was handled or
+    /// interrupted.
     pub fn run_emulation(&self) -> Result<VcpuEmulation> {
         match self.emulate() {
             Ok(run) => match run {
@@ -585,7 +585,8 @@ pub enum VcpuResponse {
     SavedState(Box<VcpuState>),
 }
 
-/// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
+/// Wrapper over Vcpu that hides the underlying interactions with the Vcpu
+/// thread.
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
@@ -650,22 +651,21 @@ pub enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fmt,
-        sync::Mutex,
-        sync::{Arc, Barrier},
-    };
+    use std::fmt;
+    use std::sync::{Arc, Barrier, Mutex};
+
+    use linux_loader::loader::KernelLoader;
+    use utils::errno;
+    use utils::signal::validate_signal_num;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder::StartMicrovmError;
     use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
     use crate::RECV_TIMEOUT_SEC;
-    use linux_loader::loader::KernelLoader;
-    use utils::errno;
-    use utils::signal::validate_signal_num;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     struct DummyDevice;
     impl devices::BusDevice for DummyDevice {}
@@ -863,7 +863,8 @@ mod tests {
     }
 
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
-        use std::{fs::File, path::PathBuf};
+        use std::fs::File;
+        use std::path::PathBuf;
 
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
@@ -952,8 +953,8 @@ mod tests {
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
 
-        // Validate TLS vcpu is the local vcpu by changing the `id` then validating against
-        // the one in TLS.
+        // Validate TLS vcpu is the local vcpu by changing the `id` then validating
+        // against the one in TLS.
         vcpu.kvm_vcpu.index = 12;
         unsafe {
             assert!(Vcpu::run_on_thread_local(|v| assert_eq!(v.kvm_vcpu.index, 12)).is_ok());

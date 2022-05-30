@@ -1,12 +1,13 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
-//! into raw BPF programs, serializing them and outputting them to a file.
+//! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf
+//! filters expressed as JSON into raw BPF programs, serializing them and
+//! outputting them to a file.
 //!
-//! Used in conjunction with the provided library crate, one can deserialize the binary filters
-//! and easily install them on a per-thread basis, in order to achieve a quick and robust
-//! seccomp-based jailing solution.
+//! Used in conjunction with the provided library crate, one can deserialize the
+//! binary filters and easily install them on a per-thread basis, in order to
+//! achieve a quick and robust seccomp-based jailing solution.
 //!
 //! See the documentation on github for more information.
 //!
@@ -223,22 +224,22 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::io;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    use bincode::Error as BincodeError;
+    use utils::tempfile::TempFile;
+
     use super::compiler::{Error as FilterFormatError, Filter, SyscallRule};
     use super::{
         build_arg_parser, compile, get_argument_values, parse_json, Arguments, Error,
         DEFAULT_OUTPUT_FILENAME,
     };
-    use crate::backend::SeccompCmpOp::Le;
-    use crate::backend::{
-        SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*, SeccompCondition as Cond, TargetArch,
-        TargetArchError,
-    };
-    use bincode::Error as BincodeError;
-    use std::collections::HashMap;
-    use std::io;
-    use std::io::Write;
-    use std::path::PathBuf;
-    use utils::tempfile::TempFile;
+    use crate::backend::SeccompCmpArgLen::*;
+    use crate::backend::SeccompCmpOp::{Le, *};
+    use crate::backend::{SeccompAction, SeccompCondition as Cond, TargetArch, TargetArchError};
 
     // test helper for generating correct JSON input data
     fn get_correct_json_input() -> String {
@@ -770,7 +771,8 @@ mod tests {
                 ),
             );
 
-            // sort the HashMaps by key and transform into vectors, to make comparison possible
+            // sort the HashMaps by key and transform into vectors, to make comparison
+            // possible
             let mut v1: Vec<_> = filters.into_iter().collect();
             v1.sort_by(|x, y| x.0.cmp(&y.0));
 

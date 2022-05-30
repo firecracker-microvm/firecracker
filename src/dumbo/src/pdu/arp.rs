@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Contains logic that helps with handling ARP frames over Ethernet, which encapsulate requests
-//! or replies related to IPv4 addresses.
+//! Contains logic that helps with handling ARP frames over Ethernet, which
+//! encapsulate requests or replies related to IPv4 addresses.
 //!
 //! A more detailed view of an ARP frame can be found [here].
 //!
@@ -11,10 +11,10 @@ use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-
-use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 /// ARP Request operation
 pub const OPER_REQUEST: u16 = 0x0001;
@@ -63,20 +63,21 @@ pub enum Error {
 /// The inner bytes will be interpreted as an ARP frame.
 ///
 /// ARP is a generic protocol as far as data
-/// link layer and network layer protocols go, but this particular implementation is concerned with
-/// ARP frames related to IPv4 over Ethernet.
+/// link layer and network layer protocols go, but this particular
+/// implementation is concerned with ARP frames related to IPv4 over Ethernet.
 pub struct EthIPv4ArpFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
-    /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
+    /// Interprets the given bytes as an ARP frame, without doing any validity
+    /// checks beforehand.
     ///
     ///  # Panics
     ///
-    /// This method does not panic, but further method calls on the resulting object may panic if
-    /// `bytes` contains invalid input.
+    /// This method does not panic, but further method calls on the resulting
+    /// object may panic if `bytes` contains invalid input.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthIPv4ArpFrame {
@@ -84,10 +85,12 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
         }
     }
 
-    /// Tries to interpret a byte slice as a valid IPv4 over Ethernet ARP request.
+    /// Tries to interpret a byte slice as a valid IPv4 over Ethernet ARP
+    /// request.
     ///
-    /// If no error occurs, it guarantees accessor methods (which make use of various `_unchecked`
-    /// functions) are safe to call on the result, because all predefined offsets will be valid.
+    /// If no error occurs, it guarantees accessor methods (which make use of
+    /// various `_unchecked` functions) are safe to call on the result,
+    /// because all predefined offsets will be valid.
     pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
@@ -104,7 +107,8 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
             return Err(Error::PType);
         }
 
-        // We could theoretically skip the hlen and plen checks, since they are kinda implicit.
+        // We could theoretically skip the hlen and plen checks, since they are kinda
+        // implicit.
         if maybe.hlen() != MAC_ADDR_LEN as u8 {
             return Err(Error::HLen);
         }
@@ -177,8 +181,9 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     /// Returns the length of the frame.
     #[inline]
     pub fn len(&self) -> usize {
-        // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is the actual
-        // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
+        // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is
+        // the actual length in request_from_bytes(). For some reason it seems
+        // nicer leaving it as is.
         self.bytes.len()
     }
 }
@@ -217,8 +222,8 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         Ok(frame)
     }
 
-    /// Attempts to write an ARP request to `buf`, based on the specified hardware and protocol
-    /// addresses.
+    /// Attempts to write an ARP request to `buf`, based on the specified
+    /// hardware and protocol addresses.
     #[inline]
     pub fn write_request(
         buf: T,
@@ -241,8 +246,8 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         )
     }
 
-    /// Attempts to write an ARP reply to `buf`, based on the specified hardware and protocol
-    /// addresses.
+    /// Attempts to write an ARP reply to `buf`, based on the specified hardware
+    /// and protocol addresses.
     #[inline]
     pub fn write_reply(
         buf: T,
@@ -322,11 +327,13 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
     }
 }
 
-/// This function checks if `buf` may hold an Ethernet frame which encapsulates an
-/// `EthIPv4ArpRequest` for the given address. Cannot produce false negatives.
+/// This function checks if `buf` may hold an Ethernet frame which encapsulates
+/// an `EthIPv4ArpRequest` for the given address. Cannot produce false
+/// negatives.
 #[inline]
 pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
-    // The unchecked methods are safe because we actually check the buffer length beforehand.
+    // The unchecked methods are safe because we actually check the buffer length
+    // beforehand.
     if buf.len() >= ethernet::PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN {
         let bytes = &buf[ethernet::PAYLOAD_OFFSET..];
         if EthIPv4ArpFrame::from_bytes_unchecked(bytes).tpa() == addr {
@@ -338,8 +345,9 @@ pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fmt;
+
+    use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -406,8 +414,8 @@ mod tests {
             Error::Operation
         );
 
-        // TODO: The following test code is way more verbose than it should've been. Make it
-        // prettier at some point.
+        // TODO: The following test code is way more verbose than it should've been.
+        // Make it prettier at some point.
 
         // Let's write a valid request.
         EthIPv4ArpFrame::write_raw(
@@ -425,7 +433,8 @@ mod tests {
         .unwrap();
         assert!(EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).is_ok());
 
-        // Now we start writing invalid requests. We've already tried with an invalid operation.
+        // Now we start writing invalid requests. We've already tried with an invalid
+        // operation.
 
         // Invalid htype.
         EthIPv4ArpFrame::write_raw(

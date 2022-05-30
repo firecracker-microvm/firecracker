@@ -7,8 +7,11 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use mmds::{data_store::Mmds, ns::MmdsNetworkStack, persist::MmdsNetworkStackState};
-use rate_limiter::{persist::RateLimiterState, RateLimiter};
+use mmds::data_store::Mmds;
+use mmds::ns::MmdsNetworkStack;
+use mmds::persist::MmdsNetworkStackState;
+use rate_limiter::persist::RateLimiterState;
+use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -17,7 +20,6 @@ use vm_memory::GuestMemoryMmap;
 
 use super::device::{ConfigSpace, Net};
 use super::{NUM_QUEUES, QUEUE_SIZE};
-
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
@@ -89,12 +91,12 @@ impl Persist<'_> for Net {
         )
         .map_err(Error::CreateNet)?;
 
-        // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if
-        // there is at least one net device having the MMDS NS present and/or the mmds version was
-        // persisted in the snapshot.
+        // We trust the MMIODeviceManager::restore to pass us an MMDS data store
+        // reference if there is at least one net device having the MMDS NS
+        // present and/or the mmds version was persisted in the snapshot.
         if let Some(mmds_ns) = &state.mmds_ns {
-            // We're safe calling unwrap() to discard the error, as MmdsNetworkStack::restore() always
-            // returns Ok.
+            // We're safe calling unwrap() to discard the error, as
+            // MmdsNetworkStack::restore() always returns Ok.
             net.mmds_ns = Some(
                 MmdsNetworkStack::restore(
                     constructor_args
@@ -132,11 +134,11 @@ impl Persist<'_> for Net {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::*;
     use crate::virtio::device::VirtioDevice;
-
     use crate::virtio::net::test_utils::{default_guest_memory, default_net, default_net_no_mmds};
-    use std::sync::atomic::Ordering;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_guest_memory();
@@ -163,8 +165,8 @@ mod tests {
             virtio_state = VirtioDeviceState::from_device(&net);
         }
 
-        // Drop the initial net device so that we don't get an error when trying to recreate the
-        // TAP device.
+        // Drop the initial net device so that we don't get an error when trying to
+        // recreate the TAP device.
         drop(net);
         {
             // Deserialize and restore the net device.
@@ -205,13 +207,13 @@ mod tests {
         validate_save_and_restore(default_net(), mmds.as_ref().cloned());
         validate_save_and_restore(default_net_no_mmds(), None);
 
-        // Check what happens if the MMIODeviceManager gives us the reference to the MMDS
-        // data store even if this device does not have mmds ns configured.
+        // Check what happens if the MMIODeviceManager gives us the reference to the
+        // MMDS data store even if this device does not have mmds ns configured.
         // The restore should be conservative and not configure the mmds ns.
         validate_save_and_restore(default_net_no_mmds(), mmds);
 
-        // Check what happens if the MMIODeviceManager does not give us the reference to the MMDS
-        // data store. This will return an error.
+        // Check what happens if the MMIODeviceManager does not give us the reference to
+        // the MMDS data store. This will return an error.
         validate_save_and_restore(default_net(), None);
     }
 }

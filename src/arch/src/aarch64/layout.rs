@@ -4,9 +4,9 @@
 //      ==== Address map in use in ARM development systems today ====
 //
 //              - 32-bit -              - 36-bit -          - 40-bit -
-//1024GB    +                   +                      +-------------------+     <- 40-bit
-//          |                                           | DRAM              |
-//          ~                   ~                       ~                   ~
+//1024GB    +                   +                      +-------------------+
+// <- 40-bit          |                                           | DRAM
+// |          ~                   ~                       ~                   ~
 //          |                                           |                   |
 //          |                                           |                   |
 //          |                                           |                   |
@@ -23,9 +23,9 @@
 //          |                                           |       Reserved    |
 //          ~                   ~                       ~                   ~
 //          |                                           |                   |
-//64GB      +                   +-----------------------+-------------------+   <- 36-bit
-//          |                   |                   DRAM                    |
-//          ~                   ~                   ~                       ~
+//64GB      +                   +-----------------------+-------------------+
+// <- 36-bit          |                   |                   DRAM
+// |          ~                   ~                   ~                       ~
 //          |                   |                                           |
 //          |                   |                                           |
 //34GB      +                   +-----------------------+-------------------+
@@ -37,14 +37,15 @@
 //16GB      +                   +-----------------------+-------------------+
 //          |                   |                   Reserved                |
 //          ~                   ~                       ~                   ~
-//4GB       +-------------------+-----------------------+-------------------+   <- 32-bit
-//          |           2GB of DRAM                                         |
-//          |                                                               |
+//4GB       +-------------------+-----------------------+-------------------+
+// <- 32-bit          |           2GB of DRAM
+// |          |                                                               |
 //2GB       +-------------------+-----------------------+-------------------+
 //          |                           Mapped I/O                          |
 //1GB       +-------------------+-----------------------+-------------------+
 //          |                          ROM & RAM & I/O                      |
-//0GB       +-------------------+-----------------------+-------------------+   0
+//0GB       +-------------------+-----------------------+-------------------+
+// 0
 //              - 32-bit -              - 36-bit -              - 40-bit -
 //
 // Taken from (http://infocenter.arm.com/help/topic/com.arm.doc.den0001c/DEN0001C_principles_of_arm_memory_maps.pdf).
@@ -72,5 +73,6 @@ pub const IRQ_MAX: u32 = 128;
 /// First usable interrupt on aarch64.
 pub const IRQ_BASE: u32 = 32;
 
-/// Below this address will reside the GIC, above this address will reside the MMIO devices.
+/// Below this address will reside the GIC, above this address will reside the
+/// MMIO devices.
 pub const MAPPED_IO_START: u64 = 1 << 30; // 1 GB

@@ -5,10 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -32,7 +30,8 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
     GuestMSRs(arch::x86_64::msr::Error),
-    /// The number of configured slots is bigger than the maximum reported by KVM.
+    /// The number of configured slots is bigger than the maximum reported by
+    /// KVM.
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
     SetUserMemoryRegion(kvm_ioctls::Error),
@@ -181,8 +180,9 @@ impl Vm {
     #[cfg(target_arch = "x86_64")]
     pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
-        // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
-        // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
+        // We need to enable the emulation of a dummy speaker port stub so that writing
+        // to port 0x61 (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit
+        // to user space.
         let pit_config = kvm_pit_config {
             flags: KVM_PIT_SPEAKER_DUMMY,
             ..Default::default()
@@ -345,11 +345,12 @@ pub struct VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
-    use crate::vstate::system::KvmContext;
     use std::os::unix::io::FromRawFd;
+
     use vm_memory::GuestAddress;
+
+    use super::*;
+    use crate::vstate::system::KvmContext;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
@@ -367,6 +368,7 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         use std::os::unix::io::AsRawFd;
+
         use utils::tempfile::TempFile;
         // Testing an error case.
         let vm =
@@ -409,7 +411,8 @@ pub(crate) mod tests {
     fn test_vm_save_restore_state() {
         let kvm_fd = Kvm::new().unwrap();
         let vm = Vm::new(&kvm_fd).expect("new vm failed");
-        // Irqchips, clock and pitstate are not configured so trying to save state should fail.
+        // Irqchips, clock and pitstate are not configured so trying to save state
+        // should fail.
         assert!(vm.save_state().is_err());
 
         let (vm, _mem) = setup_vm(0x1000);

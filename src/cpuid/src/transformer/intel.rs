@@ -5,8 +5,9 @@ use super::*;
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
 
-// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
-// unique topology of the next level. This allows 128 logical processors/package.
+// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the
+// x2APIC ID to get a unique topology of the next level. This allows 128 logical
+// processors/package.
 const LEAFBH_INDEX1_APICID: u32 = 7;
 
 fn update_deterministic_cache_entry(
@@ -64,10 +65,10 @@ fn update_extended_topology_entry(
     // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
     entry.edx = u32::from(vm_spec.cpu_index);
 
-    // "If SMT is not present in a processor implementation but CPUID leaf 0BH is supported,
-    // CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and level type = 1.
-    // Number of logical processors at the core level is reported at level type = 2."
-    // (Intel® 64 Architecture x2APIC Specification, Ch. 2.8)
+    // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
+    // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and level
+    // type = 1. Number of logical processors at the core level is reported at
+    // level type = 2." (Intel® 64 Architecture x2APIC Specification, Ch. 2.8)
     match entry.index {
         // Thread Level Topology; index = 0
         0 => {
@@ -133,10 +134,11 @@ impl CpuidTransformer for IntelCpuidTransformer {
 
 #[cfg(test)]
 mod tests {
+    use kvm_bindings::kvm_cpuid_entry2;
+
     use super::*;
     use crate::cpu_leaf::leaf_0xb::{LEVEL_TYPE_CORE, LEVEL_TYPE_THREAD};
     use crate::transformer::VmSpec;
-    use kvm_bindings::kvm_cpuid_entry2;
 
     #[test]
     fn test_update_perf_mon_entry() {

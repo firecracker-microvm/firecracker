@@ -5,34 +5,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
-use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::{cmp, result};
 
+use block_io::FileEngine;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
+use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use virtio_gen::virtio_blk::*;
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
-use super::io as block_io;
+use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
-use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
-    request::*,
-    Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
-};
+use super::request::*;
+use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
 use crate::virtio::{IrqTrigger, IrqType};
-use block_io::FileEngine;
-use serde::{Deserialize, Serialize};
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -75,7 +71,8 @@ impl FileEngineType {
     }
 }
 
-/// Helper object for setting up all `Block` fields derived from its backing file.
+/// Helper object for setting up all `Block` fields derived from its backing
+/// file.
 pub(crate) struct DiskProperties {
     cache_type: CacheType,
     file_path: String,
@@ -100,8 +97,9 @@ impl DiskProperties {
             .seek(SeekFrom::End(0))
             .map_err(Error::BackingFile)? as u64;
 
-        // We only support disk size, which uses the first two words of the configuration space.
-        // If the image is not a multiple of the sector size, the tail bits are not exposed.
+        // We only support disk size, which uses the first two words of the
+        // configuration space. If the image is not a multiple of the sector
+        // size, the tail bits are not exposed.
         if disk_size % SECTOR_SIZE != 0 {
             warn!(
                 "Disk size {} is not a multiple of sector size {}; \
@@ -330,7 +328,8 @@ impl Block {
     }
 
     pub fn process_queue(&mut self, queue_index: usize) {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[queue_index];
@@ -393,7 +392,8 @@ impl Block {
     fn process_async_completion_queue(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
         let queue = &mut self.queues[0];
 
@@ -635,23 +635,22 @@ pub(crate) mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
-    use std::thread;
     use std::time::Duration;
-    use std::u32;
+    use std::{thread, u32};
 
-    use super::*;
-    use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};
 
+    use super::*;
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
         default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
         simulate_queue_event,
     };
+    use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use crate::virtio::IO_URING_NUM_ENTRIES;
 
@@ -745,7 +744,8 @@ pub(crate) mod tests {
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
-        // If priviledged user writes to `/dev/mem`, in block config space - byte by byte.
+        // If priviledged user writes to `/dev/mem`, in block config space - byte by
+        // byte.
         let expected_config_space = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x11];
         for i in 0..expected_config_space.len() {
             block.write_config(i as u64, &expected_config_space[i..=i]);
@@ -884,7 +884,8 @@ pub(crate) mod tests {
             vq.dtable[1]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            // Set sector to a valid number large enough that the full 0x1000 read will fail.
+            // Set sector to a valid number large enough that the full 0x1000 read will
+            // fail.
             let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 10);
             mem.write_obj::<RequestHeader>(request_header, request_type_addr)
                 .unwrap();
@@ -980,7 +981,8 @@ pub(crate) mod tests {
         {
             mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
                 .unwrap();
-            // Make data read only, 512 bytes in len, and set the actual value to be written.
+            // Make data read only, 512 bytes in len, and set the actual value to be
+            // written.
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(511);
             mem.write_slice(&rand_data[..511], data_addr).unwrap();
@@ -1041,7 +1043,8 @@ pub(crate) mod tests {
 
             mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
                 .unwrap();
-            // Make data read only, 512 bytes in len, and set the actual value to be written.
+            // Make data read only, 512 bytes in len, and set the actual value to be
+            // written.
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(512);
             mem.write_slice(&rand_data[..512], data_addr).unwrap();
@@ -1203,8 +1206,8 @@ pub(crate) mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
 
-            // File has 2 sectors and we try to read from the second sector, which means we will
-            // read 512 bytes (instead of 1024).
+            // File has 2 sectors and we try to read from the second sector, which means we
+            // will read 512 bytes (instead of 1024).
             assert_eq!(vq.used.ring[0].get().len, 513);
             assert_eq!(
                 mem.read_obj::<u32>(status_addr).unwrap(),
@@ -1346,7 +1349,8 @@ pub(crate) mod tests {
             assert_eq!(received_device_id, expected_device_id);
         }
 
-        // Test that a device ID request will be discarded, if it fails to provide enough buffer space.
+        // Test that a device ID request will be discarded, if it fails to provide
+        // enough buffer space.
         {
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());
@@ -1422,7 +1426,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_io_engine_throttling() {
-        // skip this test if kernel < 5.10 since in this case the sync engine will be used.
+        // skip this test if kernel < 5.10 since in this case the sync engine will be
+        // used.
         skip_if_io_uring_unsupported!();
 
         // FullSQueue Error
@@ -1451,8 +1456,8 @@ pub(crate) mod tests {
             simulate_async_completion_event(&mut block, true);
             assert_eq!(block.is_io_engine_throttled, false);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
-            // check that process_queue() was called again resulting in the processing of the
-            // remaining 10 ops.
+            // check that process_queue() was called again resulting in the processing of
+            // the remaining 10 ops.
             simulate_async_completion_event(&mut block, true);
             assert_eq!(block.is_io_engine_throttled, false);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
@@ -1466,8 +1471,8 @@ pub(crate) mod tests {
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
             block.activate(mem.clone()).unwrap();
 
-            // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
-            // completion. Then try to push another entry.
+            // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and
+            // wait for completion. Then try to push another entry.
             add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert_eq!(block.is_io_engine_throttled, false);
@@ -1501,7 +1506,8 @@ pub(crate) mod tests {
         simulate_queue_event(&mut block, None);
         block.prepare_save();
 
-        // Check that all the pending flush requests were processed during `prepare_save()`.
+        // Check that all the pending flush requests were processed during
+        // `prepare_save()`.
         check_flush_requests_batch(5, &mem, &vq);
     }
 
@@ -1518,7 +1524,8 @@ pub(crate) mod tests {
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
-        // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size of 8 bytes.
+        // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size
+        // of 8 bytes.
         let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0).unwrap();
         // Use up the budget.
         assert!(rl.consume(512, TokenType::Bytes));
@@ -1548,10 +1555,12 @@ pub(crate) mod tests {
         }
 
         // Wait for 100ms to give the rate-limiter timer a chance to replenish.
-        // Wait for an extra 50ms to make sure the timerfd event makes its way from the kernel.
+        // Wait for an extra 50ms to make sure the timerfd event makes its way from the
+        // kernel.
         thread::sleep(Duration::from_millis(150));
 
-        // Following write procedure should succeed because bandwidth should now be available.
+        // Following write procedure should succeed because bandwidth should now be
+        // available.
         {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
@@ -1593,7 +1602,8 @@ pub(crate) mod tests {
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
             .unwrap();
-        // Make data read only, 512 bytes in len, and set the actual value to be written.
+        // Make data read only, 512 bytes in len, and set the actual value to be
+        // written.
         vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
         vq.dtable[1].len.set(512);
         mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
@@ -1629,10 +1639,12 @@ pub(crate) mod tests {
         }
 
         // Wait for 100ms to give the rate-limiter timer a chance to replenish.
-        // Wait for an extra 50ms to make sure the timerfd event makes its way from the kernel.
+        // Wait for an extra 50ms to make sure the timerfd event makes its way from the
+        // kernel.
         thread::sleep(Duration::from_millis(150));
 
-        // Following write procedure should succeed because ops budget should now be available.
+        // Following write procedure should succeed because ops budget should now be
+        // available.
         {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,

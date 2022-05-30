@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use logger::error;
 use std::cmp::min;
 use std::fmt;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
+
+use logger::error;
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
@@ -20,10 +21,12 @@ pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 // GuestMemoryMmap::read_obj_from_addr() will be used to fetch the descriptor,
 // which has an explicit constraint that the entire descriptor doesn't
 // cross the page boundary. Otherwise the descriptor may be splitted into
-// two mmap regions which causes failure of GuestMemoryMmap::read_obj_from_addr().
+// two mmap regions which causes failure of
+// GuestMemoryMmap::read_obj_from_addr().
 //
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
-// which fulfills the explicit constraint of GuestMemoryMmap::read_obj_from_addr().
+// which fulfills the explicit constraint of
+// GuestMemoryMmap::read_obj_from_addr().
 
 #[derive(Debug)]
 pub enum QueueError {
@@ -132,7 +135,8 @@ impl<'a> DescriptorChain<'a> {
         !self.has_next() || self.next < self.queue_size
     }
 
-    /// Gets if this descriptor chain has another descriptor chain linked after it.
+    /// Gets if this descriptor chain has another descriptor chain linked after
+    /// it.
     pub fn has_next(&self) -> bool {
         self.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
     }
@@ -140,15 +144,17 @@ impl<'a> DescriptorChain<'a> {
     /// If the driver designated this as a write only descriptor.
     ///
     /// If this is false, this descriptor is read only.
-    /// Write only means the the emulated device can write and the driver can read.
+    /// Write only means the the emulated device can write and the driver can
+    /// read.
     pub fn is_write_only(&self) -> bool {
         self.flags & VIRTQ_DESC_F_WRITE != 0
     }
 
     /// Gets the next descriptor in this descriptor chain, if there is one.
     ///
-    /// Note that this is distinct from the next descriptor chain returned by `AvailIter`, which is
-    /// the head of the next _available_ descriptor chain.
+    /// Note that this is distinct from the next descriptor chain returned by
+    /// `AvailIter`, which is the head of the next _available_ descriptor
+    /// chain.
     pub fn next_descriptor(&self) -> Option<DescriptorChain<'a>> {
         if self.has_next() {
             DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
@@ -287,12 +293,14 @@ impl Queue {
         }
     }
 
-    /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
+    /// Returns the number of yet-to-be-popped descriptor chains in the avail
+    /// ring.
     pub fn len(&self, mem: &GuestMemoryMmap) -> u16 {
         (self.avail_idx(mem) - self.next_avail).0
     }
 
-    /// Checks if the driver has made any descriptor chains available in the avail ring.
+    /// Checks if the driver has made any descriptor chains available in the
+    /// avail ring.
     pub fn is_empty(&self, mem: &GuestMemoryMmap) -> bool {
         self.len(mem) == 0
     }
@@ -326,8 +334,9 @@ impl Queue {
     /// Pop the first available descriptor chain from the avail ring.
     ///
     /// # Important
-    /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
-    /// will retrieve a descriptor that contains garbage data (obsolete/empty).
+    /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE
+    /// DESCRIPTORS. Otherwise it will retrieve a descriptor that contains
+    /// garbage data (obsolete/empty).
     fn do_pop_unchecked<'a, 'b>(
         &'a mut self,
         mem: &'b GuestMemoryMmap,
@@ -335,13 +344,13 @@ impl Queue {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
-        // We'll need to find the first available descriptor, that we haven't yet popped.
-        // In a naive notation, that would be:
+        // We'll need to find the first available descriptor, that we haven't yet
+        // popped. In a naive notation, that would be:
         // `descriptor_table[avail_ring[next_avail]]`.
         //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next available
-        // descriptor. `self.avail_ring` stores the address of a `struct virtq_avail`, as defined by
-        // the VirtIO spec:
+        // First, we compute the byte-offset (into `self.avail_ring`) of the index of
+        // the next available descriptor. `self.avail_ring` stores the address
+        // of a `struct virtq_avail`, as defined by the VirtIO spec:
         //
         // ```C
         // struct virtq_avail {
@@ -352,17 +361,18 @@ impl Queue {
         // }
         // ```
         //
-        // We use `self.next_avail` to store the position, in `ring`, of the next available
-        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
-        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
+        // We use `self.next_avail` to store the position, in `ring`, of the next
+        // available descriptor index, with a twist: we always only increment
+        // `self.next_avail`, so the actual position will be `self.next_avail %
+        // self.actual_size()`. We are now looking for the offset of
+        // `ring[self.next_avail % self.actual_size()]`. `ring` starts after
+        // `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
         // 2-byte items, so the offset will be:
         let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
 
-        // `self.is_valid()` already performed all the bound checks on the descriptor table
-        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
-        // offsets.
+        // `self.is_valid()` already performed all the bound checks on the descriptor
+        // table and virtq rings, so it's safe to unwrap guest memory reads and
+        // to use unchecked offsets.
         let desc_index: u16 = mem
             .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
             .unwrap();
@@ -376,12 +386,14 @@ impl Queue {
     }
 
     /// Undo the effects of the last `self.pop()` call.
-    /// The caller can use this, if it was unable to consume the last popped descriptor chain.
+    /// The caller can use this, if it was unable to consume the last popped
+    /// descriptor chain.
     pub fn undo_pop(&mut self) {
         self.next_avail -= Wrapping(1);
     }
 
-    /// Puts an available descriptor head into the used ring for use by the guest.
+    /// Puts an available descriptor head into the used ring for use by the
+    /// guest.
     pub fn add_used(
         &mut self,
         mem: &GuestMemoryMmap,
@@ -410,7 +422,8 @@ impl Queue {
         self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
 
-        // This fence ensures all descriptor writes are visible before the index update is.
+        // This fence ensures all descriptor writes are visible before the index update
+        // is.
         fence(Ordering::Release);
 
         let next_used_addr = used_ring.unchecked_add(2);
@@ -419,14 +432,15 @@ impl Queue {
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
-    /// This is written by the driver, to indicate the next slot that will be filled in the avail
-    /// ring.
+    /// This is written by the driver, to indicate the next slot that will be
+    /// filled in the avail ring.
     fn avail_idx(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
-        // Bound checks for queue inner data have already been performed, at device activation time,
-        // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
-        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the guest
-        //       after device activation, so we can be certain that no change has occured since
-        //       the last `self.is_valid()` check.
+        // Bound checks for queue inner data have already been performed, at device
+        // activation time, via `self.is_valid()`, so it's safe to unwrap and
+        // use unchecked offsets here. Note: the `MmioTransport` code ensures
+        // that queue addresses cannot be changed by the guest       after
+        // device activation, so we can be certain that no change has
+        // occured since       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
@@ -442,7 +456,8 @@ impl Queue {
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
     }
 
-    /// Helper method that writes `val` to the `avail_event` field of the used ring.
+    /// Helper method that writes `val` to the `avail_event` field of the used
+    /// ring.
     fn set_avail_event(&mut self, val: u16, mem: &GuestMemoryMmap) {
         let avail_event_addr = self
             .used_ring
@@ -451,13 +466,15 @@ impl Queue {
         mem.write_obj(val, avail_event_addr).unwrap();
     }
 
-    /// Try to enable notification events from the guest driver. Returns true if notifications were
-    /// successfully enabled. Otherwise it means that one or more descriptors can still be consumed
-    /// from the available ring and we can't guarantee that there will be a notification. In this
-    /// case the caller might want to consume the mentioned descriptors and call this method again.
+    /// Try to enable notification events from the guest driver. Returns true if
+    /// notifications were successfully enabled. Otherwise it means that one
+    /// or more descriptors can still be consumed from the available ring
+    /// and we can't guarantee that there will be a notification. In this
+    /// case the caller might want to consume the mentioned descriptors and call
+    /// this method again.
     pub fn try_enable_notification(&mut self, mem: &GuestMemoryMmap) -> bool {
-        // If the device doesn't use notification suppression, we'll continue to get notifications
-        // no matter what.
+        // If the device doesn't use notification suppression, we'll continue to get
+        // notifications no matter what.
         if !self.uses_notif_suppression {
             return true;
         }
@@ -472,8 +489,8 @@ impl Queue {
         // Make sure all subsequent reads are performed after `set_avail_event`.
         fence(Ordering::SeqCst);
 
-        // If the actual avail_idx is different than next_avail one or more descriptors can still
-        // be consumed from the available ring.
+        // If the actual avail_idx is different than next_avail one or more descriptors
+        // can still be consumed from the available ring.
         self.next_avail.0 == self.avail_idx(mem).0
     }
 
@@ -484,11 +501,13 @@ impl Queue {
 
     /// Check if we need to kick the guest.
     ///
-    /// Please note this method has side effects: once it returns `true`, it considers the
-    /// driver will actually be notified, and won't return `true` again until the driver
-    /// updates `used_event` and/or the notification conditions hold once more.
+    /// Please note this method has side effects: once it returns `true`, it
+    /// considers the driver will actually be notified, and won't return
+    /// `true` again until the driver updates `used_event` and/or the
+    /// notification conditions hold once more.
     ///
-    /// This is similar to the `vring_need_event()` method implemented by the Linux kernel.
+    /// This is similar to the `vring_need_event()` method implemented by the
+    /// Linux kernel.
     pub fn prepare_kick(&mut self, mem: &GuestMemoryMmap) -> bool {
         // If the device doesn't use notification suppression, always return true
         if !self.uses_notif_suppression {
@@ -511,11 +530,12 @@ impl Queue {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    pub use super::*;
+    use vm_memory::test_utils::create_anon_guest_memory;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+    pub use super::*;
     use crate::virtio::test_utils::VirtQueue;
     use crate::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
-    use vm_memory::{test_utils::create_anon_guest_memory, GuestAddress, GuestMemoryMmap};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
@@ -717,7 +737,8 @@ pub(crate) mod tests {
         q.undo_pop();
         assert_eq!(q.len(m), 1);
 
-        // Walk the last chain again (three descriptors) using pop_or_enable_notification().
+        // Walk the last chain again (three descriptors) using
+        // pop_or_enable_notification().
         let d = q
             .pop_or_enable_notification(m)
             .unwrap()
@@ -734,8 +755,8 @@ pub(crate) mod tests {
         assert!(q.pop_or_enable_notification(m).is_none());
         assert_eq!(q.avail_event(m), 0);
 
-        // There are no more descriptors and notification suppression is enabled. Calling
-        // pop_or_enable_notification() should enable notifications.
+        // There are no more descriptors and notification suppression is enabled.
+        // Calling pop_or_enable_notification() should enable notifications.
         q.enable_notif_suppression();
         assert!(q.pop_or_enable_notification(m).is_none());
         assert_eq!(q.avail_event(m), 2);
@@ -878,12 +899,13 @@ pub(crate) mod tests {
 
         assert_eq!(q.len(m), 1);
 
-        // Notification suppression is disabled. try_enable_notification shouldn't do anything.
+        // Notification suppression is disabled. try_enable_notification shouldn't do
+        // anything.
         assert_eq!(q.try_enable_notification(m), true);
         assert_eq!(q.avail_event(m), 0);
 
-        // Enable notification suppression and check again. There is 1 available descriptor chain.
-        // Again nothing should happen.
+        // Enable notification suppression and check again. There is 1 available
+        // descriptor chain. Again nothing should happen.
         q.enable_notif_suppression();
         assert_eq!(q.try_enable_notification(m), false);
         assert_eq!(q.avail_event(m), 0);

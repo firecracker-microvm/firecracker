@@ -5,28 +5,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use crate::legacy::EventFdTrigger;
-use crate::BusDevice;
-use logger::SerialDeviceMetrics;
-use std::io;
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
-use std::result;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
-use vm_superio::serial::Error as SerialError;
-use vm_superio::serial::SerialEvents;
-use vm_superio::Serial;
-use vm_superio::Trigger;
+use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric};
-use std::os::unix::io::RawFd;
+use logger::{error, warn, IncMetric, SerialDeviceMetrics};
 use utils::epoll::EventSet;
+use vm_superio::serial::{Error as SerialError, SerialEvents};
+use vm_superio::{Serial, Trigger};
 
-// Cannot use multiple types as bounds for a trait object, so we define our own trait
-// which is a composition of the desired bounds. In this case, io::Read and AsRawFd.
-// Run `rustc --explain E0225` for more details.
-/// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd` traits.
+use crate::legacy::EventFdTrigger;
+use crate::BusDevice;
+
+// Cannot use multiple types as bounds for a trait object, so we define our own
+// trait which is a composition of the desired bounds. In this case, io::Read
+// and AsRawFd. Run `rustc --explain E0225` for more details.
+/// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd`
+/// traits.
 pub trait ReadableFd: io::Read + AsRawFd {}
 
 // Received Data Available interrupt - for letting the driver know that
@@ -46,7 +43,8 @@ pub trait RawIOHandler {
 }
 
 impl<EV: SerialEvents, W: Write> RawIOHandler for Serial<EventFdTrigger, EV, W> {
-    // This is not used for anything and is basically just a dummy implementation for `raw_input`.
+    // This is not used for anything and is basically just a dummy implementation
+    // for `raw_input`.
     fn raw_input(&mut self, data: &[u8]) -> result::Result<(), RawIOError> {
         // Fail fast if the serial is serviced with more data than it can buffer.
         if data.len() > self.fifo_capacity() {
@@ -282,10 +280,12 @@ impl<W: Write + Send + 'static> BusDevice
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io;
     use std::sync::{Arc, Mutex};
+
     use utils::eventfd::EventFd;
+
+    use super::*;
 
     #[derive(Clone)]
     struct SharedBuffer {
@@ -342,7 +342,8 @@ mod tests {
 
         let invalid_writes_after_2 = metrics.missed_write_count.count();
         let writes_after = metrics.write_count.count();
-        // The `invalid_write_count` metric should be the same as before the one-byte writes.
+        // The `invalid_write_count` metric should be the same as before the one-byte
+        // writes.
         assert_eq!(invalid_writes_after_2, invalid_writes_after);
         assert_eq!(writes_after, writes_before + 3);
     }
@@ -378,7 +379,8 @@ mod tests {
         assert_eq!(v[0], b'a');
 
         let invalid_reads_after_2 = metrics.missed_read_count.count();
-        // The `invalid_read_count` metric should be the same as before the one-byte reads.
+        // The `invalid_read_count` metric should be the same as before the one-byte
+        // reads.
         assert_eq!(invalid_reads_after_2, invalid_reads_after);
     }
 }

@@ -9,16 +9,16 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::fmt;
-use std::result;
 use std::sync::{Arc, Mutex};
+use std::{fmt, result};
 
 use crate::virtio::AsAny;
 
-/// Trait for devices that respond to reads or writes in an arbitrary address space.
+/// Trait for devices that respond to reads or writes in an arbitrary address
+/// space.
 ///
-/// The device does not care where it exists in address space as each method is only given an offset
-/// into its allocated portion of address space.
+/// The device does not care where it exists in address space as each method is
+/// only given an offset into its allocated portion of address space.
 #[allow(unused_variables)]
 pub trait BusDevice: AsAny + Send {
     /// Reads at `offset` from this device
@@ -29,7 +29,8 @@ pub trait BusDevice: AsAny + Send {
 
 #[derive(Debug)]
 pub enum Error {
-    /// The insertion failed because the new device overlapped with an old device.
+    /// The insertion failed because the new device overlapped with an old
+    /// device.
     Overlap,
 }
 
@@ -70,8 +71,9 @@ impl PartialOrd for BusRange {
 
 /// A device container for routing reads and writes over some address space.
 ///
-/// This doesn't have any restrictions on what kind of device or address space this applies to. The
-/// only restriction is that no two devices can overlap in this address space.
+/// This doesn't have any restrictions on what kind of device or address space
+/// this applies to. The only restriction is that no two devices can overlap in
+/// this address space.
 #[derive(Clone, Default)]
 pub struct Bus {
     devices: BTreeMap<BusRange, Arc<Mutex<dyn BusDevice>>>,
@@ -86,7 +88,8 @@ impl Bus {
     }
 
     fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<dyn BusDevice>)> {
-        // for when we switch to rustc 1.17: self.devices.range(..addr).iter().rev().next()
+        // for when we switch to rustc 1.17:
+        // self.devices.range(..addr).iter().rev().next()
         for (range, dev) in self.devices.iter().rev() {
             if range.0 <= addr {
                 return Some((*range, dev));
@@ -116,13 +119,14 @@ impl Bus {
             return Err(Error::Overlap);
         }
 
-        // The above check will miss an overlap in which the new device's base address is before the
-        // range of another device. To catch that case, we search for a device with a range before
-        // the new device's range's end. If there is no existing device in that range that starts
-        // after the new device, then there will be no overlap.
+        // The above check will miss an overlap in which the new device's base address
+        // is before the range of another device. To catch that case, we search
+        // for a device with a range before the new device's range's end. If
+        // there is no existing device in that range that starts after the new
+        // device, then there will be no overlap.
         if let Some((BusRange(start, _), _)) = self.first_before(base + len - 1) {
-            // Such a device only conflicts with the new device if it also starts after the new
-            // device because of our initial `get_device` check above.
+            // Such a device only conflicts with the new device if it also starts after the
+            // new device because of our initial `get_device` check above.
             if start >= base {
                 return Err(Error::Overlap);
             }
@@ -135,7 +139,8 @@ impl Bus {
         Ok(())
     }
 
-    /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
+    /// Reads data from the device that owns the range containing `addr` and
+    /// puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> bool {

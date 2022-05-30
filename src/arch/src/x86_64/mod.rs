@@ -6,7 +6,8 @@
 // found in the THIRD-PARTY file.
 
 mod gdt;
-/// Contains logic for setting up Advanced Programmable Interrupt Controller (local version).
+/// Contains logic for setting up Advanced Programmable Interrupt Controller
+/// (local version).
 pub mod interrupts;
 /// Layout for the x86_64 system.
 pub mod layout;
@@ -16,12 +17,12 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-use crate::InitrdConfig;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+
+use crate::InitrdConfig;
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 const E820_RAM: u32 = 1;
@@ -47,9 +48,9 @@ const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 
 /// Returns a Vec of the valid memory addresses.
-/// These should be used to configure the GuestMemoryMmap structure for the platform.
-/// For x86_64 all addresses are valid from the start of the kernel except a
-/// carve out at the end of 32bit address space.
+/// These should be used to configure the GuestMemoryMmap structure for the
+/// platform. For x86_64 all addresses are valid from the start of the kernel
+/// except a carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
     // (It points to an address in the 32 bit space).
@@ -74,7 +75,8 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
         .ok_or(Error::InitrdAddress)?;
-    // It's safe to cast to usize because the size of a region can't be greater than usize.
+    // It's safe to cast to usize because the size of a region can't be greater than
+    // usize.
     let lowmem_size = first_region.len() as usize;
 
     if lowmem_size < initrd_size {
@@ -85,14 +87,18 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
     Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
-/// Configures the system and should be called once per vm before starting vcpu threads.
+/// Configures the system and should be called once per vm before starting vcpu
+/// threads.
 ///
 /// # Arguments
 ///
 /// * `guest_mem` - The memory to be used by the guest.
-/// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was loaded.
-/// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
-/// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
+/// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was
+///   loaded.
+/// * `cmdline_size` - Size of the kernel command line in bytes including the
+///   null terminator.
+/// * `initrd` - Information about where the ramdisk image was loaded in the
+///   `guest_mem`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
 pub fn configure_system(
     guest_mem: &GuestMemoryMmap,
@@ -168,7 +174,8 @@ pub fn configure_system(
 }
 
 /// Add an e820 region to the e820 map.
-/// Returns Ok(()) if successful, or an error if there is no space left in the map.
+/// Returns Ok(()) if successful, or an error if there is no space left in the
+/// map.
 fn add_e820_entry(
     params: &mut boot_params,
     addr: u64,
@@ -189,8 +196,9 @@ fn add_e820_entry(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use linux_loader::loader::bootparam::boot_e820_entry;
+
+    use super::*;
 
     #[test]
     fn regions_lt_4gb() {
@@ -227,7 +235,8 @@ mod tests {
         let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
-        // Now assigning some memory that is equal to the start of the 32bit memory hole.
+        // Now assigning some memory that is equal to the start of the 32bit memory
+        // hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
@@ -268,8 +277,8 @@ mod tests {
         );
         assert_eq!(params.e820_entries, expected_params.e820_entries);
 
-        // Exercise the scenario where the field storing the length of the e820 entry table is
-        // is bigger than the allocated memory.
+        // Exercise the scenario where the field storing the length of the e820 entry
+        // table is is bigger than the allocated memory.
         params.e820_entries = params.e820_table.len() as u8 + 1;
         assert!(add_e820_entry(
             &mut params,

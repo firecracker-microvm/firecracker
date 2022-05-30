@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use kvm_bindings::{kvm_cpuid_entry2, CpuId};
+
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
 use crate::template::intel::validate_vendor_id;
 use crate::transformer::*;
-use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
 fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0x1::*;
@@ -116,8 +117,8 @@ fn update_xsave_features_entry(
             .eax
             .write_bits_in_range(&index0::eax::MPX_STATE_BITRANGE, 0);
 
-        // AVX-512 instructions are masked out with the current template so the size in bytes
-        // of the save area should be 0 (or invalid).
+        // AVX-512 instructions are masked out with the current template so the size in
+        // bytes of the save area should be 0 (or invalid).
         entry
             .eax
             .write_bits_in_range(&index0::eax::AVX512_STATE_BITRANGE, 0);

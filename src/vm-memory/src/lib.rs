@@ -5,17 +5,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-pub use vm_memory_upstream::{
-    address, bitmap::Bitmap, mmap::MmapRegionBuilder, mmap::MmapRegionError, Address, ByteValued,
-    Bytes, Error, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, MmapRegion, VolatileMemory, VolatileMemoryError,
-};
-
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;
 
 use vm_memory_upstream::bitmap::AtomicBitmap;
+pub use vm_memory_upstream::bitmap::Bitmap;
 use vm_memory_upstream::mmap::{check_file_offset, NewBitmap};
+pub use vm_memory_upstream::mmap::{MmapRegionBuilder, MmapRegionError};
+pub use vm_memory_upstream::{
+    address, Address, ByteValued, Bytes, Error, FileOffset, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
+    VolatileMemory, VolatileMemoryError,
+};
 
 pub type GuestMemoryMmap = vm_memory_upstream::GuestMemoryMmap<Option<AtomicBitmap>>;
 pub type GuestRegionMmap = vm_memory_upstream::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -27,15 +28,15 @@ const GUARD_PAGE_COUNT: usize = 1;
 ///
 /// Initially, we map a `PROT_NONE` guard region of size:
 /// `size` + (GUARD_PAGE_COUNT * 2 * page_size).
-/// The guard region is mapped with `PROT_NONE`, so that any access to this region will cause
-/// a SIGSEGV.
+/// The guard region is mapped with `PROT_NONE`, so that any access to this
+/// region will cause a SIGSEGV.
 ///
-/// The actual accessible region is going to be nested in the larger guard region.
-/// This is done by mapping over the guard region, starting at an address of
-/// `guard_region_addr + (GUARD_PAGE_COUNT * page_size)`.
-/// This results in a border of `GUARD_PAGE_COUNT` pages on either side of the region, which
-/// acts as a safety net for accessing out-of-bounds addresses that are not allocated for the
-/// guest's memory.
+/// The actual accessible region is going to be nested in the larger guard
+/// region. This is done by mapping over the guard region, starting at an
+/// address of `guard_region_addr + (GUARD_PAGE_COUNT * page_size)`.
+/// This results in a border of `GUARD_PAGE_COUNT` pages on either side of the
+/// region, which acts as a safety net for accessing out-of-bounds addresses
+/// that are not allocated for the guest's memory.
 fn build_guarded_region(
     maybe_file_offset: Option<FileOffset>,
     size: usize,
@@ -141,11 +142,12 @@ pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
 pub mod test_utils {
     use super::*;
 
-    /// Test helper used to initialize the guest memory without adding guard pages.
-    /// This is needed because the default `create_guest_memory`
-    /// uses MmapRegionBuilder::build_raw() for setting up the memory with guard pages, which would
-    /// error if the size is not a multiple of the page size.
-    /// There are unit tests which need a custom memory size, not a multiple of the page size.
+    /// Test helper used to initialize the guest memory without adding guard
+    /// pages. This is needed because the default `create_guest_memory`
+    /// uses MmapRegionBuilder::build_raw() for setting up the memory with guard
+    /// pages, which would error if the size is not a multiple of the page
+    /// size. There are unit tests which need a custom memory size, not a
+    /// multiple of the page size.
     pub fn create_guest_memory_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -173,8 +175,9 @@ pub mod test_utils {
         GuestMemoryMmap::from_regions(mmap_regions)
     }
 
-    /// Test helper used to initialize the guest memory, without the option of file-backed mmap.
-    /// It is just a little syntactic sugar that helps deduplicate test code.
+    /// Test helper used to initialize the guest memory, without the option of
+    /// file-backed mmap. It is just a little syntactic sugar that helps
+    /// deduplicate test code.
     pub fn create_anon_guest_memory(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -188,8 +191,10 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    use utils::get_page_size;
+    use utils::tempfile::TempFile;
+
     use super::*;
-    use utils::{get_page_size, tempfile::TempFile};
 
     enum AddrOp {
         Read,

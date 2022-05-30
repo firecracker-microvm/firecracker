@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 #![deny(missing_docs)]
 
-//! The library crate that defines common helper functions that are generally used in
-//! conjunction with seccompiler-bin.
+//! The library crate that defines common helper functions that are generally
+//! used in conjunction with seccompiler-bin.
 
 mod common;
 
-use bincode::Error as BincodeError;
-use bincode::{DefaultOptions, Options};
-use common::BPF_MAX_LEN;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::sync::Arc;
 
+use bincode::{DefaultOptions, Error as BincodeError, Options};
+use common::BPF_MAX_LEN;
 // Re-export the data types needed for calling the helper functions.
 pub use common::{sock_filter, BpfProgram};
 
@@ -52,7 +51,8 @@ impl Display for DeserializationError {
 /// Filter installation errors.
 #[derive(Debug, PartialEq)]
 pub enum InstallationError {
-    /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    /// Filter exceeds the maximum number of instructions that a BPF program can
+    /// have.
     FilterTooLarge,
     /// Error returned by `prctl`.
     Prctl(i32),
@@ -74,9 +74,10 @@ impl Display for InstallationError {
 }
 
 /// Deserialize a BPF file into a collection of usable BPF filters.
-/// Has an optional `bytes_limit` that is passed to bincode to constrain the maximum amount of memory
-/// that we can allocate while performing the deserialization.
-/// It's recommended that the integrator of the library uses this to prevent memory allocations DOS-es.
+/// Has an optional `bytes_limit` that is passed to bincode to constrain the
+/// maximum amount of memory that we can allocate while performing the
+/// deserialization. It's recommended that the integrator of the library uses
+/// this to prevent memory allocations DOS-es.
 pub fn deserialize_binary<R: Read>(
     reader: R,
     bytes_limit: Option<u64>,
@@ -143,11 +144,12 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::common::BpfProgram;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread;
+
+    use super::*;
+    use crate::common::BpfProgram;
     #[test]
     fn test_deserialize_binary() {
         // Malformed bincode binary.

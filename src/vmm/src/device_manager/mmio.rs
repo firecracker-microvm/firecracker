@@ -5,13 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
-#[cfg(target_arch = "x86_64")]
-use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
@@ -19,6 +15,8 @@ use arch::DeviceType;
 use arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::SerialDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
     Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
@@ -30,6 +28,8 @@ use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+#[cfg(target_arch = "x86_64")]
+use vm_memory::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -78,10 +78,10 @@ impl fmt::Display for Error {
 
 type Result<T> = ::std::result::Result<T, Error>;
 
-/// This represents the size of the mmio device specified to the kernel as a cmdline option
-/// It has to be larger than 0x100 (the offset where the configuration space starts from
-/// the beginning of the memory mapped device registers) + the size of the configuration space
-/// Currently hardcoded to 4K.
+/// This represents the size of the mmio device specified to the kernel as a
+/// cmdline option It has to be larger than 0x100 (the offset where the
+/// configuration space starts from the beginning of the memory mapped device
+/// registers) + the size of the configuration space Currently hardcoded to 4K.
 const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
@@ -189,7 +189,8 @@ impl MMIODeviceManager {
         Ok(())
     }
 
-    /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
+    /// Register a virtio-over-MMIO device to be used via MMIO transport at a
+    /// specific slot.
     pub fn register_mmio_virtio(
         &mut self,
         vm: &VmFd,
@@ -227,16 +228,16 @@ impl MMIODeviceManager {
     ) -> Result<()> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
+        // the size parameter has to be transformed to KiB, so dividing hexadecimal
+        // value in bytes to 1024; further, the '{}' formatting rust construct
+        // will automatically transform it to decimal
         cmdline
             .add_virtio_mmio_device(slot.len, GuestAddress(slot.addr), slot.irqs[0], None)
             .map_err(Error::Cmdline)
     }
 
-    /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
-    /// to the boot cmdline.
+    /// Allocate slot and register an already created virtio-over-MMIO device.
+    /// Also Adds the device to the boot cmdline.
     pub fn register_mmio_virtio_for_boot(
         &mut self,
         vm: &VmFd,
@@ -252,8 +253,8 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Register an early console at the specified MMIO address if given as parameter,
-    /// otherwise allocate a new MMIO slot for it.
+    /// Register an early console at the specified MMIO address if given as
+    /// parameter, otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
@@ -285,8 +286,8 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Create and register a MMIO RTC device at the specified MMIO address if given as parameter,
-    /// otherwise allocate a new MMIO slot for it.
+    /// Create and register a MMIO RTC device at the specified MMIO address if
+    /// given as parameter, otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
         rtc: Arc<Mutex<RTCDevice>>,
@@ -453,8 +454,9 @@ impl MMIODeviceManager {
                     }
                 }
                 TYPE_VSOCK => {
-                    // Vsock has complicated protocol that isn't resilient to any packet loss,
-                    // so for Vsock we don't support connection persistence through snapshot.
+                    // Vsock has complicated protocol that isn't resilient to
+                    // any packet loss, so for Vsock we
+                    // don't support connection persistence through snapshot.
                     // Any in-flight packets or events are simply lost.
                     // Vsock is restored 'empty'.
                 }
@@ -480,14 +482,16 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::builder;
-    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+
+    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use utils::errno;
     use utils::eventfd::EventFd;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    use super::*;
+    use crate::builder;
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -668,7 +672,8 @@ mod tests {
     fn test_error_debug_display() {
         let check_fmt_err = |e: Error| {
             // Use an exhaustive 'match' to make sure we cover all error variants.
-            // When adding a new variant here, don't forget to also call this function with it.
+            // When adding a new variant here, don't forget to also call this function with
+            // it.
             let msg = match e {
                 Error::BusError(_) => format!("{}{:?}", e, e),
                 Error::Cmdline(_) => format!("{}{:?}", e, e),

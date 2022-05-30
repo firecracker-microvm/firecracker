@@ -41,9 +41,10 @@ impl A {
 
 #[test]
 fn test_hardcoded_snapshot_deserialization() {
-    // We are testing representation compatibility between versions, at the `snapshot` crate
-    // level, by checking that only the version number and the newly added/removed fields changes
-    // between versions are reflected in the hardcoded snapshot.
+    // We are testing representation compatibility between versions, at the
+    // `snapshot` crate level, by checking that only the version number and the
+    // newly added/removed fields changes between versions are reflected in the
+    // hardcoded snapshot.
 
     #[rustfmt::skip]
     let v1_hardcoded_snapshot: &[u8] = &[

@@ -1,8 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{de, Deserialize, Serialize};
 use std::fmt;
+
+use serde::{de, Deserialize, Serialize};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -13,15 +14,16 @@ pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 /// Errors associated with configuring the microVM.
 #[derive(Debug, PartialEq)]
 pub enum VmConfigError {
-    /// The memory size is smaller than the target size set in the balloon device configuration.
+    /// The memory size is smaller than the target size set in the balloon
+    /// device configuration.
     IncompatibleBalloonSize,
     /// The memory size is invalid. The memory can only be an unsigned integer.
     InvalidMemorySize,
-    /// The vcpu count is invalid. When SMT is enabled, the `cpu_count` must be either
-    /// 1 or an even number.
+    /// The vcpu count is invalid. When SMT is enabled, the `cpu_count` must be
+    /// either 1 or an even number.
     InvalidVcpuCount,
-    /// Could not get the config of the balloon device from the VM resources, even though a
-    /// balloon device was previously installed.
+    /// Could not get the config of the balloon device from the VM resources,
+    /// even though a balloon device was previously installed.
     InvalidVmState,
 }
 
@@ -62,14 +64,16 @@ pub struct VmConfig {
     /// Enables or disabled SMT.
     #[serde(default, deserialize_with = "deserialize_smt")]
     pub smt: bool,
-    /// A CPU template that it is used to filter the CPU features exposed to the guest.
+    /// A CPU template that it is used to filter the CPU features exposed to the
+    /// guest.
     #[serde(
         default,
         deserialize_with = "deserialize_cpu_template",
         skip_serializing_if = "CpuFeaturesTemplate::is_none"
     )]
     pub cpu_template: CpuFeaturesTemplate,
-    /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
+    /// Enables or disables dirty page tracking. Enabling allows incremental
+    /// snapshots.
     #[serde(default)]
     pub track_dirty_pages: bool,
 }
@@ -122,22 +126,24 @@ pub struct VmUpdateConfig {
         deserialize_with = "deserialize_smt"
     )]
     pub smt: Option<bool>,
-    /// A CPU template that it is used to filter the CPU features exposed to the guest.
+    /// A CPU template that it is used to filter the CPU features exposed to the
+    /// guest.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_cpu_template"
     )]
     pub cpu_template: Option<CpuFeaturesTemplate>,
-    /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
+    /// Enables or disables dirty page tracking. Enabling allows incremental
+    /// snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_dirty_pages: Option<bool>,
 }
 
 impl VmUpdateConfig {
     /// Checks if the update request contains any data.
-    /// Returns `true` if all fields are set to `None` which means that there is nothing
-    /// to be updated.
+    /// Returns `true` if all fields are set to `None` which means that there is
+    /// nothing to be updated.
     pub fn is_empty(&self) -> bool {
         if self.vcpu_count.is_none()
             && self.mem_size_mib.is_none()
@@ -164,10 +170,10 @@ impl From<VmConfig> for VmUpdateConfig {
     }
 }
 
-/// Deserialization function for the `vcpu_num` field in `VmConfig` and `VmUpdateConfig`.
-/// This is called only when `vcpu_num` is present in the JSON configuration.
-/// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
-/// present in the JSON.
+/// Deserialization function for the `vcpu_num` field in `VmConfig` and
+/// `VmUpdateConfig`. This is called only when `vcpu_num` is present in the JSON
+/// configuration. `T` can be either `u8` or `Option<u8>` which both support
+/// ordering if `vcpu_num` is present in the JSON.
 fn deserialize_vcpu_num<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -191,8 +197,9 @@ where
     Ok(val)
 }
 
-/// Deserialization function for the `smt` field in `VmConfig` and `VmUpdateConfig`.
-/// This is called only when `smt` is present in the JSON configuration.
+/// Deserialization function for the `smt` field in `VmConfig` and
+/// `VmUpdateConfig`. This is called only when `smt` is present in the JSON
+/// configuration.
 fn deserialize_smt<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -214,8 +221,9 @@ where
     Ok(val)
 }
 
-/// Deserialization function for the `cpu_template` field in `VmConfig` and `VmUpdateConfig`.
-/// This is called only when `cpu_template` is present in the JSON configuration.
+/// Deserialization function for the `cpu_template` field in `VmConfig` and
+/// `VmUpdateConfig`. This is called only when `cpu_template` is present in the
+/// JSON configuration.
 fn deserialize_cpu_template<'de, D, T>(_d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,

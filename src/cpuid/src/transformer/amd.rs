@@ -1,21 +1,22 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
-
 use kvm_bindings::{CpuId, KVM_CPUID_FLAG_SIGNIFCANT_INDEX};
 
+use super::*;
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
 use crate::transformer::common::use_host_cpuid_function;
 
-// Largest extended function. It has to be larger then 0x8000001d (Extended Cache Topology).
+// Largest extended function. It has to be larger then 0x8000001d (Extended
+// Cache Topology).
 const LARGEST_EXTENDED_FN: u32 = 0x8000_001f;
 // This value allows at most 64 logical threads within a package.
 // See also the documentation for leaf_0x80000008::ecx::THREAD_ID_SIZE_BITRANGE
 const THREAD_ID_MAX_SIZE: u32 = 7;
 // This value means there is 1 node per processor.
-// See also the documentation for leaf_0x8000001e::ecx::NODES_PER_PROCESSOR_BITRANGE.
+// See also the documentation for
+// leaf_0x8000001e::ecx::NODES_PER_PROCESSOR_BITRANGE.
 const NODES_PER_PROCESSOR: u32 = 0;
 
 pub fn update_structured_extended_entry(
@@ -27,7 +28,8 @@ pub fn update_structured_extended_entry(
     // according to the EPYC PPR, only the leaf 0x7 with index 0 contains the
     // structured extended feature identifiers
     if entry.index == 0 {
-        // KVM sets this bit no matter what but this feature is not supported by hardware
+        // KVM sets this bit no matter what but this feature is not supported by
+        // hardware
         entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, false);
     }
 

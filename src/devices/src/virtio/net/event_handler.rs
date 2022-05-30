@@ -122,7 +122,8 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
 
         // EventManager should report no events since net has only registered
-        // its activation event so far (even though there is also a queue event pending).
+        // its activation event so far (even though there is also a queue event
+        // pending).
         let ev_count = th.event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 0);
 

@@ -9,24 +9,26 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::result;
 
-use super::super::DeviceType;
-use super::super::InitrdConfig;
+use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
+
+use super::super::{DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
-use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
-
-// This is a value for uniquely identifying the FDT node declaring the interrupt controller.
+// This is a value for uniquely identifying the FDT node declaring the interrupt
+// controller.
 const GIC_PHANDLE: u32 = 1;
-// This is a value for uniquely identifying the FDT node containing the clock definition.
+// This is a value for uniquely identifying the FDT node containing the clock
+// definition.
 const CLOCK_PHANDLE: u32 = 2;
 // You may be wondering why this big value?
-// This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
-// can have a variable number of caches, some of these caches may be shared with other cpus.
-// So, we start the indexing of the phandles used from a really big number and then substract from it
-// as we need more and more phandle for each cache representation.
+// This phandle is used to uniquely identify the FDT nodes containing cache
+// information. Each cpu can have a variable number of caches, some of these
+// caches may be shared with other cpus. So, we start the indexing of the
+// phandles used from a really big number and then substract from it as we need
+// more and more phandle for each cache representation.
 const LAST_CACHE_PHANDLE: u32 = 4000;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
@@ -88,8 +90,8 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     // Header or the root node as per above mentioned documentation.
     let root = fdt_writer.begin_node("")?;
     fdt_writer.property_string("compatible", "linux,dummy-virt")?;
-    // For info on #address-cells and size-cells read "Note about cells and address representation"
-    // from the above mentioned txt file.
+    // For info on #address-cells and size-cells read "Note about cells and address
+    // representation" from the above mentioned txt file.
     fdt_writer.property_u32("#address-cells", ADDRESS_CELLS)?;
     fdt_writer.property_u32("#size-cells", SIZE_CELLS)?;
     // This is not mandatory but we use it to point the root node to the node
@@ -118,11 +120,12 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     Ok(fdt_final)
 }
 
-// Following are the auxiliary function for creating the different nodes that we append to our FDT.
+// Following are the auxiliary function for creating the different nodes that we
+// append to our FDT.
 fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
-    // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
-    // cpu in the device tree, we process the L1 and non-L1 caches separately.
-    // We use sysfs for extracting the cache information.
+    // Since the L1 caches are not shareable among CPUs and they are direct
+    // attributes of the cpu in the device tree, we process the L1 and non-L1
+    // caches separately. We use sysfs for extracting the cache information.
     let mut l1_caches: Vec<CacheEntry> = Vec::new();
     let mut non_l1_caches: Vec<CacheEntry> = Vec::new();
     // We use sysfs for extracting the cache information.
@@ -142,8 +145,8 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
         // The power state coordination interface (PSCI) needs to be enabled for
         // all vcpus.
         fdt.property_string("enable-method", "psci")?;
-        // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
-        // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
+        // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity
+        // Register. See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         fdt.property_u64("reg", mpidr & 0x7FFFFF)?;
 
         for cache in l1_caches.iter() {
@@ -161,22 +164,23 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
             }
         }
 
-        // Some of the non-l1 caches can be shared amongst CPUs. You can see an example of a shared scenario
-        // in https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
+        // Some of the non-l1 caches can be shared amongst CPUs. You can see an example
+        // of a shared scenario in https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
         // 3.8.1 Example.
         let mut prev_level = 1;
         let mut cache_node: Option<FdtWriterNode> = None;
         for cache in non_l1_caches.iter() {
-            // We append the next-level-cache node (the node that specifies the cache hierarchy)
-            // in the next iteration. For example,
+            // We append the next-level-cache node (the node that specifies the cache
+            // hierarchy) in the next iteration. For example,
             // L2-cache {
             //      cache-size = <0x8000> ----> first iteration
             //      next-level-cache = <&l3-cache> ---> second iteration
             // }
-            // The cpus per unit cannot be 0 since the sysfs will also include the current cpu
-            // in the list of shared cpus so it needs to be at least 1. Firecracker trusts the host.
-            // The operation is safe since we already checked when creating cache attributes that
-            // cpus_per_unit is not 0 (.e look for mask_str2bit_count function).
+            // The cpus per unit cannot be 0 since the sysfs will also include the current
+            // cpu in the list of shared cpus so it needs to be at least 1.
+            // Firecracker trusts the host. The operation is safe since we
+            // already checked when creating cache attributes that cpus_per_unit
+            // is not 0 (.e look for mask_str2bit_count function).
             let cache_phandle = LAST_CACHE_PHANDLE
                 - (num_cpus * (cache.level - 2) as usize + cpu_index / cache.cpus_per_unit as usize)
                     as u32;
@@ -266,8 +270,8 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()
     fdt.property_string("compatible", gic_device.fdt_compatibility())?;
     fdt.property_null("interrupt-controller")?;
     // "interrupt-cells" field specifies the number of cells needed to encode an
-    // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity description
-    // is required.
+    // interrupt source. The type shall be a <u32> and the value shall be 3 if no
+    // PPI affinity description is required.
     fdt.property_u32("#interrupt-cells", 3)?;
     fdt.property_array_u64("reg", &gic_device.device_properties())?;
     fdt.property_u32("phandle", GIC_PHANDLE)?;
@@ -288,10 +292,11 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()
 }
 
 fn create_clock_node(fdt: &mut FdtWriter) -> Result<()> {
-    // The Advanced Peripheral Bus (APB) is part of the Advanced Microcontroller Bus Architecture
-    // (AMBA) protocol family. It defines a low-cost interface that is optimized for minimal power
-    // consumption and reduced interface complexity.
-    // PCLK is the clock source and this node defines exactly the clock for the APB.
+    // The Advanced Peripheral Bus (APB) is part of the Advanced Microcontroller Bus
+    // Architecture (AMBA) protocol family. It defines a low-cost interface that
+    // is optimized for minimal power consumption and reduced interface
+    // complexity. PCLK is the clock source and this node defines exactly the
+    // clock for the APB.
     let clock = fdt.begin_node("apb-pclk")?;
     fdt.property_string("compatible", "fixed-clock")?;
     fdt.property_u32("#clock-cells", 0x0)?;
@@ -330,8 +335,9 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<()> {
     let psci = fdt.begin_node("psci")?;
     fdt.property_string("compatible", compatible)?;
     // Two methods available: hvc and smc.
-    // As per documentation, PSCI calls between a guest and hypervisor may use the HVC conduit instead of SMC.
-    // So, since we are using kvm, we need to use hvc.
+    // As per documentation, PSCI calls between a guest and hypervisor may use the
+    // HVC conduit instead of SMC. So, since we are using kvm, we need to use
+    // hvc.
     fdt.property_string("method", "hvc")?;
     fdt.end_node(psci)?;
 
@@ -413,7 +419,8 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
         }
     }
 
-    // Sort out virtio devices by address from low to high and insert them into fdt table.
+    // Sort out virtio devices by address from low to high and insert them into fdt
+    // table.
     ordered_virtio_device.sort_by_key(|&a| a.addr());
     for ordered_device_info in ordered_virtio_device.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
@@ -424,10 +431,11 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::create_gic;
     use crate::aarch64::{arch_memory_regions, layout};
-    use kvm_ioctls::Kvm;
 
     const LEN: u64 = 4096;
 
@@ -448,8 +456,8 @@ mod tests {
             LEN
         }
     }
-    // The `load` function from the `device_tree` will mistakenly check the actual size
-    // of the buffer with the allocated size. This works around that.
+    // The `load` function from the `device_tree` will mistakenly check the actual
+    // size of the buffer with the allocated size. This works around that.
     fn set_size(buf: &mut [u8], pos: usize, val: usize) {
         buf[pos] = ((val >> 24) & 0xff) as u8;
         buf[pos + 1] = ((val >> 16) & 0xff) as u8;

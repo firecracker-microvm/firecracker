@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Contains support for parsing and writing Ethernet frames. Does not currently offer support for
-//! 802.1Q tags.
+//! Contains support for parsing and writing Ethernet frames. Does not currently
+//! offer support for 802.1Q tags.
 
 use std::result::Result;
 
@@ -15,8 +15,8 @@ const SRC_MAC_OFFSET: usize = 6;
 const ETHERTYPE_OFFSET: usize = 12;
 
 // We don't support 802.1Q tags.
-// TODO: support 802.1Q tags?! If so, don't forget to change the speculative_test_* functions
-// for ARP and IPv4.
+// TODO: support 802.1Q tags?! If so, don't forget to change the
+// speculative_test_* functions for ARP and IPv4.
 /// Payload offset in an ethernet frame
 pub const PAYLOAD_OFFSET: usize = 14;
 
@@ -43,8 +43,8 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     ///
     /// # Panics
     ///
-    ///  This method does not panic, but further method calls on the resulting object may panic if
-    /// `bytes` contains invalid input.
+    ///  This method does not panic, but further method calls on the resulting
+    /// object may panic if `bytes` contains invalid input.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthernetFrame {
@@ -52,7 +52,8 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
         }
     }
 
-    /// Checks whether the specified byte sequence can be interpreted as an Ethernet frame.
+    /// Checks whether the specified byte sequence can be interpreted as an
+    /// Ethernet frame.
     #[inline]
     pub fn from_bytes(bytes: T) -> Result<Self, Error> {
         if bytes.len() < PAYLOAD_OFFSET {
@@ -100,7 +101,8 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
-    /// Attempts to write an Ethernet frame using the given header fields to `buf`.
+    /// Attempts to write an Ethernet frame using the given header fields to
+    /// `buf`.
     fn new_with_header(
         buf: T,
         dst_mac: MacAddr,
@@ -121,8 +123,8 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
         Ok(frame)
     }
 
-    /// Attempts to write an incomplete Ethernet frame (whose length is currently unknown) to `buf`,
-    /// using the specified header fields.
+    /// Attempts to write an incomplete Ethernet frame (whose length is
+    /// currently unknown) to `buf`, using the specified header fields.
     #[inline]
     pub fn write_incomplete(
         buf: T,
@@ -170,7 +172,8 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
     ///
     /// # Panics
     ///
-    /// This method panics if `len` is greater than the length of the inner byte sequence.
+    /// This method panics if `len` is greater than the length of the inner byte
+    /// sequence.
     #[inline]
     pub fn with_payload_len_unchecked(mut self, payload_len: usize) -> EthernetFrame<'a, T> {
         let payload_offset = self.inner.payload_offset();
@@ -183,9 +186,9 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::fmt;
+
+    use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

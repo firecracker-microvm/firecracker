@@ -83,7 +83,6 @@ pub mod leaf_0x4 {
 
     pub mod eax {
         use crate::bit_helper::BitRange;
-
         // inherit eax from leaf_cache_parameters
         pub use crate::cpu_leaf::leaf_cache_parameters::eax::*;
 
@@ -142,7 +141,8 @@ pub mod leaf_0x7 {
             pub const AVX512IFMA_BITINDEX: u32 = 21;
             // 21 = PCOMMIT intruction
             // 22 reserved
-            // CLFLUSHOPT (flushing multiple cache lines in parallel within a single logical processor)
+            // CLFLUSHOPT (flushing multiple cache lines in parallel within a single logical
+            // processor)
             pub const CLFLUSHOPT_BITINDEX: u32 = 23;
             // CLWB = Cache Line Write Back
             pub const CLWB_BITINDEX: u32 = 24;
@@ -163,8 +163,8 @@ pub mod leaf_0x7 {
         }
 
         pub mod ecx {
-            // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future use)
-            // AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
+            // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future
+            // use) AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
             pub const AVX512_VBMI_BITINDEX: u32 = 1;
             // UMIP (User Mode Instruction Prevention)
             pub const UMIP_BITINDEX: u32 = 2;
@@ -182,12 +182,13 @@ pub mod leaf_0x7 {
             pub const AVX512_VNNI_BITINDEX: u32 = 11;
             // 12 = AVX512_BITALG
             // 13 = TME
-            // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
+            // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™
+            // only.)
             pub const AVX512_VPOPCNTDQ_BITINDEX: u32 = 14;
             // LA57 = 5-level page tables.
             pub const LA57: u32 = 16;
-            // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
-            // Read Processor ID
+            // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in
+            // 64-bit mode. Read Processor ID
             pub const RDPID_BITINDEX: u32 = 22;
             // 23 - 29 reserved
             // SGX_LC = SGX Launch Configuration
@@ -219,8 +220,8 @@ pub mod leaf_0xb {
     pub mod eax {
         use crate::bit_helper::BitRange;
 
-        // The bit-range containing the number of bits to shift right the APIC ID in order to get
-        // the next level APIC ID
+        // The bit-range containing the number of bits to shift right the APIC ID in
+        // order to get the next level APIC ID
         pub const APICID_BITRANGE: BitRange = bit_range!(4, 0);
     }
 
@@ -283,7 +284,8 @@ pub mod leaf_0x80000001 {
     }
 
     pub mod edx {
-        pub const PDPE1GB_BITINDEX: u32 = 26; // 1-GByte pages are available if 1.
+        pub const PDPE1GB_BITINDEX: u32 = 26; // 1-GByte pages are available if
+                                              // 1.
     }
 }
 
@@ -293,8 +295,8 @@ pub mod leaf_0x80000008 {
     pub mod ecx {
         use crate::bit_helper::BitRange;
 
-        // The number of bits in the initial ApicId value that indicate thread ID within a package
-        // Possible values:
+        // The number of bits in the initial ApicId value that indicate thread ID within
+        // a package Possible values:
         // 0-5 -> Reserved
         // 6 -> up to 64 threads
         // 7 -> up to 128 threads

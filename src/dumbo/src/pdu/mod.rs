@@ -3,9 +3,9 @@
 
 //! A module for interpreting byte slices as protocol data units (PDUs).
 //!
-//! A PDU represents data transmitted as a single unit during communication using a specific
-//! protocol. Ethernet frames, IP packets, and TCP segments are all examples of protocol data
-//! units.
+//! A PDU represents data transmitted as a single unit during communication
+//! using a specific protocol. Ethernet frames, IP packets, and TCP segments are
+//! all examples of protocol data units.
 
 use std::net::Ipv4Addr;
 
@@ -19,14 +19,15 @@ pub mod ipv4;
 pub mod tcp;
 pub mod udp;
 
-/// This is the baseline definition of the `Incomplete` struct, which wraps a PDU that does is
-/// still missing some values or content.
+/// This is the baseline definition of the `Incomplete` struct, which wraps a
+/// PDU that does is still missing some values or content.
 ///
 /// It's mostly important when writing PDUs, because fields like checksum
-/// can only be computed after the payload becomes known. Also, the length of the underlying slice
-/// should be equal to the actual size for a complete PDU. To that end, whenever a variable-length
-/// payload is involved, the slice is shrunk to an exact fit. The particular ways of completing an
-/// `Incomplete<T>` are implemented for each specific PDU.
+/// can only be computed after the payload becomes known. Also, the length of
+/// the underlying slice should be equal to the actual size for a complete PDU.
+/// To that end, whenever a variable-length payload is involved, the slice is
+/// shrunk to an exact fit. The particular ways of completing an `Incomplete<T>`
+/// are implemented for each specific PDU.
 pub struct Incomplete<T> {
     inner: T,
 }
@@ -64,7 +65,8 @@ enum ChecksumProto {
 /// * `bytes` - Raw bytes of a TCP packet or a UDP datagram
 /// * `src_addr` - IPv4 source address
 /// * `dst_addr` - IPv4 destination address
-/// * `protocol` - **must** be either `PROTOCOL_TCP` or `PROTOCOL_UDP` defined in
+/// * `protocol` - **must** be either `PROTOCOL_TCP` or `PROTOCOL_UDP` defined
+///   in
 /// `ipv4` module
 ///
 /// More details about TCP checksum computation can be found [here].
@@ -77,8 +79,8 @@ fn compute_checksum<T: NetworkBytes>(
     dst_addr: Ipv4Addr,
     protocol: ChecksumProto,
 ) -> u16 {
-    // TODO: Is u32 enough to prevent overflow for the code in this function? I think so, but it
-    // would be nice to double-check.
+    // TODO: Is u32 enough to prevent overflow for the code in this function? I
+    // think so, but it would be nice to double-check.
     let mut sum = 0u32;
 
     let a = u32::from(src_addr);

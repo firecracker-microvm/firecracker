@@ -7,9 +7,9 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+
+use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -79,7 +79,8 @@ pub struct SomeplaceInMemory<'a, T> {
     phantom: PhantomData<*const T>,
 }
 
-// The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
+// The ByteValued trait is required to use mem.read_obj_from_addr and
+// write_obj_at_addr.
 impl<'a, T> SomeplaceInMemory<'a, T>
 where
     T: vm_memory::ByteValued,
@@ -102,8 +103,8 @@ where
         self.mem.write_obj(val, self.location).unwrap()
     }
 
-    // This function returns a place in memory which holds a value of type U, and starts
-    // offset bytes after the current location.
+    // This function returns a place in memory which holds a value of type U, and
+    // starts offset bytes after the current location.
     fn map_offset<U>(&self, offset: usize) -> SomeplaceInMemory<'a, U> {
         SomeplaceInMemory {
             location: self.location.checked_add(offset as u64).unwrap(),
@@ -112,8 +113,8 @@ where
         }
     }
 
-    // This function returns a place in memory which holds a value of type U, and starts
-    // immediately after the end of self (which is location + sizeof(T)).
+    // This function returns a place in memory which holds a value of type U, and
+    // starts immediately after the end of self (which is location + sizeof(T)).
     fn next_place<U>(&self) -> SomeplaceInMemory<'a, U> {
         self.map_offset::<U>(mem::size_of::<T>())
     }
@@ -186,8 +187,8 @@ impl<'a> VirtqDesc<'a> {
     }
 }
 
-// Represents a virtio queue ring. The only difference between the used and available rings,
-// is the ring element type.
+// Represents a virtio queue ring. The only difference between the used and
+// available rings, is the ring element type.
 pub struct VirtqRing<'a, T> {
     pub flags: SomeplaceInMemory<'a, u16>,
     pub idx: SomeplaceInMemory<'a, u16>,
@@ -301,7 +302,8 @@ impl<'a> VirtQueue<'a> {
         self.used.flags.location
     }
 
-    // Creates a new Queue, using the underlying memory regions represented by the VirtQueue.
+    // Creates a new Queue, using the underlying memory regions represented by the
+    // VirtQueue.
     pub fn create_queue(&self) -> Queue {
         let mut q = Queue::new(self.size());
 

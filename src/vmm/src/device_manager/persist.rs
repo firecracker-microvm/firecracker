@@ -1,17 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Provides functionality for saving/restoring the MMIO device manager and its devices.
+//! Provides functionality for saving/restoring the MMIO device manager and its
+//! devices.
 
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
-use super::mmio::*;
-use crate::EventManager;
-use logger::{error, warn};
-
-use crate::resources::VmResources;
-use crate::vmm_config::mmds::MmdsConfigError;
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -28,11 +23,17 @@ use devices::virtio::{
 };
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
+use logger::{error, warn};
 use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
+
+use super::mmio::*;
+use crate::resources::VmResources;
+use crate::vmm_config::mmds::MmdsConfigError;
+use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug)]
@@ -162,8 +163,8 @@ pub struct DeviceStates {
     pub mmds_version: Option<MmdsVersionState>,
 }
 
-/// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
-/// from a snapshot.
+/// A type used to extract the concrete Arc<Mutex<T>> for each of the device
+/// types when restoring from a snapshot.
 pub enum SharedDeviceType {
     SharedBlock(Arc<Mutex<Block>>),
     SharedNetwork(Arc<Mutex<Net>>),
@@ -426,7 +427,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        // If the snapshot has the mmds version persisted, initialise the data store with it.
+        // If the snapshot has the mmds version persisted, initialise the data store
+        // with it.
         if let Some(mmds_version) = &state.mmds_version {
             constructor_args
                 .vm_resources
@@ -438,8 +440,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             .any(|dev| dev.device_state.mmds_ns.is_some())
         {
             // If there's at least one network device having an mmds_ns, it means
-            // that we are restoring from a version that did not persist the `MmdsVersionState`.
-            // Init with the default.
+            // that we are restoring from a version that did not persist the
+            // `MmdsVersionState`. Init with the default.
             constructor_args.vm_resources.mmds_or_default();
         }
 
@@ -513,14 +515,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
+    use devices::virtio::block::CacheType;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::builder::tests::*;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
-    use devices::virtio::block::CacheType;
-    use utils::tempfile::TempFile;
 
     impl PartialEq for ConnectedBalloonState {
         fn eq(&self, other: &ConnectedBalloonState) -> bool {
@@ -719,9 +722,10 @@ mod tests {
                 .new_version()
                 .set_type_version(DeviceStates::type_id(), 3);
 
-            // For snapshot versions that not support persisting the mmds version, it should be
-            // deserialized as None. The MMIODeviceManager will initialise it as the default if
-            // there's at least one network device having a MMDS NS.
+            // For snapshot versions that not support persisting the mmds version, it should
+            // be deserialized as None. The MMIODeviceManager will initialise it
+            // as the default if there's at least one network device having a
+            // MMDS NS.
             vmm.mmio_device_manager
                 .save()
                 .serialize(&mut buf.as_mut_slice(), &version_map, 2)

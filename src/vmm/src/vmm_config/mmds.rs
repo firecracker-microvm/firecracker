@@ -1,11 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{Display, Formatter, Result};
+use std::net::Ipv4Addr;
+
 use mmds::data_store;
 use mmds::data_store::MmdsVersion;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result};
-use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

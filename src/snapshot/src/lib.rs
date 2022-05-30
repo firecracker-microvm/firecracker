@@ -5,8 +5,8 @@
 //! Provides version tolerant serialization and deserialization facilities and
 //! implements a persistent storage format for Firecracker state snapshots.
 //!
-//! The `Snapshot` API manages serialization and deserialization of collections of objects
-//! that implement the `Versionize` trait.
+//! The `Snapshot` API manages serialization and deserialization of collections
+//! of objects that implement the `Versionize` trait.
 //!
 //!  |----------------------------|
 //!  |       64 bit magic_id      |
@@ -18,19 +18,23 @@
 //!  |        optional CRC64      |
 //!  |----------------------------|
 //!
-//! Each structure, union or enum is versioned separately and only needs to increment their version
-//! if a field is added or removed. For each state snapshot we define 2 versions:
-//!  - **the format version** which refers to the SnapshotHdr, CRC, or the representation of
-//! primitives types (currently we use versionize that uses serde bincode as a backend). The current
-//! implementation does not have any logic dependent on it.
+//! Each structure, union or enum is versioned separately and only needs to
+//! increment their version if a field is added or removed. For each state
+//! snapshot we define 2 versions:
+//!  - **the format version** which refers to the SnapshotHdr, CRC, or the
+//!    representation of
+//! primitives types (currently we use versionize that uses serde bincode as a
+//! backend). The current implementation does not have any logic dependent on
+//! it.
 //!  - **the data version** which refers to the state.
 mod persist;
-pub use crate::persist::Persist;
-
 use std::io::{Read, Write};
+
 use versionize::crc::{CRC64Reader, CRC64Writer};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+
+pub use crate::persist::Persist;
 
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
@@ -65,8 +69,8 @@ struct SnapshotHdr {
     data_version: u16,
 }
 
-/// The `Snapshot` API manages serialization and deserialization of collections of objects
-/// that implement the `Versionize` trait.
+/// The `Snapshot` API manages serialization and deserialization of collections
+/// of objects that implement the `Versionize` trait.
 #[derive(Debug)]
 pub struct Snapshot {
     hdr: SnapshotHdr,
@@ -154,8 +158,9 @@ impl Snapshot {
             .read_exact(&mut snapshot)
             .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
 
-        // Since the reader updates the checksum as bytes ar being read from it, the order of these 2 statements is
-        // important, we first get the checksum computed on the read bytes then read the stored checksum.
+        // Since the reader updates the checksum as bytes ar being read from it, the
+        // order of these 2 statements is important, we first get the checksum
+        // computed on the read bytes then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
         let format_vm = Self::format_version_map();
         let stored_checksum: u64 =
@@ -226,7 +231,8 @@ impl Snapshot {
     // Not to be confused with data version which refers to the aplication
     // defined structures.
     // This version map allows us to change the underlying storage format -
-    // for example the way we encode vectors or moving to something else than bincode.
+    // for example the way we encode vectors or moving to something else than
+    // bincode.
     fn format_version_map() -> VersionMap {
         // Firecracker snapshot format version 1.
         VersionMap::new()
@@ -365,11 +371,14 @@ mod tests {
         let mut restored_state: Test =
             Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
-        // The semantic serializer fn for field4 will set field0 to field4.iter().sum() == 10.
+        // The semantic serializer fn for field4 will set field0 to field4.iter().sum()
+        // == 10.
         assert_eq!(restored_state.field0, state.field4.iter().sum::<u64>());
-        // The semantic deserializer for field4 will change field's value to vec![field0; 4].
+        // The semantic deserializer for field4 will change field's value to
+        // vec![field0; 4].
         assert_eq!(restored_state.field4, vec![restored_state.field0; 4]);
-        // The semantic serializer and deserializer for field3 will both increment field_x value.
+        // The semantic serializer and deserializer for field3 will both increment
+        // field_x value.
         assert_eq!(restored_state.field_x, 2);
         // field1 should have the original value.
         assert_eq!(restored_state.field1, 1);
@@ -385,10 +394,12 @@ mod tests {
         restored_state =
             Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
-        // We expect only the semantic serializer and deserializer for field4 to be called at version 3.
-        // The semantic serializer will set field0 to field4.iter().sum() == 10.
+        // We expect only the semantic serializer and deserializer for field4 to be
+        // called at version 3. The semantic serializer will set field0 to
+        // field4.iter().sum() == 10.
         assert_eq!(restored_state.field0, state.field4.iter().sum::<u64>());
-        // The semantic deserializer will create a 4 elements vec with all values == field0.
+        // The semantic deserializer will create a 4 elements vec with all values ==
+        // field0.
         assert_eq!(restored_state.field4, vec![restored_state.field0; 4]);
         // The semantic fn for field3 must not be called at version 3.
         assert_eq!(restored_state.field_x, 0);
@@ -407,8 +418,8 @@ mod tests {
         assert_eq!(restored_state.field4, vec![4, 3, 2, 1]);
 
         // Test error propagation from `versionize` crate.
-        // Load operation should fail if we don't use the whole `snapshot_mem` resulted from
-        // serialization.
+        // Load operation should fail if we don't use the whole `snapshot_mem` resulted
+        // from serialization.
         snapshot_mem.truncate(10);
         let restored_state_result: Result<Test, Error> =
             Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm);

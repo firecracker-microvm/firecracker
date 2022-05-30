@@ -3,7 +3,8 @@
 
 //! Defines an abstract interface for saving/restoring a component from state.
 
-/// An abstract interface for saving/restoring a component using a specific state.
+/// An abstract interface for saving/restoring a component using a specific
+/// state.
 pub trait Persist<'a>
 where
     Self: Sized,

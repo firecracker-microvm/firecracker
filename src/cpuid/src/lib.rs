@@ -6,7 +6,8 @@
 // found in the THIRD-PARTY file.
 
 #![deny(missing_docs)]
-//! Utility for configuring the CPUID (CPU identification) for the guest microVM.
+//! Utility for configuring the CPUID (CPU identification) for the guest
+//! microVM.
 
 #![cfg(target_arch = "x86_64")]
 use kvm_bindings::CpuId;
@@ -19,8 +20,7 @@ use crate::common::*;
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::intel::c3;
-pub use crate::template::intel::t2;
+pub use crate::template::intel::{c3, t2};
 
 mod cpu_leaf;
 

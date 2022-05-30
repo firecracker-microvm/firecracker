@@ -8,8 +8,8 @@
 #![deny(missing_docs)]
 //! # Network-related utilities
 //!
-//! Provides tools for representing and handling network related concepts like MAC addresses and
-//! network interfaces.
+//! Provides tools for representing and handling network related concepts like
+//! MAC addresses and network interfaces.
 
 /// Provides IPv4 address utility methods.
 pub mod ipv4addr;

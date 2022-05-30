@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
@@ -9,20 +8,16 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
-
 use ::logger::{error, IncMetric, METRICS};
+use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use ::utils::eventfd::EventFd;
 use ::virtio_gen::virtio_blk::*;
 use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use serde::Serialize;
 
-use super::*;
-use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON},
-    utils::{compact_page_frame_numbers, remove_range},
-    BALLOON_DEV_ID,
-};
-
+use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::utils::{compact_page_frame_numbers, remove_range};
+use super::{BALLOON_DEV_ID, *};
 use crate::virtio::balloon::Error as BalloonError;
 use crate::virtio::{IrqTrigger, IrqType};
 
@@ -230,7 +225,8 @@ impl Balloon {
     }
 
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.balloon.inflate_count.inc();
 
@@ -244,8 +240,8 @@ impl Balloon {
         while valid_descs_found {
             valid_descs_found = false;
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
-            // Breaks out when there is not enough space in `pfn_buffer` to completely process
-            // the next descriptor.
+            // Breaks out when there is not enough space in `pfn_buffer` to completely
+            // process the next descriptor.
             while let Some(head) = queue.pop(mem) {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
@@ -263,7 +259,8 @@ impl Balloon {
                         // Skip descriptor.
                         continue;
                     }
-                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current desc.
+                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
+                    // desc.
                     if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len as usize / SIZE_OF_U32 {
                         queue.undo_pop();
                         break;
@@ -320,7 +317,8 @@ impl Balloon {
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.balloon.deflate_count.inc();
 
@@ -342,7 +340,8 @@ impl Balloon {
     }
 
     pub(crate) fn process_stats_queue(&mut self) -> std::result::Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.balloon.stats_updates_count.inc();
 
@@ -397,7 +396,8 @@ impl Balloon {
     }
 
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         // The communication is driven by the device by using the buffer
@@ -584,6 +584,8 @@ impl VirtioDevice for Balloon {
 pub(crate) mod tests {
     use std::u32;
 
+    use vm_memory::GuestAddress;
+
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
     use crate::virtio::balloon::test_utils::{
@@ -592,7 +594,6 @@ pub(crate) mod tests {
     use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::{check_metric_after_block, report_balloon_event_fail};
-    use vm_memory::GuestAddress;
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {

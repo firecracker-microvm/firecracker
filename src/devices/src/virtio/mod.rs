@@ -51,8 +51,8 @@ pub const TYPE_NET: u32 = 1;
 pub const TYPE_BLOCK: u32 = 2;
 pub const TYPE_BALLOON: u32 = 5;
 
-/// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
-/// queue events.
+/// Offset from the base MMIO address of a virtio device used by the guest to
+/// notify the device of queue events.
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
 #[derive(Debug)]

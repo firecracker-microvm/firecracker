@@ -1,18 +1,19 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{IncMetric, METRICS};
+use serde::{Deserialize, Serialize};
+
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 #[cfg(target_arch = "aarch64")]
 use crate::request::StatusCode;
-use logger::{IncMetric, METRICS};
 
-use serde::{Deserialize, Serialize};
-
-// The names of the members from this enum must precisely correspond (as a string) to the possible
-// values of "action_type" from the json request body. This is useful to get a strongly typed
-// struct from the Serde deserialization process.
+// The names of the members from this enum must precisely correspond (as a
+// string) to the possible values of "action_type" from the json request body.
+// This is useful to get a strongly typed struct from the Serde deserialization
+// process.
 #[derive(Debug, Deserialize, Serialize)]
 enum ActionType {
     FlushMetrics,
@@ -20,8 +21,8 @@ enum ActionType {
     SendCtrlAltDel,
 }
 
-// The model of the json body from a sync request. We use Serde to transform each associated
-// json body into this.
+// The model of the json body from a sync request. We use Serde to transform
+// each associated json body into this.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ActionBody {

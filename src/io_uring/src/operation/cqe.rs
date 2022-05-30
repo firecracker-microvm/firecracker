@@ -1,9 +1,11 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::bindings::io_uring_cqe;
 use std::result::Result;
+
 use vm_memory::ByteValued;
+
+use crate::bindings::io_uring_cqe;
 
 unsafe impl ByteValued for io_uring_cqe {}
 
@@ -18,8 +20,9 @@ impl<T> Cqe<T> {
     ///
     /// # Safety
     /// Unsafe because we assume full ownership of the inner.user_data address.
-    /// We assume that it points to a valid address created with a Box<T>, with the correct type T,
-    /// and that ownership of that address is passed to this function.
+    /// We assume that it points to a valid address created with a Box<T>, with
+    /// the correct type T, and that ownership of that address is passed to
+    /// this function.
     pub(crate) unsafe fn new(inner: io_uring_cqe) -> Self {
         Self {
             res: inner.res,

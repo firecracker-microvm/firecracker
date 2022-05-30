@@ -9,9 +9,7 @@ mod utils;
 
 use vm_memory::GuestMemoryError;
 
-pub use self::device::Balloon;
-pub use self::device::BalloonConfig;
-pub use self::device::BalloonStats;
+pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 pub use self::event_handler::*;
 
 /// Device ID used in MMIO device identification.
@@ -25,8 +23,8 @@ pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE, QUEUE_SIZE];
 pub const MIB_TO_4K_PAGES: u32 = 256;
 // The maximum number of pages that can be received in a single descriptor.
 pub const MAX_PAGES_IN_DESC: usize = 256;
-// The maximum number of pages that can be compacted into ranges during process_inflate().
-// Needs to be a multiple of MAX_PAGES_IN_DESC.
+// The maximum number of pages that can be compacted into ranges during
+// process_inflate(). Needs to be a multiple of MAX_PAGES_IN_DESC.
 pub const MAX_PAGE_COMPACT_BUFFER: usize = 2048;
 // The addresses given by the driver are divided by 4096.
 pub const VIRTIO_BALLOON_PFN_SHIFT: u32 = 12;

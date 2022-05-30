@@ -7,19 +7,20 @@ pub mod connection;
 mod endpoint;
 pub mod handler;
 
+use std::num::Wrapping;
+
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
-
-use std::num::Wrapping;
 
 /// The largest possible window size (requires the window scaling option).
 pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
 
-/// The default maximum segment size (MSS) value, used when no MSS information is carried
-/// over the initial handshake.
+/// The default maximum segment size (MSS) value, used when no MSS information
+/// is carried over the initial handshake.
 pub const MSS_DEFAULT: u16 = 536;
 
-/// Describes whether a particular entity (a [`Connection`] for example) has segments to send.
+/// Describes whether a particular entity (a [`Connection`] for example) has
+/// segments to send.
 ///
 /// [`Connection`]: connection/struct.Connection.html
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -28,20 +29,22 @@ pub enum NextSegmentStatus {
     Available,
     /// There's nothing to send.
     Nothing,
-    /// A retransmission timeout (RTO) will trigger after the specified point in time.
+    /// A retransmission timeout (RTO) will trigger after the specified point in
+    /// time.
     Timeout(u64),
 }
 
-/// Represents the configuration of the sequence number and `ACK` number fields for outgoing
-/// `RST` segments.
+/// Represents the configuration of the sequence number and `ACK` number fields
+/// for outgoing `RST` segments.
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RstConfig {
-    /// The `RST` segment will carry the specified sequence number, and will not have
-    /// the `ACK` flag set.
+    /// The `RST` segment will carry the specified sequence number, and will not
+    /// have the `ACK` flag set.
     Seq(u32),
-    /// The `RST` segment will carry 0 as the sequence number, will have the `ACK` flag enabled,
-    /// and the `ACK` number will be set to the specified value.
+    /// The `RST` segment will carry 0 as the sequence number, will have the
+    /// `ACK` flag enabled, and the `ACK` number will be set to the
+    /// specified value.
     Ack(u32),
 }
 
@@ -57,8 +60,8 @@ impl RstConfig {
         }
     }
 
-    /// Returns the sequence number, acknowledgement number, and TCP flags (not counting `NS`) that
-    /// must be set on the outgoing `RST` segment.
+    /// Returns the sequence number, acknowledgement number, and TCP flags (not
+    /// counting `NS`) that must be set on the outgoing `RST` segment.
     pub fn seq_ack_tcp_flags(self) -> (u32, u32, TcpFlags) {
         match self {
             RstConfig::Seq(seq) => (seq, 0, TcpFlags::RST),
@@ -67,23 +70,25 @@ impl RstConfig {
     }
 }
 
-/// Returns true if `a` comes after `b` in the sequence number space, relative to the maximum
-/// possible window size.
+/// Returns true if `a` comes after `b` in the sequence number space, relative
+/// to the maximum possible window size.
 ///
-/// Please note this is not a connex binary relation; in other words, given two sequence numbers,
-/// it's sometimes possible that `seq_after(a, b) || seq_after(b, a) == false`. This is why
-/// `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
+/// Please note this is not a connex binary relation; in other words, given two
+/// sequence numbers, it's sometimes possible that `seq_after(a, b) ||
+/// seq_after(b, a) == false`. This is why `seq_after(a, b)` can't be defined as
+/// simply `!seq_at_or_after(b, a)`.
 #[inline]
 pub fn seq_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     a != b && (a - b).0 < MAX_WINDOW_SIZE
 }
 
-/// Returns true if `a` comes after, or is at `b` in the sequence number space, relative to
-/// the maximum possible window size.
+/// Returns true if `a` comes after, or is at `b` in the sequence number space,
+/// relative to the maximum possible window size.
 ///
-/// Please note this is not a connex binary relation; in other words, given two sequence numbers,
-/// it's sometimes possible that `seq_at_or_after(a, b) || seq_at_or_after(b, a) == false`. This
-/// is why `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
+/// Please note this is not a connex binary relation; in other words, given two
+/// sequence numbers, it's sometimes possible that `seq_at_or_after(a, b) ||
+/// seq_at_or_after(b, a) == false`. This is why `seq_after(a, b)` can't be
+/// defined as simply `!seq_at_or_after(b, a)`.
 #[inline]
 pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     (a - b).0 < MAX_WINDOW_SIZE
@@ -91,11 +96,13 @@ pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use micro_http::{Request, Response, StatusCode, Version};
 
-    // In tcp tests, some of the functions require a callback parameter. Since we do not care,
-    // for the purpose of those tests, what that callback does, we need to provide a dummy one.
+    use super::*;
+
+    // In tcp tests, some of the functions require a callback parameter. Since we do
+    // not care, for the purpose of those tests, what that callback does, we
+    // need to provide a dummy one.
     pub fn mock_callback(_request: Request) -> Response {
         Response::new(Version::Http11, StatusCode::OK)
     }

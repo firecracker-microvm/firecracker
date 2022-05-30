@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{method_to_error, Error, ParsedRequest};
 use crate::request::{Body, Method};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
@@ -44,9 +45,10 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
     fn test_parse_get_machine_config_request() {
@@ -108,7 +110,8 @@ mod tests {
             _ => panic!("Test failed."),
         }
 
-        // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
+        // 4. Test that applying a CPU template is successful on x86_64 while on
+        // aarch64, it is not.
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024,
@@ -139,7 +142,8 @@ mod tests {
             assert!(parse_put_machine_config(&Body::new(body)).is_err());
         }
 
-        // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it is not.
+        // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it
+        // is not.
         let body = r#"{
             "vcpu_count": 8,
             "mem_size_mib": 1024,

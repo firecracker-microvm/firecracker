@@ -1,27 +1,31 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-/// The main job of `VsockConnection` is to forward data traffic, back and forth, between a
-/// guest-side AF_VSOCK socket and a host-side generic `Read + Write + AsRawFd` stream, while
-/// also managing its internal state.
+/// The main job of `VsockConnection` is to forward data traffic, back and
+/// forth, between a guest-side AF_VSOCK socket and a host-side generic `Read +
+/// Write + AsRawFd` stream, while also managing its internal state.
 /// To that end, `VsockConnection` implements:
 /// - `VsockChannel` for:
-///   - moving data from the host stream to a guest-provided RX buffer, via `recv_pkt()`; and
-///   - moving data from a guest-provided TX buffer to the host stream, via `send_pkt()`; and
-///   - updating its internal state, by absorbing control packets (anything other than
-///     VSOCK_OP_RW).
-/// - `VsockEpollListener` for getting notified about the availability of data or free buffer
-///   space at the host stream.
+///   - moving data from the host stream to a guest-provided RX buffer, via
+///     `recv_pkt()`; and
+///   - moving data from a guest-provided TX buffer to the host stream, via
+///     `send_pkt()`; and
+///   - updating its internal state, by absorbing control packets (anything
+///     other than VSOCK_OP_RW).
+/// - `VsockEpollListener` for getting notified about the availability of data
+///   or free buffer space at the host stream.
 ///
 /// Note: there is a certain asymmetry to the RX and TX data flows:
-///       - RX transfers do not need any data buffering, since data is read straight from the
-///         host stream and into the guest-provided RX buffer;
-///       - TX transfers may require some data to be buffered by `VsockConnection`, if the host
-///         peer can't keep up with reading the data that we're writing. This is because, once
-///         the guest driver provides some data in a virtio TX buffer, the vsock device must
-///         consume it.  If that data can't be forwarded straight to the host stream, we'll
-///         have to store it in a buffer (and flush it at a later time). Vsock flow control
-///         ensures that our TX buffer doesn't overflow.
+///       - RX transfers do not need any data buffering, since data is read
+///         straight from the host stream and into the guest-provided RX buffer;
+///       - TX transfers may require some data to be buffered by
+///         `VsockConnection`, if the host peer can't keep up with reading the
+///         data that we're writing. This is because, once the guest driver
+///         provides some data in a virtio TX buffer, the vsock device must
+///         consume it.  If that data can't be forwarded straight to the host
+///         stream, we'll have to store it in a buffer (and flush it at a later
+///         time). Vsock flow control ensures that our TX buffer doesn't
+///         overflow.
 // The code in this file is best read with a fresh memory of the vsock protocol inner-workings.
 // To help with that, here is a
 //
@@ -60,7 +64,7 @@
 //    packet header members with each packet they send:
 //    - `hdr.buf_alloc`: the total buffer space the peer has allocated for receiving data; and
 //    - `hdr.fwd_cnt`: the total number of bytes the peer has successfully flushed out of its
-//       buffer.
+//      buffer.
 //    One can figure out how much space its peer has available in its buffer by inspecting the
 //    difference between how much it has sent to the peer and how much the peer has flushed out
 //    (i.e.  "forwarded", in the vsock spec terminology):
@@ -85,21 +89,21 @@ use std::time::{Duration, Instant};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, VsockError};
-use super::defs;
 use super::txbuf::TxBuf;
-use super::{ConnState, Error, PendingRx, PendingRxSet, Result};
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use super::{defs, ConnState, Error, PendingRx, PendingRxSet, Result};
 
-/// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
-/// socket and a host-side `Read + Write + AsRawFd` stream.
+/// A self-managing connection object, that handles communication between a
+/// guest-side AF_VSOCK socket and a host-side `Read + Write + AsRawFd` stream.
 pub struct VsockConnection<S: Read + Write + AsRawFd> {
     /// The current connection state.
     state: ConnState,
-    /// The local CID. Most of the time this will be the constant `2` (the vsock host CID).
+    /// The local CID. Most of the time this will be the constant `2` (the vsock
+    /// host CID).
     local_cid: u64,
     /// The peer (guest) CID.
     peer_cid: u64,
@@ -111,23 +115,25 @@ pub struct VsockConnection<S: Read + Write + AsRawFd> {
     stream: S,
     /// The TX buffer for this connection.
     tx_buf: TxBuf,
-    /// Total number of bytes that have been successfully written to `self.stream`, either
-    /// directly, or flushed from `self.tx_buf`.
+    /// Total number of bytes that have been successfully written to
+    /// `self.stream`, either directly, or flushed from `self.tx_buf`.
     fwd_cnt: Wrapping<u32>,
-    /// The amount of buffer space that the peer (guest) has allocated for this connection.
+    /// The amount of buffer space that the peer (guest) has allocated for this
+    /// connection.
     peer_buf_alloc: u32,
     /// The total number of bytes that the peer has forwarded away.
     peer_fwd_cnt: Wrapping<u32>,
     /// The total number of bytes sent to the peer (guest vsock driver)
     rx_cnt: Wrapping<u32>,
-    /// Our `self.fwd_cnt`, as last sent to the peer. This is used to provide proactive credit
-    /// updates, and let the peer know it's OK to send more data.
+    /// Our `self.fwd_cnt`, as last sent to the peer. This is used to provide
+    /// proactive credit updates, and let the peer know it's OK to send more
+    /// data.
     last_fwd_cnt_to_peer: Wrapping<u32>,
-    /// The set of pending RX packet indications that `recv_pkt()` will use to fill in a
-    /// packet for the peer (guest).
+    /// The set of pending RX packet indications that `recv_pkt()` will use to
+    /// fill in a packet for the peer (guest).
     pending_rx: PendingRxSet,
-    /// Instant when this connection should be scheduled for immediate termination, due to some
-    /// timeout condition having been fulfilled.
+    /// Instant when this connection should be scheduled for immediate
+    /// termination, due to some timeout condition having been fulfilled.
     expiry: Option<Instant>,
 }
 
@@ -137,43 +143,45 @@ where
 {
     /// Fill in a vsock packet, to be delivered to our peer (the guest driver).
     ///
-    /// As per the `VsockChannel` trait, this should only be called when there is data to be
-    /// fetched from the channel (i.e. `has_pending_rx()` is true). Otherwise, it will error
-    /// out with `VsockError::NoData`.
-    /// Pending RX indications are set by other mutable actions performed on the channel. For
-    /// instance, `send_pkt()` could set an Rst indication, if called with a VSOCK_OP_SHUTDOWN
-    /// packet, or `notify()` could set a Rw indication (a data packet can be fetched from the
-    /// channel), if data was ready to be read from the host stream.
+    /// As per the `VsockChannel` trait, this should only be called when there
+    /// is data to be fetched from the channel (i.e. `has_pending_rx()` is
+    /// true). Otherwise, it will error out with `VsockError::NoData`.
+    /// Pending RX indications are set by other mutable actions performed on the
+    /// channel. For instance, `send_pkt()` could set an Rst indication, if
+    /// called with a VSOCK_OP_SHUTDOWN packet, or `notify()` could set a Rw
+    /// indication (a data packet can be fetched from the channel), if data
+    /// was ready to be read from the host stream.
     ///
     /// Returns:
-    /// - `Ok(())`: the packet has been successfully filled in and is ready for delivery;
-    /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the
-    ///    packet;
-    /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but
-    ///    it is missing the data buffer.
+    /// - `Ok(())`: the packet has been successfully filled in and is ready for
+    ///   delivery;
+    /// - `Err(VsockError::NoData)`: there was no data available with which to
+    ///   fill in the packet;
+    /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in
+    ///   with data, but it is missing the data buffer.
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
-        // Perform some generic initialization that is the same for any packet operation (e.g.
-        // source, destination, credit, etc).
+        // Perform some generic initialization that is the same for any packet operation
+        // (e.g. source, destination, credit, etc).
         self.init_pkt(pkt);
         METRICS.vsock.rx_packets_count.inc();
 
-        // If forceful termination is pending, there's no point in checking for anything else.
-        // It's dead, Jim.
+        // If forceful termination is pending, there's no point in checking for anything
+        // else. It's dead, Jim.
         if self.pending_rx.remove(PendingRx::Rst) {
             pkt.set_op(uapi::VSOCK_OP_RST);
             return Ok(());
         }
 
-        // Next up: if we're due a connection confirmation, that's all we need to know to fill
-        // in this packet.
+        // Next up: if we're due a connection confirmation, that's all we need to know
+        // to fill in this packet.
         if self.pending_rx.remove(PendingRx::Response) {
             self.state = ConnState::Established;
             pkt.set_op(uapi::VSOCK_OP_RESPONSE);
             return Ok(());
         }
 
-        // Same thing goes for locally-initiated connections that need to yield a connection
-        // request.
+        // Same thing goes for locally-initiated connections that need to yield a
+        // connection request.
         if self.pending_rx.remove(PendingRx::Request) {
             self.expiry =
                 Some(Instant::now() + Duration::from_millis(defs::CONN_REQUEST_TIMEOUT_MS));
@@ -197,16 +205,16 @@ where
                 }
             }
 
-            // Oh wait, before we start bringing in the big data, can our peer handle receiving so
-            // much bytey goodness?
+            // Oh wait, before we start bringing in the big data, can our peer handle
+            // receiving so much bytey goodness?
             if self.need_credit_update_from_peer() {
                 self.last_fwd_cnt_to_peer = self.fwd_cnt;
                 pkt.set_op(uapi::VSOCK_OP_CREDIT_REQUEST);
                 return Ok(());
             }
 
-            // The maximum amount of data we can read in is limited by both the RX buffer size and
-            // the peer available buffer space.
+            // The maximum amount of data we can read in is limited by both the RX buffer
+            // size and the peer available buffer space.
             let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
@@ -259,24 +267,24 @@ where
             };
         }
 
-        // A credit update is basically a no-op, so we should only waste a perfectly fine RX
-        // buffer on it if we really have nothing else to say, hence we check for this RX
-        // indication last.
+        // A credit update is basically a no-op, so we should only waste a perfectly
+        // fine RX buffer on it if we really have nothing else to say, hence we
+        // check for this RX indication last.
         if self.pending_rx.remove(PendingRx::CreditUpdate) && !self.has_pending_rx() {
             pkt.set_op(uapi::VSOCK_OP_CREDIT_UPDATE);
             self.last_fwd_cnt_to_peer = self.fwd_cnt;
             return Ok(());
         }
 
-        // We've already checked for all conditions that would have produced a packet, so
-        // if we got to here, we don't know how to yield one.
+        // We've already checked for all conditions that would have produced a packet,
+        // so if we got to here, we don't know how to yield one.
         Err(VsockError::NoData)
     }
 
     /// Deliver a guest-generated packet to this connection.
     ///
-    /// This forwards the data in RW packets to the host stream, and absorbs control packets,
-    /// using them to manage the internal connection state.
+    /// This forwards the data in RW packets to the host stream, and absorbs
+    /// control packets, using them to manage the internal connection state.
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
@@ -400,8 +408,8 @@ where
 {
     /// Get the file descriptor that this connection wants polled.
     ///
-    /// The connection is interested in being notified about EPOLLIN / EPOLLOUT events on the
-    /// host stream.
+    /// The connection is interested in being notified about EPOLLIN / EPOLLOUT
+    /// events on the host stream.
     fn as_raw_fd(&self) -> RawFd {
         self.stream.as_raw_fd()
     }
@@ -414,9 +422,10 @@ where
     /// Get the event set that this connection is interested in.
     ///
     /// A connection will want to be notified when:
-    /// - data is available to be read from the host stream, so that it can store an RW pending
-    ///   RX indication; and
-    /// - data can be written to the host stream, and the TX buffer needs to be flushed.
+    /// - data is available to be read from the host stream, so that it can
+    ///   store an RW pending RX indication; and
+    /// - data can be written to the host stream, and the TX buffer needs to be
+    ///   flushed.
     fn get_polled_evset(&self) -> EventSet {
         let mut evset = EventSet::empty();
         if !self.tx_buf.is_empty() {
@@ -424,8 +433,9 @@ where
             // when writing to the host stream wouldn't block.
             evset.insert(EventSet::OUT);
         }
-        // We're generally interested in being notified when data can be read from the host
-        // stream, unless we're in a state which doesn't allow moving data from host to guest.
+        // We're generally interested in being notified when data can be read from the
+        // host stream, unless we're in a state which doesn't allow moving data
+        // from host to guest.
         match self.state {
             ConnState::Killed | ConnState::LocalClosed | ConnState::PeerClosed(true, _) => (),
             _ if self.need_credit_update_from_peer() => (),
@@ -434,11 +444,12 @@ where
         evset
     }
 
-    /// Notify the connection about an event (or set of events) that it was interested in.
+    /// Notify the connection about an event (or set of events) that it was
+    /// interested in.
     fn notify(&mut self, evset: EventSet) {
         if evset.contains(EventSet::IN) {
-            // Data can be read from the host stream. Setting a Rw pending indication, so that
-            // the muxer will know to call `recv_pkt()` later.
+            // Data can be read from the host stream. Setting a Rw pending indication, so
+            // that the muxer will know to call `recv_pkt()` later.
             self.pending_rx.insert(PendingRx::Rw);
         }
 
@@ -461,7 +472,8 @@ where
                     );
                     match err {
                         Error::TxBufFlush(inner) if inner.kind() == ErrorKind::WouldBlock => {
-                            // This should never happen (EWOULDBLOCK after EPOLLOUT), but
+                            // This should never happen (EWOULDBLOCK after
+                            // EPOLLOUT), but
                             // it does, so let's absorb it.
                         }
                         _ => self.kill(),
@@ -541,8 +553,8 @@ where
         }
     }
 
-    /// Check if there is an expiry (kill) timer set for this connection, sometime in the
-    /// future.
+    /// Check if there is an expiry (kill) timer set for this connection,
+    /// sometime in the future.
     pub fn will_expire(&self) -> bool {
         match self.expiry {
             None => false,
@@ -550,8 +562,8 @@ where
         }
     }
 
-    /// Check if this connection needs to be scheduled for forceful termination, due to its
-    /// kill timer having expired.
+    /// Check if this connection needs to be scheduled for forceful termination,
+    /// due to its kill timer having expired.
     pub fn has_expired(&self) -> bool {
         match self.expiry {
             None => false,
@@ -564,8 +576,8 @@ where
         self.expiry
     }
 
-    /// Schedule the connection to be forcefully terminated ASAP (i.e. the next time the
-    /// connection is asked to yield a packet, via `recv_pkt()`).
+    /// Schedule the connection to be forcefully terminated ASAP (i.e. the next
+    /// time the connection is asked to yield a packet, via `recv_pkt()`).
     pub fn kill(&mut self) {
         self.state = ConnState::Killed;
         self.pending_rx.insert(PendingRx::Rst);
@@ -576,20 +588,21 @@ where
         self.state
     }
 
-    /// Send some raw, untracked, data straight to the underlying connected stream.
-    /// Returns: number of bytes written, or the error describing the write failure.
+    /// Send some raw, untracked, data straight to the underlying connected
+    /// stream. Returns: number of bytes written, or the error describing
+    /// the write failure.
     ///
-    /// Warning: this will bypass the connection state machine and write directly to the
-    /// underlying stream. No account of this write is kept, which includes bypassing
-    /// vsock flow control.
+    /// Warning: this will bypass the connection state machine and write
+    /// directly to the underlying stream. No account of this write is kept,
+    /// which includes bypassing vsock flow control.
     pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize> {
         self.stream.write(buf).map_err(Error::StreamWrite)
     }
 
     /// Send some raw data (a byte-slice) to the host stream.
     ///
-    /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
-    /// former fails.
+    /// Raw data can either be sent straight to the host stream, or to our TX
+    /// buffer, if the former fails.
     fn send_bytes(
         &mut self,
         mem: &GuestMemoryMmap,
@@ -597,10 +610,11 @@ where
     ) -> std::result::Result<(), VsockError> {
         let len = pkt.len() as usize;
 
-        // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
-        // events on the underlying stream. Therefore, there's no point in attempting a write
-        // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
-        // attempt to drain the TX buffer then.
+        // If there is data in the TX buffer, that means we're already registered for
+        // EPOLLOUT events on the underlying stream. Therefore, there's no point
+        // in attempting a write at this point. `self.notify()` will get called
+        // when EPOLLOUT arrives, and it will attempt to drain the TX buffer
+        // then.
         if !self.tx_buf.is_empty() {
             return pkt
                 .write_from_offset_to(mem, 0, &mut self.tx_buf, len)
@@ -623,12 +637,13 @@ where
                 return Err(e);
             }
         };
-        // Move the "forwarded bytes" counter ahead by how much we were able to send out.
+        // Move the "forwarded bytes" counter ahead by how much we were able to send
+        // out.
         self.fwd_cnt += Wrapping(written as u32);
         METRICS.vsock.tx_bytes_count.add(written);
 
-        // If we couldn't write the whole slice, we'll need to push the remaining data to our
-        // buffer.
+        // If we couldn't write the whole slice, we'll need to push the remaining data
+        // to our buffer.
         if written < len {
             pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
         }
@@ -636,21 +651,22 @@ where
         Ok(())
     }
 
-    /// Check if the credit information the peer has last received from us is outdated.
+    /// Check if the credit information the peer has last received from us is
+    /// outdated.
     fn peer_needs_credit_update(&self) -> bool {
         let peer_seen_free_buf =
             Wrapping(defs::CONN_TX_BUF_SIZE) - (self.fwd_cnt - self.last_fwd_cnt_to_peer);
         peer_seen_free_buf < Wrapping(defs::CONN_CREDIT_UPDATE_THRESHOLD)
     }
 
-    /// Check if we need to ask the peer for a credit update before sending any more data its
-    /// way.
+    /// Check if we need to ask the peer for a credit update before sending any
+    /// more data its way.
     fn need_credit_update_from_peer(&self) -> bool {
         self.peer_avail_credit() == 0
     }
 
-    /// Get the maximum number of bytes that we can send to our peer, without overflowing its
-    /// buffer.
+    /// Get the maximum number of bytes that we can send to our peer, without
+    /// overflowing its buffer.
     fn peer_avail_credit(&self) -> usize {
         (Wrapping(self.peer_buf_alloc as u32) - (self.rx_cnt - self.peer_fwd_cnt)).0 as usize
     }
@@ -672,12 +688,12 @@ mod tests {
     use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
+
     use utils::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
     use super::*;
-
     use crate::virtio::vsock::device::RXQ_INDEX;
     use crate::virtio::vsock::test_utils::TestContext;
 
@@ -787,15 +803,17 @@ mod tests {
             .set_len(len)
     }
 
-    // This is the connection state machine test context: a helper struct to provide CSM testing
-    // primitives. A single `VsockPacket` object will be enough for our testing needs. We'll be
-    // using it for simulating both packet sends and packet receives. We need to keep the vsock
-    // testing context alive, since `VsockPacket` is just a pointer-wrapper over some data that
-    // resides in guest memory. The vsock test context owns the `GuestMemoryMmap` object, so we'll make
-    // it a member here, in order to make sure that guest memory outlives our testing packet.  A
-    // single `VsockConnection` object will also suffice for our testing needs. We'll be using a
-    // specially crafted `Read + Write + AsRawFd` object as a backing stream, so that we can
-    // control the various error conditions that might arise.
+    // This is the connection state machine test context: a helper struct to provide
+    // CSM testing primitives. A single `VsockPacket` object will be enough for
+    // our testing needs. We'll be using it for simulating both packet sends and
+    // packet receives. We need to keep the vsock testing context alive, since
+    // `VsockPacket` is just a pointer-wrapper over some data that resides in
+    // guest memory. The vsock test context owns the `GuestMemoryMmap` object, so
+    // we'll make it a member here, in order to make sure that guest memory
+    // outlives our testing packet.  A single `VsockConnection` object will also
+    // suffice for our testing needs. We'll be using a specially crafted `Read +
+    // Write + AsRawFd` object as a backing stream, so that we can control the
+    // various error conditions that might arise.
     struct CsmTestContext {
         _vsock_test_ctx: TestContext,
         pkt: VsockPacket,
@@ -909,8 +927,8 @@ mod tests {
         let mut ctx = CsmTestContext::new(ConnState::PeerInit);
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
-        // For peer-initiated requests, our connection should always yield a vsock reponse packet,
-        // in order to establish the connection.
+        // For peer-initiated requests, our connection should always yield a vsock
+        // reponse packet, in order to establish the connection.
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
         assert_eq!(ctx.pkt.src_cid(), LOCAL_CID);
         assert_eq!(ctx.pkt.dst_cid(), PEER_CID);
@@ -918,8 +936,8 @@ mod tests {
         assert_eq!(ctx.pkt.dst_port(), PEER_PORT);
         assert_eq!(ctx.pkt.type_(), uapi::VSOCK_TYPE_STREAM);
         assert_eq!(ctx.pkt.len(), 0);
-        // After yielding the response packet, the connection should have transitioned to the
-        // established state.
+        // After yielding the response packet, the connection should have transitioned
+        // to the established state.
         assert_eq!(ctx.conn.state, ConnState::Established);
     }
 
@@ -928,8 +946,8 @@ mod tests {
         let mut ctx = CsmTestContext::new(ConnState::LocalInit);
         // Host-initiated connections should first yield a connection request packet.
         assert!(ctx.conn.has_pending_rx());
-        // Before yielding the connection request packet, the timeout kill timer shouldn't be
-        // armed.
+        // Before yielding the connection request packet, the timeout kill timer
+        // shouldn't be armed.
         assert!(!ctx.conn.will_expire());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
@@ -938,8 +956,8 @@ mod tests {
         assert!(!ctx.conn.has_expired());
         ctx.init_pkt(uapi::VSOCK_OP_RESPONSE, 0);
         ctx.send();
-        // Upon receiving a connection response, the connection should have transitioned to the
-        // established state, and the kill timer should've been disarmed.
+        // Upon receiving a connection response, the connection should have transitioned
+        // to the established state, and the kill timer should've been disarmed.
         assert_eq!(ctx.conn.state, ConnState::Established);
         assert!(!ctx.conn.will_expire());
     }
@@ -979,7 +997,8 @@ mod tests {
             .unwrap();
         assert_eq!(&buf, data);
 
-        // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
+        // There's no more data in the stream, so `recv_pkt` should yield
+        // `VsockError::NoData`.
         match ctx.conn.recv_pkt(&mut ctx.pkt, &ctx._vsock_test_ctx.mem) {
             Err(VsockError::NoData) => (),
             other => panic!("{:?}", other),
@@ -1000,9 +1019,10 @@ mod tests {
         ctx.set_stream(stream);
         ctx.notify_epollin();
         ctx.recv();
-        // When the host-side stream is closed, we can neither send not receive any more data.
-        // Therefore, the vsock shutdown packet that we'll deliver to the guest must contain both
-        // the no-more-send and the no-more-recv indications.
+        // When the host-side stream is closed, we can neither send not receive any more
+        // data. Therefore, the vsock shutdown packet that we'll deliver to the
+        // guest must contain both the no-more-send and the no-more-recv
+        // indications.
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
         assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
         assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
@@ -1083,8 +1103,8 @@ mod tests {
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
         }
 
-        // Test case: setting both no-more-send and no-more-recv indications should have the
-        // connection confirm termination (i.e. yield an RST).
+        // Test case: setting both no-more-send and no-more-recv indications should have
+        // the connection confirm termination (i.e. yield an RST).
         {
             let mut ctx = CsmTestContext::new_established();
             ctx.init_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
@@ -1132,7 +1152,8 @@ mod tests {
     fn test_credit_update_to_peer() {
         let mut ctx = CsmTestContext::new_established();
 
-        // Force a stale state, where the peer hasn't been updated on our credit situation.
+        // Force a stale state, where the peer hasn't been updated on our credit
+        // situation.
         ctx.conn.last_fwd_cnt_to_peer = Wrapping(0);
 
         // Since a credit update token is sent when the fwd_cnt value exceeds
@@ -1165,9 +1186,10 @@ mod tests {
     #[test]
     fn test_tx_buffering() {
         // Test case:
-        // - when writing to the backing stream would block, TX data should end up in the TX buf
-        // - when the CSM is notified that it can write to the backing stream, it should flush
-        //   the TX buf.
+        // - when writing to the backing stream would block, TX data should end up in
+        //   the TX buf
+        // - when the CSM is notified that it can write to the backing stream, it should
+        //   flush the TX buf.
         {
             let mut ctx = CsmTestContext::new_established();
 
@@ -1175,19 +1197,19 @@ mod tests {
             stream.write_state = StreamState::WouldBlock;
             ctx.set_stream(stream);
 
-            // Send some data through the connection. The backing stream is set to reject writes,
-            // so the data should end up in the TX buffer.
+            // Send some data through the connection. The backing stream is set to reject
+            // writes, so the data should end up in the TX buffer.
             let data = &[1, 2, 3, 4];
             ctx.init_data_pkt(data);
             ctx.send();
 
-            // When there's data in the TX buffer, the connection should ask to be notified when it
-            // can write to its backing stream.
+            // When there's data in the TX buffer, the connection should ask to be notified
+            // when it can write to its backing stream.
             assert!(ctx.conn.get_polled_evset().contains(EventSet::OUT));
             assert_eq!(ctx.conn.tx_buf.len(), data.len());
 
-            // Unlock the write stream and notify the connection it can now write its bufferred
-            // data.
+            // Unlock the write stream and notify the connection it can now write its
+            // bufferred data.
             ctx.set_stream(TestStream::new());
             ctx.conn.notify(EventSet::OUT);
             assert!(ctx.conn.tx_buf.is_empty());
@@ -1197,7 +1219,8 @@ mod tests {
 
     #[test]
     fn test_stream_write_error() {
-        // Test case: sending a data packet to a broken / closed backing stream should kill it.
+        // Test case: sending a data packet to a broken / closed backing stream should
+        // kill it.
         {
             let mut ctx = CsmTestContext::new_established();
             let mut stream = TestStream::new();
@@ -1214,8 +1237,8 @@ mod tests {
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
         }
 
-        // Test case: notifying a connection that it can flush its TX buffer to a broken stream
-        // should kill the connection.
+        // Test case: notifying a connection that it can flush its TX buffer to a broken
+        // stream should kill the connection.
         {
             let mut ctx = CsmTestContext::new_established();
 
@@ -1223,8 +1246,8 @@ mod tests {
             stream.write_state = StreamState::WouldBlock;
             ctx.set_stream(stream);
 
-            // Send some data through the connection. The backing stream is set to reject writes,
-            // so the data should end up in the TX buffer.
+            // Send some data through the connection. The backing stream is set to reject
+            // writes, so the data should end up in the TX buffer.
             let data = &[1, 2, 3, 4];
             ctx.init_data_pkt(data);
             ctx.send();

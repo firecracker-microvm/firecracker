@@ -3,18 +3,20 @@
 
 //! Defines the structures needed for saving/restoring Virtio primitives.
 
-use super::device::*;
-use super::queue::*;
-use crate::virtio::MmioTransport;
-use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
-use vm_memory::{address::Address, GuestAddress, GuestMemoryMmap};
-
 use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+
+use snapshot::Persist;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use vm_memory::address::Address;
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+use super::device::*;
+use super::queue::*;
+use crate::virtio::MmioTransport;
 
 #[derive(Debug)]
 pub enum Error {
@@ -151,8 +153,9 @@ impl VirtioDeviceState {
             if q.max_size != expected_queue_max_size || q.size > expected_queue_max_size {
                 return Err(Error::InvalidInput);
             }
-            // Snapshot can happen at any time, including during device configuration/activation
-            // when fields are only partially configured.
+            // Snapshot can happen at any time, including during device
+            // configuration/activation when fields are only partially
+            // configured.
             //
             // Only if the device was activated, check `q.is_valid()`.
             if self.activated && !q.is_valid(mem) {
@@ -211,14 +214,14 @@ impl Persist<'_> for MmioTransport {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::virtio::mmio::tests::DummyDevice;
-    use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
+    use utils::tempfile::TempFile;
 
+    use super::*;
     use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::default_block_with_path;
+    use crate::virtio::mmio::tests::DummyDevice;
     use crate::virtio::test_utils::default_mem;
-    use utils::tempfile::TempFile;
+    use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {

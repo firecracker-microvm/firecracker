@@ -43,11 +43,12 @@ impl Init {
 
     /// Performs an initialization routine.
     ///
-    /// The given closure will be executed if the current state is `UNINITIALIZED`.
-    /// Otherwise an Error will be returned.
+    /// The given closure will be executed if the current state is
+    /// `UNINITIALIZED`. Otherwise an Error will be returned.
     ///
-    /// If the closure returns `true`, the state will be changed to `INITIALIZED`.
-    /// If the closure returns `false`, the state will remain `UNINITIALIZED`.
+    /// If the closure returns `true`, the state will be changed to
+    /// `INITIALIZED`. If the closure returns `false`, the state will remain
+    /// `UNINITIALIZED`.
     pub fn call_init<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce() -> bool,

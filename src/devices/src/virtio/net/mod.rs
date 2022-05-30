@@ -18,9 +18,10 @@ pub mod persist;
 mod tap;
 pub mod test_utils;
 
+pub use tap::Error as TapError;
+
 pub use self::device::Net;
 pub use self::event_handler::*;
-pub use tap::Error as TapError;
 
 /// Enum representing the Net device queue types
 pub enum NetQueue {

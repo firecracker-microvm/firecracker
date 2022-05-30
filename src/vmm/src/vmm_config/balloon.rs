@@ -8,7 +8,6 @@ pub use devices::virtio::balloon::device::BalloonStats;
 use devices::virtio::balloon::Error as BalloonError;
 pub use devices::virtio::BALLOON_DEV_ID;
 use devices::virtio::{Balloon, BalloonConfig};
-
 use serde::{Deserialize, Serialize};
 
 type MutexBalloon = Arc<Mutex<Balloon>>;
@@ -231,8 +230,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_error_messages() {
-        use super::BalloonConfigError::*;
         use std::io;
+
+        use super::BalloonConfigError::*;
         let err = CreateFailure(devices::virtio::balloon::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));

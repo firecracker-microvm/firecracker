@@ -5,32 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use crate::virtio::net::tap::Tap;
-#[cfg(test)]
-use crate::virtio::net::test_utils::Mocks;
-use crate::virtio::net::Error;
-use crate::virtio::net::NetQueue;
-use crate::virtio::net::Result;
-use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
-use crate::virtio::DescriptorChain;
-use crate::virtio::{
-    ActivateResult, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
-};
-use crate::{report_net_event_fail, Error as DeviceError};
-
 use dumbo::pdu::ethernet::EthernetFrame;
 use libc::EAGAIN;
 use logger::{error, warn, IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-#[cfg(not(test))]
-use std::io;
-use std::io::{Read, Write};
-use std::net::Ipv4Addr;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
-use std::{cmp, mem, result};
 use utils::eventfd::EventFd;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use virtio_gen::virtio_net::{
@@ -40,6 +20,21 @@ use virtio_gen::virtio_net::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+
+use crate::virtio::net::tap::Tap;
+#[cfg(test)]
+use crate::virtio::net::test_utils::Mocks;
+#[cfg(test)]
+use crate::virtio::net::test_utils::Mocks;
+use crate::virtio::net::{
+    Error, NetQueue, Result, Result, MAX_BUFFER_SIZE, MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZE,
+    QUEUE_SIZES, QUEUE_SIZES, RX_INDEX, RX_INDEX, TX_INDEX, TX_INDEX,
+};
+use crate::virtio::{
+    ActivateResult, DescriptorChain, DeviceState, DeviceState, IrqTrigger, IrqTrigger, IrqType,
+    IrqType, Queue, Queue, VirtioDevice, VirtioDevice, TYPE_NET, TYPE_NET,
+};
+use crate::{report_net_event_fail, Error as DeviceError, Error as DeviceError};
 
 enum FrontendError {
     AddUsed,
@@ -53,8 +48,9 @@ pub(crate) fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
 }
 
-// Frames being sent/received through the network device model have a VNET header. This
-// function returns a slice which holds the L2 frame bytes without this header.
+// Frames being sent/received through the network device model have a VNET
+// header. This function returns a slice which holds the L2 frame bytes without
+// this header.
 fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8]> {
     if buf.len() < vnet_hdr_len() {
         Err(Error::VnetHeaderMissing)
@@ -74,7 +70,8 @@ fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8]> {
 // This initializes to all 0 the VNET hdr part of a buf.
 fn init_vnet_hdr(buf: &mut [u8]) {
     // The buffer should be larger than vnet_hdr_len.
-    // TODO: any better way to set all these bytes to 0? Or is this optimized by the compiler?
+    // TODO: any better way to set all these bytes to 0? Or is this optimized by the
+    // compiler?
     for i in &mut buf[0..vnet_hdr_len()] {
         *i = 0;
     }
@@ -165,7 +162,8 @@ impl Net {
         if let Some(mac) = guest_mac {
             config_space.guest_mac.copy_from_slice(mac.get_bytes());
             // When this feature isn't available, the driver generates a random MAC address.
-            // Otherwise, it should attempt to read the device MAC address from the config space.
+            // Otherwise, it should attempt to read the device MAC address from the config
+            // space.
             avail_features |= 1 << VIRTIO_NET_F_MAC;
         }
 
@@ -222,8 +220,9 @@ impl Net {
         self.mmds_ns.as_ref()
     }
 
-    /// Configures the `MmdsNetworkStack` to allow device to forward MMDS requests.
-    /// If the device already supports MMDS, updates the IPv4 address.
+    /// Configures the `MmdsNetworkStack` to allow device to forward MMDS
+    /// requests. If the device already supports MMDS, updates the IPv4
+    /// address.
     pub fn configure_mmds_network_stack(&mut self, ipv4_addr: Ipv4Addr, mmds: Arc<Mutex<Mmds>>) {
         if let Some(mmds_ns) = self.mmds_ns.as_mut() {
             mmds_ns.set_ipv4_addr(ipv4_addr);
@@ -232,7 +231,8 @@ impl Net {
         }
     }
 
-    /// Disables the `MmdsNetworkStack` to prevent device to forward MMDS requests.
+    /// Disables the `MmdsNetworkStack` to prevent device to forward MMDS
+    /// requests.
     pub fn disable_mmds_network_stack(&mut self) {
         self.mmds_ns = None
     }
@@ -248,7 +248,8 @@ impl Net {
     }
 
     fn signal_used_queue(&mut self, queue_type: NetQueue) -> result::Result<(), DeviceError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let queue = match queue_type {
@@ -352,7 +353,8 @@ impl Net {
 
     // Copies a single frame from `self.rx_frame_buf` into the guest.
     fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
@@ -367,7 +369,8 @@ impl Net {
             &self.rx_frame_buf[..self.rx_bytes_read],
             head_descriptor,
         );
-        // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
+        // Mark the descriptor chain as used. If an error occurred, skip the descriptor
+        // chain.
         let used_len = if result.is_err() {
             METRICS.net.rx_fails.inc();
             0
@@ -382,8 +385,9 @@ impl Net {
         result
     }
 
-    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
-    // the operation if possible. Returns true if the operation was successfull.
+    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an
+    // error retries the operation if possible. Returns true if the operation
+    // was successfull.
     fn write_frame_to_guest(&mut self) -> bool {
         let max_iterations = self.queues[RX_INDEX].actual_size();
         for _ in 0..max_iterations {
@@ -402,7 +406,8 @@ impl Net {
         false
     }
 
-    // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
+    // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on
+    // the host TAP.
     //
     // `frame_buf` should contain the frame bytes in a slice of exact length.
     // Returns whether MMDS consumed the frame.
@@ -532,13 +537,15 @@ impl Net {
     }
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
 
-        // The MMDS network stack works like a state machine, based on synchronous calls, and
-        // without being added to any event loop. If any frame is accepted by the MMDS, we also
-        // trigger a process_rx() which checks if there are any new frames to be sent, starting
-        // with the MMDS network stack.
+        // The MMDS network stack works like a state machine, based on synchronous
+        // calls, and without being added to any event loop. If any frame is
+        // accepted by the MMDS, we also trigger a process_rx() which checks if
+        // there are any new frames to be sent, starting with the MMDS network
+        // stack.
         let mut process_rx_for_mmds = false;
         let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
@@ -586,8 +593,8 @@ impl Net {
 
             read_count = 0;
             // Copy buffer from across multiple descriptors.
-            // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
-            // and get rid of the intermediate buffer.
+            // TODO(performance - Issue #420): change this to use `writev()` instead of
+            // `write()` and get rid of the intermediate buffer.
             for (desc_addr, desc_len) in self.tx_iovec.drain(..) {
                 let limit = cmp::min((read_count + desc_len) as usize, self.tx_frame_buf.len());
 
@@ -679,7 +686,8 @@ impl Net {
     }
 
     pub fn process_tap_rx_event(&mut self) {
-        // This is safe since we checked in the event handler that the device is activated.
+        // This is safe since we checked in the event handler that the device is
+        // activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.net.rx_tap_event_count.inc();
 
@@ -858,24 +866,10 @@ impl VirtioDevice for Net {
 #[cfg(test)]
 #[macro_use]
 pub mod tests {
-    use super::*;
-    use crate::virtio::net::device::{
-        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
-    };
     use std::net::Ipv4Addr;
     use std::time::Duration;
     use std::{io, mem, thread};
 
-    use crate::check_metric_after_block;
-    use crate::virtio::net::test_utils::test::TestHelper;
-    use crate::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator,
-    };
-    use crate::virtio::net::QUEUE_SIZES;
-    use crate::virtio::{
-        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
-    };
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
@@ -886,6 +880,21 @@ pub mod tests {
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
     };
     use vm_memory::{Address, GuestMemory};
+
+    use super::*;
+    use crate::check_metric_after_block;
+    use crate::virtio::net::device::{
+        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
+    };
+    use crate::virtio::net::test_utils::test::TestHelper;
+    use crate::virtio::net::test_utils::{
+        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
+        TapTrafficSimulator,
+    };
+    use crate::virtio::net::QUEUE_SIZES;
+    use crate::virtio::{
+        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
+    };
 
     impl Net {
         pub fn read_tap(&mut self) -> io::Result<usize> {
@@ -1073,8 +1082,8 @@ pub mod tests {
         let mut th = TestHelper::default();
         th.activate_net();
 
-        // The descriptor chain is created so that the last descriptor doesn't fit in the
-        // guest memory.
+        // The descriptor chain is created so that the last descriptor doesn't fit in
+        // the guest memory.
         let offset = th.mem.last_addr().raw_value() - th.data_addr() - 300;
         th.add_desc_chain(
             NetQueue::Rx,
@@ -1136,7 +1145,8 @@ pub mod tests {
         th.rxq.check_used_elem(2, 4, 0);
         // Check that the frame wasn't deferred.
         assert!(!th.net().rx_deferred_frame);
-        // Check that the frame has been written successfully to the valid Rx descriptor chain.
+        // Check that the frame has been written successfully to the valid Rx descriptor
+        // chain.
         th.rxq.check_used_elem(3, 5, frame.len() as u32);
         th.rxq.dtable[5].check_data(&frame);
     }
@@ -1172,7 +1182,8 @@ pub mod tests {
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
-        // Check that the frame has been written successfully to the Rx descriptor chain.
+        // Check that the frame has been written successfully to the Rx descriptor
+        // chain.
         th.rxq.check_used_elem(0, 3, frame.len() as u32);
         th.rxq.dtable[3].check_data(&frame[..100]);
         th.rxq.dtable[5].check_data(&frame[100..150]);
@@ -1185,8 +1196,9 @@ pub mod tests {
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
 
-        // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
-        // following 2 frames. But only 1 frame has to be written to each chain.
+        // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit
+        // the following 2 frames. But only 1 frame has to be written to each
+        // chain.
         th.add_desc_chain(
             NetQueue::Rx,
             0,
@@ -1211,11 +1223,13 @@ pub mod tests {
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
-        // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
+        // Check that the 1st frame was written successfully to the 1st Rx descriptor
+        // chain.
         th.rxq.check_used_elem(0, 0, frame_1.len() as u32);
         th.rxq.dtable[0].check_data(&frame_1);
         th.rxq.dtable[1].check_data(&[0; 500]);
-        // Check that the 2nd frame was written successfully to the 2nd Rx descriptor chain.
+        // Check that the 2nd frame was written successfully to the 2nd Rx descriptor
+        // chain.
         th.rxq.check_used_elem(1, 2, frame_2.len() as u32);
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
@@ -1288,8 +1302,8 @@ pub mod tests {
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
-        // The descriptor chain is created so that the last descriptor doesn't fit in the
-        // guest memory.
+        // The descriptor chain is created so that the last descriptor doesn't fit in
+        // the guest memory.
         let offset = th.mem.last_addr().raw_value() + 1 - th.data_addr() - 300;
         let desc_list = [(0, 100, 0), (1, 50, 0), (2, 4096, 0)];
         th.add_desc_chain(NetQueue::Tx, offset, &desc_list);
@@ -1658,7 +1672,8 @@ pub mod tests {
 
         // Test TX bandwidth rate limiting
         {
-            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
+            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096
+            // bytes
             let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
@@ -1690,10 +1705,12 @@ pub mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the
+            // kernel
             thread::sleep(Duration::from_millis(200));
 
-            // following TX procedure should succeed because bandwidth should now be available
+            // following TX procedure should succeed because bandwidth should now be
+            // available
             {
                 // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
                 check_metric_after_block!(
@@ -1727,7 +1744,8 @@ pub mod tests {
 
         // Test RX bandwidth rate limiting
         {
-            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
+            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096
+            // bytes
             let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
@@ -1763,10 +1781,12 @@ pub mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the
+            // kernel
             thread::sleep(Duration::from_millis(200));
 
-            // following RX procedure should succeed because bandwidth should now be available
+            // following RX procedure should succeed because bandwidth should now be
+            // available
             {
                 let frame = &th.net().mocks.read_tap.mock_frame();
                 // no longer throttled
@@ -1820,7 +1840,8 @@ pub mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the
+            // kernel
             thread::sleep(Duration::from_millis(200));
 
             // following TX procedure should succeed because ops should now be available
@@ -1870,7 +1891,8 @@ pub mod tests {
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
 
-                // trigger the RX handler again, this time it should do the limiter fast path exit
+                // trigger the RX handler again, this time it should do the limiter fast path
+                // exit
                 th.simulate_event(NetEvent::Tap);
                 // assert that no operation actually completed, that the limiter blocked it
                 assert!(!&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -1879,7 +1901,8 @@ pub mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the
+            // kernel
             thread::sleep(Duration::from_millis(200));
 
             // following RX procedure should succeed because ops should now be available

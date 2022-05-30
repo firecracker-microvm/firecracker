@@ -8,15 +8,16 @@ use std::thread;
 #[cfg(test)]
 use std::time::Duration;
 
+use rate_limiter::RateLimiter;
+use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
+use utils::tempfile::TempFile;
+
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
 #[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
-use rate_limiter::RateLimiter;
-use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use utils::tempfile::TempFile;
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> Block {
@@ -27,7 +28,8 @@ pub fn default_block(file_engine_type: FileEngineType) -> Block {
     default_block_with_path(f.as_path().to_str().unwrap().to_string(), file_engine_type)
 }
 
-/// Return the Async FileEngineType if supported by the host, otherwise default to Sync.
+/// Return the Async FileEngineType if supported by the host, otherwise default
+/// to Sync.
 pub fn default_engine_type_for_kv() -> FileEngineType {
     if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
         FileEngineType::Async
@@ -36,7 +38,8 @@ pub fn default_engine_type_for_kv() -> FileEngineType {
     }
 }
 
-/// Create a default Block instance using file at the specified path to be used in tests.
+/// Create a default Block instance using file at the specified path to be used
+/// in tests.
 pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> Block {
     // Rate limiting is enabled but with a high operation rate (10 million ops/s).
     let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();

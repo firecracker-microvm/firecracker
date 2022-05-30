@@ -1,27 +1,31 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Utility for sending log related messages to a storing destination or simply to stdout/stderr.
-//! The logging destination is specified upon the initialization of the logging system.
+//! Utility for sending log related messages to a storing destination or simply
+//! to stdout/stderr. The logging destination is specified upon the
+//! initialization of the logging system.
 //!
 //! # Enabling logging
 //! There are 2 ways to enable the logging functionality:
 //!
-//! 1) Calling `LOGGER.configure()`. This will enable the logger to work in limited mode.
-//! In this mode the logger can only write messages to stdout or stderr.
+//! 1) Calling `LOGGER.configure()`. This will enable the logger to work in
+//! limited mode. In this mode the logger can only write messages to stdout or
+//! stderr.
 
-//! The logger can be configured in this way any number of times before calling `LOGGER.init()`.
+//! The logger can be configured in this way any number of times before calling
+//! `LOGGER.init()`.
 //!
-//! 2) Calling `LOGGER.init()`. This will enable the logger to work in full mode.
-//! In this mode the logger can write messages to arbitrary buffers.
-//! The logger can be initialized only once. Any call to the `LOGGER.init()` following that will
-//! fail with an explicit error.
+//! 2) Calling `LOGGER.init()`. This will enable the logger to work in full
+//! mode. In this mode the logger can write messages to arbitrary buffers.
+//! The logger can be initialized only once. Any call to the `LOGGER.init()`
+//! following that will fail with an explicit error.
 //!
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! use logger::{error, warn, LOGGER};
 //! use std::ops::Deref;
+//!
+//! use logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
 //! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
@@ -34,9 +38,10 @@
 //! ## Example for logging to a `File`:
 //!
 //! ```
+//! use std::io::Cursor;
+//!
 //! use libc::c_char;
 //! use logger::{error, warn, LOGGER};
-//! use std::io::Cursor;
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -50,9 +55,9 @@
 //! ```
 
 //! # Plain log format
-//! The current logging system is built upon the upstream crate 'log' and reexports the macros
-//! provided by it for flushing plain log content. Log messages are printed through the use of five
-//! macros:
+//! The current logging system is built upon the upstream crate 'log' and
+//! reexports the macros provided by it for flushing plain log content. Log
+//! messages are printed through the use of five macros:
 //! * error!(<string>)
 //! * warning!(<string>)
 //! * info!(<string>)
@@ -60,28 +65,26 @@
 //! * trace!(<string>)
 //!
 //! Each call to the desired macro will flush a line of the following format:
-//! ```<timestamp> [<instance_id>:<level>:<file path>:<line number>] <log content>```.
+//! ```<timestamp> [<instance_id>:<level>:<file path>:<line number>] <log
+//! content>```.
 //! The first component is always the timestamp which has the `%Y-%m-%dT%H:%M:%S.%f` format.
 //! The level will depend on the macro used to flush a line and will be one of the following:
 //! `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`.
 //! The file path and the line provides the exact location of where the call to the macro was made.
 //! ## Example of a log line:
-//! ```bash
-//! 2018-11-07T05:34:25.180751152 [anonymous-instance:ERROR:vmm/src/lib.rs:1173] Failed to write
+//! ```bash 2018-11-07T05:34:25.180751152
+//! [anonymous-instance:ERROR:vmm/src/lib.rs:1173] Failed to write
 //! metrics: Failed to write logs. Error: operation would block
 //! ```
 //! # Limitations
 //! Logs can be flushed either to stdout/stderr or to a byte-oriented sink (File, FIFO, Ring Buffer
 //! etc).
 
-use std::fmt;
 use std::io::{sink, stderr, stdout, Write};
-use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
-use std::thread;
+use std::{fmt, result, thread};
 
-use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;
@@ -89,6 +92,7 @@ use utils::time::LocalTime;
 use super::extract_guard;
 use crate::init;
 use crate::init::Init;
+use crate::metrics::{IncMetric, METRICS};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -107,8 +111,8 @@ lazy_static! {
 }
 
 /// Logger representing the logging subsystem.
-// All member fields have types which are Sync, and exhibit interior mutability, so
-// we can call logging operations using a non-mut static global variable.
+// All member fields have types which are Sync, and exhibit interior mutability,
+// so we can call logging operations using a non-mut static global variable.
 pub struct Logger {
     init: Init,
     // Human readable logs will be outputted here.
@@ -144,17 +148,20 @@ impl Logger {
         self.show_line_numbers.load(Ordering::Relaxed)
     }
 
-    /// Enables or disables including the level in the log message's tag portion.
+    /// Enables or disables including the level in the log message's tag
+    /// portion.
     ///
     /// # Arguments
     ///
-    /// * `option` - Boolean deciding whether to include log level in log message.
+    /// * `option` - Boolean deciding whether to include log level in log
+    ///   message.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -171,20 +178,24 @@ impl Logger {
         self
     }
 
-    /// Enables or disables including the file path and the line numbers in the tag of
-    /// the log message. Not including the file path will also hide the line numbers from the tag.
+    /// Enables or disables including the file path and the line numbers in the
+    /// tag of the log message. Not including the file path will also hide
+    /// the line numbers from the tag.
     ///
     /// # Arguments
     ///
-    /// * `file_path` - Boolean deciding whether to include file path of the log message's origin.
-    /// * `line_numbers` - Boolean deciding whether to include the line number of the file where the
+    /// * `file_path` - Boolean deciding whether to include file path of the log
+    ///   message's origin.
+    /// * `line_numbers` - Boolean deciding whether to include the line number
+    ///   of the file where the
     /// log message orginated.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -213,8 +224,8 @@ impl Logger {
     }
 
     /// Explicitly sets the max log level for the Logger.
-    /// The default level is WARN. So, ERROR and WARN statements will be shown (i.e. all that is
-    /// bigger than the level code).
+    /// The default level is WARN. So, ERROR and WARN statements will be shown
+    /// (i.e. all that is bigger than the level code).
     ///
     /// # Arguments
     ///
@@ -222,8 +233,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{info, warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -285,21 +297,23 @@ impl Logger {
     }
 
     /// Preconfigure the logger prior to initialization.
-    /// Performs the most basic steps in order to enable the logger to write to stdout or stderr
-    /// even before calling LOGGER.init(). Calling this method is optional.
-    /// This function can be called any number of times before the initialization.
-    /// Any calls made after the initialization will result in `Err()`.
+    /// Performs the most basic steps in order to enable the logger to write to
+    /// stdout or stderr even before calling LOGGER.init(). Calling this
+    /// method is optional. This function can be called any number of times
+    /// before the initialization. Any calls made after the initialization
+    /// will result in `Err()`.
     ///
     /// # Arguments
     ///
-    /// * `instance_id` - Unique string identifying this logger session.
-    ///                   This id is temporary and will be overwritten upon initialization.
+    /// * `instance_id` - Unique string identifying this logger session. This id
+    ///   is temporary and will be overwritten upon initialization.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
     /// use std::ops::Deref;
+    ///
+    /// use logger::LOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -322,19 +336,21 @@ impl Logger {
     }
 
     /// Initialize log system (once and only once).
-    /// Every call made after the first will have no effect besides returning `Ok` or `Err`.
+    /// Every call made after the first will have no effect besides returning
+    /// `Ok` or `Err`.
     ///
     /// # Arguments
     ///
     /// * `header` - Info about the app that uses the logger.
-    /// * `log_dest` - Buffer for plain text logs. Needs to implements `Write` and `Send`.
+    /// * `log_dest` - Buffer for plain text logs. Needs to implements `Write`
+    ///   and `Send`.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
-    ///
     /// use std::io::Cursor;
+    ///
+    /// use logger::LOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///
@@ -358,8 +374,8 @@ impl Logger {
         Ok(())
     }
 
-    /// The `write_log` method takes care of the common logic involved in writing
-    /// regular log messages.
+    /// The `write_log` method takes care of the common logic involved in
+    /// writing regular log messages.
     fn write_log(&self, mut msg: String, msg_level: Level) {
         let mut guard;
         let mut dest: Box<dyn Write + Send> = if self.init.is_initialized() {
@@ -427,8 +443,9 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
 
-    use super::*;
     use log::info;
+
+    use super::*;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";

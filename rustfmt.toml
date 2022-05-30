@@ -1,0 +1,7 @@
+# Run with nightly, e.g. `cargo +nightly fmt --all`
+wrap_comments = true
+license_template_path = "license.txt" # \/ replaced with / in regex
+imports_granularity = "Module"
+normalize_doc_attributes = true
+group_imports = "StdExternalCrate"
+format_code_in_doc_comments = true

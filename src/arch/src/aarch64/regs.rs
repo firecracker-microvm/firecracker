@@ -5,13 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::path::PathBuf;
 use std::{fmt, fs, mem, result, u32};
 
-use super::get_fdt_addr;
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
-use std::path::PathBuf;
 use vm_memory::GuestMemoryMmap;
+
+use super::get_fdt_addr;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]
@@ -71,18 +72,19 @@ const NR_GP_REGS: usize = 31;
 // Number of FP_VREG registers.
 const NR_FP_VREGS: usize = 32;
 
-// Following are macros that help with getting the ID of a aarch64 core register.
-// The core register are represented by the user_pt_regs structure. Look for it in
-// arch/arm64/include/uapi/asm/ptrace.h.
+// Following are macros that help with getting the ID of a aarch64 core
+// register. The core register are represented by the user_pt_regs structure.
+// Look for it in arch/arm64/include/uapi/asm/ptrace.h.
 
-// This macro gets the offset of a structure (i.e `str`) member (i.e `field`) without having
-// an instance of that structure.
+// This macro gets the offset of a structure (i.e `str`) member (i.e `field`)
+// without having an instance of that structure.
 // It uses a null pointer to retrieve the offset to the field.
-// Inspired by C solution: `#define offsetof(str, f) ((size_t)(&((str *)0)->f))`.
-// Doing `offset__of!(user_pt_regs, pstate)` in our rust code will trigger the following:
-// unsafe { &(*(0 as *const user_pt_regs)).pstate as *const _ as usize }
-// The dereference expression produces an lvalue, but that lvalue is not actually read from,
-// we're just doing pointer math on it, so in theory, it should be safe.
+// Inspired by C solution: `#define offsetof(str, f) ((size_t)(&((str
+// *)0)->f))`. Doing `offset__of!(user_pt_regs, pstate)` in our rust code will
+// trigger the following: unsafe { &(*(0 as *const user_pt_regs)).pstate as
+// *const _ as usize } The dereference expression produces an lvalue, but that
+// lvalue is not actually read from, we're just doing pointer math on it, so in
+// theory, it should be safe.
 macro_rules! offset__of {
     ($str:ty, $field:ident) => {
         unsafe { &(*(std::ptr::null::<$str>())).$field as *const _ as usize }
@@ -112,8 +114,10 @@ macro_rules! arm64_core_reg_id {
         //     __u64 pstate;
         // };
         // The id of a core register can be obtained like this:
-        // offset = id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE). Thus,
-        // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 | KVM_REG_ARM_CORE | offset
+        // offset = id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE).
+        // Thus, id = KVM_REG_ARM64 |
+        // KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 | KVM_REG_ARM_CORE |
+        // offset
         KVM_REG_ARM64 as u64
             | u64::from(KVM_REG_ARM_CORE)
             | $size
@@ -153,8 +157,8 @@ arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
 ///
 /// # Arguments
 ///
-/// * `state` - Array slice of kvm_one_reg structures, representing
-///             the registers of a VCPU state.
+/// * `state` - Array slice of kvm_one_reg structures, representing the
+///   registers of a VCPU state.
 pub fn get_manufacturer_id_from_state(state: &[kvm_one_reg]) -> Result<u32> {
     let midr_el1 = state.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
@@ -211,14 +215,15 @@ pub fn setup_boot_regs(
 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
-        // Setting the PC (Processor Counter) to the current program address (kernel address).
+        // Setting the PC (Processor Counter) to the current program address (kernel
+        // address).
         let pc = offset__of!(user_pt_regs, pc) + kreg_off;
         vcpu.set_one_reg(arm64_core_reg_id!(KVM_REG_SIZE_U64, pc), boot_ip as u64)
             .map_err(|e| Error::SetCoreRegister(e, "program counter".to_string()))?;
 
-        // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
-        // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
-        // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
+        // Last mandatory thing to set -> the address pointing to the FDT (also called
+        // DTB). "The device tree blob (dtb) must be placed on an 8-byte
+        // boundary and must not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
         // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
         let regs0 = offset__of!(user_pt_regs, regs) + kreg_off;
         vcpu.set_one_reg(
@@ -231,8 +236,9 @@ pub fn setup_boot_regs(
 }
 
 /// Specifies whether a particular register is a system register or not.
-/// The kernel splits the registers on aarch64 in core registers and system registers.
-/// So, below we get the system registers by checking that they are not core registers.
+/// The kernel splits the registers on aarch64 in core registers and system
+/// registers. So, below we get the system registers by checking that they are
+/// not core registers.
 ///
 /// # Arguments
 ///
@@ -269,7 +275,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
     // There are 31 user_pt_regs:
     // https://elixir.free-electrons.com/linux/v4.14.174/source/arch/arm64/include/uapi/asm/ptrace.h#L72
     // These actually are the general-purpose registers of the Armv8-a
-    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit register).
+    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a
+    // 32bit register).
     for i in 0..NR_GP_REGS {
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
         state.push(kvm_one_reg {
@@ -322,8 +329,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
             .map_err(|e| Error::GetCoreRegister(e, "SP_EL1".to_string()))?,
     });
 
-    // Exception Link Register for EL1, when taking an exception to EL1, this register
-    // holds the address to which to return afterwards.
+    // Exception Link Register for EL1, when taking an exception to EL1, this
+    // register holds the address to which to return afterwards.
     let off = offset__of!(kvm_regs, elr_el1);
     let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
     state.push(kvm_one_reg {
@@ -346,8 +353,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
         off += std::mem::size_of::<u64>();
     }
 
-    // Now moving on to floating point registers which are stored in the user_fpsimd_state in the kernel:
-    // https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
+    // Now moving on to floating point registers which are stored in the
+    // user_fpsimd_state in the kernel: https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
     let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
     for i in 0..NR_FP_VREGS {
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U128, off);
@@ -390,21 +397,22 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure for returning the state of the system registers.
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
-    // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
-    // less than 500 registers.
+    // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8
+    // there are less than 500 registers.
     let mut reg_list = RegList::new(500).map_err(Error::FamError)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 
     // At this point reg_list should contain: core registers and system registers.
-    // The register list contains the number of registers and their ids. We will be needing to
-    // call KVM_GET_ONE_REG on each id in order to save all of them. We carve out from the list
-    // the core registers which are represented in the kernel by kvm_regs structure and for which
-    // we can calculate the id based on the offset in the structure.
+    // The register list contains the number of registers and their ids. We will be
+    // needing to call KVM_GET_ONE_REG on each id in order to save all of them.
+    // We carve out from the list the core registers which are represented in
+    // the kernel by kvm_regs structure and for which we can calculate the id
+    // based on the offset in the structure.
     reg_list.retain(|regid| is_system_register(*regid));
 
-    // Now, for the rest of the registers left in the previously fetched register list, we are
-    // simply calling KVM_GET_ONE_REG.
+    // Now, for the rest of the registers left in the previously fetched register
+    // list, we are simply calling KVM_GET_ONE_REG.
     let indices = reg_list.as_slice();
     for index in indices.iter() {
         state.push(kvm_bindings::kvm_one_reg {
@@ -451,9 +459,10 @@ pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::{arch_memory_regions, layout};
-    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_setup_regs() {

@@ -7,7 +7,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::warn;
-use rate_limiter::{persist::RateLimiterState, RateLimiter};
+use rate_limiter::persist::RateLimiterState;
+use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -16,7 +17,6 @@ use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 use vm_memory::GuestMemoryMmap;
 
 use super::*;
-
 use crate::virtio::block::device::FileEngineType;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BLOCK};
@@ -73,8 +73,8 @@ impl From<FileEngineTypeState> for FileEngineType {
 
 impl Default for FileEngineTypeState {
     fn default() -> Self {
-        // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
-        // on a VM using the Sync backend.
+        // If the snap version does not contain the `FileEngineType`, it must have been
+        // snapshotted on a VM using the Sync backend.
         FileEngineTypeState::Sync
     }
 }
@@ -203,12 +203,13 @@ impl Persist<'_> for Block {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::virtio::device::VirtioDevice;
+    use std::sync::atomic::Ordering;
+
     use utils::tempfile::TempFile;
 
+    use super::*;
+    use crate::virtio::device::VirtioDevice;
     use crate::virtio::test_utils::default_mem;
-    use std::sync::atomic::Ordering;
 
     #[test]
     fn test_cache_type_state_from() {
@@ -242,7 +243,8 @@ mod tests {
 
     #[test]
     fn test_cache_semantic_ser() {
-        // We create the backing file here so that it exists for the whole lifetime of the test.
+        // We create the backing file here so that it exists for the whole lifetime of
+        // the test.
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
@@ -296,8 +298,8 @@ mod tests {
             .set_type_version(BlockState::type_id(), 3);
 
         if !FileEngineType::Async.is_supported().unwrap() {
-            // Test what happens when restoring an Async engine on a kernel that does not support
-            // it.
+            // Test what happens when restoring an Async engine on a kernel that does not
+            // support it.
 
             let block = Block::new(
                 "test".to_string(),
@@ -339,7 +341,8 @@ mod tests {
 
     #[test]
     fn test_persistence() {
-        // We create the backing file here so that it exists for the whole lifetime of the test.
+        // We create the backing file here so that it exists for the whole lifetime of
+        // the test.
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 

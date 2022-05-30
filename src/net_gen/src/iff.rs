@@ -2718,9 +2718,11 @@ pub const net_device_flags_IFF_RUNNING: net_device_flags = 64;
 pub const net_device_flags_IFF_NOARP: net_device_flags = 128;
 pub const net_device_flags_IFF_PROMISC: net_device_flags = 256;
 pub const net_device_flags_IFF_ALLMULTI: net_device_flags = 512;
-// TODO: rename this constant to adopt inclusive language once Linux updates it, too.
+// TODO: rename this constant to adopt inclusive language once Linux updates it,
+// too.
 pub const net_device_flags_IFF_MASTER: net_device_flags = 1024;
-// TODO: rename this constant to adopt inclusive language once Linux updates it, too.
+// TODO: rename this constant to adopt inclusive language once Linux updates it,
+// too.
 pub const net_device_flags_IFF_SLAVE: net_device_flags = 2048;
 pub const net_device_flags_IFF_MULTICAST: net_device_flags = 4096;
 pub const net_device_flags_IFF_PORTSEL: net_device_flags = 8192;
@@ -2732,14 +2734,14 @@ pub const net_device_flags_IFF_DYNAMIC: net_device_flags = 32768;
  * These are the &struct net_device flags, they can be set by drivers, the
  * kernel and some can be triggered by userspace. Userspace can query and
  * set these flags using userspace utilities but there is also a sysfs
- * entry available for all dev flags which can be queried and set. These flags
- * are shared for all types of net_devices. The sysfs entries are available
- * via /sys/class/net/<dev>/flags. Flags which can be toggled through sysfs
- * are annotated below, note that only a few flags can be toggled and some
- * other flags are always preserved from the original net_device flags
- * even if you try to set them via sysfs. Flags which are always preserved
- * are kept under the flag grouping @IFF_VOLATILE. Flags which are __volatile__
- * are annotated below as such.
+ * entry available for all dev flags which can be queried and set. These
+ * flags are shared for all types of net_devices. The sysfs entries are
+ * available via /sys/class/net/<dev>/flags. Flags which can be toggled
+ * through sysfs are annotated below, note that only a few flags can be
+ * toggled and some other flags are always preserved from the original
+ * net_device flags even if you try to set them via sysfs. Flags which are
+ * always preserved are kept under the flag grouping @IFF_VOLATILE. Flags
+ * which are __volatile__ are annotated below as such.
  *
  * You should have a pretty good reason to be extending these flags.
  *

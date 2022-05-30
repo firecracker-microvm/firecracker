@@ -3,19 +3,20 @@
 
 /// Simple abstraction of a state machine.
 ///
-/// `StateMachine<T>` is a wrapper over `T` that also encodes state information for `T`.
+/// `StateMachine<T>` is a wrapper over `T` that also encodes state information
+/// for `T`.
 ///
-/// Each state for `T` is represented by a `StateFn<T>` which is a function that acts as
-/// the state handler for that particular state of `T`.
+/// Each state for `T` is represented by a `StateFn<T>` which is a function that
+/// acts as the state handler for that particular state of `T`.
 ///
-/// `StateFn<T>` returns exactly one other `StateMachine<T>` thus each state gets clearly
-/// defined transitions to other states.
+/// `StateFn<T>` returns exactly one other `StateMachine<T>` thus each state
+/// gets clearly defined transitions to other states.
 pub struct StateMachine<T> {
     function: Option<StateFn<T>>,
 }
 
-/// Type representing a state handler of a `StateMachine<T>` machine. Each state handler
-/// is a function from `T` that handles a specific state of `T`.
+/// Type representing a state handler of a `StateMachine<T>` machine. Each state
+/// handler is a function from `T` that handles a specific state of `T`.
 type StateFn<T> = fn(&mut T) -> StateMachine<T>;
 
 impl<T> StateMachine<T> {
@@ -37,8 +38,8 @@ impl<T> StateMachine<T> {
         StateMachine::new(Some(function))
     }
 
-    /// Creates a new state wrapper that has no further transitions. The state machine
-    /// will finish after running this handler.
+    /// Creates a new state wrapper that has no further transitions. The state
+    /// machine will finish after running this handler.
     ///
     /// # Arguments
     ///
@@ -51,9 +52,10 @@ impl<T> StateMachine<T> {
     ///
     /// # Arguments
     ///
-    /// `machine` - a mutable reference to the object running through the various states.
-    /// `starting_state_fn` - a `fn(&mut T) -> StateMachine<T>` that should be the handler for
-    ///                       the initial state.
+    /// `machine` - a mutable reference to the object running through the
+    /// various states. `starting_state_fn` - a `fn(&mut T) ->
+    /// StateMachine<T>` that should be the handler for                     
+    /// the initial state.
     pub fn run(machine: &mut T, starting_state_fn: StateFn<T>) {
         // Start off in the `starting_state` state.
         let mut state_machine = StateMachine::new(Some(starting_state_fn));

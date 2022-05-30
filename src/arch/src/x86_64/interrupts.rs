@@ -40,7 +40,8 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
     ((reg) & !0x700) | ((mode) << 8)
 }
 
-/// Configures LAPICs.  LAPIC0 is set for external interrupts, LAPIC1 is set for NMI.
+/// Configures LAPICs.  LAPIC0 is set for external interrupts, LAPIC1 is set for
+/// NMI.
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
@@ -65,8 +66,9 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     const KVM_APIC_REG_SIZE: usize = 0x400;
 
@@ -128,8 +130,8 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
-        // 'get_lapic' ioctl triggered by the 'set_lint' function will fail if there is no
-        // irqchip created beforehand.
+        // 'get_lapic' ioctl triggered by the 'set_lint' function will fail if there is
+        // no irqchip created beforehand.
         assert!(set_lint(&vcpu).is_err());
     }
 }

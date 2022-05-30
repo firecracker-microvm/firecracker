@@ -52,18 +52,21 @@ impl CgroupBuilder {
             File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
 
         // Regex courtesy of Filippo.
-        // This will match on each line from /proc/mounts for both v1 and v2 mount points.
+        // This will match on each line from /proc/mounts for both v1 and v2 mount
+        // points.
         //
         // /proc/mounts cointains lines that look like this:
-        // cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0
-        // cgroup /sys/fs/cgroup/cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0
+        // cgroup2 /sys/fs/cgroup/unified cgroup2
+        // rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0 cgroup /sys/fs/cgroup/
+        // cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0
         //
         // This Regex will extract:
         //      * "/sys/fs/cgroup/unified" in the "dir" capture group.
-        //      * "2" in the "ver" capture group as the cgroup version taken from "cgroup2";
-        //          for v1, the "ver" capture group will be empty (len = 0).
-        //      * "[...],relatime,cpu,cpuacct" in the "options" capture group; this is used for
-        //          cgroupv1 to determine what controllers are mounted at the location.
+        //      * "2" in the "ver" capture group as the cgroup version taken from
+        //        "cgroup2"; for v1, the "ver" capture group will be empty (len = 0).
+        //      * "[...],relatime,cpu,cpuacct" in the "options" capture group; this is
+        //        used for cgroupv1 to determine what controllers are mounted at the
+        //        location.
         let re = Regex::new(
             r"^([a-z2]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup(?P<ver>2?)[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
         ).map_err(Error::RegEx)?;
@@ -175,56 +178,66 @@ pub trait Cgroup {
     // Write the cgroup value into the cgroup property file.
     fn write_value(&self) -> Result<()>;
 
-    // This function will assign the process associated with the pid to the respective cgroup.
+    // This function will assign the process associated with the pid to the
+    // respective cgroup.
     fn attach_pid(&self) -> Result<()>;
 }
 
-// If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following will happen:
-// 1) If .../A/B/C/file does not exist, or if .../A/B/file does not exist, return an error.
-// 2) If .../A/B/file is not empty, write the first line of .../A/B/file into .../A/B/C/file
-// and return.
-// 3) If ../A/B/file exists but it is empty, call inherit_from_parent_aux(.../A/B, file, false).
-// 4) If .../A/B/file is no longer empty, write the first line of .../A/B/file into
-// .../A/B/C/file, and return.
-// 5) Otherwise, return an error.
+// If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following
+// will happen: 1) If .../A/B/C/file does not exist, or if .../A/B/file does not
+// exist, return an error. 2) If .../A/B/file is not empty, write the first line
+// of .../A/B/file into .../A/B/C/file and return.
+// 3) If ../A/B/file exists but it is empty, call
+// inherit_from_parent_aux(.../A/B, file, false). 4) If .../A/B/file is no
+// longer empty, write the first line of .../A/B/file into .../A/B/C/file, and
+// return. 5) Otherwise, return an error.
 
-// How is this helpful? When creating cgroup folders for the jailer Firecracker instance, the jailer
-// will create a hierarchy that looks like <cgroup_base>/<parent_cgroup>/<id>. Depending on each
-// particular cgroup controller, <cgroup_base> contains a number of configuration files. These are
-// not actually present on a disk; they are special files exposed by the controller, and they
-// usually contain a single line with some configuration value(s). When the "parent_cgroup" and <id>
-// subfolders are created, configuration files with the same name appear automatically in the new
+// How is this helpful? When creating cgroup folders for the jailer Firecracker
+// instance, the jailer will create a hierarchy that looks like
+// <cgroup_base>/<parent_cgroup>/<id>. Depending on each particular cgroup
+// controller, <cgroup_base> contains a number of configuration files. These are
+// not actually present on a disk; they are special files exposed by the
+// controller, and they usually contain a single line with some configuration
+// value(s). When the "parent_cgroup" and <id> subfolders are created,
+// configuration files with the same name appear automatically in the new
 // folders, but their contents are not always automatically populated. Moreover,
-// if <cgroup_base>/<parent_cgroup>/some_file is empty, then we cannot have a non-empty file with
-// at <cgroup_base>/<parent_cgroup>/<id>/some_file. The inherit_from_parent function (which is based
-// on the following helper function) helps with propagating the values.
+// if <cgroup_base>/<parent_cgroup>/some_file is empty, then we cannot have a
+// non-empty file with at <cgroup_base>/<parent_cgroup>/<id>/some_file. The
+// inherit_from_parent function (which is based on the following helper
+// function) helps with propagating the values.
 
-// There is also a potential race condition mentioned below. Here is what it refers to: let's say we
-// start multiple jailer processes, and one of them calls
-// inherit_from_parent_aux(/A/<parent_cgroup>/id1, file, true), and hits case number 3) from the list
-// above, thus recursively calling inherit_from_parent_aux(/A/<parent_cgroup>, file, false). It's
-// entirely possible there was another process in the exact same situations, and that process
-// gets to write something to /A/<parent_cgroup>/file first. In this case, the recursive call made by
-// the first process to inherit_from_parent_aux(/A/<parent_cgroup>, file, false) may fail when writing
-// to /A/<parent_cgroup>/file, but we can still continue, because step 4) only cares about the file
-// no longer being empty, regardless of who actually got to populated its contents.
+// There is also a potential race condition mentioned below. Here is what it
+// refers to: let's say we start multiple jailer processes, and one of them
+// calls inherit_from_parent_aux(/A/<parent_cgroup>/id1, file, true), and hits
+// case number 3) from the list above, thus recursively calling
+// inherit_from_parent_aux(/A/<parent_cgroup>, file, false). It's entirely
+// possible there was another process in the exact same situations, and that
+// process gets to write something to /A/<parent_cgroup>/file first. In this
+// case, the recursive call made by the first process to
+// inherit_from_parent_aux(/A/<parent_cgroup>, file, false) may fail when
+// writing to /A/<parent_cgroup>/file, but we can still continue, because step
+// 4) only cares about the file no longer being empty, regardless of who
+// actually got to populated its contents.
 
 fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16) -> Result<()> {
-    // The function with_file_name() replaces the last component of a path with the given name.
+    // The function with_file_name() replaces the last component of a path with the
+    // given name.
     let parent_file = path.with_file_name(file_name);
 
     let mut line = readln_special(&parent_file)?;
     if line.is_empty() {
         if retry_depth > 0 {
-            // We have to borrow "parent" from "parent_file" as opposed to "path", because then
-            // we wouldn't be able to mutably borrow path at the end of this function (at least not
-            // according to how the Rust borrow checker operates right now :-s)
+            // We have to borrow "parent" from "parent_file" as opposed to "path", because
+            // then we wouldn't be able to mutably borrow path at the end of
+            // this function (at least not according to how the Rust borrow
+            // checker operates right now :-s)
             let parent = parent_file
                 .parent()
                 .ok_or_else(|| Error::MissingParent(parent_file.clone()))?;
 
-            // Trying to avoid the race condition described above. We don't care about the result,
-            // because we check once more if line.is_empty() after the end of this block.
+            // Trying to avoid the race condition described above. We don't care about the
+            // result, because we check once more if line.is_empty() after the
+            // end of this block.
             let _ = inherit_from_parent_aux(&mut parent.to_path_buf(), file_name, retry_depth - 1);
             line = readln_special(&parent_file)?;
         }
@@ -244,8 +257,9 @@ fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16
     Ok(())
 }
 
-// The path reference is &mut here because we do a push to get the destination file name. However,
-// a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
+// The path reference is &mut here because we do a push to get the destination
+// file name. However, a pop follows shortly after (see fn
+// inherit_from_parent_aux), reverting to the original value.
 fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<()> {
     inherit_from_parent_aux(path, file_name, depth)
 }
@@ -524,10 +538,11 @@ mod tests {
     use std::io::{BufReader, Write};
     use std::path::PathBuf;
 
-    use super::*;
-    use crate::cgroup::test_util::MockCgroupFs;
     use utils::tempdir::TempDir;
     use utils::tempfile::TempFile;
+
+    use super::*;
+    use crate::cgroup::test_util::MockCgroupFs;
 
     // Utility function to read the first line in a file
     fn read_first_line<P>(filename: P) -> std::result::Result<String, std::io::Error>
@@ -688,8 +703,8 @@ mod tests {
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("ReadToString"));
 
-        // 2. If parent file exists and is empty, will go one level up, and return error because
-        // the grandparent file does not exist.
+        // 2. If parent file exists and is empty, will go one level up, and return error
+        // because the grandparent file does not exist.
         let named_file = TempFile::new_in(dir.as_path()).expect("Cannot create named file.");
         let result = inherit_from_parent(
             &mut path2.clone(),
@@ -701,8 +716,8 @@ mod tests {
 
         let child_file = dir2.as_path().join(named_file.as_path().to_str().unwrap());
 
-        // 3. If parent file exists and is not empty, will return ok and child file will have its
-        // contents.
+        // 3. If parent file exists and is not empty, will return ok and child file will
+        // have its contents.
         let some_line = "Parent line";
         writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
         let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap(), 1);

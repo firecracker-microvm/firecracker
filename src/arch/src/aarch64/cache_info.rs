@@ -1,12 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    fmt::{Display, Formatter},
-    fs, io,
-    path::{Path, PathBuf},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::path::{Path, PathBuf};
+use std::{fs, io, result};
 
 use logger::warn;
 
@@ -303,10 +300,10 @@ pub(crate) fn read_cache_config(
     cache_l1: &mut Vec<CacheEntry>,
     cache_non_l1: &mut Vec<CacheEntry>,
 ) -> Result<()> {
-    // It is used to make sure we log warnings for missing files only for one level because
-    // if an attribute is missing for a level for sure it will be missing for other levels too.
-    // Also without this mechanism we would be logging the warnings for each level which pollutes
-    // a lot the logs.
+    // It is used to make sure we log warnings for missing files only for one level
+    // because if an attribute is missing for a level for sure it will be
+    // missing for other levels too. Also without this mechanism we would be
+    // logging the warnings for each level which pollutes a lot the logs.
     let mut logged_missing_attr = false;
     let engine = CacheEngine::default();
 
@@ -337,9 +334,10 @@ pub(crate) fn read_cache_config(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::aarch64::cache_info::{read_cache_config, CacheEngine, CacheEntry, CacheStore};
-    use std::collections::HashMap;
 
     #[derive(Debug)]
     struct MockCacheStore {

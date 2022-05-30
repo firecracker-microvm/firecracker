@@ -75,7 +75,8 @@ macro_rules! MSR_RANGE {
     };
 }
 
-// List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
+// List of MSRs that can be serialized. List is sorted in ascending order of
+// MSRs addresses.
 static ALLOWED_MSR_RANGES: &[MsrRange] = &[
     SINGLE_MSR!(MSR_IA32_P5_MC_ADDR),
     SINGLE_MSR!(MSR_IA32_P5_MC_TYPE),
@@ -173,7 +174,8 @@ static ALLOWED_MSR_RANGES: &[MsrRange] = &[
 ///
 /// # Arguments
 ///
-/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+/// * `index` - The index of the MSR that is checked whether it's needed for
+///   serialization.
 pub fn msr_should_serialize(index: u32) -> bool {
     // Denied MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
     if index == MSR_IA32_FEATURE_CONTROL || index == MSR_IA32_MCG_CTL {
@@ -210,7 +212,8 @@ fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     ]
 }
 
-/// Configure Model Specific Registers (MSRs) required to boot Linux for a given x86_64 vCPU.
+/// Configure Model Specific Registers (MSRs) required to boot Linux for a given
+/// x86_64 vCPU.
 ///
 /// # Arguments
 ///
@@ -246,8 +249,9 @@ pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     #[test]
     fn test_msr_allowlist() {
@@ -281,9 +285,9 @@ mod tests {
         // Validate it only read one.
         assert_eq!(read_nmsrs, 1);
 
-        // Official entries that were setup when we did setup_msrs. We need to assert that the
-        // tenth one (i.e the one with index MSR_IA32_MISC_ENABLE has the data we
-        // expect.
+        // Official entries that were setup when we did setup_msrs. We need to assert
+        // that the tenth one (i.e the one with index MSR_IA32_MISC_ENABLE has
+        // the data we expect.
         let entry_vec = create_boot_msr_entries();
         assert_eq!(entry_vec[9], kvm_msrs_wrapper.as_slice()[0]);
     }

@@ -129,11 +129,12 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::FileExt;
 
     use utils::{rand, tempfile};
+
+    use super::*;
 
     macro_rules! assert_err {
         ($expression:expr, $($pattern:tt)+) => {

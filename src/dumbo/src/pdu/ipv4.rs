@@ -3,7 +3,8 @@
 
 //! Contains support for parsing and writing IPv4 packets.
 //!
-//! A picture of the IPv4 packet header can be found [here] (watch out for the MSB 0 bit numbering).
+//! A picture of the IPv4 packet header can be found [here] (watch out for the
+//! MSB 0 bit numbering).
 //!
 //! [here]: https://en.wikipedia.org/wiki/IPv4#Packet_structure
 
@@ -12,8 +13,7 @@ use std::net::Ipv4Addr;
 use std::result::Result;
 
 use crate::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use crate::pdu::ethernet;
-use crate::pdu::Incomplete;
+use crate::pdu::{ethernet, Incomplete};
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -62,13 +62,13 @@ pub struct IPv4Packet<'a, T: 'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
-    /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
-    /// the length of the inner byte sequence.
+    /// Interpret `bytes` as an IPv4Packet without checking the validity of the
+    /// header fields, and the length of the inner byte sequence.
     ///
     /// # Panics
     ///
-    /// This method does not panic, but further method calls on the resulting object may panic if
-    /// `bytes` contains invalid input.
+    /// This method does not panic, but further method calls on the resulting
+    /// object may panic if `bytes` contains invalid input.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         IPv4Packet {
@@ -76,8 +76,8 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         }
     }
 
-    /// Attempts to interpret `bytes` as an IPv4 packet, checking the validity of the header fields
-    /// and the length of the inner byte sequence.
+    /// Attempts to interpret `bytes` as an IPv4 packet, checking the validity
+    /// of the header fields and the length of the inner byte sequence.
     pub fn from_bytes(bytes: T, verify_checksum: bool) -> Result<Self, Error> {
         let bytes_len = bytes.len();
 
@@ -107,8 +107,8 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
             return Err(Error::HeaderLen);
         }
 
-        // We ignore the TTL field since only routers should care about it. An end host has no
-        // reason really to discard an otherwise valid packet.
+        // We ignore the TTL field since only routers should care about it. An end host
+        // has no reason really to discard an otherwise valid packet.
 
         if verify_checksum && packet.compute_checksum_unchecked(header_len) != 0 {
             return Err(Error::Checksum);
@@ -119,8 +119,8 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the value of the `version` header field, and the header length.
     ///
-    /// This method returns the actual length (in bytes) of the header, and not the value of the
-    /// `ihl` header field).
+    /// This method returns the actual length (in bytes) of the header, and not
+    /// the value of the `ihl` header field).
     #[inline]
     pub fn version_and_header_len(&self) -> (u8, usize) {
         let x = self.bytes[VERSION_AND_IHL_OFFSET];
@@ -192,8 +192,8 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(DESTINATION_ADDRESS_OFFSET))
     }
 
-    /// Returns a byte slice containing the payload, using the given header length value to compute
-    /// the payload offset.
+    /// Returns a byte slice containing the payload, using the given header
+    /// length value to compute the payload offset.
     ///
     /// # Panics
     ///
@@ -211,17 +211,18 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the length of the inner byte sequence.
     ///
-    /// This is equal to the output of the `total_len()` method for properly constructed instances
-    /// of `IPv4Packet`.
+    /// This is equal to the output of the `total_len()` method for properly
+    /// constructed instances of `IPv4Packet`.
     #[inline]
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
-    /// Computes and returns the packet header checksum using the provided header length.
+    /// Computes and returns the packet header checksum using the provided
+    /// header length.
     ///
-    /// A nice description of how this works can be found [here]. May panic for invalid values of
-    /// `header_len`.
+    /// A nice description of how this works can be found [here]. May panic for
+    /// invalid values of `header_len`.
     ///
     /// # Panics
     ///
@@ -249,13 +250,16 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
-    /// Attempts to write an IPv4 packet header to `buf`, making sure there is enough space.
+    /// Attempts to write an IPv4 packet header to `buf`, making sure there is
+    /// enough space.
     ///
-    /// This method returns an incomplete packet, because the size of the payload might be unknown
-    /// at this point. IP options are not allowed, which means `header_len == OPTIONS_OFFSET`. The
-    /// `dscp`, `ecn`, `identification`, `flags`, and `fragment_offset` fields are set to 0. The
-    /// `ttl` is set to a default value. The `total_len` and `checksum` fields will be set when
-    /// the length of the incomplete packet is determined.
+    /// This method returns an incomplete packet, because the size of the
+    /// payload might be unknown at this point. IP options are not allowed,
+    /// which means `header_len == OPTIONS_OFFSET`. The `dscp`, `ecn`,
+    /// `identification`, `flags`, and `fragment_offset` fields are set to 0.
+    /// The `ttl` is set to a default value. The `total_len` and `checksum`
+    /// fields will be set when the length of the incomplete packet is
+    /// determined.
     pub fn write_header(
         buf: T,
         protocol: u8,
@@ -279,8 +283,8 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
         Ok(Incomplete::new(packet))
     }
 
-    /// Sets the values of the `version` and `ihl` header fields (the latter is computed from the
-    /// value of `header_len`).
+    /// Sets the values of the `version` and `ihl` header fields (the latter is
+    /// computed from the value of `header_len`).
     #[inline]
     pub fn set_version_and_header_len(&mut self, version: u8, header_len: usize) -> &mut Self {
         let version = version << 4;
@@ -356,8 +360,8 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
         self
     }
 
-    /// Returns a mutable byte slice representing the payload of the packet, using the provided
-    /// header length to compute the payload offset.
+    /// Returns a mutable byte slice representing the payload of the packet,
+    /// using the provided header length to compute the payload offset.
     ///
     /// # Panics
     ///
@@ -377,19 +381,22 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     }
 }
 
-/// An incomplete packet is one where the payload length has not been determined yet.
+/// An incomplete packet is one where the payload length has not been determined
+/// yet.
 ///
-/// It can be transformed into an `IPv4Packet` by specifying the size of the payload, and
-/// shrinking the inner byte sequence to be as large as the packet itself (this includes setting
-/// the `total length` header field).
+/// It can be transformed into an `IPv4Packet` by specifying the size of the
+/// payload, and shrinking the inner byte sequence to be as large as the packet
+/// itself (this includes setting the `total length` header field).
 impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
-    /// Transforms `self` into an `IPv4Packet` based on the supplied header and payload length. May
-    /// panic for invalid values of the input parameters.
+    /// Transforms `self` into an `IPv4Packet` based on the supplied header and
+    /// payload length. May panic for invalid values of the input
+    /// parameters.
     ///
     /// # Panics
     ///
-    /// This method may panic if the combination of `header_len` and `payload_len` is invalid,
-    /// or any of the individual values are invalid.
+    /// This method may panic if the combination of `header_len` and
+    /// `payload_len` is invalid, or any of the individual values are
+    /// invalid.
     #[inline]
     pub fn with_header_and_payload_len_unchecked(
         mut self,
@@ -417,12 +424,14 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
         self.inner
     }
 
-    /// Transforms `self` into an `IPv4Packet` based on the supplied options and payload length.
+    /// Transforms `self` into an `IPv4Packet` based on the supplied options and
+    /// payload length.
     ///
     /// # Panics
     ///
-    /// This method may panic if the combination of `options_len` and `payload_len` is invalid,
-    /// or any of the individual values are invalid.
+    /// This method may panic if the combination of `options_len` and
+    /// `payload_len` is invalid, or any of the individual values are
+    /// invalid.
     #[inline]
     pub fn with_options_and_payload_len_unchecked(
         self,
@@ -434,8 +443,8 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
         self.with_header_and_payload_len_unchecked(header_len, payload_len, compute_checksum)
     }
 
-    /// Transforms `self` into an `IPv4Packet` based on the supplied payload length. May panic for
-    /// invalid values of the input parameters.
+    /// Transforms `self` into an `IPv4Packet` based on the supplied payload
+    /// length. May panic for invalid values of the input parameters.
     ///
     /// # Panics
     ///
@@ -451,11 +460,12 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     }
 }
 
-/// This function checks if `buf` may hold an IPv4Packet heading towards the given address. Cannot
-/// produce false negatives.
+/// This function checks if `buf` may hold an IPv4Packet heading towards the
+/// given address. Cannot produce false negatives.
 #[inline]
 pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
-    // The unchecked methods are safe because we actually check the buffer length beforehand.
+    // The unchecked methods are safe because we actually check the buffer length
+    // beforehand.
     if buf.len() >= ethernet::PAYLOAD_OFFSET + OPTIONS_OFFSET {
         let bytes = &buf[ethernet::PAYLOAD_OFFSET..];
         if IPv4Packet::from_bytes_unchecked(bytes).destination_address() == addr {
@@ -469,9 +479,8 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 mod tests {
     use std::fmt;
 
-    use crate::MacAddr;
-
     use super::*;
+    use crate::MacAddr;
 
     const MAX_HEADER_LEN: usize = 60;
 
@@ -579,8 +588,8 @@ mod tests {
 
         // Now let's check some error conditions.
 
-        // Using a helper function here instead of a closure because it's hard (impossible?) to
-        // specify lifetime bounds for closure arguments.
+        // Using a helper function here instead of a closure because it's hard
+        // (impossible?) to specify lifetime bounds for closure arguments.
         fn p(buf: &mut [u8]) -> IPv4Packet<&mut [u8]> {
             IPv4Packet::from_bytes_unchecked(buf)
         }
@@ -598,11 +607,13 @@ mod tests {
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION, OPTIONS_OFFSET - 1);
         look_for_error(buf.as_ref(), Error::HeaderLen);
 
-        // Header length too large. We have to add at least 4 here, because the setter converts
-        // header_len into the ihl field via division by 4, so anything less will lead to a valid
-        // result (the ihl corresponding to IPV4_MAX_HEADER_LEN). When decoding the header_len back
-        // from the packet, we'll get a smaller value than OPTIONS_OFFSET, because it wraps around
-        // modulo 60, since the ihl field is only four bits wide, and then gets multiplied with 4.
+        // Header length too large. We have to add at least 4 here, because the setter
+        // converts header_len into the ihl field via division by 4, so anything
+        // less will lead to a valid result (the ihl corresponding to
+        // IPV4_MAX_HEADER_LEN). When decoding the header_len back
+        // from the packet, we'll get a smaller value than OPTIONS_OFFSET, because it
+        // wraps around modulo 60, since the ihl field is only four bits wide,
+        // and then gets multiplied with 4.
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION, MAX_HEADER_LEN + 4);
         look_for_error(buf.as_ref(), Error::HeaderLen);
 

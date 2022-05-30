@@ -5,10 +5,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use logger::{error, warn, IncMetric, METRICS};
-use std::fmt;
 use std::num::Wrapping;
-use std::{io, result};
+use std::{fmt, io, result};
+
+use logger::{error, warn, IncMetric, METRICS};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
@@ -76,7 +76,8 @@ const BUF_SIZE: usize = 16;
 
 /// A i8042 PS/2 controller that emulates just enough to shutdown the machine.
 pub struct I8042Device {
-    /// CPU reset eventfd. We will set this event when the guest issues CMD_RESET_CPU.
+    /// CPU reset eventfd. We will set this event when the guest issues
+    /// CMD_RESET_CPU.
     reset_evt: EventFd,
 
     /// Keyboard interrupt event (IRQ 1).
@@ -101,7 +102,8 @@ pub struct I8042Device {
 }
 
 impl I8042Device {
-    /// Constructs an i8042 device that will signal the given event when the guest requests it.
+    /// Constructs an i8042 device that will signal the given event when the
+    /// guest requests it.
     pub fn new(reset_evt: EventFd, kbd_interrupt_evt: EventFd) -> I8042Device {
         I8042Device {
             reset_evt,
@@ -133,7 +135,8 @@ impl I8042Device {
 
     pub fn trigger_key(&mut self, key: u16) -> Result<()> {
         if key & 0xff00 != 0 {
-            // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
+            // Check if there is enough room in the buffer, before pushing an extended
+            // (2-byte) key.
             if BUF_SIZE - self.buf_len() < 2 {
                 return Err(Error::InternalBufferFull);
             }
@@ -149,8 +152,8 @@ impl I8042Device {
 
     #[inline]
     pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
-        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
-        // Fail if we don't have room for the whole sequence.
+        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal
+        // keys). Fail if we don't have room for the whole sequence.
         if BUF_SIZE - self.buf_len() < 4 {
             return Err(Error::InternalBufferFull);
         }
@@ -210,8 +213,9 @@ impl BusDevice for I8042Device {
         match offset {
             OFS_STATUS => data[0] = self.status,
             OFS_DATA => {
-                // The guest wants to read a byte from port 0x60. For the 8042, that means the top
-                // byte in the internal buffer. If the buffer is empty, the guest will get a 0.
+                // The guest wants to read a byte from port 0x60. For the 8042, that means the
+                // top byte in the internal buffer. If the buffer is empty, the
+                // guest will get a 0.
                 data[0] = self.pop_byte().unwrap_or(0);
 
                 // Check if we still have data in the internal buffer. If so, we need to trigger
@@ -273,8 +277,8 @@ impl BusDevice for I8042Device {
             }
             OFS_STATUS if data[0] == CMD_READ_OUTP => {
                 // The guest wants to read the output port (for lack of a better name - this is
-                // just another register on the 8042, that happens to also have its bits connected
-                // to some output pins of the 8042).
+                // just another register on the 8042, that happens to also have its bits
+                // connected to some output pins of the 8042).
                 self.flush_buf();
                 let outp = self.outp;
                 // Buffer is empty, push() will always succeed.
@@ -289,10 +293,11 @@ impl BusDevice for I8042Device {
             }
             OFS_DATA if (self.status & SB_I8042_CMD_DATA) != 0 => {
                 // The guest is writing to port 0x60. This byte can either be:
-                // 1. the payload byte of a CMD_WRITE_CTR or CMD_WRITE_OUTP command, in which case
-                //    the status reg bit SB_I8042_CMD_DATA will be set, or
+                // 1. the payload byte of a CMD_WRITE_CTR or CMD_WRITE_OUTP command, in which
+                // case    the status reg bit SB_I8042_CMD_DATA will be set, or
                 // 2. a direct command sent to the keyboard
-                // This match arm handles the first option (when the SB_I8042_CMD_DATA bit is set).
+                // This match arm handles the first option (when the SB_I8042_CMD_DATA bit is
+                // set).
                 match self.cmd {
                     CMD_WRITE_CTR => self.control = data[0],
                     CMD_WRITE_OUTP => self.outp = data[0],
@@ -304,7 +309,8 @@ impl BusDevice for I8042Device {
                 // The guest is sending a command straight to the keyboard (so this byte is not
                 // addressed to the 8042, but to the keyboard). Since we're emulating a pretty
                 // dumb keyboard, we can get away with blindly ack-in anything (byte 0xFA).
-                // Something along the lines of "Yeah, uhm-uhm, yeah, okay, honey, that's great."
+                // Something along the lines of "Yeah, uhm-uhm, yeah, okay, honey, that's
+                // great."
                 self.flush_buf();
                 // Buffer is empty, push() will always succeed.
                 self.push_byte(0xFA).unwrap();
@@ -351,8 +357,8 @@ mod tests {
         assert_eq!(data, [1, 2]);
 
         // Check if reset works.
-        // Write 1 to the reset event fd, so that read doesn't block in case the event fd
-        // counter doesn't change (for 0 it blocks).
+        // Write 1 to the reset event fd, so that read doesn't block in case the event
+        // fd counter doesn't change (for 0 it blocks).
         assert!(reset_evt.write(1).is_ok());
         let mut data = [CMD_RESET_CPU];
         i8042.write(OFS_STATUS, &data);

@@ -38,8 +38,8 @@ impl fmt::Display for MacAddr {
 }
 
 impl MacAddr {
-    /// Try to turn a `&str` into a `MacAddr` object. The method will return the `str` that failed
-    /// to be parsed.
+    /// Try to turn a `&str` into a `MacAddr` object. The method will return the
+    /// `str` that failed to be parsed.
     /// # Arguments
     ///
     /// * `s` - reference that can be converted to &str.
@@ -84,8 +84,8 @@ impl MacAddr {
     /// ```
     #[inline]
     pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
-        // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
-        // if this ever becomes a performance bottleneck.
+        // TODO: using something like std::mem::uninitialized could avoid the extra
+        // initialization, if this ever becomes a performance bottleneck.
         let mut bytes = [0u8; MAC_ADDR_LEN];
         bytes[..].copy_from_slice(&src);
 
@@ -93,8 +93,8 @@ impl MacAddr {
     }
 
     /// Create a `MacAddr` from a slice.
-    /// This method will return None if the slice length is different from `MAC_ADDR_LEN`.
-    /// # Arguments
+    /// This method will return None if the slice length is different from
+    /// `MAC_ADDR_LEN`. # Arguments
     ///
     /// * `src` - slice from which to copy MAC address content.
     /// # Example

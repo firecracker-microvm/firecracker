@@ -4,19 +4,14 @@ mod cgroup;
 mod chroot;
 mod env;
 mod resource_limits;
-use std::env as p_env;
-
 use std::ffi::{CString, NulError, OsString};
-use std::fmt;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::result;
+use std::{env as p_env, fmt, fs, io, process, result};
 
-use crate::env::Env;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
+
+use crate::env::Env;
 
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 #[derive(Debug)]
@@ -243,8 +238,9 @@ impl fmt::Display for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// Create an ArgParser object which contains info about the command line argument parser and populate
-/// it with the expected arguments and their characteristics.
+/// Create an ArgParser object which contains info about the command line
+/// argument parser and populate it with the expected arguments and their
+/// characteristics.
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
         .arg(
@@ -323,8 +319,9 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         )
 }
 
-// It's called writeln_special because we have to use this rather convoluted way of writing
-// to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
+// It's called writeln_special because we have to use this rather convoluted way
+// of writing to special cgroup files, to avoid getting errors. It would be nice
+// to know why that happens :-s
 pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
 where
     T: AsRef<Path>,
@@ -378,8 +375,8 @@ fn clean_env_vars() {
 }
 
 /// Turns an AsRef<Path> into a CString (c style string).
-/// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
-/// and do not contain null bytes (do they?).
+/// The expect should not fail, since Linux paths only contain valid Unicode
+/// chars (do they?), and do not contain null bytes (do they?).
 pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
@@ -437,12 +434,13 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
     use utils::arg_parser;
+
+    use super::*;
 
     #[test]
     fn test_sanitize_process() {

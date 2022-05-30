@@ -4,9 +4,10 @@
 //! Defines the metrics system.
 //!
 //! # Metrics format
-//! The metrics are flushed in JSON format each 60 seconds. The first field will always be the
-//! timestamp followed by the JSON representation of the structures representing each component on
-//! which we are capturing specific metrics.
+//! The metrics are flushed in JSON format each 60 seconds. The first field will
+//! always be the timestamp followed by the JSON representation of the
+//! structures representing each component on which we are capturing specific
+//! metrics.
 //!
 //! ## JSON example with metrics:
 //! ```bash
@@ -27,54 +28,62 @@
 //!  }
 //! }
 //! ```
-//! The example above means that inside the structure representing all the metrics there is a field
-//! named `block` which is in turn a serializable child structure collecting metrics for
-//! the block device such as `activate_fails`, `cfg_fails`, etc.
+//! The example above means that inside the structure representing all the
+//! metrics there is a field named `block` which is in turn a serializable child
+//! structure collecting metrics for the block device such as `activate_fails`,
+//! `cfg_fails`, etc.
 //!
 //! # Limitations
 //! Metrics are only written to buffers.
 //!
 //! # Design
 //! The main design goals of this system are:
-//! * Use lockless operations, preferably ones that don't require anything other than
-//!   simple reads/writes being atomic.
-//! * Exploit interior mutability and atomics being Sync to allow all methods (including the ones
-//!   which are effectively mutable) to be callable on a global non-mut static.
-//! * Rely on `serde` to provide the actual serialization for writing the metrics.
-//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them,
-//!   to avoid having to initialize everything by hand.
+//! * Use lockless operations, preferably ones that don't require anything other
+//!   than simple reads/writes being atomic.
+//! * Exploit interior mutability and atomics being Sync to allow all methods
+//!   (including the ones which are effectively mutable) to be callable on a
+//!   global non-mut static.
+//! * Rely on `serde` to provide the actual serialization for writing the
+//!   metrics.
+//! * Since all metrics start at 0, we implement the `Default` trait via derive
+//!   for all of them, to avoid having to initialize everything by hand.
 //!
 //! The system implements 2 types of metrics:
-//! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is not
-//! intended to act as a counter (i.e for measure the process start up time for example).
+//! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics
+//!   which need a counter
+//! (i.e the number of times an API request failed). These metrics are reset
+//! upon flush.
+//! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a
+//!   persistent value, it is not
+//! intended to act as a counter (i.e for measure the process start up time for
+//! example).
 //!
-//! The current approach for the `SharedIncMetrics` type is to store two values (current and previous)
-//! and compute the delta between them each time we do a flush (i.e by serialization). There are a number of advantages
-//! to this approach, including:
-//! * We don't have to introduce an additional write (to reset the value) from the thread which
-//!   does to actual writing, so less synchronization effort is required.
-//! * We don't have to worry at all that much about losing some data if writing fails for a while
-//!   (this could be a concern, I guess).
-//! If if turns out this approach is not really what we want, it's pretty easy to resort to
-//! something else, while working behind the same interface.
+//! The current approach for the `SharedIncMetrics` type is to store two values
+//! (current and previous) and compute the delta between them each time we do a
+//! flush (i.e by serialization). There are a number of advantages to this
+//! approach, including:
+//! * We don't have to introduce an additional write (to reset the value) from
+//!   the thread which does to actual writing, so less synchronization effort is
+//!   required.
+//! * We don't have to worry at all that much about losing some data if writing
+//!   fails for a while (this could be a concern, I guess).
+//! If if turns out this approach is not really what we want, it's pretty easy
+//! to resort to something else, while working behind the same interface.
 
 use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use crate::warn;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::extract_guard;
+#[cfg(target_arch = "aarch64")]
+use crate::warn;
 
 lazy_static! {
     /// Static instance used for handling metrics.
@@ -82,8 +91,8 @@ lazy_static! {
 }
 
 /// Metrics system.
-// All member fields have types which are Sync, and exhibit interior mutability, so
-// we can call operations on metrics using a non-mut static global variable.
+// All member fields have types which are Sync, and exhibit interior mutability,
+// so we can call operations on metrics using a non-mut static global variable.
 pub struct Metrics<T: Serialize> {
     // Metrics will get flushed here.
     metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
@@ -93,8 +102,8 @@ pub struct Metrics<T: Serialize> {
 
 impl<T: Serialize> Metrics<T> {
     /// Creates a new instance of the current metrics.
-    // TODO: We need a better name than app_metrics (something that says that these are the actual
-    // values that we are writing to the metrics_buf).
+    // TODO: We need a better name than app_metrics (something that says that these
+    // are the actual values that we are writing to the metrics_buf).
     pub fn new(app_metrics: T) -> Metrics<T> {
         Metrics {
             metrics_buf: Mutex::new(None),
@@ -104,7 +113,8 @@ impl<T: Serialize> Metrics<T> {
     }
 
     /// Initialize metrics system (once and only once).
-    /// Every call made after the first will have no effect besides returning `Ok` or `Err`.
+    /// Every call made after the first will have no effect besides returning
+    /// `Ok` or `Err`.
     ///
     /// This function is supposed to be called only from a single thread, once.
     /// It is not thread-safe and is not meant to be used in a multithreaded
@@ -114,7 +124,8 @@ impl<T: Serialize> Metrics<T> {
     ///
     /// # Arguments
     ///
-    /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
+    /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement
+    ///   `Write` and `Send`.
     pub fn init(&self, metrics_dest: Box<dyn Write + Send>) -> Result<(), MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
             return Err(MetricsError::AlreadyInitialized);
@@ -128,40 +139,44 @@ impl<T: Serialize> Metrics<T> {
         Ok(())
     }
 
-    /// Writes metrics to the destination provided as argument upon initialization of the metrics.
-    /// Upon failure, an error is returned if metrics system is initialized and metrics could not be
-    /// written.
-    /// Upon success, the function will return `True` (if metrics system was initialized and metrics
-    /// were successfully written to disk) or `False` (if metrics system was not yet initialized).
+    /// Writes metrics to the destination provided as argument upon
+    /// initialization of the metrics. Upon failure, an error is returned if
+    /// metrics system is initialized and metrics could not be written.
+    /// Upon success, the function will return `True` (if metrics system was
+    /// initialized and metrics were successfully written to disk) or
+    /// `False` (if metrics system was not yet initialized).
     ///
-    /// This function is usually supposed to be called only from a single thread and
-    /// is not meant to be used in a multithreaded scenario. The reason
+    /// This function is usually supposed to be called only from a single thread
+    /// and is not meant to be used in a multithreaded scenario. The reason
     /// `metrics_buf` is enclosed in a `Mutex` is that `lazy_static` enforces
     /// thread-safety on all its members.
-    /// The only exception is for signal handlers that result in process exit, which may be run on
-    /// any thread. To prevent the race condition present in the serialisation step of
-    /// SharedIncMetrics, deadly signals use SharedStoreMetrics instead (which have a thread-safe
+    /// The only exception is for signal handlers that result in process exit,
+    /// which may be run on any thread. To prevent the race condition
+    /// present in the serialisation step of SharedIncMetrics, deadly
+    /// signals use SharedStoreMetrics instead (which have a thread-safe
     /// serialise implementation).
-    /// The only known caveat is that other metrics may not be properly written before exiting from
-    /// a signal handler. We make this compromise since the process will be killed anyway and the
-    /// important metric in this case is the signal one.
-    /// The alternative is to hold a Mutex over the entire function call, but this increases the
-    /// known deadlock potential.
+    /// The only known caveat is that other metrics may not be properly written
+    /// before exiting from a signal handler. We make this compromise since
+    /// the process will be killed anyway and the important metric in this
+    /// case is the signal one. The alternative is to hold a Mutex over the
+    /// entire function call, but this increases the known deadlock
+    /// potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
             match serde_json::to_string(&self.app_metrics) {
                 Ok(msg) => {
                     if let Some(guard) = extract_guard(self.metrics_buf.lock()).as_mut() {
-                        // No need to explicitly call flush because the underlying LineWriter flushes
-                        // automatically whenever a newline is detected (and we always end with a
-                        // newline the current write).
+                        // No need to explicitly call flush because the underlying LineWriter
+                        // flushes automatically whenever a newline is
+                        // detected (and we always end with a newline the
+                        // current write).
                         return guard
                             .write_all(&(format!("{}\n", msg)).as_bytes())
                             .map_err(MetricsError::Write)
                             .map(|_| true);
                     } else {
-                        // We have not incremented `missed_metrics_count` as there is no way to push metrics
-                        // if destination lock got poisoned.
+                        // We have not incremented `missed_metrics_count` as there is no way to push
+                        // metrics if destination lock got poisoned.
                         panic!("Failed to write to the provided metrics destination due to poisoned lock");
                     }
                 }
@@ -170,8 +185,8 @@ impl<T: Serialize> Metrics<T> {
                 }
             }
         }
-        // If the metrics are not initialized, no error is thrown but we do let the user know that
-        // metrics were not written.
+        // If the metrics are not initialized, no error is thrown but we do let the user
+        // know that metrics were not written.
         Ok(false)
     }
 }
@@ -211,8 +226,8 @@ impl fmt::Display for MetricsError {
     }
 }
 
-/// Used for defining new types of metrics that act as a counter (i.e they are continuously updated by
-/// incrementing their value).
+/// Used for defining new types of metrics that act as a counter (i.e they are
+/// continuously updated by incrementing their value).
 pub trait IncMetric {
     /// Adds `value` to the current counter.
     fn add(&self, value: usize);
@@ -224,7 +239,8 @@ pub trait IncMetric {
     fn count(&self) -> usize;
 }
 
-/// Used for defining new types of metrics that do not need a counter and act as a persistent indicator.
+/// Used for defining new types of metrics that do not need a counter and act as
+/// a persistent indicator.
 pub trait StoreMetric {
     /// Returns current value of the counter.
     fn fetch(&self) -> usize;
@@ -232,8 +248,8 @@ pub trait StoreMetric {
     fn store(&self, value: usize);
 }
 
-/// Representation of a metric that is expected to be incremented from more than one thread, so more
-/// synchronization is necessary.
+/// Representation of a metric that is expected to be incremented from more than
+/// one thread, so more synchronization is necessary.
 // It's currently used for vCPU metrics. An alternative here would be
 // to have one instance of every metric for each thread, and to
 // aggregate them when writing. However this probably overkill unless we have a lot of vCPUs
@@ -245,16 +261,17 @@ pub trait StoreMetric {
 #[derive(Default)]
 pub struct SharedIncMetric(AtomicUsize, AtomicUsize);
 
-/// Representation of a metric that is expected to hold a value that can be accessed
-/// from more than one thread, so more synchronization is necessary.
+/// Representation of a metric that is expected to hold a value that can be
+/// accessed from more than one thread, so more synchronization is necessary.
 #[derive(Default)]
 pub struct SharedStoreMetric(AtomicUsize);
 
 impl IncMetric for SharedIncMetric {
-    // While the order specified for this operation is still Relaxed, the actual instruction will
-    // be an asm "LOCK; something" and thus atomic across multiple threads, simply because of the
-    // fetch_and_add (as opposed to "store(load() + 1)") implementation for atomics.
-    // TODO: would a stronger ordering make a difference here?
+    // While the order specified for this operation is still Relaxed, the actual
+    // instruction will be an asm "LOCK; something" and thus atomic across
+    // multiple threads, simply because of the fetch_and_add (as opposed to
+    // "store(load() + 1)") implementation for atomics. TODO: would a stronger
+    // ordering make a difference here?
     fn add(&self, value: usize) {
         self.0.fetch_add(value, Ordering::Relaxed);
     }
@@ -275,8 +292,8 @@ impl StoreMetric for SharedStoreMetric {
 }
 
 impl Serialize for SharedIncMetric {
-    /// Reset counters of each metrics. Here we suppose that Serialize's goal is to help with the
-    /// flushing of metrics.
+    /// Reset counters of each metrics. Here we suppose that Serialize's goal is
+    /// to help with the flushing of metrics.
     /// !!! Any print of the metrics will also reset them. Use with caution !!!
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // There's no serializer.serialize_usize() for some reason :(
@@ -346,9 +363,10 @@ impl ProcessTimeReporter {
     }
 }
 
-// The following structs are used to define a certain organization for the set of metrics we
-// are interested in. Whenever the name of a field differs from its ideal textual representation
-// in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
+// The following structs are used to define a certain organization for the set
+// of metrics we are interested in. Whenever the name of a field differs from
+// its ideal textual representation in the serialized form, we can use the
+// #[serde(rename = "name")] attribute to, well, rename it.
 
 /// Metrics related to the internal API server.
 #[derive(Default, Serialize)]
@@ -363,7 +381,8 @@ pub struct ApiServerMetrics {
     pub sync_vmm_send_timeout_count: SharedIncMetric,
 }
 
-/// Metrics specific to GET API Requests for counting user triggered actions and/or failures.
+/// Metrics specific to GET API Requests for counting user triggered actions
+/// and/or failures.
 #[derive(Default, Serialize)]
 pub struct GetRequestsMetrics {
     /// Number of GETs for getting information on the instance.
@@ -376,7 +395,8 @@ pub struct GetRequestsMetrics {
     pub vmm_version_count: SharedIncMetric,
 }
 
-/// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
+/// Metrics specific to PUT API Requests for counting user triggered actions
+/// and/or failures.
 #[derive(Default, Serialize)]
 pub struct PutRequestsMetrics {
     /// Number of PUTs triggering an action on the VM.
@@ -417,7 +437,8 @@ pub struct PutRequestsMetrics {
     pub vsock_fails: SharedIncMetric,
 }
 
-/// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
+/// Metrics specific to PATCH API Requests for counting user triggered actions
+/// and/or failures.
 #[derive(Default, Serialize)]
 pub struct PatchRequestsMetrics {
     /// Number of tries to PATCH a block device.
@@ -469,7 +490,8 @@ pub struct BalloonDeviceMetrics {
 pub struct BlockDeviceMetrics {
     /// Number of times when activate failed on a block device.
     pub activate_fails: SharedIncMetric,
-    /// Number of times when interacting with the space config of a block device failed.
+    /// Number of times when interacting with the space config of a block device
+    /// failed.
     pub cfg_fails: SharedIncMetric,
     /// No available buffer for the block queue.
     pub no_avail_buffer: SharedIncMetric,
@@ -541,9 +563,11 @@ pub struct MmdsMetrics {
     pub rx_accepted: SharedIncMetric,
     /// Number of errors while handling a frame through MMDS.
     pub rx_accepted_err: SharedIncMetric,
-    /// Number of uncommon events encountered while processing packets through MMDS.
+    /// Number of uncommon events encountered while processing packets through
+    /// MMDS.
     pub rx_accepted_unusual: SharedIncMetric,
-    /// The number of buffers which couldn't be parsed as valid Ethernet frames by the MMDS.
+    /// The number of buffers which couldn't be parsed as valid Ethernet frames
+    /// by the MMDS.
     pub rx_bad_eth: SharedIncMetric,
     /// The total number of successful receive operations by the MMDS.
     pub rx_count: SharedIncMetric,
@@ -551,7 +575,8 @@ pub struct MmdsMetrics {
     pub tx_bytes: SharedIncMetric,
     /// The total number of successful send operations by the MMDS.
     pub tx_count: SharedIncMetric,
-    /// The number of errors raised by the MMDS while attempting to send frames/packets/segments.
+    /// The number of errors raised by the MMDS while attempting to send
+    /// frames/packets/segments.
     pub tx_errors: SharedIncMetric,
     /// The number of frames sent by the MMDS.
     pub tx_frames: SharedIncMetric,
@@ -566,7 +591,8 @@ pub struct MmdsMetrics {
 pub struct NetDeviceMetrics {
     /// Number of times when activate failed on a network device.
     pub activate_fails: SharedIncMetric,
-    /// Number of times when interacting with the space config of a network device failed.
+    /// Number of times when interacting with the space config of a network
+    /// device failed.
     pub cfg_fails: SharedIncMetric,
     //// Number of times the mac address was updated through the config space.
     pub mac_address_updates: SharedIncMetric,
@@ -578,7 +604,8 @@ pub struct NetDeviceMetrics {
     pub event_fails: SharedIncMetric,
     /// Number of events associated with the receiving queue.
     pub rx_queue_event_count: SharedIncMetric,
-    /// Number of events associated with the rate limiter installed on the receiving path.
+    /// Number of events associated with the rate limiter installed on the
+    /// receiving path.
     pub rx_event_rate_limiter_count: SharedIncMetric,
     /// Number of RX partial writes to guest.
     pub rx_partial_writes: SharedIncMetric,
@@ -612,7 +639,8 @@ pub struct NetDeviceMetrics {
     pub tx_partial_reads: SharedIncMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedIncMetric,
-    /// Number of events associated with the rate limiter installed on the transmitting path.
+    /// Number of events associated with the rate limiter installed on the
+    /// transmitting path.
     pub tx_rate_limiter_event_count: SharedIncMetric,
     /// Number of RX rate limiter throttling events.
     pub tx_rate_limiter_throttled: SharedIncMetric,
@@ -630,25 +658,34 @@ pub struct NetDeviceMetrics {
 // each `create` request.
 #[derive(Default, Serialize)]
 pub struct PerformanceMetrics {
-    /// Measures the snapshot full create time, at the API (user) level, in microseconds.
+    /// Measures the snapshot full create time, at the API (user) level, in
+    /// microseconds.
     pub full_create_snapshot: SharedStoreMetric,
-    /// Measures the snapshot diff create time, at the API (user) level, in microseconds.
+    /// Measures the snapshot diff create time, at the API (user) level, in
+    /// microseconds.
     pub diff_create_snapshot: SharedStoreMetric,
-    /// Measures the snapshot load time, at the API (user) level, in microseconds.
+    /// Measures the snapshot load time, at the API (user) level, in
+    /// microseconds.
     pub load_snapshot: SharedStoreMetric,
-    /// Measures the microVM pausing duration, at the API (user) level, in microseconds.
+    /// Measures the microVM pausing duration, at the API (user) level, in
+    /// microseconds.
     pub pause_vm: SharedStoreMetric,
-    /// Measures the microVM resuming duration, at the API (user) level, in microseconds.
+    /// Measures the microVM resuming duration, at the API (user) level, in
+    /// microseconds.
     pub resume_vm: SharedStoreMetric,
-    /// Measures the snapshot full create time, at the VMM level, in microseconds.
+    /// Measures the snapshot full create time, at the VMM level, in
+    /// microseconds.
     pub vmm_full_create_snapshot: SharedStoreMetric,
-    /// Measures the snapshot diff create time, at the VMM level, in microseconds.
+    /// Measures the snapshot diff create time, at the VMM level, in
+    /// microseconds.
     pub vmm_diff_create_snapshot: SharedStoreMetric,
     /// Measures the snapshot load time, at the VMM level, in microseconds.
     pub vmm_load_snapshot: SharedStoreMetric,
-    /// Measures the microVM pausing duration, at the VMM level, in microseconds.
+    /// Measures the microVM pausing duration, at the VMM level, in
+    /// microseconds.
     pub vmm_pause_vm: SharedStoreMetric,
-    /// Measures the microVM resuming duration, at the VMM level, in microseconds.
+    /// Measures the microVM resuming duration, at the VMM level, in
+    /// microseconds.
     pub vmm_resume_vm: SharedStoreMetric,
 }
 
@@ -704,9 +741,10 @@ pub struct SerialDeviceMetrics {
 }
 
 /// Metrics related to signals.
-/// Deadly signals must be of `SharedStoreMetric` type, since they can ever be either 0 or 1.
-/// This avoids a tricky race condition caused by the unatomic serialize method of
-/// `SharedIncMetric`, between two threads calling `METRICS.write()`.
+/// Deadly signals must be of `SharedStoreMetric` type, since they can ever be
+/// either 0 or 1. This avoids a tricky race condition caused by the unatomic
+/// serialize method of `SharedIncMetric`, between two threads calling
+/// `METRICS.write()`.
 #[derive(Default, Serialize)]
 pub struct SignalMetrics {
     /// Number of times that SIGBUS was handled.
@@ -756,17 +794,20 @@ pub struct VmmMetrics {
 pub struct VsockDeviceMetrics {
     /// Number of times when activate failed on a vsock device.
     pub activate_fails: SharedIncMetric,
-    /// Number of times when interacting with the space config of a vsock device failed.
+    /// Number of times when interacting with the space config of a vsock device
+    /// failed.
     pub cfg_fails: SharedIncMetric,
     /// Number of times when handling RX queue events on a vsock device failed.
     pub rx_queue_event_fails: SharedIncMetric,
     /// Number of times when handling TX queue events on a vsock device failed.
     pub tx_queue_event_fails: SharedIncMetric,
-    /// Number of times when handling event queue events on a vsock device failed.
+    /// Number of times when handling event queue events on a vsock device
+    /// failed.
     pub ev_queue_event_fails: SharedIncMetric,
     /// Number of times when handling muxer events on a vsock device failed.
     pub muxer_event_fails: SharedIncMetric,
-    /// Number of times when handling connection events on a vsock device failed.
+    /// Number of times when handling connection events on a vsock device
+    /// failed.
     pub conn_event_fails: SharedIncMetric,
     /// Number of events associated with the receiving queue.
     pub rx_queue_event_count: SharedIncMetric,
@@ -796,7 +837,8 @@ pub struct VsockDeviceMetrics {
     pub rx_read_fails: SharedIncMetric,
 }
 
-// The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
+// The sole purpose of this struct is to produce an UTC timestamp when an
+// instance is serialized.
 #[derive(Default)]
 struct SerializeToUtcTimestampMs;
 
@@ -855,20 +897,21 @@ pub struct FirecrackerMetrics {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::io::ErrorKind;
+    use std::sync::atomic::fence;
     use std::sync::Arc;
     use std::thread;
 
-    use std::sync::atomic::fence;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     #[test]
     fn test_init() {
         let m = METRICS.deref();
 
-        // Trying to write metrics, when metrics system is not initialized, should not throw error.
+        // Trying to write metrics, when metrics system is not initialized, should not
+        // throw error.
         let res = m.write();
         assert!(res.is_ok() && !res.unwrap());
 
@@ -886,9 +929,10 @@ mod tests {
     fn test_shared_inc_metric() {
         let metric = Arc::new(SharedIncMetric::default());
 
-        // We're going to create a number of threads that will attempt to increase this metric
-        // in parallel. If everything goes fine we still can't be sure the synchronization works,
-        // but if something fails, then we definitely have a problem :-s
+        // We're going to create a number of threads that will attempt to increase this
+        // metric in parallel. If everything goes fine we still can't be sure
+        // the synchronization works, but if something fails, then we definitely
+        // have a problem :-s
 
         const NUM_THREADS_TO_SPAWN: usize = 4;
         const NUM_INCREMENTS_PER_THREAD: usize = 10_0000;

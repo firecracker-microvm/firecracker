@@ -12,19 +12,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, result};
 
+use mmds::data_store::Mmds;
+use mmds::ns::MmdsNetworkStack;
+use rate_limiter::RateLimiter;
+use utils::net::mac::MacAddr;
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
 #[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
 use crate::virtio::{Net, Queue, QueueError};
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-
-use rate_limiter::RateLimiter;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-use utils::net::mac::MacAddr;
-
 use crate::Error as DeviceError;
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -313,6 +311,15 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 
 #[cfg(test)]
 pub mod test {
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::{cmp, mem};
+
+    use event_manager::{EventManager, SubscriberId, SubscriberOps};
+    use logger::{IncMetric, METRICS};
+    use net_gen::ETH_HLEN;
+    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+
     use crate::check_metric_after_block;
     use crate::virtio::net::device::vnet_hdr_len;
     use crate::virtio::net::test_utils::{
@@ -323,15 +330,6 @@ pub mod test {
         IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
-    use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
-    use net_gen::ETH_HLEN;
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-
-    use std::cmp;
-    use std::mem;
-    use std::os::unix::ffi::OsStrExt;
-    use std::sync::{Arc, Mutex, MutexGuard};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -462,8 +460,9 @@ pub mod test {
             frame
         }
 
-        /// Check that after adding a valid Rx queue descriptor chain a previously deferred frame
-        /// is eventually received by the guest
+        /// Check that after adding a valid Rx queue descriptor chain a
+        /// previously deferred frame is eventually received by the
+        /// guest
         pub fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
             let used_idx = self.rxq.used.idx.get();
             // Add a valid Rx avail descriptor chain and run epoll.
@@ -485,8 +484,9 @@ pub mod test {
             self.rxq.dtable[0].check_data(&expected_frame);
         }
 
-        // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
-        // Doesn't generate an error if the descriptor chain is longer than `frame_len`.
+        // Generates a frame of `frame_len` and writes it to the provided descriptor
+        // chain. Doesn't generate an error if the descriptor chain is longer
+        // than `frame_len`.
         pub fn write_tx_frame(&self, desc_list: &[(u16, u32, u16)], frame_len: usize) -> Vec<u8> {
             let mut frame = utils::rand::rand_alphanumerics(frame_len)
                 .as_bytes()

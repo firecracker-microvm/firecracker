@@ -102,6 +102,10 @@ impl MutEventSubscriber for Block {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
+    use event_manager::{EventManager, SubscriberOps};
+    use virtio_gen::virtio_blk::*;
+    use vm_memory::{Bytes, GuestAddress};
+
     use super::*;
     use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::{
@@ -109,9 +113,6 @@ pub mod tests {
     };
     use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
-    use event_manager::{EventManager, SubscriberOps};
-    use virtio_gen::virtio_blk::*;
-    use vm_memory::{Bytes, GuestAddress};
 
     #[test]
     fn test_event_handler() {
@@ -133,7 +134,8 @@ pub mod tests {
         {
             mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
                 .unwrap();
-            // Make data read only, 512 bytes in len, and set the actual value to be written.
+            // Make data read only, 512 bytes in len, and set the actual value to be
+            // written.
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(512);
             mem.write_obj::<u64>(123_456_789, data_addr).unwrap();

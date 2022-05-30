@@ -6,12 +6,12 @@
 mod cqe;
 mod sqe;
 
-pub use cqe::Cqe;
-pub(crate) use sqe::Sqe;
-
 #[cfg(test)]
 use core::fmt::{self, Debug, Formatter};
 use std::convert::From;
+
+pub use cqe::Cqe;
+pub(crate) use sqe::Sqe;
 
 use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
 
@@ -42,8 +42,9 @@ impl From<OpCode> for &'static str {
     }
 }
 
-/// Operation type for populating the submission queue, parametrised with the `user_data` type `T`.
-/// The `user_data` is used for identifying the operation once completed.
+/// Operation type for populating the submission queue, parametrised with the
+/// `user_data` type `T`. The `user_data` is used for identifying the operation
+/// once completed.
 pub struct Operation<T> {
     fd: FixedFd,
     pub(crate) opcode: OpCode,
@@ -132,10 +133,12 @@ impl<T> Operation<T> {
     /// Transform the operation into an `Sqe`.
     ///
     /// # Safety
-    /// Unsafe because we turn the Boxed user_data into a raw pointer contained in the sqe.
-    /// It's up to the caller to make sure that this value is freed (not leaked).
+    /// Unsafe because we turn the Boxed user_data into a raw pointer contained
+    /// in the sqe. It's up to the caller to make sure that this value is
+    /// freed (not leaked).
     pub(crate) unsafe fn into_sqe(self) -> Sqe {
-        // Safe because all-zero value is valid. The sqe is made up of integers and raw pointers.
+        // Safe because all-zero value is valid. The sqe is made up of integers and raw
+        // pointers.
         let mut inner: io_uring_sqe = std::mem::zeroed();
 
         inner.opcode = self.opcode as u8;

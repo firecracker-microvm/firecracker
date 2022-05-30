@@ -7,10 +7,11 @@
 
 use std::mem;
 
-use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+
+use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -68,7 +69,8 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<()> {
         rip: boot_ip,
         // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
         // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
-        // local variables and function parameters are still accessible from a constant offset from rbp.
+        // local variables and function parameters are still accessible from a constant offset from
+        // rbp.
         rsp: super::layout::BOOT_STACK_POINTER as u64,
         // Starting stack pointer.
         rbp: super::layout::BOOT_STACK_POINTER as u64,
@@ -191,9 +193,10 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+
+    use super::*;
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
@@ -262,11 +265,11 @@ mod tests {
         let actual_fpu: kvm_fpu = vcpu.get_fpu().unwrap();
         // TODO: auto-generate kvm related structures with PartialEq on.
         assert_eq!(expected_fpu.fcw, actual_fpu.fcw);
-        // Setting the mxcsr register from kvm_fpu inside setup_fpu does not influence anything.
-        // See 'kvm_arch_vcpu_ioctl_set_fpu' from arch/x86/kvm/x86.c.
-        // The mxcsr will stay 0 and the assert below fails. Decide whether or not we should
-        // remove it at all.
-        // assert!(expected_fpu.mxcsr == actual_fpu.mxcsr);
+        // Setting the mxcsr register from kvm_fpu inside setup_fpu does not
+        // influence anything. See 'kvm_arch_vcpu_ioctl_set_fpu' from
+        // arch/x86/kvm/x86.c. The mxcsr will stay 0 and the assert
+        // below fails. Decide whether or not we should remove it at
+        // all. assert!(expected_fpu.mxcsr == actual_fpu.mxcsr);
     }
 
     #[test]
@@ -343,7 +346,8 @@ mod tests {
         assert!(write_idt_value(val, &gm).is_err());
 
         let gm = create_guest_mem(Some(BOOT_IDT_OFFSET + mem::size_of::<u64>() as u64));
-        // We have allocated exactly the amount neded to write an u64 to `BOOT_IDT_OFFSET`.
+        // We have allocated exactly the amount neded to write an u64 to
+        // `BOOT_IDT_OFFSET`.
         assert!(write_idt_value(val, &gm).is_ok());
     }
 

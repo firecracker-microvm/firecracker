@@ -10,7 +10,6 @@ use std::num::NonZeroUsize;
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
-use crate::Mmds;
 use dumbo::pdu::arp::{
     test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
 };
@@ -27,6 +26,8 @@ use dumbo::tcp::NextSegmentStatus;
 use logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
+
+use crate::Mmds;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -127,8 +128,9 @@ impl MmdsNetworkStack {
         Ipv4Addr::from(DEFAULT_IPV4_ADDR)
     }
 
-    // This is the entry point into the MMDS network stack. The src slice should hold the contents
-    // of an Ethernet frame (of that exact size, without the CRC).
+    // This is the entry point into the MMDS network stack. The src slice should
+    // hold the contents of an Ethernet frame (of that exact size, without the
+    // CRC).
     pub fn detour_frame(&mut self, src: &[u8]) -> bool {
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {
@@ -164,15 +166,16 @@ impl MmdsNetworkStack {
     }
 
     fn detour_ipv4(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
-        // TODO: We skip verifying the checksum, just in case the device model relies on offloading
-        // checksum computation from the guest driver to some other entity. Clear up this entire
-        // context at some point!
+        // TODO: We skip verifying the checksum, just in case the device model relies on
+        // offloading checksum computation from the guest driver to some other
+        // entity. Clear up this entire context at some point!
         if let Ok(ip) = IPv4Packet::from_bytes(eth.payload(), false) {
             if ip.protocol() == PROTOCOL_TCP {
-                // Note-1: `remote_mac_address` is actually the network device mac address, where
-                // this TCP segment came from.
-                // Note-2: For every routed packet we will have a single source MAC address, because
-                // each MmdsNetworkStack routes packets for only one network device.
+                // Note-1: `remote_mac_address` is actually the network device mac address,
+                // where this TCP segment came from.
+                // Note-2: For every routed packet we will have a single source MAC address,
+                // because each MmdsNetworkStack routes packets for only one
+                // network device.
                 self.remote_mac_addr = eth.src_mac();
                 let mmds_instance = self.mmds.clone();
                 match &mut self.tcp_handler.receive_packet(&ip, move |request| {
@@ -206,10 +209,13 @@ impl MmdsNetworkStack {
         false
     }
 
-    // Allows the MMDS network stack to write a frame to the specified buffer. Will return:
-    // - None, if the MMDS network stack has no frame to send at this point. The buffer can be
+    // Allows the MMDS network stack to write a frame to the specified buffer. Will
+    // return:
+    // - None, if the MMDS network stack has no frame to send at this point. The
+    //   buffer can be
     // used for something else by the device model.
-    // - Some(len), if a frame of the given length has been written to the specified buffer.
+    // - Some(len), if a frame of the given length has been written to the specified
+    //   buffer.
     pub fn write_next_frame(&mut self, buf: &mut [u8]) -> Option<NonZeroUsize> {
         // We try to send ARP replies first.
         if self.pending_arp_reply_dest.is_some() {
@@ -317,11 +323,13 @@ impl MmdsNetworkStack {
 mod tests {
     use std::str::FromStr;
 
-    use super::*;
     use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
-    // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since
-    // all we're interested in is having some address different from the MMDS one.
+    use super::*;
+
+    // We use LOCALHOST here because const new() is not stable yet, so just reuse
+    // this const, since all we're interested in is having some address
+    // different from the MMDS one.
     const REMOTE_ADDR: Ipv4Addr = Ipv4Addr::LOCALHOST;
     const REMOTE_MAC_STR: &str = "11:11:11:22:22:22";
     const MMDS_PORT: u16 = 80;
@@ -463,8 +471,8 @@ mod tests {
         // Nothing to send anymore.
         assert!(ns.write_next_frame(buf.as_mut()).is_none());
 
-        // Let's send a TCP segment which will be rejected, because it's heading to the wrong
-        // address.
+        // Let's send a TCP segment which will be rejected, because it's heading to the
+        // wrong address.
         {
             let len = ns.write_incoming_tcp_segment(buf.as_mut(), bad_mmds_addr, TcpFlags::ACK);
             assert!(!ns.detour_frame(&buf[..len]));
@@ -473,7 +481,8 @@ mod tests {
             assert!(ns.write_next_frame(buf.as_mut()).is_none());
         }
 
-        // Let's send a TCP segment which will cause a RST to come out of the inner TCP handler.
+        // Let's send a TCP segment which will cause a RST to come out of the inner TCP
+        // handler.
         {
             let len = ns.write_incoming_tcp_segment(buf.as_mut(), mmds_addr, TcpFlags::ACK);
             let curr_rx_count = METRICS.mmds.rx_count.count();

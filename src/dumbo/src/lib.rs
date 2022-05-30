@@ -2,10 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-//! Provides helper logic for parsing and writing protocol data units, and minimalist
-//! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
+//! Provides helper logic for parsing and writing protocol data units, and
+//! minimalist implementations of a TCP listener, a TCP connection, and an
+//! HTTP/1.1 server.
 pub mod pdu;
 pub mod tcp;
+
+use std::ops::Index;
+
+use utils::net::mac::MacAddr;
 
 pub use crate::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 pub use crate::pdu::ethernet::{
@@ -14,17 +19,14 @@ pub use crate::pdu::ethernet::{
 pub use crate::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
 pub use crate::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
 
-use utils::net::mac::MacAddr;
-
-use std::ops::Index;
-
 /// Represents a generalization of a borrowed `[u8]` slice.
 #[allow(clippy::len_without_is_empty)]
 pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
 
-    /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
+    /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at
+    /// `offset`.
     ///
     /// # Panics
     ///

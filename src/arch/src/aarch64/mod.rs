@@ -14,10 +14,11 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::DeviceType;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug)]
@@ -32,21 +33,23 @@ pub enum Error {
 pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
-/// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
+/// See [`layout`](layout) module for a drawing of the specific memory model for
+/// this platform.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     let dram_size = min(size as u64, layout::DRAM_MEM_MAX_SIZE) as usize;
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
 }
 
-/// Configures the system and should be called once per vm before starting vcpu threads.
-/// For aarch64, we only setup the FDT.
+/// Configures the system and should be called once per vm before starting vcpu
+/// threads. For aarch64, we only setup the FDT.
 ///
 /// # Arguments
 ///
 /// * `guest_mem` - The memory to be used by the guest.
 /// * `cmdline_cstring` - The kernel commandline.
 /// * `vcpu_mpidr` - Array of MPIDR register values per vcpu.
-/// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
+/// * `device_info` - A hashmap containing the attached devices for building FDT
+///   device nodes.
 /// * `gic_device` - The GIC device.
 /// * `initrd` - Information about an optional initrd.
 pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(

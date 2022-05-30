@@ -4,16 +4,16 @@
 use libc::{
     c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
-
-use crate::FcExitCode;
 use logger::{error, IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
 
-// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
-// expressed as an `(u)int*`.
-// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
-// See /usr/include/linux/signal.h for the C struct definition.
-// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
+use crate::FcExitCode;
+
+// The offset of `si_syscall` (offending syscall identifier) within the siginfo
+// structure expressed as an `(u)int*`.
+// Offset `6` for an `i32` field means that the needed information is located at
+// `6 * sizeof(i32)`. See /usr/include/linux/signal.h for the C struct
+// definition. See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
 const SI_OFF_SYSCALL: isize = 6;
 
 const SYS_SECCOMP_CODE: i32 = 1;
@@ -63,8 +63,9 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
         exit_with_code(FcExitCode::UnexpectedError);
     }
 
-    // Other signals which might do async unsafe things incompatible with the rest of this
-    // function are blocked due to the sa_mask used when registering the signal handler.
+    // Other signals which might do async unsafe things incompatible with the rest
+    // of this function are blocked due to the sa_mask used when registering the
+    // signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
@@ -131,8 +132,8 @@ generate_handler!(
 
 #[inline(always)]
 extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
-    // Just record the metric and allow the process to continue, the EPIPE error needs
-    // to be handled at caller level.
+    // Just record the metric and allow the process to continue, the EPIPE error
+    // needs to be handled at caller level.
 
     // Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
@@ -153,10 +154,11 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
 /// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`
 /// `SIGXFSZ` `SIGXCPU` `SIGPIPE` `SIGHUP` and `SIGILL`.
 pub fn register_signal_handlers() -> utils::errno::Result<()> {
-    // Call to unsafe register_signal_handler which is considered unsafe because it will
-    // register a signal handler which will be called in the current thread and will interrupt
-    // whatever work is done on the current thread, so we have to keep in mind that the registered
-    // signal handler must only do async-signal-safe operations.
+    // Call to unsafe register_signal_handler which is considered unsafe because it
+    // will register a signal handler which will be called in the current thread
+    // and will interrupt whatever work is done on the current thread, so we
+    // have to keep in mind that the registered signal handler must only do
+    // async-signal-safe operations.
     register_signal_handler(SIGSYS, sigsys_handler)?;
     register_signal_handler(SIGBUS, sigbus_handler)?;
     register_signal_handler(SIGSEGV, sigsegv_handler)?;
@@ -170,12 +172,12 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use libc::{cpu_set_t, syscall};
     use std::{mem, process, thread};
 
+    use libc::{cpu_set_t, syscall};
     use seccompiler::sock_filter;
+
+    use super::*;
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -260,12 +262,14 @@ mod tests {
 
         // Sanity check.
         assert!(cpu_count() > 0);
-        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
-        // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
-        // way of either preventing this behaviour, or detecting for certain whether this test is
-        // run by kcov or not. The best we could do so far is to look at the perceived number of
-        // available CPUs. Kcov seems to make a single CPU available to the process running the
-        // tests, so we use this as an heuristic to decide if we check the assertion.
+        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad
+        // syscall is caught, so the following assertion no longer holds.
+        // Ideally, we'd have a surefire way of either preventing this
+        // behaviour, or detecting for certain whether this test is run by kcov
+        // or not. The best we could do so far is to look at the perceived number of
+        // available CPUs. Kcov seems to make a single CPU available to the process
+        // running the tests, so we use this as an heuristic to decide if we
+        // check the assertion.
         if cpu_count() > 1 {
             // The signal handler should let the program continue during unit tests.
             assert!(METRICS.seccomp.num_faults.fetch() >= 1);
@@ -284,8 +288,8 @@ mod tests {
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
         // Create seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
         // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
-        // other signals, results in an error. Probably because of the way `cargo test` is
-        // handling signals.
+        // other signals, results in an error. Probably because of the way `cargo test`
+        // is handling signals.
         #[cfg(target_arch = "aarch64")]
         #[allow(clippy::unreadable_literal)]
         let bpf_filter = vec![

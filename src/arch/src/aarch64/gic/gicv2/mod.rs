@@ -3,7 +3,8 @@
 
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
 use kvm_ioctls::DeviceFd;
 

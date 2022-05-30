@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-//! Crate that implements Firecracker specific functionality as far as logging and metrics collecting.
+//! Crate that implements Firecracker specific functionality as far as logging
+//! and metrics collecting.
 
 mod init;
 mod logger;
 mod metrics;
 
 use std::sync::LockResult;
+
+pub use log::Level::*;
+pub use log::{warn, *};
 
 pub use crate::logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
@@ -17,10 +21,6 @@ pub use crate::metrics::{
     IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
     SharedStoreMetric, StoreMetric, METRICS,
 };
-pub use log::Level::*;
-pub use log::*;
-
-pub use log::warn;
 
 /// Prefix to be used in log lines for functions/modules in Firecracker
 /// that are not generally available.
@@ -50,7 +50,8 @@ fn extract_guard<G>(lock_result: LockResult<G>) -> G {
     }
 }
 
-/// Helper function for updating the value of a store metric with elapsed time since some time in a past.
+/// Helper function for updating the value of a store metric with elapsed time
+/// since some time in a past.
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
     let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
     metric.store(delta_us as usize);

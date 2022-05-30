@@ -1,12 +1,16 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! This module contains a minimalist TCP [`Connection`] implementation, which only supports
-//! passive open scenarios, and some auxiliary logic and data structures.
+//! This module contains a minimalist TCP [`Connection`] implementation, which
+//! only supports passive open scenarios, and some auxiliary logic and data
+//! structures.
 //!
 //! [`Connection`]: struct.Connection.html
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
+
+use bitflags::bitflags;
+use utils::rand::xor_psuedo_rng_u32;
 
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
@@ -15,9 +19,6 @@ use crate::tcp::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
 };
 use crate::ByteBuffer;
-use utils::rand::xor_psuedo_rng_u32;
-
-use bitflags::bitflags;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
@@ -71,11 +72,12 @@ bitflags! {
 
 /// Defines a segment payload source.
 ///
-/// When not `None`, it contains a [`ByteBuffer`] which holds the actual data, and the sequence
-/// number associated with the first byte from the buffer.
+/// When not `None`, it contains a [`ByteBuffer`] which holds the actual data,
+/// and the sequence number associated with the first byte from the buffer.
 ///
 /// [`ByteBuffer`]: ../../trait.ByteBuffer.html
-// R should have the trait bound R: ByteBuffer, but bounds are ignored on type aliases.
+// R should have the trait bound R: ByteBuffer, but bounds are ignored on type
+// aliases.
 pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
@@ -87,67 +89,78 @@ pub enum PassiveOpenError {
     MssOption,
 }
 
-/// Describes errors which may occur when an existing connection receives a TCP segment.
+/// Describes errors which may occur when an existing connection receives a TCP
+/// segment.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RecvError {
     /// The payload length is larger than the receive buffer size.
     BufferTooSmall,
-    /// The connection cannot receive the segment because it has been previously reset.
+    /// The connection cannot receive the segment because it has been previously
+    /// reset.
     ConnectionReset,
 }
 
-/// Describes errors which may occur when a connection attempts to write a segment.
+/// Describes errors which may occur when a connection attempts to write a
+/// segment.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum WriteNextError {
-    /// The connection cannot write the segment because it has been previously reset.
+    /// The connection cannot write the segment because it has been previously
+    /// reset.
     ConnectionReset,
     /// The write sends additional data after a `FIN` has been transmitted.
     DataAfterFin,
-    /// The remaining MSS (which can be reduced by IP and/or TCP options) is not large enough to
-    /// write the segment.
+    /// The remaining MSS (which can be reduced by IP and/or TCP options) is not
+    /// large enough to write the segment.
     MssRemaining,
     /// The payload source specifies a buffer larger than [`MAX_WINDOW_SIZE`].
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
     PayloadBufTooLarge,
-    /// The payload source does not contain the first sequence number that should be sent.
+    /// The payload source does not contain the first sequence number that
+    /// should be sent.
     PayloadMissingSeq,
     /// An error occurred during the actual write to the buffer.
     TcpSegment(TcpSegmentError),
 }
 
-/// Contains the state information and implements the logic for a minimalist TCP connection.
+/// Contains the state information and implements the logic for a minimalist TCP
+/// connection.
 ///
-/// One particular thing is that whenever the connection sends a `RST` segment, it will also stop
-/// working itself. This is just a design decision for our envisioned use cases;
-/// improvements/changes may happen in the future (this also goes for other aspects of the
-/// current implementation).
+/// One particular thing is that whenever the connection sends a `RST` segment,
+/// it will also stop working itself. This is just a design decision for our
+/// envisioned use cases; improvements/changes may happen in the future (this
+/// also goes for other aspects of the current implementation).
 ///
-/// A `Connection` object can only be created via passive open, and will not recognize/use any TCP
-/// options except `MSS` during the handshake. The associated state machine is similar to how
-/// TCP normally functions, but there are some differences:
+/// A `Connection` object can only be created via passive open, and will not
+/// recognize/use any TCP options except `MSS` during the handshake. The
+/// associated state machine is similar to how TCP normally functions, but there
+/// are some differences:
 ///
-/// * Since only passive opens are supported, a `Connection` can only be instantiated in response
-///   to an incoming `SYN` segment. If the segment is valid, it will start directly in a state
-///   called `SYN_RECEIVED`. The valid events at this point are receiving a retransmission of the
-///   previous `SYN` (which does nothing), and getting the chance to write a `SYNACK`, which also
-///   moves the connection to the `SYNACK_SENT` state. Any incoming segment which is not a copy of
-///   the previous `SYN` will reset the connection.
-/// * In the `SYNACK_SENT` state, the connection awaits an `ACK` for the `SYNACK`. A
-///   retransmission of the original `SYN` moves the state back to `SYN_RECEIVED`. A valid `ACK`
-///   advances the state to `ESTABLISHED`. Any unexpected/invalid segment resets the connection.
-/// * While `ESTABLISHED`, the connection will only reset if it receives a `RST` or a `SYN`.
-///   Invalid segments are simply ignored. `FIN` handling is simplifed: when [`close`] is invoked
-///   the connection records the `FIN` sequence number, and starts setting the `FIN` flag (when
-///   possible) on outgoing segments. A `FIN` from the other endpoint is only taken into
-///   consideration if it has the next expected sequence number. When the connection has both sent
-///   and received a `FIN`, it marks itself as being done. There's no equivalent for the
-///   `TIME_WAIT` TCP state.
+/// * Since only passive opens are supported, a `Connection` can only be
+///   instantiated in response to an incoming `SYN` segment. If the segment is
+///   valid, it will start directly in a state called `SYN_RECEIVED`. The valid
+///   events at this point are receiving a retransmission of the previous `SYN`
+///   (which does nothing), and getting the chance to write a `SYNACK`, which
+///   also moves the connection to the `SYNACK_SENT` state. Any incoming segment
+///   which is not a copy of the previous `SYN` will reset the connection.
+/// * In the `SYNACK_SENT` state, the connection awaits an `ACK` for the
+///   `SYNACK`. A retransmission of the original `SYN` moves the state back to
+///   `SYN_RECEIVED`. A valid `ACK` advances the state to `ESTABLISHED`. Any
+///   unexpected/invalid segment resets the connection.
+/// * While `ESTABLISHED`, the connection will only reset if it receives a `RST`
+///   or a `SYN`. Invalid segments are simply ignored. `FIN` handling is
+///   simplifed: when [`close`] is invoked the connection records the `FIN`
+///   sequence number, and starts setting the `FIN` flag (when possible) on
+///   outgoing segments. A `FIN` from the other endpoint is only taken into
+///   consideration if it has the next expected sequence number. When the
+///   connection has both sent and received a `FIN`, it marks itself as being
+///   done. There's no equivalent for the `TIME_WAIT` TCP state.
 ///
-/// The current implementation does not do any kind of congestion control, expects segments to
-/// arrive in order, triggers a retransmission after the first duplicate `ACK`, and relies on the
-/// user to supply an opaque `u64` timestamp value when invoking send or receive functionality. The
-/// timestamps must be non-decreasing, and are mainly used for retransmission timeouts.
+/// The current implementation does not do any kind of congestion control,
+/// expects segments to arrive in order, triggers a retransmission after the
+/// first duplicate `ACK`, and relies on the user to supply an opaque `u64`
+/// timestamp value when invoking send or receive functionality. The timestamps
+/// must be non-decreasing, and are mainly used for retransmission timeouts.
 ///
 /// [`close`]: #method.close
 #[cfg_attr(test, derive(Clone))]
@@ -208,16 +221,18 @@ fn is_valid_syn<T: NetworkBytes>(segment: &TcpSegment<T>) -> bool {
 }
 
 impl Connection {
-    /// Attempts to create a new `Connection` in response to an incoming `SYN` segment.
+    /// Attempts to create a new `Connection` in response to an incoming `SYN`
+    /// segment.
     ///
     /// # Arguments
     ///
     /// * `segment` - The incoming `SYN`.
     /// * `local_rwnd_size` - Initial size of the local receive window.
-    /// * `rto_period` - How long the connection waits before a retransmission timeout fires for
-    ///   the first segment which has not been acknowledged yet. This uses an opaque time unit.
-    /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before
-    ///   the connection resets itself.
+    /// * `rto_period` - How long the connection waits before a retransmission
+    ///   timeout fires for the first segment which has not been acknowledged
+    ///   yet. This uses an opaque time unit.
+    /// * `rto_count_max` - How many consecutive timeout-based retransmission
+    ///   may occur before the connection resets itself.
     pub fn passive_open<T: NetworkBytes>(
         segment: &TcpSegment<T>,
         local_rwnd_size: u32,
@@ -327,15 +342,16 @@ impl Connection {
         now - self.rto_start >= self.rto_period
     }
 
-    // We send a FIN control segment if every data byte up to the self.send_fin sequence number
-    // has been ACKed by the other endpoint, and no FIN has been previously sent.
+    // We send a FIN control segment if every data byte up to the self.send_fin
+    // sequence number has been ACKed by the other endpoint, and no FIN has been
+    // previously sent.
     fn can_send_first_fin(&self) -> bool {
         !self.fin_sent()
             && matches!(self.send_fin, Some(fin_seq) if fin_seq == self.highest_ack_received)
     }
 
-    // Returns the window size which should be written to an outgoing segment. This is going to be
-    // even more useful when we'll support window scaling.
+    // Returns the window size which should be written to an outgoing segment. This
+    // is going to be even more useful when we'll support window scaling.
     fn local_rwnd(&self) -> u16 {
         let rwnd = (self.local_rwnd_edge - self.ack_to_send).0;
 
@@ -351,21 +367,23 @@ impl Connection {
         u32::from(window_size)
     }
 
-    // Computes the remote rwnd edge given the ACK number and window size from an incoming segment.
+    // Computes the remote rwnd edge given the ACK number and window size from an
+    // incoming segment.
     fn compute_remote_rwnd_edge(&self, ack: Wrapping<u32>, window_size: u16) -> Wrapping<u32> {
         ack + Wrapping(self.remote_window_size(window_size))
     }
 
-    // Has this name just in case the pending_ack status will be more than just some boolean at
-    // some point in the future.
+    // Has this name just in case the pending_ack status will be more than just some
+    // boolean at some point in the future.
     fn enqueue_ack(&mut self) {
         self.pending_ack = true;
     }
 
     /// Closes this half of the connection.
     ///
-    /// Subsequent calls after the first one do not have any effect. The sequence number of the
-    /// `FIN` is the first sequence number not yet sent at this point.
+    /// Subsequent calls after the first one do not have any effect. The
+    /// sequence number of the `FIN` is the first sequence number not yet
+    /// sent at this point.
     #[inline]
     pub fn close(&mut self) {
         if self.send_fin.is_none() {
@@ -373,8 +391,8 @@ impl Connection {
         }
     }
 
-    /// Returns a valid configuration for a `RST` segment, which can be sent to the other
-    /// endpoint to signal the connection should be reset.
+    /// Returns a valid configuration for a `RST` segment, which can be sent to
+    /// the other endpoint to signal the connection should be reset.
     #[inline]
     pub fn make_rst_config(&self) -> RstConfig {
         if self.is_established() {
@@ -384,8 +402,8 @@ impl Connection {
         }
     }
 
-    /// Specifies that a `RST` segment should be sent to the other endpoint, and then the
-    /// connection should be destroyed.
+    /// Specifies that a `RST` segment should be sent to the other endpoint, and
+    /// then the connection should be destroyed.
     #[inline]
     pub fn reset(&mut self) {
         if !self.rst_pending() {
@@ -406,25 +424,29 @@ impl Connection {
     }
 
     // TODO: The description of this method is also a TODO in disguise.
-    /// Returns `true` if the connection is done communicating with the other endpoint.
+    /// Returns `true` if the connection is done communicating with the other
+    /// endpoint.
     ///
-    /// Maybe it would be a good idea to return true only after our FIN has also been ACKed?
-    /// Otherwise, when using the TCP handler there's pretty much always going to be an ACK for the
-    /// FIN that's going to trigger a gratuitous RST (best case), or can even be considered valid if
-    /// a new connection is created meanwhile using the same tuple and we get very unlucky (worst
-    /// case, extremely unlikely though).
+    /// Maybe it would be a good idea to return true only after our FIN has also
+    /// been ACKed? Otherwise, when using the TCP handler there's pretty
+    /// much always going to be an ACK for the FIN that's going to trigger a
+    /// gratuitous RST (best case), or can even be considered valid if a new
+    /// connection is created meanwhile using the same tuple and we get very
+    /// unlucky (worst case, extremely unlikely though).
     #[inline]
     pub fn is_done(&self) -> bool {
         self.is_reset() || (self.fin_received() && self.flags_intersect(ConnStatusFlags::FIN_SENT))
     }
 
-    /// Returns the first sequence number which has not been sent yet for the current window.
+    /// Returns the first sequence number which has not been sent yet for the
+    /// current window.
     #[inline]
     pub fn first_not_sent(&self) -> Wrapping<u32> {
         self.first_not_sent
     }
 
-    /// Returns the highest acknowledgement number received for the current window.
+    /// Returns the highest acknowledgement number received for the current
+    /// window.
     #[inline]
     pub fn highest_ack_received(&self) -> Wrapping<u32> {
         self.highest_ack_received
@@ -432,8 +454,9 @@ impl Connection {
 
     /// Advances the right edge of the local receive window.
     ///
-    /// This is effectively allowing the other endpoint to send more data, because no byte can be
-    /// sent unless its sequence number falls into the receive window.
+    /// This is effectively allowing the other endpoint to send more data,
+    /// because no byte can be sent unless its sequence number falls into
+    /// the receive window.
     // TODO: return the actual advance value here
     #[inline]
     pub fn advance_local_rwnd_edge(&mut self, value: u32) {
@@ -441,7 +464,8 @@ impl Connection {
         let max_w = Wrapping(MAX_WINDOW_SIZE);
         let current_w = self.local_rwnd_edge - self.ack_to_send;
 
-        // Enqueue an ACK if we have to let the other endpoint know the window is opening.
+        // Enqueue an ACK if we have to let the other endpoint know the window is
+        // opening.
         if current_w.0 == 0 {
             self.enqueue_ack();
         }
@@ -453,25 +477,30 @@ impl Connection {
         }
     }
 
-    /// Returns the right edge of the receive window advertised by the other endpoint.
+    /// Returns the right edge of the receive window advertised by the other
+    /// endpoint.
     #[inline]
     pub fn remote_rwnd_edge(&self) -> Wrapping<u32> {
         self.remote_rwnd_edge
     }
 
-    /// Returns `true` if a retransmission caused by the reception of a duplicate `ACK` is pending.
+    /// Returns `true` if a retransmission caused by the reception of a
+    /// duplicate `ACK` is pending.
     #[inline]
     pub fn dup_ack_pending(&self) -> bool {
         self.dup_ack
     }
 
-    /// Describes whether a control segment can be sent immediately, a retransmission is pending,
-    /// or there's nothing to transmit until more segments are received.
+    /// Describes whether a control segment can be sent immediately, a
+    /// retransmission is pending, or there's nothing to transmit until more
+    /// segments are received.
     ///
-    /// This function does not tell whether any data segments can/will be sent, because the
-    /// Connection itself does not control the send buffer. Thus the information returned here
-    /// only pertains to control segments and timeout expiry. Data segment related status will
-    /// be reported by higher level components, which also manage the contents of the send buffer.
+    /// This function does not tell whether any data segments can/will be sent,
+    /// because the Connection itself does not control the send buffer. Thus
+    /// the information returned here only pertains to control segments and
+    /// timeout expiry. Data segment related status will be reported by
+    /// higher level components, which also manage the contents of the send
+    /// buffer.
     #[inline]
     pub fn control_segment_or_timeout_status(&self) -> NextSegmentStatus {
         if self.synack_pending()
@@ -487,8 +516,8 @@ impl Connection {
         }
     }
 
-    // We use this helper method to set up self.send_rst and prepare a return value in one go. It's
-    // only used by the receive_segment() method.
+    // We use this helper method to set up self.send_rst and prepare a return value
+    // in one go. It's only used by the receive_segment() method.
     fn reset_for_segment_helper<T: NetworkBytes>(
         &mut self,
         s: &TcpSegment<T>,
@@ -501,14 +530,16 @@ impl Connection {
     /// Handles an incoming segment.
     ///
     /// When no errors occur, returns a pair consisting of how many
-    /// bytes (if any) were received, and whether any unusual conditions arose while processing the
-    /// segment. Since a `Connection` does not have its own internal buffer, `buf` is required to
-    /// store any data carried by incoming segments.
+    /// bytes (if any) were received, and whether any unusual conditions arose
+    /// while processing the segment. Since a `Connection` does not have its
+    /// own internal buffer, `buf` is required to store any data carried by
+    /// incoming segments.
     ///
     /// # Arguments
     ///
     /// * `s` - The incoming segment.
-    /// * `buf` - The receive buffer where payload data (if any) from `s` is going to be written.
+    /// * `buf` - The receive buffer where payload data (if any) from `s` is
+    ///   going to be written.
     /// * `now` - An opaque timestamp representing the current moment in time.
     pub fn receive_segment<T: NetworkBytes>(
         &mut self,
@@ -520,16 +551,17 @@ impl Connection {
             return Err(RecvError::ConnectionReset);
         }
 
-        // TODO: The following logic fully makes sense only for a passive open (which is what we
-        // currently support). Things must change a bit if/when we also implement active opens.
+        // TODO: The following logic fully makes sense only for a passive open (which is
+        // what we currently support). Things must change a bit if/when we also
+        // implement active opens.
 
         let segment_flags = s.flags_after_ns();
 
         if segment_flags.intersects(TcpFlags::RST) {
             let seq = Wrapping(s.sequence_number());
             // We accept the RST only if it carries an in-window sequence number.
-            // TODO: If/when we support active opens, we'll also have to accept RST/SYN segments,
-            // which must acknowledge our SYN to be valid.
+            // TODO: If/when we support active opens, we'll also have to accept RST/SYN
+            // segments, which must acknowledge our SYN to be valid.
             if seq_at_or_after(seq, self.ack_to_send) && seq_after(self.local_rwnd_edge, seq) {
                 self.set_flags(ConnStatusFlags::RESET);
                 return Ok((None, RecvStatusFlags::RESET_RECEIVED));
@@ -542,8 +574,9 @@ impl Connection {
         let mut recv_status_flags = RecvStatusFlags::empty();
 
         if !self.synack_sent() {
-            // We received another segment before getting the chance to send a SYNACK. It's either
-            // a retransmitted SYN, or something that does not make sense.
+            // We received another segment before getting the chance to send a SYNACK. It's
+            // either a retransmitted SYN, or something that does not make
+            // sense.
             if self.is_same_syn(s) {
                 return Ok((None, recv_status_flags));
             } else {
@@ -551,11 +584,13 @@ impl Connection {
             }
         } else if !self.is_established() {
             // So at this point we've sent at least one SYNACK, but the connection is not
-            // ESTABLISHED yet. We only accept SYN retransmissions and ACKs. I'm not sure that
-            // it's completely forbidden to sent an ACK + data in response to a SYNACK, so we don't
-            // complain about non-pure ACKs (or even data + ACK + FIN segments).
+            // ESTABLISHED yet. We only accept SYN retransmissions and ACKs. I'm not sure
+            // that it's completely forbidden to sent an ACK + data in response
+            // to a SYNACK, so we don't complain about non-pure ACKs (or even
+            // data + ACK + FIN segments).
             if self.is_same_syn(s) {
-                // Maybe our previous SYNACK got lost or smt, so clear SYN_ACK_SENT to resend it.
+                // Maybe our previous SYNACK got lost or smt, so clear SYN_ACK_SENT to resend
+                // it.
                 self.clear_flags(ConnStatusFlags::SYNACK_SENT);
                 return Ok((None, recv_status_flags));
             } else if segment_flags.intersects(TcpFlags::SYN) {
@@ -564,25 +599,26 @@ impl Connection {
                 return self.reset_for_segment_helper(s, RecvStatusFlags::INVALID_SEGMENT);
             }
         } else {
-            // Reaching this branch means the connection is ESTABLISHED. The only thing we want to
-            // do right now is reset if we get segments which carry the SYN flag, because they are
-            // obviously invalid, and something must be really wrong.
-            // TODO: Is it an overreaction to reset here?
+            // Reaching this branch means the connection is ESTABLISHED. The only thing we
+            // want to do right now is reset if we get segments which carry the
+            // SYN flag, because they are obviously invalid, and something must
+            // be really wrong. TODO: Is it an overreaction to reset here?
             if s.flags_after_ns().intersects(TcpFlags::SYN) {
                 return self.reset_for_segment_helper(s, RecvStatusFlags::INVALID_SEGMENT);
             }
         }
 
-        // The ACK number can only be valid when ACK flag is set. The following logic applies to
-        // pretty much all connection states which can reach this point.
+        // The ACK number can only be valid when ACK flag is set. The following logic
+        // applies to pretty much all connection states which can reach this
+        // point.
         if segment_flags.intersects(TcpFlags::ACK) {
             let ack = Wrapping(s.ack_number());
 
             if seq_at_or_after(ack, self.highest_ack_received)
                 && seq_at_or_after(self.first_not_sent, ack)
             {
-                // This is a valid ACK. Reset rto_count, since this means the other side is still
-                // alive and kicking (or ACking).
+                // This is a valid ACK. Reset rto_count, since this means the other side is
+                // still alive and kicking (or ACking).
                 self.rto_count = 0;
 
                 if ack == self.highest_ack_received && ack != self.first_not_sent {
@@ -657,16 +693,16 @@ impl Connection {
 
             if !seq_at_or_after(self.local_rwnd_edge, data_end_seq) {
                 // TODO: This is another strange (and potentially dangerous) situation, because
-                // either we or the other endpoint broke receive window semantics. We simply ignore
-                // the segment for now.
+                // either we or the other endpoint broke receive window semantics. We simply
+                // ignore the segment for now.
                 return Ok((
                     None,
                     recv_status_flags | RecvStatusFlags::SEGMENT_BEYOND_RWND,
                 ));
             }
 
-            // We currently assume segments are seldom lost or reordered, and only accept those with
-            // the exact next sequence number we're waiting for.
+            // We currently assume segments are seldom lost or reordered, and only accept
+            // those with the exact next sequence number we're waiting for.
             if seq != self.ack_to_send {
                 // TODO: Maybe we should enqueue multiple ACKs here (after making such a thing
                 // possible in the first place), just so we're more likely to trigger a
@@ -681,16 +717,18 @@ impl Connection {
             false
         };
 
-        // We assume the sequence number of the FIN does not change via conflicting FIN carrying
-        // segments (as it should be the case during TCP normal operation). It the other endpoint
-        // breaks this convention, it will have to deal with potentially hanging (until timing out)
-        // connections and/or RST segments.
+        // We assume the sequence number of the FIN does not change via conflicting FIN
+        // carrying segments (as it should be the case during TCP normal
+        // operation). It the other endpoint breaks this convention, it will
+        // have to deal with potentially hanging (until timing out) connections
+        // and/or RST segments.
         if segment_flags.intersects(TcpFlags::FIN) && !self.fin_received() {
             let fin_seq = seq + wrapping_payload_len;
 
-            // In order to avoid some complexity on our side, we only accept an incoming FIN if its
-            // sequence number matches that of the first byte yet to be received (this is similar to
-            // what we do for data segments right now).
+            // In order to avoid some complexity on our side, we only accept an incoming FIN
+            // if its sequence number matches that of the first byte yet to be
+            // received (this is similar to what we do for data segments right
+            // now).
             if fin_seq == self.ack_to_send {
                 self.fin_received = Some(fin_seq);
                 // Increase this to also ACK the FIN.
@@ -704,8 +742,8 @@ impl Connection {
         if enqueue_ack {
             self.enqueue_ack();
 
-            // We check this here because if a valid payload has been received, then we must have
-            // set enqueue_ack = true earlier.
+            // We check this here because if a valid payload has been received, then we must
+            // have set enqueue_ack = true earlier.
             if payload_len > 0 {
                 buf[..payload_len].copy_from_slice(s.payload());
                 // The unwrap is safe because payload_len > 0.
@@ -719,11 +757,13 @@ impl Connection {
         Ok((None, recv_status_flags))
     }
 
-    // The write helper functions return incomplete segments because &self does not have information
-    // regarding the identity of the endpoints, such as source and destination ports, or source and
-    // destination L3 addresses (which are required for checksum computation). We need this stupid
-    // ?Sized trait bound, because otherwise Sized would be implied, and we can have unsized types
-    // which implement ByteBuffer (such as [u8]), since payload expects a reference to some R.
+    // The write helper functions return incomplete segments because &self does not
+    // have information regarding the identity of the endpoints, such as source
+    // and destination ports, or source and destination L3 addresses (which are
+    // required for checksum computation). We need this stupid ?Sized trait
+    // bound, because otherwise Sized would be implied, and we can have unsized
+    // types which implement ByteBuffer (such as [u8]), since payload expects a
+    // reference to some R.
     fn write_segment<'a, R: ByteBuffer + ?Sized>(
         &mut self,
         buf: &'a mut [u8],
@@ -761,7 +801,8 @@ impl Connection {
         Ok(segment)
     }
 
-    // Control segments are segments with no payload (at least I like to use this name).
+    // Control segments are segments with no payload (at least I like to use this
+    // name).
     fn write_control_segment<'a, R: ByteBuffer + ?Sized>(
         &mut self,
         buf: &'a mut [u8],
@@ -782,14 +823,14 @@ impl Connection {
             flags_after_ns |= TcpFlags::SYN | TcpFlags::ACK;
             seq = self.first_not_sent - Wrapping(1);
         } else {
-            // If we got to this point, the connection is ESTABLISHED, and we're not sending a RST.
-            // We always want to enable the ACK flag.
+            // If we got to this point, the connection is ESTABLISHED, and we're not sending
+            // a RST. We always want to enable the ACK flag.
             flags_after_ns = TcpFlags::ACK;
 
             if let Some(fin_seq) = self.send_fin {
-                // When all outgoing data segments have been acked, we place the FIN flag and the
-                // appropriate sequence number on outgoing control segments, unless we received an
-                // ACK for the FIN.
+                // When all outgoing data segments have been acked, we place the FIN flag and
+                // the appropriate sequence number on outgoing control segments,
+                // unless we received an ACK for the FIN.
                 if !self.fin_acked() && seq_at_or_after(seq, fin_seq) {
                     flags_after_ns |= TcpFlags::FIN;
                     seq = fin_seq;
@@ -802,17 +843,20 @@ impl Connection {
 
     /// Writes a new segment (if available) to the specified buffer.
     ///
-    /// The `payload_src` argument is required because the `Connection` does not have an internal
-    /// send buffer. If the payload source is present, the data referenced therein must not amount
-    /// to more than [`MAX_WINDOW_SIZE`].
+    /// The `payload_src` argument is required because the `Connection` does not
+    /// have an internal send buffer. If the payload source is present, the
+    /// data referenced therein must not amount to more than
+    /// [`MAX_WINDOW_SIZE`].
     ///
     /// # Arguments
     ///
     /// * `buf` - The buffer where the segment is written.
-    /// * `mss_reserved` - How much (if anything) of the MSS value has been already used at the
-    ///   lower layers (by IP options, for example). This will be zero most of the time.
-    /// * `payload_src` - References a buffer which contains data to send, and also specifies
-    ///   the sequence number associated with the first byte from that that buffer.
+    /// * `mss_reserved` - How much (if anything) of the MSS value has been
+    ///   already used at the lower layers (by IP options, for example). This
+    ///   will be zero most of the time.
+    /// * `payload_src` - References a buffer which contains data to send, and
+    ///   also specifies the sequence number associated with the first byte from
+    ///   that that buffer.
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
@@ -823,17 +867,17 @@ impl Connection {
         payload_src: PayloadSource<R>,
         now: u64,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
-        // TODO: like receive_segment(), this function is specific in some ways to Connections
-        // created via passive open. When/if we also implement active opens, some things will
-        // have to change.
+        // TODO: like receive_segment(), this function is specific in some ways to
+        // Connections created via passive open. When/if we also implement
+        // active opens, some things will have to change.
 
         if self.is_reset() {
             return Err(WriteNextError::ConnectionReset);
         }
 
         if self.send_rst.is_some() {
-            // A RST is pending. Try to write it, and change the state of the connection to reset
-            // if successfull.
+            // A RST is pending. Try to write it, and change the state of the connection to
+            // reset if successfull.
             let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
             self.set_flags(ConnStatusFlags::RESET);
             return Ok(Some(segment));
@@ -847,12 +891,12 @@ impl Connection {
             return Ok(Some(segment));
         }
 
-        // Resend a SYNACK if the RTO expired. Otherwise, no reason to continue until the connection
-        // becomes ESTABLISHED.
+        // Resend a SYNACK if the RTO expired. Otherwise, no reason to continue until
+        // the connection becomes ESTABLISHED.
         if !self.is_established() {
             if self.rto_expired(now) {
-                // If we exceeded the maximum retransmission count, reset the connection and call
-                // write_next_segment one more time to generate the RST.
+                // If we exceeded the maximum retransmission count, reset the connection and
+                // call write_next_segment one more time to generate the RST.
                 self.rto_count += 1;
                 if self.rto_count >= self.rto_count_max {
                     self.reset();
@@ -865,10 +909,11 @@ impl Connection {
             return Ok(None);
         }
 
-        // First, try sending a data segment, because we can piggy back ACKs and FINs on top of it.
+        // First, try sending a data segment, because we can piggy back ACKs and FINs on
+        // top of it.
         if let Some((read_buf, payload_seq)) = payload_src {
-            // Limit the size of read_buf so it doesn't mess up later calculations (as usual, I take
-            // the easy way out).
+            // Limit the size of read_buf so it doesn't mess up later calculations (as
+            // usual, I take the easy way out).
             if read_buf.len() > MAX_WINDOW_SIZE as usize {
                 return Err(WriteNextError::PayloadBufTooLarge);
             }
@@ -877,7 +922,8 @@ impl Connection {
 
             let mut rto_triggered = false;
 
-            // Decide what sequence number to send next. Check out if a timeout expired first.
+            // Decide what sequence number to send next. Check out if a timeout expired
+            // first.
             let seq_to_send =
                 if self.highest_ack_received != self.first_not_sent && self.rto_expired(now) {
                     self.rto_count += 1;
@@ -909,14 +955,15 @@ impl Connection {
                     self.first_not_sent
                 };
 
-            // The payload buffer begins after the first sequence number we are trying to send
-            // (or the payload_seq is totally off).
+            // The payload buffer begins after the first sequence number we are trying to
+            // send (or the payload_seq is totally off).
             if !seq_at_or_after(seq_to_send, payload_seq) {
                 return Err(WriteNextError::PayloadMissingSeq);
             }
 
-            // We can only send data if it's within both the send buffer and the remote rwnd, and
-            // before the sequence number of the local FIN (if the connection is closing).
+            // We can only send data if it's within both the send buffer and the remote
+            // rwnd, and before the sequence number of the local FIN (if the
+            // connection is closing).
             let actual_end = if seq_at_or_after(self.remote_rwnd_edge, payload_end) {
                 payload_end
             } else {
@@ -987,8 +1034,9 @@ impl Connection {
             }
         }
 
-        // At this point, we only send a control segment if there's a pending ACK, or we didn't send
-        // a FIN segment before and we would be sending the first one.
+        // At this point, we only send a control segment if there's a pending ACK, or we
+        // didn't send a FIN segment before and we would be sending the first
+        // one.
 
         // The FIN flag will be automatically added to the segment when necessary by the
         // write_control_segment() method.
@@ -1008,10 +1056,11 @@ impl Connection {
     }
 }
 
-// TODO: I'll be honest: the tests here cover the situations most likely to be encountered, but are
-// not even close to being exhaustive. Something like that might be worth pursuing after polishing
-// the rougher edges around the current implementation, and deciding its scope relative to an
-// actual TCP implementation.
+// TODO: I'll be honest: the tests here cover the situations most likely to be
+// encountered, but are not even close to being exhaustive. Something like that
+// might be worth pursuing after polishing the rougher edges around the current
+// implementation, and deciding its scope relative to an actual TCP
+// implementation.
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fmt;
@@ -1070,8 +1119,8 @@ pub(crate) mod tests {
             )
         }
 
-        // This helps write segments; it uses a lot of default values, and sets the ACK and SEQ
-        // numbers to 0, and self.remote_isn respectively.
+        // This helps write segments; it uses a lot of default values, and sets the ACK
+        // and SEQ numbers to 0, and self.remote_isn respectively.
         fn write_segment_helper<'a>(
             &self,
             buf: &'a mut [u8],
@@ -1132,9 +1181,10 @@ pub(crate) mod tests {
                 .map(|o| o.map(|incomplete| incomplete.finalize(src_port, dst_port, None)))
         }
 
-        // Checks if the specified connection will reset after receiving the provided segment, and that
-        // the receive_segment() method also returns the specified RecvStatusFlags. We also make
-        // sure the outgoing RST segment has additional_segment_flags set besides TcpFlags::RST.
+        // Checks if the specified connection will reset after receiving the provided
+        // segment, and that the receive_segment() method also returns the
+        // specified RecvStatusFlags. We also make sure the outgoing RST segment
+        // has additional_segment_flags set besides TcpFlags::RST.
         fn should_reset_after<T: NetworkBytes>(
             &mut self,
             c: &mut Connection,
@@ -1144,13 +1194,15 @@ pub(crate) mod tests {
         ) {
             assert_eq!(self.receive_segment(c, s).unwrap(), (None, recv_flags));
 
-            // We add a payload also, to see that sending a RST has precedence over everything.
+            // We add a payload also, to see that sending a RST has precedence over
+            // everything.
             let send_buf = [0u8; 2000];
             let payload_src = Some((send_buf.as_ref(), c.highest_ack_received));
 
             if !recv_flags.intersects(RecvStatusFlags::RESET_RECEIVED) {
-                // If the connection initiated the reset, the next segment to write should be a RST.
-                // The first unwrap is for the Result, and the second for the Option.
+                // If the connection initiated the reset, the next segment to write should be a
+                // RST. The first unwrap is for the Result, and the second for
+                // the Option.
                 check_control_segment(
                     &self.write_next_segment(c, payload_src).unwrap().unwrap(),
                     0,
@@ -1195,7 +1247,8 @@ pub(crate) mod tests {
         }
     }
 
-    // Verifies whether we are dealing with a control segment with the specified flags.
+    // Verifies whether we are dealing with a control segment with the specified
+    // flags.
     fn check_control_segment<T: NetworkBytes>(
         s: &TcpSegment<T>,
         options_len: usize,
@@ -1205,16 +1258,16 @@ pub(crate) mod tests {
         assert_eq!(s.flags_after_ns(), flags_after_ns);
     }
 
-    // Checks if the segment ACKs the specified sequence number, and whether the additional_flags
-    // are set (besides ACK).
+    // Checks if the segment ACKs the specified sequence number, and whether the
+    // additional_flags are set (besides ACK).
     fn check_acks<T: NetworkBytes>(s: &TcpSegment<T>, ack_number: u32, additional_flags: TcpFlags) {
         assert_eq!(s.flags_after_ns(), TcpFlags::ACK | additional_flags);
         assert_eq!(s.ack_number(), ack_number);
     }
 
-    // The following "check_" helper functions ensure a Connection in a certain state does not have
-    // any unwarranted status flags set. We wouldn't need to look at this if we used a state enum
-    // instead of a status flags set.
+    // The following "check_" helper functions ensure a Connection in a certain
+    // state does not have any unwarranted status flags set. We wouldn't need to
+    // look at this if we used a state enum instead of a status flags set.
     fn check_syn_received(c: &Connection) {
         assert_eq!(c.status_flags, ConnStatusFlags::SYN_RECEIVED);
     }
@@ -1306,7 +1359,8 @@ pub(crate) mod tests {
 
         let mut c_clone = c.clone();
 
-        // While the connection is in this state, we send another SYN, with a different ISN.
+        // While the connection is in this state, we send another SYN, with a different
+        // ISN.
         syn.set_sequence_number(t.remote_isn.wrapping_add(1));
         t.should_reset_after(
             &mut c,
@@ -1338,7 +1392,8 @@ pub(crate) mod tests {
             NextSegmentStatus::Timeout(t.rto_period)
         );
 
-        // However, if we advance the time until just after the RTO, a SYNACK is retransmitted.
+        // However, if we advance the time until just after the RTO, a SYNACK is
+        // retransmitted.
         t.now += t.rto_period;
         t.check_synack_is_next(&mut c);
 
@@ -1357,8 +1412,8 @@ pub(crate) mod tests {
         // And thus, a SYNACK will be the next segment to be transmitted once again.
         t.check_synack_is_next(&mut c);
 
-        // Now is a time as good as any to see what happens if we receive a RST. First, let's try
-        // with an invalid RST (its sequence number is out of window).
+        // Now is a time as good as any to see what happens if we receive a RST. First,
+        // let's try with an invalid RST (its sequence number is out of window).
         ctrl.set_sequence_number(c.ack_to_send.0.wrapping_sub(1))
             .set_flags_after_ns(TcpFlags::RST);
         assert_eq!(
@@ -1380,8 +1435,8 @@ pub(crate) mod tests {
         c = c_clone.clone();
         let conn_isn = c.first_not_sent.0.wrapping_sub(1);
 
-        // Ok so we're waiting for the SYNACK to be acked. Any incoming segment which is not a
-        // retransmitted SYN, but has the SYN flag set will cause a reset.
+        // Ok so we're waiting for the SYNACK to be acked. Any incoming segment which is
+        // not a retransmitted SYN, but has the SYN flag set will cause a reset.
         data.set_flags_after_ns(TcpFlags::ACK | TcpFlags::SYN)
             .set_ack_number(conn_isn.wrapping_add(1))
             .set_sequence_number(t.remote_isn.wrapping_add(1));
@@ -1396,8 +1451,9 @@ pub(crate) mod tests {
         );
 
         c = c_clone.clone();
-        // A valid ACK should move the connection into ESTABLISHED. Also, since we allow more than
-        // just pure ACKs at this point, any valid data should be received as well.
+        // A valid ACK should move the connection into ESTABLISHED. Also, since we allow
+        // more than just pure ACKs at this point, any valid data should be
+        // received as well.
         data.set_flags_after_ns(TcpFlags::ACK);
         assert_eq!(
             t.receive_segment(&mut c, &data).unwrap(),
@@ -1409,8 +1465,9 @@ pub(crate) mod tests {
         assert!(c.is_established());
 
         c = c_clone.clone();
-        // In fact, since we're so like whatever about the segments we receive here, let's see what
-        // happens if data also carries the FIN flag (spoiler: it works).
+        // In fact, since we're so like whatever about the segments we receive here,
+        // let's see what happens if data also carries the FIN flag (spoiler: it
+        // works).
         data.set_flags_after_ns(TcpFlags::ACK | TcpFlags::FIN);
 
         assert_eq!(
@@ -1451,8 +1508,8 @@ pub(crate) mod tests {
         c = c_clone.clone();
 
         // Ok so back to ESTABLISHED, let's make sure we only accept the exact sequence
-        // number we expect (which is t.remote_isn + 1 at this point). The following segment should
-        // not be accepted.
+        // number we expect (which is t.remote_isn + 1 at this point). The following
+        // segment should not be accepted.
         data.set_flags_after_ns(TcpFlags::ACK)
             .set_sequence_number(t.remote_isn);
         assert_eq!(
@@ -1489,8 +1546,9 @@ pub(crate) mod tests {
         {
             let payload_len = data.payload_len() as u32;
 
-            // Assuming no one changed the code, the local window size of the connection was 10000,
-            // so we should be able to successfully receive 9 more segments with 1000 byte payloads.
+            // Assuming no one changed the code, the local window size of the connection was
+            // 10000, so we should be able to successfully receive 9 more
+            // segments with 1000 byte payloads.
             let max = 9;
             for i in 1u32..=max {
                 // The 1 we add is because the SYN consumes a sequence number.
@@ -1505,8 +1563,9 @@ pub(crate) mod tests {
             }
 
             let expected_ack = t.remote_isn.wrapping_add(1 + (max + 1) * payload_len);
-            // The connection should send a single cumulative ACK, and no other segment afterward
-            // (if we don't also provide a payload source, which we don't).
+            // The connection should send a single cumulative ACK, and no other segment
+            // afterward (if we don't also provide a payload source, which we
+            // don't).
             {
                 {
                     let s = t.write_next_segment(&mut c, None).unwrap().unwrap();
@@ -1516,7 +1575,8 @@ pub(crate) mod tests {
                 assert!(t.write_next_segment(&mut c, None).unwrap().is_none());
             }
 
-            // Sending any more new data should be outside of the receive window of the connection.
+            // Sending any more new data should be outside of the receive window of the
+            // connection.
             data.set_sequence_number(expected_ack);
             assert_eq!(
                 t.receive_segment(&mut c, &data).unwrap(),
@@ -1524,11 +1584,12 @@ pub(crate) mod tests {
             );
         }
 
-        // Restore connection state to just after ESTABLISHED, and make it send some data.
+        // Restore connection state to just after ESTABLISHED, and make it send some
+        // data.
         c = c_clone.clone();
 
-        // This should send anything, as the payload source does not contain the next sequence
-        // number to be sent.
+        // This should send anything, as the payload source does not contain the next
+        // sequence number to be sent.
 
         // Should contain conn_isn + 1 to be fine, but we make it start just after.
         payload_src.as_mut().unwrap().1 = Wrapping(conn_isn) + Wrapping(2);
@@ -1541,7 +1602,8 @@ pub(crate) mod tests {
         // Let's fix it.
         payload_src.as_mut().unwrap().1 = Wrapping(conn_isn) + Wrapping(1);
 
-        // The mss is 1100, and the remote window is 11000, so we can send 10 data packets.
+        // The mss is 1100, and the remote window is 11000, so we can send 10 data
+        // packets.
         let max = 10;
         let remote_isn = t.remote_isn;
         let mss = u32::from(t.mss);
@@ -1585,9 +1647,9 @@ pub(crate) mod tests {
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
-        // We have to wait for the window to open again in order to send new data, but we can
-        // have retransmissions. For example, receiving the previous ACK again will cause a
-        // DUPACK, which will trigger a retransmission.
+        // We have to wait for the window to open again in order to send new data, but
+        // we can have retransmissions. For example, receiving the previous ACK
+        // again will cause a DUPACK, which will trigger a retransmission.
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
             (None, RecvStatusFlags::DUP_ACK)
@@ -1611,8 +1673,8 @@ pub(crate) mod tests {
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
-        // Btw, let's also make sure another retransmission will happen after another time-out,
-        // but not earlier.
+        // Btw, let's also make sure another retransmission will happen after another
+        // time-out, but not earlier.
         t.now += t.rto_period - 1;
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
@@ -1626,7 +1688,8 @@ pub(crate) mod tests {
 
         c_clone = c.clone();
 
-        // Triggering another timeout should reset the connection, because t.rto_count_max == 3.
+        // Triggering another timeout should reset the connection, because
+        // t.rto_count_max == 3.
         t.now += t.rto_period;
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
@@ -1638,8 +1701,9 @@ pub(crate) mod tests {
         t.now -= t.rto_period;
         c = c_clone;
 
-        // Also, time-outs should stop happening if we got ACKs for all outgoing segments. This
-        // ACK also closes the remote receive window so we can't send any new data.
+        // Also, time-outs should stop happening if we got ACKs for all outgoing
+        // segments. This ACK also closes the remote receive window so we can't
+        // send any new data.
         ctrl.set_ack_number(c.first_not_sent.0).set_window_size(0);
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
@@ -1649,8 +1713,8 @@ pub(crate) mod tests {
         t.now += t.rto_period;
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
-        // Let's open the window a bit, to see that the next transmitted segment fits that
-        // exact size.
+        // Let's open the window a bit, to see that the next transmitted segment fits
+        // that exact size.
         ctrl.set_window_size(123);
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
@@ -1672,9 +1736,10 @@ pub(crate) mod tests {
             assert_eq!(s.payload_len(), 123);
         }
 
-        // This looks like a good time to check what happens for some invalid ACKs. First, let's
-        // make sure we properly detect an invalid window_size advertisement (where the remote rwnd
-        // edge decreases compared to previously received info).
+        // This looks like a good time to check what happens for some invalid ACKs.
+        // First, let's make sure we properly detect an invalid window_size
+        // advertisement (where the remote rwnd edge decreases compared to
+        // previously received info).
         ctrl.set_window_size(100);
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
@@ -1693,16 +1758,16 @@ pub(crate) mod tests {
             (None, RecvStatusFlags::INVALID_ACK)
         );
 
-        // Another example of invalid ACK is one that tries to acknowledge a sequence number yet
-        // to be sent.
+        // Another example of invalid ACK is one that tries to acknowledge a sequence
+        // number yet to be sent.
         ctrl.set_ack_number(c.first_not_sent.0.wrapping_add(1));
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
             (None, RecvStatusFlags::INVALID_ACK)
         );
 
-        // FIN time! As usual let's begin with receiving an invalid FIN, one that does not match
-        // the sequence number we expect.
+        // FIN time! As usual let's begin with receiving an invalid FIN, one that does
+        // not match the sequence number we expect.
         ctrl.set_flags_after_ns(TcpFlags::FIN)
             .set_sequence_number(c.ack_to_send.0.wrapping_sub(1));
         assert_eq!(
@@ -1725,10 +1790,11 @@ pub(crate) mod tests {
             assert_eq!(s.ack_number(), ctrl.sequence_number().wrapping_add(1),);
         }
 
-        // Receiving data after the FIN is an error. We increase the rwnd edge for c, because the
-        // window was full after the earlier reception tests.
+        // Receiving data after the FIN is an error. We increase the rwnd edge for c,
+        // because the window was full after the earlier reception tests.
         c.advance_local_rwnd_edge(10_000);
-        // We'll also get the INVALID_ACK RecvStausFlag here because the ACK number is old.
+        // We'll also get the INVALID_ACK RecvStausFlag here because the ACK number is
+        // old.
         data.set_sequence_number(c.ack_to_send.0);
         assert_eq!(
             t.receive_segment(&mut c, &data).unwrap(),
@@ -1742,15 +1808,17 @@ pub(crate) mod tests {
 
         //c = c_clone.clone();
 
-        // We change payload_src to only include those parts of send_buf that were already sent,
-        // so it makes sense to close the connection as if we're done transmitting data.
+        // We change payload_src to only include those parts of send_buf that were
+        // already sent, so it makes sense to close the connection as if we're
+        // done transmitting data.
         let bytes_sent_by_c = c.first_not_sent.0.wrapping_sub(conn_isn + 1) as usize;
         payload_src.as_mut().unwrap().0 = &send_buf[..bytes_sent_by_c];
 
-        // We artifically increase the remote rwnd for c, so we can verify we sent everything, and
-        // we're not just rwnd bound. We also make it so everything is ACKed, so we can sent a FIN
-        // right after calling close() below (this is needed because we didn't ACK the last
-        // segment sent by c).
+        // We artifically increase the remote rwnd for c, so we can verify we sent
+        // everything, and we're not just rwnd bound. We also make it so
+        // everything is ACKed, so we can sent a FIN right after calling close()
+        // below (this is needed because we didn't ACK the last segment sent by
+        // c).
         c.remote_rwnd_edge += Wrapping(50_000);
         c.highest_ack_received = c.first_not_sent;
 
@@ -1760,10 +1828,12 @@ pub(crate) mod tests {
         // Close the connection.
         c.close();
 
-        // We shouldn't be done yet. Even though we got a FIN, we didn't send our own yet.
+        // We shouldn't be done yet. Even though we got a FIN, we didn't send our own
+        // yet.
         assert!(!c.is_done());
 
-        // If we call write_next at this point, the next outgoing segment should be a pure FIN/ACK.
+        // If we call write_next at this point, the next outgoing segment should be a
+        // pure FIN/ACK.
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             check_control_segment(&s, 0, TcpFlags::FIN | TcpFlags::ACK);
@@ -1773,8 +1843,8 @@ pub(crate) mod tests {
             );
         }
 
-        // At this point, the connection should be done, because we both sent and received a FIN,
-        // and we don't wait for our FIN to be ACKed.
+        // At this point, the connection should be done, because we both sent and
+        // received a FIN, and we don't wait for our FIN to be ACKed.
         assert!(c.is_done());
     }
 }

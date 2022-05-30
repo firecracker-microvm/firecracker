@@ -1,9 +1,10 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use micro_http::{HttpHeaderError, RequestError};
 use std::collections::HashMap;
 use std::result::Result;
+
+use micro_http::{HttpHeaderError, RequestError};
 
 /// Header rejected by MMDS.
 pub const REJECTED_HEADER: &str = "X-Forwarded-For";
@@ -11,11 +12,13 @@ pub const REJECTED_HEADER: &str = "X-Forwarded-For";
 /// Wrapper over the list of token headers associated with a Request.
 #[derive(Debug, PartialEq)]
 pub struct TokenHeaders {
-    /// The `X-metadata-token` header might be used by HTTP clients to specify a token in order
-    /// to authenticate to the session. This is used for guest requests to MMDS only.
+    /// The `X-metadata-token` header might be used by HTTP clients to specify a
+    /// token in order to authenticate to the session. This is used for
+    /// guest requests to MMDS only.
     x_metadata_token: Option<String>,
-    /// The `X-metadata-token-ttl-seconds` header might be used by HTTP clients to specify
-    /// the expiry time of a token. This is used for PUT requests issued by the guest to MMDS only.
+    /// The `X-metadata-token-ttl-seconds` header might be used by HTTP clients
+    /// to specify the expiry time of a token. This is used for PUT requests
+    /// issued by the guest to MMDS only.
     x_metadata_token_ttl_seconds: Option<u32>,
 }
 

@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
+use logger::{LevelFilter, LOGGER};
+use serde::{de, Deserialize, Deserializer, Serialize};
+
 use super::{open_file_nonblock, FcLineWriter};
 use crate::vmm_config::instance_info::InstanceInfo;
-use logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -27,8 +28,8 @@ pub enum LoggerLevel {
 }
 
 impl LoggerLevel {
-    /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
-    /// or returns an error if the parsing failed.
+    /// Converts from a logger level value of type String to the corresponding
+    /// LoggerLevel variant or returns an error if the parsing failed.
     pub fn from_string(level: String) -> std::result::Result<Self, LoggerConfigError> {
         match level.to_ascii_lowercase().as_str() {
             "error" => Ok(LoggerLevel::Error),
@@ -84,7 +85,8 @@ pub struct LoggerConfig {
         deserialize_with = "case_insensitive"
     )]
     pub level: LoggerLevel,
-    /// When enabled, the logger will append to the output the severity of the log entry.
+    /// When enabled, the logger will append to the output the severity of the
+    /// log entry.
     #[serde(default)]
     pub show_level: bool,
     /// When enabled, the logger will append the origin of the log entry.
@@ -154,12 +156,13 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use super::*;
     use devices::pseudo::BootTimer;
     use devices::BusDevice;
     use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
+
+    use super::*;
 
     #[test]
     fn test_init_logger() {

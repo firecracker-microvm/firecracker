@@ -1,17 +1,18 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use aes_gcm::aead::NewAead;
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
-use bincode::{DefaultOptions, Error as BincodeError, Options};
-use logger::warn;
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
 use std::{fmt, io};
+
+use aes_gcm::aead::NewAead;
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
+use bincode::{DefaultOptions, Error as BincodeError, Options};
+use logger::warn;
+use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
 
 /// Length of initialization vector.
@@ -151,7 +152,8 @@ impl TokenAuthority {
         Ok(Token::new(iv, payload, tag))
     }
 
-    /// Encrypt expiry using AES-GCM block cipher and return payload and tag obtained.
+    /// Encrypt expiry using AES-GCM block cipher and return payload and tag
+    /// obtained.
     fn encrypt_expiry(
         &self,
         expiry: u64,
@@ -176,9 +178,10 @@ impl TokenAuthority {
         Ok((expiry_as_bytes, tag_as_bytes))
     }
 
-    /// Attempts to decrypt expiry value within token sequence. Returns false if expiry
-    /// cannot be decrypted. If decryption succeeds, returns true if token has not expired
-    /// (i.e. current time is greater than expiry) and false otherwise.
+    /// Attempts to decrypt expiry value within token sequence. Returns false if
+    /// expiry cannot be decrypted. If decryption succeeds, returns true if
+    /// token has not expired (i.e. current time is greater than expiry) and
+    /// false otherwise.
     pub fn is_valid(&self, encoded_token: &str) -> bool {
         // Check size of encoded token struct.
         if encoded_token.len() > TOKEN_LENGTH_LIMIT {
@@ -201,7 +204,8 @@ impl TokenAuthority {
         expiry > get_time_ms(ClockType::Monotonic)
     }
 
-    /// Decrypt ciphertext composed of payload and tag to obtain the expiry value.
+    /// Decrypt ciphertext composed of payload and tag to obtain the expiry
+    /// value.
     fn decrypt_expiry(
         &self,
         payload: &mut [u8; PAYLOAD_LEN],
@@ -229,7 +233,8 @@ impl TokenAuthority {
 
     /// Create a new AES-GCM cipher entity.
     fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, Error> {
-        // Randomly generate a 256-bit key to be used for encryption/decryption purposes.
+        // Randomly generate a 256-bit key to be used for encryption/decryption
+        // purposes.
         let mut key = [0u8; KEY_LEN];
         entropy_pool
             .read_exact(&mut key)
@@ -326,9 +331,10 @@ impl Token {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::thread::sleep;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_check_tll() {

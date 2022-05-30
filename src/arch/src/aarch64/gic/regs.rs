@@ -33,7 +33,8 @@ pub struct GicState {
     pub gic_vcpu_states: Vec<GicVcpuState>,
 }
 
-/// Structure used for serializing the state of the GIC registers for a specific vCPU.
+/// Structure used for serializing the state of the GIC registers for a specific
+/// vCPU.
 #[derive(Debug, Default, Versionize)]
 pub struct GicVcpuState {
     pub rdist: Vec<GicRegState<u32>>,
@@ -171,7 +172,8 @@ pub(crate) trait VgicRegEngine {
 /// Structure representing a simple register.
 #[derive(PartialEq)]
 pub(crate) struct SimpleReg {
-    /// The offset from the component address. The register is memory mapped here.
+    /// The offset from the component address. The register is memory mapped
+    /// here.
     offset: u64,
     /// Size in bytes.
     size: u16,

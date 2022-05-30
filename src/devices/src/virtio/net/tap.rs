@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use net_gen::ifreq;
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+
+use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
@@ -41,15 +42,16 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 ///
 /// For now, this simply wraps the file descriptor for the tap device so methods
 /// can run ioctls on the interface. The tap interface fd will be closed when
-/// Tap goes out of scope, and the kernel will clean up the interface automatically.
+/// Tap goes out of scope, and the kernel will clean up the interface
+/// automatically.
 #[derive(Debug)]
 pub struct Tap {
     tap_file: File,
     pub(crate) if_name: [u8; IFACE_NAME_MAX_LEN],
 }
 
-// Returns a byte vector representing the contents of a null terminated C string which
-// contains if_name.
+// Returns a byte vector representing the contents of a null terminated C string
+// which contains if_name.
 fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
     // Convert the string slice to bytes, and shadow the variable,
     // since we no longer need the &str version.
@@ -73,7 +75,8 @@ impl IfReqBuilder {
     }
 
     pub fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        // Since we don't call as_mut on the same union field more than once, this block
+        // is safe.
         let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
         ifrn_name.copy_from_slice(if_name.as_ref());
 
@@ -81,7 +84,8 @@ impl IfReqBuilder {
     }
 
     pub(crate) fn flags(mut self, flags: i16) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        // Since we don't call as_mut on the same union field more than once, this block
+        // is safe.
         let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
         *ifru_flags = flags;
 
@@ -191,9 +195,10 @@ impl AsRawFd for Tap {
 pub mod tests {
     use std::os::unix::ffi::OsStrExt;
 
+    use net_gen::ETH_HLEN;
+
     use super::*;
     use crate::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
-    use net_gen::ETH_HLEN;
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;
@@ -239,7 +244,8 @@ pub mod tests {
 
     #[test]
     fn test_set_options() {
-        // This line will fail to provide an initialized FD if the test is not run as root.
+        // This line will fail to provide an initialized FD if the test is not run as
+        // root.
         let tap = Tap::open_named("").unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();

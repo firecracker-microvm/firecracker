@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::BTreeMap;
-use std::env;
-use std::fmt;
-use std::result;
+use std::{env, fmt, result};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -149,7 +147,8 @@ pub struct Argument<'a> {
 }
 
 impl<'a> Argument<'a> {
-    /// Create a new `Argument` that keeps the necessary information for an argument.
+    /// Create a new `Argument` that keeps the necessary information for an
+    /// argument.
     pub fn new(name: &'a str) -> Argument<'a> {
         Argument {
             name,
@@ -189,9 +188,10 @@ impl<'a> Argument<'a> {
         self
     }
 
-    /// If `allow_multiple` is true, then the user can provide multiple values for the
-    /// argument (e.g --arg val1 --arg val2). It sets the `takes_value` option to true,
-    /// so the user must provides at least one value.
+    /// If `allow_multiple` is true, then the user can provide multiple values
+    /// for the argument (e.g --arg val1 --arg val2). It sets the
+    /// `takes_value` option to true, so the user must provides at least one
+    /// value.
     pub fn allow_multiple(mut self, allow_multiple: bool) -> Self {
         if allow_multiple {
             self.takes_value = true;
@@ -200,15 +200,15 @@ impl<'a> Argument<'a> {
         self
     }
 
-    /// Keep a default value which will be used if the user didn't provide a value for
-    /// the argument.
+    /// Keep a default value which will be used if the user didn't provide a
+    /// value for the argument.
     pub fn default_value(mut self, default_value: &'a str) -> Self {
         self.default_value = Some(Value::Single(String::from(default_value)));
         self
     }
 
-    /// Set the information that will be displayed for the argument when user passes
-    /// `--help` flag.
+    /// Set the information that will be displayed for the argument when user
+    /// passes `--help` flag.
     pub fn help(mut self, help: &'a str) -> Self {
         self.help = Some(help);
         self
@@ -220,7 +220,8 @@ impl<'a> Argument<'a> {
         let arg = self.format_name();
         help_builder.push(format!("{:<arg_width$}", arg, arg_width = arg_width));
 
-        // Add three whitespaces between the argument and its help message for readability.
+        // Add three whitespaces between the argument and its help message for
+        // readability.
         help_builder.push("   ".to_string());
 
         match (self.help, &self.default_value) {
@@ -336,8 +337,9 @@ impl<'a> Arguments<'a> {
         self.extra_args.clone()
     }
 
-    // Split `args` in two slices: one with the actual arguments of the process and the other with
-    // the extra arguments, meaning all parameters specified after `--`.
+    // Split `args` in two slices: one with the actual arguments of the process and
+    // the other with the extra arguments, meaning all parameters specified
+    // after `--`.
     fn split_args(args: &[String]) -> (&[String], &[String]) {
         if let Some(index) = args.iter().position(|arg| arg == ARG_SEPARATOR) {
             return (&args[..index], &args[index + 1..]);
@@ -353,16 +355,17 @@ impl<'a> Arguments<'a> {
         self.parse(&args)
     }
 
-    /// Clear split between the actual arguments of the process, the extra arguments if any
-    /// and the `--help` and `--version` arguments if present.
+    /// Clear split between the actual arguments of the process, the extra
+    /// arguments if any and the `--help` and `--version` arguments if
+    /// present.
     pub fn parse(&mut self, args: &[String]) -> Result<()> {
         // Skipping the first element of `args` as it is the name of the binary.
         let (args, extra_args) = Arguments::split_args(&args[1..]);
         self.extra_args = extra_args.to_vec();
 
-        // If `--help` is provided as a parameter, we artificially skip the parsing of other
-        // command line arguments by adding just the help argument to the parsed list and
-        // returning.
+        // If `--help` is provided as a parameter, we artificially skip the parsing of
+        // other command line arguments by adding just the help argument to the
+        // parsed list and returning.
         if args.contains(&HELP_ARG.to_string()) {
             let mut help_arg = Argument::new("help").help("Show the help message.");
             help_arg.user_value = Some(Value::Flag);
@@ -370,9 +373,9 @@ impl<'a> Arguments<'a> {
             return Ok(());
         }
 
-        // If `--version` is provided as a parameter, we artificially skip the parsing of other
-        // command line arguments by adding just the version argument to the parsed list and
-        // returning.
+        // If `--version` is provided as a parameter, we artificially skip the parsing
+        // of other command line arguments by adding just the version argument
+        // to the parsed list and returning.
         if args.contains(&VERSION_ARG.to_string()) {
             let mut version_arg = Argument::new("version");
             version_arg.user_value = Some(Value::Flag);
@@ -384,7 +387,8 @@ impl<'a> Arguments<'a> {
         self.populate_args(args)
     }
 
-    // Check if `required`, `requires` and `forbids` field rules are indeed followed by every argument.
+    // Check if `required`, `requires` and `forbids` field rules are indeed followed
+    // by every argument.
     fn validate_requirements(&self, args: &[String]) -> Result<()> {
         for argument in self.args.values() {
             // The arguments that are marked `required` must be provided by user.
@@ -392,8 +396,8 @@ impl<'a> Arguments<'a> {
                 return Err(Error::MissingArgument(argument.name.to_string()));
             }
             if argument.user_value.is_some() {
-                // For the arguments that require a specific argument to be also present in the list
-                // of arguments provided by user, search for that argument.
+                // For the arguments that require a specific argument to be also present in the
+                // list of arguments provided by user, search for that argument.
                 if let Some(arg_name) = argument.requires {
                     if !args.contains(&(format!("--{}", arg_name))) {
                         return Err(Error::MissingArgument(arg_name.to_string()));
@@ -441,8 +445,8 @@ impl<'a> Arguments<'a> {
         while let Some(arg) = iter.next() {
             self.validate_arg(arg)?;
 
-            // If the `arg` argument is indeed an expected one, set the value provided by user
-            // if it's a valid one.
+            // If the `arg` argument is indeed an expected one, set the value provided by
+            // user if it's a valid one.
             let argument = self
                 .args
                 .get_mut(&arg[ARG_PREFIX.len()..])
@@ -474,7 +478,8 @@ impl<'a> Arguments<'a> {
             argument.user_value = Some(arg_val);
         }
 
-        // Check the constraints for the `required`, `requires` and `forbids` fields of all arguments.
+        // Check the constraints for the `required`, `requires` and `forbids` fields of
+        // all arguments.
         self.validate_requirements(&args)?;
 
         Ok(())

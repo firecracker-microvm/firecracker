@@ -7,8 +7,7 @@ pub mod intel;
 
 pub use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
-use crate::brand_string::BrandString;
-use crate::brand_string::Reg as BsReg;
+use crate::brand_string::{BrandString, Reg as BsReg};
 use crate::common::get_vendor_id_from_host;
 
 /// Structure containing the specifications of the VM
@@ -62,7 +61,8 @@ pub enum Error {
     InternalError(super::common::Error),
     /// The operation is not permitted for the current vendor
     InvalidVendor,
-    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
+    /// The maximum number of addressable logical CPUs cannot be stored in an
+    /// `u8`.
     VcpuCountOverflow,
 }
 
@@ -71,13 +71,15 @@ pub type EntryTransformerFn =
 
 /// Generic trait that provides methods for transforming the cpuid
 pub trait CpuidTransformer {
-    /// Trait main function. It processes the cpuid and makes the desired transformations.
-    /// The default logic can be overwritten if needed. For example see `AmdCpuidTransformer`.
+    /// Trait main function. It processes the cpuid and makes the desired
+    /// transformations. The default logic can be overwritten if needed. For
+    /// example see `AmdCpuidTransformer`.
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
         self.process_entries(cpuid, vm_spec)
     }
 
-    /// Iterates through all the cpuid entries and calls the associated transformer for each one.
+    /// Iterates through all the cpuid entries and calls the associated
+    /// transformer for each one.
     fn process_entries(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
         for entry in cpuid.as_mut_slice().iter_mut() {
             let maybe_transformer_fn = self.entry_transformer_fn(entry);

@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub(crate) fn parse_put_net(
     body: &Body,

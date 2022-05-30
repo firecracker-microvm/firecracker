@@ -1,23 +1,24 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::{fs::FileExt, io::AsRawFd};
+use std::os::unix::fs::FileExt;
+use std::os::unix::io::AsRawFd;
 use std::thread;
 use std::time::Duration;
-use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
+use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 mod test_utils;
-use crate::test_utils::drive_submission_and_completion;
+use io_uring::operation::{OpCode, Operation};
+use io_uring::restriction::Restriction;
+use io_uring::{Error, IoUring, SQueueError};
 
-use io_uring::{
-    operation::OpCode, operation::Operation, restriction::Restriction, Error, IoUring, SQueueError,
-};
+use crate::test_utils::drive_submission_and_completion;
 
 const NUM_ENTRIES: u32 = 128;
 

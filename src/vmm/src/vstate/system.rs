@@ -5,10 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};

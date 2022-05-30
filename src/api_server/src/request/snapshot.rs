@@ -1,16 +1,16 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
-use crate::request::{Method, StatusCode};
 use logger::{IncMetric, METRICS};
 use serde::de::Error as DeserializeError;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
+    Vm, VmState,
 };
-use vmm::vmm_config::snapshot::{Vm, VmState};
+
+use super::super::VmmAction;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
@@ -78,7 +78,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
     }
 
     // If `mem_file_path` is specified instead of `mem_backend`, we construct the
-    // `MemBackendConfig` object from the path specified, with `File` as backend type.
+    // `MemBackendConfig` object from the path specified, with `File` as backend
+    // type.
     let mem_backend = match snapshot_config.mem_backend {
         Some(backend_cfg) => backend_cfg,
         None => {
@@ -101,7 +102,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
     // Construct the `ParsedRequest` object.
     let mut parsed_req = ParsedRequest::new_sync(VmmAction::LoadSnapshot(snapshot_params));
 
-    // If `mem_file_path` was present, set the deprecation message in `parsing_info`.
+    // If `mem_file_path` was present, set the deprecation message in
+    // `parsing_info`.
     if let Some(msg) = deprecation_message {
         parsed_req.parsing_info().append_deprecation_message(msg);
     }
@@ -111,13 +113,15 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+
     use super::*;
     use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     #[test]
     fn test_parse_put_snapshot() {
         use std::path::PathBuf;
+
         use vmm::vmm_config::snapshot::SnapshotType;
 
         let mut body = r#"{

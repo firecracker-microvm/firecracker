@@ -15,13 +15,17 @@
 ///     lsb_index: 3,
 /// };
 /// ```
-/// The BitRange specified above will represent the following part of the number 72:
+/// The BitRange specified above will represent the following part of the number
+/// 72:
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
-/// | Base 2 Representation of the number | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
+/// | Base 2 Representation of the number | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |
+/// 0 |
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
-/// | bits indexes                        | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+/// | bits indexes                        | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |
+/// 0 |
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
-/// | BitRange                            |   |   | * | * | * | * | * |   |   |   |
+/// | BitRange                            |   |   | * | * | * | * | * |   |   |
+/// |
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
 pub struct BitRange {
     /// most significant bit index
@@ -36,7 +40,8 @@ pub struct BitRange {
 /// - checking if the `BitRange` is valid for a type `T`
 /// - creating masks for a type `T`
 pub trait BitRangeExt<T> {
-    /// Returns a value of type `T` that has all the bits in the specified bit range set to 1.
+    /// Returns a value of type `T` that has all the bits in the specified bit
+    /// range set to 1.
     ///
     /// # Example
     ///

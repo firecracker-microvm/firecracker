@@ -7,7 +7,6 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;
 
-use crate::DirtyBitmap;
 use utils::{errno, get_page_size};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -15,6 +14,8 @@ use vm_memory::{
     Bitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
     GuestMemoryRegion, MemoryRegionAddress,
 };
+
+use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
@@ -47,7 +48,8 @@ where
     fn describe(&self) -> GuestMemoryState;
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: std::io::Write>(&self, writer: &mut T) -> std::result::Result<(), Error>;
-    /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
+    /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a
+    /// writer.
     fn dump_dirty<T: std::io::Write + std::io::Seek>(
         &self,
         writer: &mut T,
@@ -116,7 +118,8 @@ impl SnapshotMemory for GuestMemoryMmap {
             .map_err(Error::WriteMemory)
     }
 
-    /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
+    /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a
+    /// writer.
     fn dump_dirty<T: std::io::Write + std::io::Seek>(
         &self,
         writer: &mut T,
@@ -177,8 +180,9 @@ impl SnapshotMemory for GuestMemoryMmap {
             .map_err(Error::WriteMemory)
     }
 
-    /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
-    /// by anonymous memory. Memory layout and ranges are described in `state` param.
+    /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise
+    /// backed by anonymous memory. Memory layout and ranges are described
+    /// in `state` param.
     fn restore(
         file: Option<&File>,
         state: &GuestMemoryState,
@@ -204,12 +208,13 @@ impl SnapshotMemory for GuestMemoryMmap {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-
-    use super::*;
     use std::io::{Read, Seek};
+
     use utils::get_page_size;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
+
+    use super::*;
 
     #[test]
     fn test_describe_state() {

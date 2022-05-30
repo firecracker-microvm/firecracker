@@ -1,9 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::io;
 use std::io::{Seek, SeekFrom};
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
@@ -11,16 +10,15 @@ use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_se
 use vmm::persist::{self, snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
-use vmm::version_map::VERSION_MAP;
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{EventManager, FcExitCode};
-
 use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm};
+use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::{EventManager, FcExitCode};
 
 #[test]
 fn test_setup_serial_device() {
@@ -56,8 +54,9 @@ fn test_build_microvm() {
     // Success case.
     let (vmm, mut _evmgr) = default_vmm(None);
 
-    // On x86_64, the vmm should exit once its workload completes and signals the exit event.
-    // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
+    // On x86_64, the vmm should exit once its workload completes and signals the
+    // exit event. On aarch64, the test kernel doesn't exit, so the vmm is
+    // force-stopped.
     #[cfg(target_arch = "x86_64")]
     _evmgr.run_with_timeout(500).unwrap();
     #[cfg(target_arch = "aarch64")]
@@ -75,7 +74,8 @@ fn test_pause_resume_microvm() {
     let (vmm, _) = default_vmm(None);
 
     // There's a race between this thread and the vcpu thread, but this thread
-    // should be able to pause vcpu thread before it finishes running its test-binary.
+    // should be able to pause vcpu thread before it finishes running its
+    // test-binary.
     assert!(vmm.lock().unwrap().pause_vm().is_ok());
     // Pausing again the microVM should not fail (microVM remains in the
     // `Paused` state).
@@ -90,9 +90,9 @@ fn test_dirty_bitmap_error() {
     let (vmm, _) = default_vmm(None);
 
     // The vmm will start with dirty page tracking = OFF.
-    // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will fail
-    // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
-    // page tracking enabled.
+    // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will
+    // fail with errno 2 (ENOENT) because KVM can't find any guest memory
+    // regions with dirty page tracking enabled.
     assert_eq!(
         format!("{:?}", vmm.lock().unwrap().get_dirty_bitmap().err()),
         "Some(DirtyBitmap(Error(2)))"
@@ -238,7 +238,8 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         vm_resources,
     )
     .unwrap();
-    // For now we're happy we got this far, we don't test what the guest is actually doing.
+    // For now we're happy we got this far, we don't test what the guest is actually
+    // doing.
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
@@ -246,18 +247,18 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 fn test_create_and_load_snapshot() {
     // Create diff snapshot.
     let (snapshot_file, memory_file) = verify_create_snapshot(true);
-    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-    // that a microVM can be built with no errors from given snapshot.
-    // It does _not_ verify that the guest is actually restored properly. We're using
-    // python integration tests for that.
+    // Create a new microVm from snapshot. This only tests code-level logic; it
+    // verifies that a microVM can be built with no errors from given snapshot.
+    // It does _not_ verify that the guest is actually restored properly. We're
+    // using python integration tests for that.
     verify_load_snapshot(snapshot_file, memory_file);
 
     // Create full snapshot.
     let (snapshot_file, memory_file) = verify_create_snapshot(false);
-    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-    // that a microVM can be built with no errors from given snapshot.
-    // It does _not_ verify that the guest is actually restored properly. We're using
-    // python integration tests for that.
+    // Create a new microVm from snapshot. This only tests code-level logic; it
+    // verifies that a microVM can be built with no errors from given snapshot.
+    // It does _not_ verify that the guest is actually restored properly. We're
+    // using python integration tests for that.
     verify_load_snapshot(snapshot_file, memory_file);
 }
 

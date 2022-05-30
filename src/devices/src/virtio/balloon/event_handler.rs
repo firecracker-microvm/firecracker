@@ -8,9 +8,8 @@ use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
 use crate::report_balloon_event_fail;
-use crate::virtio::{
-    balloon::device::Balloon, VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
-};
+use crate::virtio::balloon::device::Balloon;
+use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -113,11 +112,12 @@ impl MutEventSubscriber for Balloon {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
+    use event_manager::{EventManager, SubscriberOps};
+    use vm_memory::GuestAddress;
+
     use super::*;
     use crate::virtio::balloon::test_utils::set_request;
     use crate::virtio::test_utils::{default_mem, VirtQueue};
-    use event_manager::{EventManager, SubscriberOps};
-    use vm_memory::GuestAddress;
 
     #[test]
     fn test_event_handler() {
@@ -140,7 +140,8 @@ pub mod tests {
         }
 
         // EventManager should report no events since balloon has only registered
-        // its activation event so far (even though there is also a queue event pending).
+        // its activation event so far (even though there is also a queue event
+        // pending).
         let ev_count = event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 0);
 

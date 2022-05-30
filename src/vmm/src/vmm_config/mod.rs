@@ -8,9 +8,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use libc::O_NONBLOCK;
-use serde::{Deserialize, Serialize};
-
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
+use serde::{Deserialize, Serialize};
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -35,17 +34,18 @@ pub mod snapshot;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 
-// TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless structures,
-// for receiving data/args, such as the below `RateLimiterConfig` and `TokenBucketConfig`.
-// Also todo: find a better suffix than `Config`; it should illustrate the static nature
-// of the enclosed data.
-// Currently, data is passed around using live/stateful objects. Switching to static/stateless
-// objects will simplify both the ownership model and serialization.
-// Public access would then be more tightly regulated via `VmmAction`s, consisting of tuples like
-// (entry-point-into-VMM-logic, stateless-args-structure).
+// TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless
+// structures, for receiving data/args, such as the below `RateLimiterConfig`
+// and `TokenBucketConfig`. Also todo: find a better suffix than `Config`; it
+// should illustrate the static nature of the enclosed data.
+// Currently, data is passed around using live/stateful objects. Switching to
+// static/stateless objects will simplify both the ownership model and
+// serialization. Public access would then be more tightly regulated via
+// `VmmAction`s, consisting of tuples like (entry-point-into-VMM-logic,
+// stateless-args-structure).
 
-/// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
-/// (live) object.
+/// A public-facing, stateless structure, holding all the data we need to create
+/// a TokenBucket (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct TokenBucketConfig {
     /// See TokenBucket::size.
@@ -70,8 +70,8 @@ impl From<&TokenBucket> for TokenBucketConfig {
     }
 }
 
-/// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
-/// (live) object.
+/// A public-facing, stateless structure, holding all the data we need to create
+/// a RateLimiter (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimiterConfig {
@@ -81,7 +81,8 @@ pub struct RateLimiterConfig {
     pub ops: Option<TokenBucketConfig>,
 }
 
-/// A public-facing, stateless structure, specifying RateLimiter properties updates.
+/// A public-facing, stateless structure, specifying RateLimiter properties
+/// updates.
 pub struct RateLimiterUpdate {
     /// Possible update to the RateLimiter::bandwidth bucket.
     pub bandwidth: BucketUpdate,
@@ -165,9 +166,10 @@ impl RateLimiterConfig {
 type Result<T> = std::result::Result<T, std::io::Error>;
 
 /// Create and opens a File for writing to it.
-/// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
-/// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
-/// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
+/// In case we open a FIFO, in order to not block the instance if nobody is
+/// consuming the message that is flushed to the two pipes, we are opening it
+/// with `O_NONBLOCK` flag. In this case, writing to a pipe will start failing
+/// when reaching 64K of unconsumed content.
 fn open_file_nonblock(path: &Path) -> Result<File> {
     OpenOptions::new()
         .custom_flags(O_NONBLOCK)

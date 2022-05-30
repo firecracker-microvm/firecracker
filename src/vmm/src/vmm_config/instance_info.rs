@@ -1,7 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use serde::{ser, Serialize};
 use std::fmt::{self, Display, Formatter};
+
+use serde::{ser, Serialize};
 
 /// Enumerates microVM runtime states.
 #[derive(Clone, Debug, PartialEq)]

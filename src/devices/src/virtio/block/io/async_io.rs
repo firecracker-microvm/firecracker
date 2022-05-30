@@ -5,12 +5,9 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use io_uring::{
-    operation::{Cqe, OpCode, Operation},
-    restriction::Restriction,
-    Error as IoUringError, IoUring,
-};
-
+use io_uring::operation::{Cqe, OpCode, Operation};
+use io_uring::restriction::Restriction;
+use io_uring::{Error as IoUringError, IoUring};
 use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
 use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -121,8 +118,9 @@ impl<T> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new_with_dirty_tracking(addr, user_data);
 
-        // Safe because we trust that the host kernel will pass us back a completed entry with this
-        // same `user_data`, so that the value will not be leaked.
+        // Safe because we trust that the host kernel will pass us back a completed
+        // entry with this same `user_data`, so that the value will not be
+        // leaked.
         unsafe {
             self.ring.push(Operation::read(
                 0,
@@ -158,8 +156,9 @@ impl<T> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        // Safe because we trust that the host kernel will pass us back a completed entry with this
-        // same `user_data`, so that the value will not be leaked.
+        // Safe because we trust that the host kernel will pass us back a completed
+        // entry with this same `user_data`, so that the value will not be
+        // leaked.
         unsafe {
             self.ring.push(Operation::write(
                 0,
@@ -178,8 +177,9 @@ impl<T> AsyncFileEngine<T> {
     pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, Error>> {
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        // Safe because we trust that the host kernel will pass us back a completed entry with this
-        // same `user_data`, so that the value will not be leaked.
+        // Safe because we trust that the host kernel will pass us back a completed
+        // entry with this same `user_data`, so that the value will not be
+        // leaked.
         unsafe { self.ring.push(Operation::fsync(0, wrapped_user_data)) }.map_err(|err_tuple| {
             UserDataError {
                 user_data: err_tuple.1.user_data,
@@ -210,17 +210,18 @@ impl<T> AsyncFileEngine<T> {
         self.drain(discard_cqes)?;
 
         // Sync data out to physical media on host.
-        // We don't need to call flush first since all the ops are performed through io_uring
-        // and Rust shouldn't manage any data in its internal buffers.
+        // We don't need to call flush first since all the ops are performed through
+        // io_uring and Rust shouldn't manage any data in its internal buffers.
         self.file.sync_all().map_err(Error::SyncAll)?;
 
         Ok(())
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
-        // We trust that the host kernel did not touch the operation's `user_data` field.
-        // The `T` type is the same one used for `push`ing and since the kernel made this entry
-        // available in the completion queue, we now have full ownership of it.
+        // We trust that the host kernel did not touch the operation's `user_data`
+        // field. The `T` type is the same one used for `push`ing and since the
+        // kernel made this entry available in the completion queue, we now have
+        // full ownership of it.
 
         unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(Error::IoUring)
     }

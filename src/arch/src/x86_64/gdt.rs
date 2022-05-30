@@ -9,7 +9,8 @@
 
 use kvm_bindings::kvm_segment;
 
-/// Constructor for a conventional segment GDT (or LDT) entry. Derived from the kernel's segment.h.
+/// Constructor for a conventional segment GDT (or LDT) entry. Derived from the
+/// kernel's segment.h.
 pub fn gdt_entry(flags: u16, base: u32, limit: u32) -> u64 {
     ((u64::from(base) & 0xff00_0000u64) << (56 - 24))
         | ((u64::from(flags) & 0x0000_f0ffu64) << 40)

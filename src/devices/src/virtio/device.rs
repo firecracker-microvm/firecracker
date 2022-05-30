@@ -5,14 +5,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use logger::{error, warn};
+use utils::eventfd::EventFd;
+use vm_memory::GuestMemoryMmap;
 
 use super::{ActivateResult, Queue};
 use crate::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
-use logger::{error, warn};
-use std::sync::atomic::Ordering;
-use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
@@ -76,9 +77,10 @@ impl IrqTrigger {
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
-/// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
-/// device. The virtio devices needs to create queues, events and event fds for interrupts and expose
-/// them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status fns.
+/// The lifecycle of a virtio device is to be moved to a virtio transport, which
+/// will then query the device. The virtio devices needs to create queues,
+/// events and event fds for interrupts and expose them to the transport via
+/// get_queues/get_queue_events/get_interrupt/get_interrupt_status fns.
 pub trait VirtioDevice: AsAny + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;
@@ -88,7 +90,8 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Set acknowledged features of the driver.
     /// This function must maintain the following invariant:
-    /// - self.avail_features() & self.acked_features() = self.get_acked_features()
+    /// - self.avail_features() & self.acked_features() =
+    ///   self.get_acked_features()
     fn set_acked_features(&mut self, acked_features: u64);
 
     fn has_feature(&self, feature: u64) -> bool {
@@ -156,14 +159,15 @@ pub trait VirtioDevice: AsAny + Send {
     /// Writes to this device configuration space at `offset`.
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
-    /// Performs the formal activation for a device, which can be verified also with `is_activated`.
+    /// Performs the formal activation for a device, which can be verified also
+    /// with `is_activated`.
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
+    /// Optionally deactivates this device and returns ownership of the guest
+    /// memory map, interrupt event, and queue events.
     fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
         None
     }

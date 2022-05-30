@@ -5,17 +5,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
-use crate::vstate::{vcpu::VcpuEmulation, vm::Vm};
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+use crate::vstate::vcpu::VcpuEmulation;
+use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -91,7 +91,8 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `guest_mem` - The guest memory used by this microvm.
-    /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
+    /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is
+    ///   loaded.
     pub fn configure(
         &mut self,
         guest_mem: &GuestMemoryMmap,
@@ -159,7 +160,8 @@ impl KvmVcpu {
 
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
-    /// Returns error or enum specifying whether emulation was handled or interrupted.
+    /// Returns error or enum specifying whether emulation was handled or
+    /// interrupted.
     pub fn run_arch_emulation(&self, exit: VcpuExit) -> super::Result<VcpuEmulation> {
         METRICS.vcpu.failures.inc();
         // TODO: Are we sure we want to finish running a vcpu upon
@@ -184,10 +186,12 @@ pub struct VcpuState {
 mod tests {
     use std::os::unix::io::AsRawFd;
 
-    use super::*;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
     use kvm_bindings::kvm_one_reg;
     use vm_memory::GuestMemoryMmap;
+
+    use super::*;
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
 
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
