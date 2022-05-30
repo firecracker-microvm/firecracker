@@ -68,6 +68,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 
     uffd_handler = UffdHandler(handler_name, args)
     real_root = os.open("/", os.O_RDONLY)
+    working_dir = os.getcwd()
 
     os.chroot(vm.chroot())
     os.chdir('/')
@@ -89,6 +90,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 
     os.fchdir(real_root)
     os.chroot(".")
+    os.chdir(working_dir)
 
     return uffd_handler
 
@@ -165,7 +167,7 @@ def test_valid_handler(bin_cloner_path,
 
     @type: functional
     """
-    logger = logging.getLogger("uffd_unbinded_socket")
+    logger = logging.getLogger("uffd_valid_handler")
 
     logger.info("Create snapshot")
     snapshot = create_snapshot(bin_cloner_path)
@@ -218,7 +220,7 @@ def test_malicious_handler(bin_cloner_path,
 
     @type: negative
     """
-    logger = logging.getLogger("uffd_unbinded_socket")
+    logger = logging.getLogger("uffd_malicious_handler")
 
     logger.info("Create snapshot")
     snapshot = create_snapshot(bin_cloner_path)

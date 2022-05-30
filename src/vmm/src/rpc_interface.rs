@@ -32,9 +32,9 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::{builder::StartMicrovmError, warn, EventManager};
-use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
-use logger::{error, info, update_metric_with_elapsed_time, METRICS};
+use crate::FcExitCode;
+use crate::{builder::StartMicrovmError, EventManager};
+use logger::*;
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
@@ -282,7 +282,7 @@ pub struct PrebootApiController<'a> {
     boot_path: bool,
     // Some PrebootApiRequest errors are irrecoverable and Firecracker
     // should cleanly teardown if they occur.
-    fatal_error: Option<ExitCode>,
+    fatal_error: Option<FcExitCode>,
 }
 
 impl MmdsRequestHandler for PrebootApiController<'_> {
@@ -325,7 +325,7 @@ impl<'a> PrebootApiController<'a> {
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), ExitCode>
+    ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode>
     where
         F: Fn() -> VmmAction,
         G: Fn(ActionResult),
@@ -350,7 +350,7 @@ impl<'a> PrebootApiController<'a> {
                 )
                 .map_err(|err| {
                     error!("Populating MMDS from file failed: {:?}", err);
-                    crate::FC_EXIT_CODE_GENERIC_ERROR
+                    crate::FcExitCode::GenericError
                 })?;
 
             info!("Successfully added metadata to mmds from file");
@@ -514,6 +514,8 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
+        log_dev_preview_warning("Virtual machine snapshots", Option::None);
+
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         if self.boot_path {
@@ -549,13 +551,20 @@ impl<'a> PrebootApiController<'a> {
         })
         .map_err(|e| {
             // The process is too dirty to recover at this point.
-            self.fatal_error = Some(FC_EXIT_CODE_BAD_CONFIGURATION);
+            self.fatal_error = Some(FcExitCode::BadConfiguration);
             VmmActionError::LoadSnapshot(e)
         });
 
-        let elapsed_time_us =
-            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
-        info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
+        log_dev_preview_warning(
+            "Virtual machine snapshots",
+            Some(format!(
+                "'load snapshot' VMM action took {} us.",
+                update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_load_snapshot,
+                    load_start_us
+                )
+            )),
+        );
 
         result
     }
@@ -708,6 +717,8 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
+        log_dev_preview_warning("Virtual machine snapshots", None);
+
         if create_params.snapshot_type == SnapshotType::Diff
             && !self.vm_resources.track_dirty_pages()
         {

@@ -65,12 +65,15 @@ def test_serial_after_snapshot(bin_cloner_path):
     microvm.start()
     serial = Serial(microvm)
     serial.open()
+
     # Image used for tests on aarch64 has autologon
     if platform.machine() == "x86_64":
         serial.rx(token='login: ')
         serial.tx("root")
         serial.rx("Password: ")
         serial.tx("root")
+    # Make sure that at the time we snapshot the vm, the user is logged in.
+    serial.rx("#")
 
     snapshot_builder = SnapshotBuilder(microvm)
     disks = [root_disk.local_path()]
@@ -88,6 +91,9 @@ def test_serial_after_snapshot(bin_cloner_path):
                                                      daemonize=False)
     serial = Serial(test_microvm)
     serial.open()
+    # We need to send a newline to signal the serial to flush
+    # the login content.
+    serial.tx("")
     serial.rx("#")
     serial.tx("pwd")
     res = serial.rx("#")

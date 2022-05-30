@@ -89,8 +89,8 @@ def test_restore_old_version(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        # v1.0.0 breaks snapshot compatibility with older versions.
-        min_version="1.0.0",
+        # v1.1.0 breaks snapshot compatibility with older versions.
+        min_version="1.1.0",
         max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
@@ -124,62 +124,6 @@ def test_restore_old_version(bin_cloner_path):
         validate_all_devices(logger, vm, net_ifaces, scratch_drives, True)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(vm.log_data)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="TSC is x86_64 specific."
-)
-def test_restore_no_tsc(bin_cloner_path):
-    """
-    Test scenario: restore a snapshot without TSC in current version.
-
-    @type: functional
-    """
-    logger = logging.getLogger("no_tsc_snapshot")
-    builder = MicrovmBuilder(bin_cloner_path)
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch the v0.24.0 firecracker binary as that one does not have
-    # the TSC frequency in the snapshot file.
-    firecracker_artifacts = artifacts.firecrackers(
-        keyword="v0.24.0"
-    )
-    firecracker = firecracker_artifacts[0]
-    firecracker.download()
-    jailer = firecracker.jailer()
-    jailer.download()
-    diff_snapshots = True
-
-    # Create a snapshot.
-    snapshot = create_snapshot_helper(
-        builder,
-        logger,
-        drives=scratch_drives,
-        ifaces=net_ifaces,
-        fc_binary=firecracker.local_path(),
-        jailer_binary=jailer.local_path(),
-        diff_snapshots=diff_snapshots,
-        balloon=True
-    )
-
-    # Resume microvm using current build of FC/Jailer.
-    # The resume should be successful because the CPU model
-    # in the snapshot state is the same as this host's.
-    microvm, _ = builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        diff_snapshots=False
-    )
-    validate_all_devices(
-        logger,
-        microvm,
-        net_ifaces,
-        scratch_drives,
-        diff_snapshots
-    )
-    logger.debug("========== Firecracker restore snapshot log ==========")
-    logger.debug(microvm.log_data)
 
 
 @pytest.mark.skipif(

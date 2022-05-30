@@ -27,7 +27,11 @@ pub(crate) fn parse_put_net(
         METRICS.put_api_requests.network_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "The id from the path does not match the id from the body!".to_string(),
+            format!(
+                "The id from the path [{}] does not match the id from the body [{}]!",
+                id,
+                netif.iface_id.as_str()
+            ),
         ));
     }
     Ok(ParsedRequest::new_sync(VmmAction::InsertNetworkDevice(
@@ -56,7 +60,11 @@ pub(crate) fn parse_patch_net(
         METRICS.patch_api_requests.network_count.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "The id from the path does not match the id from the body!".to_string(),
+            format!(
+                "The id from the path [{}] does not match the id from the body [{}]!",
+                id,
+                netif.iface_id.as_str()
+            ),
         ));
     }
     Ok(ParsedRequest::new_sync(VmmAction::UpdateNetworkInterface(

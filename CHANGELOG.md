@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.1.0]
 
 ### Added
 
@@ -29,6 +29,8 @@
   fault handler process is listening and expecting a UFFD to be sent by
   Firecracker. The UFFD is used to handle the guest memory page faults in the
   separate process.
+- Added logging for the snapshot/restore and async block device IO engine
+  features to indicate they are in development preview.
 
 ### Changed
 
