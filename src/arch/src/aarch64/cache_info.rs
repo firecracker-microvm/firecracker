@@ -79,19 +79,22 @@ impl CacheEntry {
             Ok(level) => {
                 cache.level = level
                     .parse::<u8>()
-                    .map_err(|e| Error::InvalidCacheAttr("level".to_string(), e.to_string()))?;
+                    .map_err(|err| Error::InvalidCacheAttr("level".to_string(), err.to_string()))?;
             }
-            Err(e) => {
+            Err(err) => {
                 // If we cannot read the cache level even for the first level of cache, we will
                 // stop processing anymore cache info and log an error.
-                warn!("Could not read cache level for index {}: {}", index, e);
+                warn!("Could not read cache level for index {}: {}", index, err);
                 return Err(Error::MissingCacheConfig);
             }
         }
         match store.get_by_key(index, "type") {
             Ok(cache_type) => cache.type_ = CacheType::try_from(&cache_type)?,
-            Err(e) => {
-                warn!("Could not read type for cache level {}: {}", cache.level, e);
+            Err(err) => {
+                warn!(
+                    "Could not read type for cache level {}: {}",
+                    cache.level, err
+                );
                 return Err(Error::MissingCacheConfig);
             }
         }
@@ -104,8 +107,8 @@ impl CacheEntry {
         }
 
         if let Ok(coherency_line_size) = store.get_by_key(index, "coherency_line_size") {
-            cache.line_size = Some(coherency_line_size.parse::<u16>().map_err(|e| {
-                Error::InvalidCacheAttr("coherency_line_size".to_string(), e.to_string())
+            cache.line_size = Some(coherency_line_size.parse::<u16>().map_err(|err| {
+                Error::InvalidCacheAttr("coherency_line_size".to_string(), err.to_string())
             })?);
         } else {
             err_str += "coherency line size";
@@ -120,8 +123,8 @@ impl CacheEntry {
         }
 
         if let Ok(number_of_sets) = store.get_by_key(index, "number_of_sets") {
-            cache.number_of_sets = Some(number_of_sets.parse::<u16>().map_err(|e| {
-                Error::InvalidCacheAttr("number_of_sets".to_string(), e.to_string())
+            cache.number_of_sets = Some(number_of_sets.parse::<u16>().map_err(|err| {
+                Error::InvalidCacheAttr("number_of_sets".to_string(), err.to_string())
             })?);
         } else {
             err_str += "number of sets";
@@ -236,11 +239,11 @@ fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
     match cache_size_pretty.pop() {
         Some('K') => Ok(cache_size_pretty
             .parse::<usize>()
-            .map_err(|e| Error::InvalidCacheAttr("size".to_string(), e.to_string()))?
+            .map_err(|err| Error::InvalidCacheAttr("size".to_string(), err.to_string()))?
             * 1024),
         Some('M') => Ok(cache_size_pretty
             .parse::<usize>()
-            .map_err(|e| Error::InvalidCacheAttr("size".to_string(), e.to_string()))?
+            .map_err(|err| Error::InvalidCacheAttr("size".to_string(), err.to_string()))?
             * 1024
             * 1024),
         Some(letter) => {
@@ -272,7 +275,7 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
             s_zero_free = "0";
         }
         bit_count += u32::from_str_radix(s_zero_free, 16)
-            .map_err(|e| Error::InvalidCacheAttr("shared_cpu_map".to_string(), e.to_string()))?
+            .map_err(|err| Error::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string()))?
             .count_ones() as u16;
     }
     if bit_count == 0 {
@@ -326,7 +329,7 @@ pub(crate) fn read_cache_config(
                     logged_missing_attr = true;
                 }
             }
-            Err(e) => return Err(e),
+            Err(err) => return Err(err),
         }
     }
     Ok(())
@@ -414,8 +417,8 @@ mod tests {
         assert!(to_bytes(&mut "64M".to_string()).is_ok());
 
         match to_bytes(&mut "64KK".to_string()) {
-            Err(e) => assert_eq!(
-                format!("{}", e),
+            Err(err) => assert_eq!(
+                format!("{}", err),
                 "Invalid cache configuration found for size: invalid digit found in string"
             ),
             _ => panic!("This should be an error!"),

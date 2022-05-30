@@ -110,7 +110,7 @@ pub(crate) trait VgicRegEngine {
         for offset in reg.iter::<Self::RegChunk>() {
             let mut val = Self::RegChunk::default();
             fd.get_device_attr(&mut Self::kvm_device_attr(offset, &mut val, mpidr))
-                .map_err(|e| Error::DeviceAttribute(e, false, Self::group()))?;
+                .map_err(|err| Error::DeviceAttribute(err, false, Self::group()))?;
             data.push(val);
         }
 
@@ -145,7 +145,7 @@ pub(crate) trait VgicRegEngine {
     {
         for (offset, val) in reg.iter::<Self::RegChunk>().zip(&data.chunks) {
             fd.set_device_attr(&Self::kvm_device_attr(offset, &mut val.clone(), mpidr))
-                .map_err(|e| Error::DeviceAttribute(e, true, Self::group()))?;
+                .map_err(|err| Error::DeviceAttribute(err, true, Self::group()))?;
         }
 
         Ok(())

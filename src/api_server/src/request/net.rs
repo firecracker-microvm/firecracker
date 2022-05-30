@@ -20,9 +20,9 @@ pub(crate) fn parse_put_net(
         return Err(Error::EmptyID);
     };
 
-    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|e| {
+    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.network_fails.inc();
-        e
+        err
     })?;
     if id != netif.iface_id.as_str() {
         METRICS.put_api_requests.network_fails.inc();
@@ -53,9 +53,9 @@ pub(crate) fn parse_patch_net(
     };
 
     let netif =
-        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|e| {
+        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|err| {
             METRICS.patch_api_requests.network_fails.inc();
-            e
+            err
         })?;
     if id != netif.iface_id {
         METRICS.patch_api_requests.network_count.inc();

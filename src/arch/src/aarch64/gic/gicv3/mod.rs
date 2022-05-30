@@ -137,7 +137,7 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
         flags: 0,
     };
     fd.set_device_attr(&init_gic_attr)
-        .map_err(|e| Error::DeviceAttribute(e, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
+        .map_err(|err| Error::DeviceAttribute(err, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
 }
 
 #[cfg(test)]

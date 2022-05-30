@@ -62,11 +62,13 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BusError(e) => write!(f, "failed to perform bus operation: {}", e),
-            Error::Cmdline(e) => write!(f, "unable to add device to kernel command line: {}", e),
-            Error::EventFd(e) => write!(f, "failed to create or clone event descriptor: {}", e),
+            Error::BusError(err) => write!(f, "failed to perform bus operation: {}", err),
+            Error::Cmdline(err) => {
+                write!(f, "unable to add device to kernel command line: {}", err)
+            }
+            Error::EventFd(err) => write!(f, "failed to create or clone event descriptor: {}", err),
             Error::IncorrectDeviceType => write!(f, "incorrect device type"),
-            Error::InternalDeviceError(e) => write!(f, "device error: {}", e),
+            Error::InternalDeviceError(err) => write!(f, "device error: {}", err),
             Error::InvalidInput => write!(f, "invalid configuration"),
             Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),
@@ -655,21 +657,21 @@ mod tests {
 
     #[test]
     fn test_error_debug_display() {
-        let check_fmt_err = |e: Error| {
+        let check_fmt_err = |err: Error| {
             // Use an exhaustive 'match' to make sure we cover all error variants.
             // When adding a new variant here, don't forget to also call this function with it.
-            let msg = match e {
-                Error::BusError(_) => format!("{}{:?}", e, e),
-                Error::Cmdline(_) => format!("{}{:?}", e, e),
-                Error::DeviceNotFound => format!("{}{:?}", e, e),
-                Error::EventFd(_) => format!("{}{:?}", e, e),
-                Error::IncorrectDeviceType => format!("{}{:?}", e, e),
-                Error::InternalDeviceError(_) => format!("{}{:?}", e, e),
-                Error::InvalidInput => format!("{}{:?}", e, e),
-                Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
-                Error::RegisterIrqFd(_) => format!("{}{:?}", e, e),
-                Error::UpdateFailed => format!("{}{:?}", e, e),
-                Error::AllocatorError(_) => format!("{}{:?}", e, e),
+            let msg = match err {
+                Error::BusError(_) => format!("{}{:?}", err, err),
+                Error::Cmdline(_) => format!("{}{:?}", err, err),
+                Error::DeviceNotFound => format!("{}{:?}", err, err),
+                Error::EventFd(_) => format!("{}{:?}", err, err),
+                Error::IncorrectDeviceType => format!("{}{:?}", err, err),
+                Error::InternalDeviceError(_) => format!("{}{:?}", err, err),
+                Error::InvalidInput => format!("{}{:?}", err, err),
+                Error::RegisterIoEvent(_) => format!("{}{:?}", err, err),
+                Error::RegisterIrqFd(_) => format!("{}{:?}", err, err),
+                Error::UpdateFailed => format!("{}{:?}", err, err),
+                Error::AllocatorError(_) => format!("{}{:?}", err, err),
             };
             assert!(!msg.is_empty());
         };

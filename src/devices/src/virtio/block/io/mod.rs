@@ -34,8 +34,8 @@ pub enum Error {
 
 impl Error {
     pub fn is_throttling_err(&self) -> bool {
-        if let Error::Async(async_io::Error::IoUring(e)) = self {
-            return e.is_throttling_err();
+        if let Error::Async(async_io::Error::IoUring(err)) = self {
+            return err.is_throttling_err();
         }
         false
     }
@@ -89,17 +89,17 @@ impl<T> FileEngine<T> {
             FileEngine::Async(engine) => {
                 match engine.push_read(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(e) => Err(UserDataError {
-                        user_data: e.user_data,
-                        error: Error::Async(e.error),
+                    Err(err) => Err(UserDataError {
+                        user_data: err.user_data,
+                        error: Error::Async(err.error),
                     }),
                 }
             }
             FileEngine::Sync(engine) => match engine.read(offset, mem, addr, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -117,17 +117,17 @@ impl<T> FileEngine<T> {
             FileEngine::Async(engine) => {
                 match engine.push_write(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(e) => Err(UserDataError {
-                        user_data: e.user_data,
-                        error: Error::Async(e.error),
+                    Err(err) => Err(UserDataError {
+                        user_data: err.user_data,
+                        error: Error::Async(err.error),
                     }),
                 }
             }
             FileEngine::Sync(engine) => match engine.write(offset, mem, addr, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -137,9 +137,9 @@ impl<T> FileEngine<T> {
         match self {
             FileEngine::Async(engine) => match engine.push_flush(user_data) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
-                Err(e) => Err(UserDataError {
-                    user_data: e.user_data,
-                    error: Error::Async(e.error),
+                Err(err) => Err(UserDataError {
+                    user_data: err.user_data,
+                    error: Error::Async(err.error),
                 }),
             },
             FileEngine::Sync(engine) => match engine.flush() {
@@ -147,9 +147,9 @@ impl<T> FileEngine<T> {
                     user_data,
                     count: 0,
                 })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -195,8 +195,8 @@ pub mod tests {
                     user_data: _,
                     error: $($pattern)+,
                 }) => (),
-                ref e => {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e);
+                ref err => {
+                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
                     assert!(false)
                 }
             }

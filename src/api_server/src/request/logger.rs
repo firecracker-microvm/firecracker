@@ -11,9 +11,9 @@ use crate::request::Body;
 pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.logger_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(
-        serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|e| {
+        serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|err| {
             METRICS.put_api_requests.logger_fails.inc();
-            e
+            err
         })?,
     )))
 }

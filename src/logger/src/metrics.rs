@@ -169,8 +169,8 @@ impl<T: Serialize> Metrics<T> {
                         );
                     }
                 }
-                Err(e) => {
-                    return Err(MetricsError::Serde(e.to_string()));
+                Err(err) => {
+                    return Err(MetricsError::Serde(err.to_string()));
                 }
             }
         }
@@ -204,12 +204,12 @@ pub enum MetricsError {
 impl fmt::Display for MetricsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            MetricsError::NeverInitialized(ref e) => e.to_string(),
+            MetricsError::NeverInitialized(ref err) => err.to_string(),
             MetricsError::AlreadyInitialized => {
                 "Reinitialization of metrics not allowed.".to_string()
             }
-            MetricsError::Serde(ref e) => e.to_string(),
-            MetricsError::Write(ref e) => format!("Failed to write metrics: {}", e),
+            MetricsError::Serde(ref err) => err.to_string(),
+            MetricsError::Write(ref err) => format!("Failed to write metrics: {}", err),
         };
         write!(f, "{}", printable)
     }

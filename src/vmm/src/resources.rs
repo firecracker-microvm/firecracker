@@ -55,17 +55,17 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::BalloonDevice(e) => write!(f, "Balloon device error: {}", e),
-            Error::BlockDevice(e) => write!(f, "Block device error: {}", e),
-            Error::BootSource(e) => write!(f, "Boot source error: {}", e),
-            Error::InvalidJson(e) => write!(f, "Invalid JSON: {}", e),
-            Error::Logger(e) => write!(f, "Logger error: {}", e),
-            Error::Metrics(e) => write!(f, "Metrics error: {}", e),
-            Error::Mmds(e) => write!(f, "MMDS error: {}", e),
-            Error::MmdsConfig(e) => write!(f, "MMDS config error: {}", e),
-            Error::NetDevice(e) => write!(f, "Network device error: {}", e),
-            Error::VmConfig(e) => write!(f, "VM config error: {}", e),
-            Error::VsockDevice(e) => write!(f, "Vsock device error: {}", e),
+            Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
+            Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
+            Error::BootSource(err) => write!(f, "Boot source error: {}", err),
+            Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
+            Error::Logger(err) => write!(f, "Logger error: {}", err),
+            Error::Metrics(err) => write!(f, "Metrics error: {}", err),
+            Error::Mmds(err) => write!(f, "MMDS error: {}", err),
+            Error::MmdsConfig(err) => write!(f, "MMDS config error: {}", err),
+            Error::NetDevice(err) => write!(f, "Network device error: {}", err),
+            Error::VmConfig(err) => write!(f, "VM config error: {}", err),
+            Error::VsockDevice(err) => write!(f, "Vsock device error: {}", err),
         }
     }
 }
@@ -409,7 +409,7 @@ impl VmResources {
         let mut mmds_guard = self.locked_mmds_or_default();
         mmds_guard
             .set_version(version)
-            .map_err(|e| MmdsConfigError::MmdsVersion(version, e))?;
+            .map_err(|err| MmdsConfigError::MmdsVersion(version, err))?;
         mmds_guard.set_aad(instance_id);
 
         Ok(())

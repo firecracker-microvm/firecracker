@@ -608,17 +608,17 @@ where
         // The TX buffer is empty, so we can try to write straight to the host stream.
         let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
             Ok(cnt) => cnt,
-            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(e)))
-                if e.kind() == ErrorKind::WouldBlock =>
+            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
+                if err.kind() == ErrorKind::WouldBlock =>
             {
                 // Absorb any would-block errors, since we can always try again later.
                 0
             }
-            Err(e) => {
+            Err(err) => {
                 // We don't know how to handle any other write error, so we'll send it up
                 // the call chain.
                 METRICS.vsock.tx_write_fails.inc();
-                return Err(e);
+                return Err(err);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.

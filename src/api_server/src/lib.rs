@@ -170,8 +170,8 @@ impl ApiServer {
         api_payload_limit: usize,
         socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).unwrap_or_else(|e| {
-            error!("Error creating the HTTP server: {}", e);
+        let mut server = HttpServer::new(path).unwrap_or_else(|err| {
+            error!("Error creating the HTTP server: {}", err);
             std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
         // Announce main thread that the socket path was created.
@@ -191,10 +191,10 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
+        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: {}",
-                e
+                err
             );
         }
 
@@ -203,9 +203,9 @@ impl ApiServer {
         loop {
             let request_vec = match server.requests() {
                 Ok(vec) => vec,
-                Err(e) => {
+                Err(err) => {
                     // print request error, but keep server running
-                    error!("API Server error on retrieving incoming request: {}", e);
+                    error!("API Server error on retrieving incoming request: {}", err);
                     continue;
                 }
             };
@@ -219,8 +219,8 @@ impl ApiServer {
                             self.handle_request(request, request_processing_start_us)
                         }),
                     )
-                    .or_else(|e| {
-                        error!("API Server encountered an error on response: {}", e);
+                    .or_else(|err| {
+                        error!("API Server encountered an error on response: {}", err);
                         Ok(())
                     })?;
 
@@ -262,9 +262,9 @@ impl ApiServer {
                 }
                 response
             }
-            Err(e) => {
-                error!("{}", e);
-                e.into()
+            Err(err) => {
+                error!("{}", err);
+                err.into()
             }
         }
     }
@@ -343,28 +343,28 @@ mod tests {
 
     #[test]
     fn test_error_messages() {
-        let e = Error::Io(io::Error::from_raw_os_error(0));
+        let err = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", err),
             format!("IO error: {}", io::Error::from_raw_os_error(0))
         );
-        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", err),
             format!("EventFd error: {}", io::Error::from_raw_os_error(0))
         );
     }
 
     #[test]
     fn test_error_debug() {
-        let e = Error::Io(io::Error::from_raw_os_error(0));
+        let err = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{:?}", e),
+            format!("{:?}", err),
             format!("IO error: {}", io::Error::from_raw_os_error(0))
         );
-        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{:?}", e),
+            format!("{:?}", err),
             format!("EventFd error: {}", io::Error::from_raw_os_error(0))
         );
     }

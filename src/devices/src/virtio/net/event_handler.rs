@@ -12,40 +12,40 @@ use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.queue_evts[RX_INDEX], EventSet::IN)) {
-            error!("Failed to register rx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_evts[RX_INDEX], EventSet::IN)) {
+            error!("Failed to register rx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_evts[TX_INDEX], EventSet::IN)) {
-            error!("Failed to register tx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_evts[TX_INDEX], EventSet::IN)) {
+            error!("Failed to register tx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.rx_rate_limiter, EventSet::IN)) {
-            error!("Failed to register rx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.rx_rate_limiter, EventSet::IN)) {
+            error!("Failed to register rx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.tx_rate_limiter, EventSet::IN)) {
-            error!("Failed to register tx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.tx_rate_limiter, EventSet::IN)) {
+            error!("Failed to register tx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(
+        if let Err(err) = ops.add(Events::new(
             &self.tap,
             EventSet::IN | EventSet::EDGE_TRIGGERED,
         )) {
-            error!("Failed to register tap event: {}", e);
+            error!("Failed to register tap event: {}", err);
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
         debug!("net: activate event");
-        if let Err(e) = self.activate_evt.read() {
-            error!("Failed to consume net activate event: {:?}", e);
+        if let Err(err) = self.activate_evt.read() {
+            error!("Failed to consume net activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(e) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to un-register activate event: {}", e);
+        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to un-register activate event: {}", err);
         }
     }
 }

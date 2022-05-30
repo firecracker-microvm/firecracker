@@ -283,8 +283,8 @@ impl Block {
 
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
-        if let Err(e) = self.queue_evts[0].read() {
-            error!("Failed to get queue event: {:?}", e);
+        if let Err(err) = self.queue_evts[0].read() {
+            error!("Failed to get queue event: {:?}", err);
             METRICS.block.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
             METRICS.block.rate_limiter_throttled_events.inc();
@@ -316,9 +316,9 @@ impl Block {
         mem: &GuestMemoryMmap,
         irq_trigger: &IrqTrigger,
     ) {
-        queue
-            .add_used(mem, index, len)
-            .unwrap_or_else(|e| error!("Failed to add available descriptor head {}: {}", index, e));
+        queue.add_used(mem, index, len).unwrap_or_else(|err| {
+            error!("Failed to add available descriptor head {}: {}", index, err)
+        });
 
         if queue.prepare_kick(mem) {
             irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
@@ -348,8 +348,8 @@ impl Block {
                     used_any = true;
                     request.process(&mut self.disk, head.index, mem)
                 }
-                Err(e) => {
-                    error!("Failed to parse available descriptor chain: {:?}", e);
+                Err(err) => {
+                    error!("Failed to parse available descriptor chain: {:?}", err);
                     METRICS.block.execute_fails.inc();
                     ProcessingResult::Executed(FinishedRequest {
                         num_bytes_to_mem: 0,
@@ -378,8 +378,8 @@ impl Block {
         }
 
         if let FileEngine::Async(engine) = self.disk.file_engine_mut() {
-            if let Err(e) = engine.kick_submission_queue() {
-                error!("Error submitting pending block requests: {:?}", e);
+            if let Err(err) = engine.kick_submission_queue() {
+                error!("Error submitting pending block requests: {:?}", err);
             }
         }
 
@@ -432,8 +432,8 @@ impl Block {
     pub fn process_async_completion_event(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
-        if let Err(e) = engine.completion_evt().read() {
-            error!("Failed to get async completion event: {:?}", e);
+        if let Err(err) = engine.completion_evt().read() {
+            error!("Failed to get async completion event: {:?}", err);
             return;
         }
 
@@ -511,8 +511,8 @@ impl Block {
     }
 
     fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(e) = self.disk.file_engine_mut().drain_and_flush(discard) {
-            error!("Failed to drain ops and flush block data: {:?}", e);
+        if let Err(err) = self.disk.file_engine_mut().drain_and_flush(discard) {
+            error!("Failed to drain ops and flush block data: {:?}", err);
         }
     }
 
@@ -617,8 +617,8 @@ impl Drop for Block {
     fn drop(&mut self) {
         match self.disk.cache_type {
             CacheType::Unsafe => {
-                if let Err(e) = self.disk.file_engine_mut().drain(true) {
-                    error!("Failed to drain ops on drop: {:?}", e);
+                if let Err(err) = self.disk.file_engine_mut().drain(true) {
+                    error!("Failed to drain ops on drop: {:?}", err);
                 }
             }
             CacheType::Writeback => {

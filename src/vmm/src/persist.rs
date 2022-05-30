@@ -305,7 +305,7 @@ fn snapshot_state_to_file(
         .create(true)
         .write(true)
         .open(snapshot_path)
-        .map_err(|e| SnapshotBackingFile("open", e))?;
+        .map_err(|err| SnapshotBackingFile("open", err))?;
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
@@ -313,10 +313,10 @@ fn snapshot_state_to_file(
         .map_err(SerializeMicrovmState)?;
     snapshot_file
         .flush()
-        .map_err(|e| SnapshotBackingFile("flush", e))?;
+        .map_err(|err| SnapshotBackingFile("flush", err))?;
     snapshot_file
         .sync_all()
-        .map_err(|e| SnapshotBackingFile("sync_all", e))
+        .map_err(|err| SnapshotBackingFile("sync_all", err))
 }
 
 fn snapshot_memory_to_file(
@@ -330,12 +330,12 @@ fn snapshot_memory_to_file(
         .create(true)
         .truncate(true)
         .open(mem_file_path)
-        .map_err(|e| MemoryBackingFile("open", e))?;
+        .map_err(|err| MemoryBackingFile("open", err))?;
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
+        .map_err(|err| MemoryBackingFile("set_length", err))?;
 
     match snapshot_type {
         SnapshotType::Diff => {
@@ -346,9 +346,10 @@ fn snapshot_memory_to_file(
         }
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }?;
-    file.flush().map_err(|e| MemoryBackingFile("flush", e))?;
+    file.flush()
+        .map_err(|err| MemoryBackingFile("flush", err))?;
     file.sync_all()
-        .map_err(|e| MemoryBackingFile("sync_all", e))
+        .map_err(|err| MemoryBackingFile("sync_all", err))
 }
 
 /// Validate the microVM version and translate it to its corresponding snapshot data format.
@@ -431,11 +432,11 @@ pub fn validate_cpu_manufacturer_id(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
     let host_man_id = get_manufacturer_id_from_host()
-        .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
+        .map_err(|err| LoadSnapshotError::CpuVendorCheck(err.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
         let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
-            .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
+            .map_err(|err| LoadSnapshotError::CpuVendorCheck(err.to_string()))?;
 
         if host_man_id != state_man_id {
             let error_string = format!(
@@ -533,9 +534,9 @@ fn snapshot_state_from_file(
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
     use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
     let mut snapshot_reader =
-        File::open(snapshot_path).map_err(|e| SnapshotBackingFile("open", e))?;
+        File::open(snapshot_path).map_err(|err| SnapshotBackingFile("open", err))?;
     let metadata = std::fs::metadata(snapshot_path)
-        .map_err(|e| SnapshotBackingFile("metadata retrieval", e))?;
+        .map_err(|err| SnapshotBackingFile("metadata retrieval", err))?;
     let snapshot_len = metadata.len() as usize;
     Snapshot::load(&mut snapshot_reader, snapshot_len, version_map).map_err(DeserializeMicrovmState)
 }

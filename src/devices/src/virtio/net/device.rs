@@ -257,10 +257,12 @@ impl Net {
         };
 
         if queue.prepare_kick(mem) {
-            self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
-                METRICS.net.event_fails.inc();
-                DeviceError::FailedSignalingIrq(e)
-            })?;
+            self.irq_trigger
+                .trigger_irq(IrqType::Vring)
+                .map_err(|err| {
+                    METRICS.net.event_fails.inc();
+                    DeviceError::FailedSignalingIrq(err)
+                })?;
         }
 
         Ok(())
@@ -327,12 +329,12 @@ impl Net {
                     METRICS.net.rx_count.inc();
                     chunk = &chunk[len..];
                 }
-                Err(e) => {
-                    error!("Failed to write slice: {:?}", e);
-                    if let GuestMemoryError::PartialBuffer { .. } = e {
+                Err(err) => {
+                    error!("Failed to write slice: {:?}", err);
+                    if let GuestMemoryError::PartialBuffer { .. } = err {
                         METRICS.net.rx_partial_writes.inc();
                     }
-                    return Err(FrontendError::GuestMemory(e));
+                    return Err(FrontendError::GuestMemory(err));
                 }
             }
 
@@ -374,8 +376,8 @@ impl Net {
         } else {
             self.rx_bytes_read as u32
         };
-        queue.add_used(mem, head_index, used_len).map_err(|e| {
-            error!("Failed to add available descriptor {}: {}", head_index, e);
+        queue.add_used(mem, head_index, used_len).map_err(|err| {
+            error!("Failed to add available descriptor {}: {}", head_index, err);
             FrontendError::AddUsed
         })?;
 
@@ -414,10 +416,10 @@ impl Net {
         guest_mac: Option<MacAddr>,
     ) -> Result<bool> {
         let checked_frame = |frame_buf| {
-            frame_bytes_from_buf(frame_buf).map_err(|e| {
+            frame_bytes_from_buf(frame_buf).map_err(|err| {
                 error!("VNET header missing in the TX frame.");
                 METRICS.net.tx_malformed_frames.inc();
-                e
+                err
             })
         };
         if let Some(ns) = mmds_ns {
@@ -450,8 +452,8 @@ impl Net {
                 METRICS.net.tx_packets_count.inc();
                 METRICS.net.tx_count.inc();
             }
-            Err(e) => {
-                error!("Failed to write to tap: {:?}", e);
+            Err(err) => {
+                error!("Failed to write to tap: {:?}", err);
                 METRICS.net.tap_write_fails.inc();
             }
         };
@@ -487,21 +489,21 @@ impl Net {
                         break;
                     }
                 }
-                Err(Error::IO(e)) => {
+                Err(Error::IO(err)) => {
                     // The tap device is non-blocking, so any error aside from EAGAIN is
                     // unexpected.
-                    match e.raw_os_error() {
+                    match err.raw_os_error() {
                         Some(err) if err == EAGAIN => (),
                         _ => {
-                            error!("Failed to read tap: {:?}", e);
+                            error!("Failed to read tap: {:?}", err);
                             METRICS.net.tap_read_fails.inc();
                             return Err(DeviceError::FailedReadTap);
                         }
                     };
                     break;
                 }
-                Err(e) => {
-                    error!("Spurious error in network RX: {:?}", e);
+                Err(err) => {
+                    error!("Spurious error in network RX: {:?}", err);
                 }
             }
         }
@@ -600,9 +602,9 @@ impl Net {
                         read_count += limit - read_count;
                         METRICS.net.tx_count.inc();
                     }
-                    Err(e) => {
-                        error!("Failed to read slice: {:?}", e);
-                        match e {
+                    Err(err) => {
+                        error!("Failed to read slice: {:?}", err);
+                        match err {
                             GuestMemoryError::PartialBuffer { .. } => &METRICS.net.tx_partial_reads,
                             _ => &METRICS.net.tx_fails,
                         }
@@ -666,9 +668,9 @@ impl Net {
     pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
 
-        if let Err(e) = self.queue_evts[RX_INDEX].read() {
+        if let Err(err) = self.queue_evts[RX_INDEX].read() {
             // rate limiters present but with _very high_ allowed rate
-            error!("Failed to get rx queue event: {:?}", e);
+            error!("Failed to get rx queue event: {:?}", err);
             METRICS.net.event_fails.inc();
         } else if self.rx_rate_limiter.is_blocked() {
             METRICS.net.rx_rate_limiter_throttled.inc();
@@ -711,8 +713,8 @@ impl Net {
 
     pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
-        if let Err(e) = self.queue_evts[TX_INDEX].read() {
-            error!("Failed to get tx queue event: {:?}", e);
+        if let Err(err) = self.queue_evts[TX_INDEX].read() {
+            error!("Failed to get tx queue event: {:?}", err);
             METRICS.net.event_fails.inc();
         } else if !self.tx_rate_limiter.is_blocked()
         // If the limiter is not blocked, continue transmitting bytes.
@@ -733,8 +735,8 @@ impl Net {
                 // There might be enough budget now to receive the frame.
                 self.resume_rx().unwrap_or_else(report_net_event_fail);
             }
-            Err(e) => {
-                error!("Failed to get rx rate-limiter event: {:?}", e);
+            Err(err) => {
+                error!("Failed to get rx rate-limiter event: {:?}", err);
                 METRICS.net.event_fails.inc();
             }
         }
@@ -749,8 +751,8 @@ impl Net {
                 // There might be enough budget now to send the frame.
                 self.process_tx().unwrap_or_else(report_net_event_fail);
             }
-            Err(e) => {
-                error!("Failed to get tx rate-limiter event: {:?}", e);
+            Err(err) => {
+                error!("Failed to get tx rate-limiter event: {:?}", err);
                 METRICS.net.event_fails.inc();
             }
         }

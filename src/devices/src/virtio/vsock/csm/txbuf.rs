@@ -137,7 +137,7 @@ impl Write for TxBuf {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.push(buf)
             .map(|()| buf.len())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -252,9 +252,9 @@ mod tests {
         }
 
         match txbuf.write(&[1, 2]) {
-            Err(e) => {
+            Err(err) => {
                 assert_eq!(
-                    format!("{}", e),
+                    format!("{}", err),
                     "Attempted to push data to a full TX buffer"
                 );
             }

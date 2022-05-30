@@ -290,8 +290,8 @@ impl VsockEpollListener for VsockMuxer {
                     );
                 }
             }
-            Err(e) => {
-                warn!("vsock: failed to consume muxer epoll event: {}", e);
+            Err(err) => {
+                warn!("vsock: failed to consume muxer epoll event: {}", err);
                 METRICS.vsock.muxer_event_fails.inc();
             }
         }

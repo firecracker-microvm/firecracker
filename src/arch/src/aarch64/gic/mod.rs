@@ -101,7 +101,7 @@ pub trait GICDevice {
             addr,
         };
         fd.set_device_attr(&attr)
-            .map_err(|e| Error::DeviceAttribute(e, true, group))?;
+            .map_err(|err| Error::DeviceAttribute(err, true, group))?;
 
         Ok(())
     }

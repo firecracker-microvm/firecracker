@@ -254,11 +254,11 @@ trait MmdsRequestHandler {
         self.mmds()
             .patch_data(value)
             .map(|()| VmmData::Empty)
-            .map_err(|e| match e {
+            .map_err(|err| match err {
                 data_store::Error::DataStoreLimitExceeded => {
                     VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
                 }
-                _ => VmmActionError::Mmds(e),
+                _ => VmmActionError::Mmds(err),
             })
     }
 
@@ -266,11 +266,11 @@ trait MmdsRequestHandler {
         self.mmds()
             .put_data(value)
             .map(|()| VmmData::Empty)
-            .map_err(|e| match e {
+            .map_err(|err| match err {
                 data_store::Error::DataStoreLimitExceeded => {
                     VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
                 }
-                _ => VmmActionError::Mmds(e),
+                _ => VmmActionError::Mmds(err),
             })
     }
 }
@@ -557,10 +557,10 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(LoadSnapshotError::ResumeMicroVm)
         })
-        .map_err(|e| {
+        .map_err(|err| {
             // The process is too dirty to recover at this point.
             self.fatal_error = Some(FcExitCode::BadConfiguration);
-            VmmActionError::LoadSnapshot(e)
+            VmmActionError::LoadSnapshot(err)
         });
 
         log_dev_preview_warning(
@@ -604,14 +604,14 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .balloon_config()
                 .map(|state| VmmData::BalloonConfig(BalloonDeviceConfig::from(state)))
-                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             GetBalloonStats => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
-                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
@@ -635,14 +635,14 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .update_balloon_config(balloon_update.amount_mib)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             UpdateBalloonStatistics(balloon_stats_update) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
 
@@ -966,7 +966,7 @@ mod tests {
             let mut mmds_guard = self.locked_mmds_or_default();
             mmds_guard
                 .set_version(mmds_config.version)
-                .map_err(|e| MmdsConfigError::MmdsVersion(mmds_config.version, e))?;
+                .map_err(|err| MmdsConfigError::MmdsVersion(mmds_config.version, err))?;
             Ok(())
         }
 

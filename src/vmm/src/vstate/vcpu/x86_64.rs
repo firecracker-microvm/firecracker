@@ -101,49 +101,51 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            CpuId(e) => write!(f, "Cpuid error: {:?}", e),
-            LocalIntConfiguration(e) => write!(
+            CpuId(err) => write!(f, "Cpuid error: {:?}", err),
+            LocalIntConfiguration(err) => write!(
                 f,
                 "Cannot set the local interruption due to bad configuration: {:?}",
-                e
+                err
             ),
-            VcpuFd(e) => write!(f, "Cannot open the VCPU file descriptor: {}", e),
-            MSRSConfiguration(e) => write!(f, "Error configuring the MSR registers: {:?}", e),
-            REGSConfiguration(e) => write!(
+            VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
+            MSRSConfiguration(err) => write!(f, "Error configuring the MSR registers: {:?}", err),
+            REGSConfiguration(err) => write!(
                 f,
                 "Error configuring the general purpose registers: {:?}",
-                e
+                err
             ),
-            SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
-            FamError(e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
-            FPUConfiguration(e) => write!(
+            SREGSConfiguration(err) => {
+                write!(f, "Error configuring the special registers: {:?}", err)
+            }
+            FamError(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
+            FPUConfiguration(err) => write!(
                 f,
                 "Error configuring the floating point related registers: {:?}",
-                e
+                err
             ),
-            VcpuGetDebugRegs(e) => write!(f, "Failed to get KVM vcpu debug regs: {}", e),
-            VcpuGetLapic(e) => write!(f, "Failed to get KVM vcpu lapic: {}", e),
-            VcpuGetMpState(e) => write!(f, "Failed to get KVM vcpu mp state: {}", e),
-            VcpuGetMsrs(e) => write!(f, "Failed to get KVM vcpu msrs: {}", e),
+            VcpuGetDebugRegs(err) => write!(f, "Failed to get KVM vcpu debug regs: {}", err),
+            VcpuGetLapic(err) => write!(f, "Failed to get KVM vcpu lapic: {}", err),
+            VcpuGetMpState(err) => write!(f, "Failed to get KVM vcpu mp state: {}", err),
+            VcpuGetMsrs(err) => write!(f, "Failed to get KVM vcpu msrs: {}", err),
             VcpuGetMSRSIncomplete => write!(f, "Unexpected number of MSRS reported by the kernel"),
-            VcpuGetRegs(e) => write!(f, "Failed to get KVM vcpu regs: {}", e),
-            VcpuGetSregs(e) => write!(f, "Failed to get KVM vcpu sregs: {}", e),
-            VcpuGetVcpuEvents(e) => write!(f, "Failed to get KVM vcpu event: {}", e),
-            VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
-            VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
-            VcpuGetCpuid(e) => write!(f, "Failed to get KVM vcpu cpuid: {}", e),
-            VcpuGetTSC(e) => write!(f, "Failed to get KVM TSC frequency: {}", e),
-            VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
-            VcpuSetDebugRegs(e) => write!(f, "Failed to set KVM vcpu debug regs: {}", e),
-            VcpuSetLapic(e) => write!(f, "Failed to set KVM vcpu lapic: {}", e),
-            VcpuSetMpState(e) => write!(f, "Failed to set KVM vcpu mp state: {}", e),
-            VcpuSetMsrs(e) => write!(f, "Failed to set KVM vcpu msrs: {}", e),
-            VcpuSetRegs(e) => write!(f, "Failed to set KVM vcpu regs: {}", e),
-            VcpuSetSregs(e) => write!(f, "Failed to set KVM vcpu sregs: {}", e),
-            VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
-            VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
-            VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
-            VcpuSetTSC(e) => write!(f, "Failed to set KVM TSC frequency: {}", e),
+            VcpuGetRegs(err) => write!(f, "Failed to get KVM vcpu regs: {}", err),
+            VcpuGetSregs(err) => write!(f, "Failed to get KVM vcpu sregs: {}", err),
+            VcpuGetVcpuEvents(err) => write!(f, "Failed to get KVM vcpu event: {}", err),
+            VcpuGetXcrs(err) => write!(f, "Failed to get KVM vcpu xcrs: {}", err),
+            VcpuGetXsave(err) => write!(f, "Failed to get KVM vcpu xsave: {}", err),
+            VcpuGetCpuid(err) => write!(f, "Failed to get KVM vcpu cpuid: {}", err),
+            VcpuGetTSC(err) => write!(f, "Failed to get KVM TSC frequency: {}", err),
+            VcpuSetCpuid(err) => write!(f, "Failed to set KVM vcpu cpuid: {}", err),
+            VcpuSetDebugRegs(err) => write!(f, "Failed to set KVM vcpu debug regs: {}", err),
+            VcpuSetLapic(err) => write!(f, "Failed to set KVM vcpu lapic: {}", err),
+            VcpuSetMpState(err) => write!(f, "Failed to set KVM vcpu mp state: {}", err),
+            VcpuSetMsrs(err) => write!(f, "Failed to set KVM vcpu msrs: {}", err),
+            VcpuSetRegs(err) => write!(f, "Failed to set KVM vcpu regs: {}", err),
+            VcpuSetSregs(err) => write!(f, "Failed to set KVM vcpu sregs: {}", err),
+            VcpuSetVcpuEvents(err) => write!(f, "Failed to set KVM vcpu event: {}", err),
+            VcpuSetXcrs(err) => write!(f, "Failed to set KVM vcpu xcrs: {}", err),
+            VcpuSetXsave(err) => write!(f, "Failed to set KVM vcpu xsave: {}", err),
+            VcpuSetTSC(err) => write!(f, "Failed to set KVM TSC frequency: {}", err),
         }
     }
 }
@@ -198,13 +200,13 @@ impl KvmVcpu {
         let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.smt)
             .map_err(Error::CpuId)?;
 
-        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|e| {
+        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|err| {
             METRICS.vcpu.filter_cpuid.inc();
             error!(
                 "Failure in configuring CPUID for vcpu {}: {:?}",
-                self.index, e
+                self.index, err
             );
-            Error::CpuId(e)
+            Error::CpuId(err)
         })?;
 
         match vcpu_config.cpu_template {

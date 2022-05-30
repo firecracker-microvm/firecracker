@@ -216,7 +216,7 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
             StatusCode::OK,
             Body::new(response_body),
         ),
-        Err(e) => match e {
+        Err(err) => match err {
             MmdsError::NotFound => {
                 let error_msg = Error::ResourceNotFound(String::from(uri)).to_string();
                 build_response(
@@ -228,12 +228,12 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
             MmdsError::UnsupportedValueType => build_response(
                 request.http_version(),
                 StatusCode::NotImplemented,
-                Body::new(e.to_string()),
+                Body::new(err.to_string()),
             ),
             MmdsError::DataStoreLimitExceeded => build_response(
                 request.http_version(),
                 StatusCode::PayloadTooLarge,
-                Body::new(e.to_string()),
+                Body::new(err.to_string()),
             ),
             _ => unreachable!(),
         },

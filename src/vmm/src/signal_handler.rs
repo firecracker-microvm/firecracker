@@ -21,8 +21,8 @@ const SYS_SECCOMP_CODE: i32 = 1;
 #[inline]
 fn exit_with_code(exit_code: FcExitCode) {
     // Write the metrics before exiting.
-    if let Err(e) = METRICS.write() {
-        error!("Failed to write metrics while stopping: {}", e);
+    if let Err(err) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", err);
     }
     // Safe because we're terminating the process anyway.
     unsafe { libc::_exit(exit_code as i32) };

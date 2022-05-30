@@ -121,7 +121,7 @@ impl Env {
             .single_value("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
         let exec_file_path = canonicalize(&exec_file)
-            .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
+            .map_err(|err| Error::Canonicalize(PathBuf::from(&exec_file), err))?;
 
         if !exec_file_path.is_file() {
             return Err(Error::NotAFile(exec_file_path));
@@ -135,7 +135,7 @@ impl Env {
             .single_value("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
         let mut chroot_dir = canonicalize(&chroot_base)
-            .map_err(|e| Error::Canonicalize(PathBuf::from(&chroot_base), e))?;
+            .map_err(|err| Error::Canonicalize(PathBuf::from(&chroot_base), err))?;
 
         if !chroot_dir.is_dir() {
             return Err(Error::NotADirectory(chroot_dir));
@@ -300,10 +300,10 @@ impl Env {
             .write(true)
             .create_new(true)
             .open(pid_file_path.clone())
-            .map_err(|e| Error::FileOpen(pid_file_path.clone(), e))?;
+            .map_err(|err| Error::FileOpen(pid_file_path.clone(), err))?;
 
         // Write PID to file.
-        write!(pid_file, "{}", pid).map_err(|e| Error::Write(pid_file_path, e))
+        write!(pid_file, "{}", pid).map_err(|err| Error::Write(pid_file_path, err))
     }
 
     fn mknod_and_own_dev(
@@ -327,9 +327,9 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|e| {
+        .map_err(|err| {
             Error::MknodDev(
-                e,
+                err,
                 std::str::from_utf8(dev_path_str).expect("Cannot convert from UTF-8"),
             )
         })?;
@@ -337,7 +337,7 @@ impl Env {
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             // Safe to unwrap as we provided valid file names.
-            .map_err(|e| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), e))
+            .map_err(|err| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), err))
     }
 
     fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
@@ -346,9 +346,9 @@ impl Env {
         // Safe to unwrap as the byte sequence is UTF-8 validated above.
         let path = folder_cstr.to_str().unwrap();
         let path_buf = PathBuf::from(path);
-        fs::create_dir_all(path).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
+        fs::create_dir_all(path).map_err(|err| Error::CreateDir(path_buf.clone(), err))?;
         fs::set_permissions(path, Permissions::from_mode(FOLDER_PERMISSIONS))
-            .map_err(|e| Error::Chmod(path_buf.clone(), e))?;
+            .map_err(|err| Error::Chmod(path_buf.clone(), err))?;
 
         #[cfg(target_arch = "x86_64")]
         let folder_bytes_ptr = folder.as_ptr() as *const i8;
@@ -356,7 +356,7 @@ impl Env {
         let folder_bytes_ptr = folder.as_ptr();
         SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(path_buf, e))
+            .map_err(|err| Error::ChangeFileOwner(path_buf, err))
     }
 
     fn copy_exec_to_chroot(&mut self) -> Result<OsString> {
@@ -373,8 +373,9 @@ impl Env {
 
         // TODO: hard link instead of copy? This would save up disk space, but hard linking is
         // not always possible :(
-        fs::copy(&self.exec_file_path, &self.chroot_dir)
-            .map_err(|e| Error::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), e))?;
+        fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
+            Error::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
+        })?;
 
         // Pop exec_file_name.
         self.chroot_dir.pop();
@@ -385,7 +386,7 @@ impl Env {
         // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately)
         // instead used `into_raw_fd` which provides underlying fd ownership to caller.
         let netns_fd = File::open(path)
-            .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
+            .map_err(|err| Error::FileOpen(PathBuf::from(path), err))?
             .into_raw_fd();
 
         // Safe because we are passing valid parameters.
@@ -437,7 +438,7 @@ impl Env {
         let jailer_cache_dir =
             Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/cache/");
         fs::create_dir_all(&jailer_cache_dir)
-            .map_err(|e| Error::CreateDir(jailer_cache_dir.to_owned(), e))?;
+            .map_err(|err| Error::CreateDir(jailer_cache_dir.to_owned(), err))?;
 
         for index in 0..(MAX_CACHE_LEVEL + 1) {
             let index_folder = format!("index{}", index);
@@ -452,7 +453,7 @@ impl Env {
             // We now create the destination folder in the jailer.
             let jailer_path = jailer_cache_dir.join(&index_folder);
             fs::create_dir_all(&jailer_path)
-                .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
+                .map_err(|err| Error::CreateDir(jailer_path.to_owned(), err))?;
 
             // We now read the contents of the current directory and copy the files we are
             // interested in to the destination path.
@@ -469,7 +470,7 @@ impl Env {
                     libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
                 })
                 .into_empty_result()
-                .map_err(|e| Error::ChangeFileOwner(jailer_cache_file.to_owned(), e))?;
+                .map_err(|err| Error::ChangeFileOwner(jailer_cache_file.to_owned(), err))?;
             }
         }
         Ok(())
@@ -484,7 +485,7 @@ impl Env {
         let jailer_midr_el1_directory =
             Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/regs/identification/");
         fs::create_dir_all(&jailer_midr_el1_directory)
-            .map_err(|e| Error::CreateDir(jailer_midr_el1_directory.to_owned(), e))?;
+            .map_err(|err| Error::CreateDir(jailer_midr_el1_directory.to_owned(), err))?;
 
         let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
         let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
@@ -497,7 +498,7 @@ impl Env {
         let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
         SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), e))?;
+            .map_err(|err| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
 
         Ok(())
     }

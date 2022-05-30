@@ -326,12 +326,12 @@ where
     V: ::std::fmt::Display,
 {
     fs::write(file_path, format!("{}\n", value))
-        .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
+        .map_err(|err| Error::Write(PathBuf::from(file_path.as_ref()), err))
 }
 
 pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     let mut line = fs::read_to_string(file_path)
-        .map_err(|e| Error::ReadToString(PathBuf::from(file_path.as_ref()), e))?;
+        .map_err(|err| Error::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
 
     // Remove the newline character at the end (if any).
     line.pop();
@@ -381,7 +381,7 @@ pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
         .to_path_buf()
         .into_os_string()
         .into_string()
-        .map_err(|e| Error::OsStringParsing(path.as_ref().to_path_buf(), e))?;
+        .map_err(|err| Error::OsStringParsing(path.as_ref().to_path_buf(), err))?;
     CString::new(path_str).map_err(Error::CStringParsing)
 }
 
@@ -422,7 +422,7 @@ fn main() {
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
-            .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
+            .map_err(|err| Error::CreateDir(env.chroot_dir().to_owned(), err))?;
         env.run()
     })
     .unwrap_or_else(|err| panic!("Jailer error: {}", err));

@@ -43,11 +43,11 @@ impl fmt::Display for BalloonConfigError {
             InvalidStatsUpdate => write!(f, "Cannot enable/disable the statistics after boot."),
             TooManyPagesRequested => write!(f, "Amount of pages requested is too large."),
             StatsNotFound => write!(f, "Statistics for the balloon device are not enabled"),
-            CreateFailure(e) => write!(f, "Error creating the balloon device: {:?}", e),
-            UpdateFailure(e) => write!(
+            CreateFailure(err) => write!(f, "Error creating the balloon device: {:?}", err),
+            UpdateFailure(err) => write!(
                 f,
                 "Error updating the balloon device configuration: {:?}",
-                e
+                err
             ),
         }
     }

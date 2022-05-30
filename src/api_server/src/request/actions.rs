@@ -30,9 +30,9 @@ struct ActionBody {
 
 pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.actions_count.inc();
-    let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|e| {
+    let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.actions_fails.inc();
-        e
+        err
     })?;
 
     match action_body.action_type {
