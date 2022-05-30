@@ -17,7 +17,7 @@
             "ints": {
                 "randint": {
                     "Sum": {
-                        "target": 700
+                        "target": 1001
                     }
                 }
             }
