@@ -550,9 +550,9 @@ def configure_git_safe_directory():
         utils.run_cmd('git config --global '
                       '--add safe.directory {}'.format(working_dir.parent))
     except ChildProcessError as error:
-        assert False, "Failure to set the safe.directory " \
-                      "git config to [{}] required for gitlint tests: " \
-                      "{}".format(working_dir.parent, error)
+        raise Exception("Failure to set the safe.directory "
+                        "git config to [{}] required for gitlint tests"
+                        .format(working_dir.parent)) from error
 
 
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
