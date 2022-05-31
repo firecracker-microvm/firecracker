@@ -34,10 +34,10 @@ pub enum Error {
 
 impl Error {
     pub fn is_throttling_err(&self) -> bool {
-        if let Error::Async(async_io::Error::IoUring(err)) = self {
-            return err.is_throttling_err();
+        match self {
+            Error::Async(async_io::Error::IoUring(err)) => err.is_throttling_err(),
+            _ => false,
         }
-        false
     }
 }
 

@@ -434,14 +434,13 @@ impl Block {
 
         if let Err(err) = engine.completion_evt().read() {
             error!("Failed to get async completion event: {:?}", err);
-            return;
-        }
+        } else {
+            self.process_async_completion_queue();
 
-        self.process_async_completion_queue();
-
-        if self.is_io_engine_throttled {
-            self.is_io_engine_throttled = false;
-            self.process_queue(0);
+            if self.is_io_engine_throttled {
+                self.is_io_engine_throttled = false;
+                self.process_queue(0);
+            }
         }
     }
 

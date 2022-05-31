@@ -156,10 +156,10 @@ impl<T: Serialize> Metrics<T> {
                         // flushes automatically whenever a newline is
                         // detected (and we always end with a newline the
                         // current write).
-                        return guard
+                        guard
                             .write_all(&(format!("{}\n", msg)).as_bytes())
                             .map_err(MetricsError::Write)
-                            .map(|_| true);
+                            .map(|_| true)
                     } else {
                         // We have not incremented `missed_metrics_count` as there is no way to push
                         // metrics if destination lock got poisoned.
@@ -169,14 +169,13 @@ impl<T: Serialize> Metrics<T> {
                         );
                     }
                 }
-                Err(err) => {
-                    return Err(MetricsError::Serde(err.to_string()));
-                }
+                Err(err) => Err(MetricsError::Serde(err.to_string())),
             }
+        } else {
+            // If the metrics are not initialized, no error is thrown but we do let the user know
+            // that metrics were not written.
+            Ok(false)
         }
-        // If the metrics are not initialized, no error is thrown but we do let the user know that
-        // metrics were not written.
-        Ok(false)
     }
 }
 
