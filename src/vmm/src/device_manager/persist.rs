@@ -390,11 +390,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
 
             // We do not currently require exact re-allocation of IDs via
-            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do 
-            // this effectively as `IdAllocator` does not implement an exact 
+            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do
+            // this effectively as `IdAllocator` does not implement an exact
             // match API.
-            // In the future we may require preserving `IdAllocator`'s state 
-            // after snapshot restore so as to restore the exact interrupt IDs 
+            // In the future we may require preserving `IdAllocator`'s state
+            // after snapshot restore so as to restore the exact interrupt IDs
             // from the original device's state for implementing hot-plug.
             // For now this is why we do not restore the state of the
             // `IdAllocator` under `dev_manager`.
