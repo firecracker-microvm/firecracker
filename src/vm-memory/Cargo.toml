@@ -1,6 +1,6 @@
 [package]
 name = "vm-memory"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 license = "Apache-2.0"
