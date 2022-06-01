@@ -17,6 +17,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 use vm_superio::Serial;
 
+use crate::cmdline;
+
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
@@ -346,18 +348,7 @@ pub fn build_microvm_for_boot(
     // adding the virtio device configuration. We need to make sure that the init
     // parameters are last, specified after -- as specified in the kernel docs
     // (https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html).
-    let init_and_regular = boot_config
-        .cmdline
-        .as_str()
-        .split("--")
-        .collect::<Vec<&str>>();
-    if init_and_regular.len() > 2 {
-        return Err(StartMicrovmError::KernelCmdline(
-            "Too many `--` in kernel cmdline.".to_string(),
-        ));
-    }
-    let boot_args = init_and_regular[0];
-    let init_params = init_and_regular.get(1);
+    let (boot_args, init_params) = cmdline::split(boot_config.cmdline.as_str())?;
 
     boot_cmdline.insert_str(boot_args)?;
 
@@ -397,8 +388,8 @@ pub fn build_microvm_for_boot(
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
     }
 
-    if let Some(init) = init_params {
-        boot_cmdline.insert_str(format!("--{}", init))?;
+    if !init_params.is_empty() {
+        boot_cmdline.insert_str(format!("-- {}", init_params))?;
     }
 
     #[cfg(target_arch = "aarch64")]
