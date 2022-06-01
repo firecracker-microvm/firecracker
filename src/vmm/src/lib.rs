@@ -12,6 +12,7 @@
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
+mod cmdline;
 pub(crate) mod device_manager;
 pub mod memory_snapshot;
 /// Save/restore utilities.
