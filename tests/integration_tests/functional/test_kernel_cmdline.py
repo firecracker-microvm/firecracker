@@ -23,8 +23,8 @@ def test_init_params(test_microvm_with_api):
     # Ubuntu version from the /etc/issue file.
     vm.basic_config(
         vcpu_count=1,
-        boot_args='console=ttyS0 reboot=k panic=1 pci=off'
-                  ' init=/bin/cat -- /etc/issue',
+        boot_args='console=ttyS0 reboot=k panic=1 --dummy pci=off'
+                  ' init=/bin/cat -- --show-tabs /etc/issue',
     )
 
     vm.start()
