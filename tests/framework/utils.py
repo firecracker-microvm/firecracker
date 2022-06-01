@@ -14,9 +14,11 @@ import time
 import platform
 
 from collections import namedtuple, defaultdict
+from pathlib import Path
 import psutil
 from retry import retry
 from retry.api import retry_call
+from framework import utils
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -526,6 +528,31 @@ def run_cmd_list_async(cmd_list):
             *cmds
         )
     )
+
+
+def configure_git_safe_directory():
+    """
+    Add the root firecracker git folder to safe.directory config.
+
+    Firecracker root git folder in the container is
+    bind-mounted to a folder on the host which is mapped to a
+    user that is different from the user which runs the integ tests.
+    This difference in ownership is validated against by git.
+    https://github.blog/2022-04-12-git-security-vulnerability-announced/
+
+    :return: none
+    """
+    # devtool script will set the working directory to FC_ROOT/tests.
+    # We will need the parent for safe.directory configuration
+    working_dir = Path(os.getcwd())
+
+    try:
+        utils.run_cmd('git config --global '
+                      '--add safe.directory {}'.format(working_dir.parent))
+    except ChildProcessError as error:
+        raise Exception("Failure to set the safe.directory "
+                        "git config to [{}] required for gitlint tests"
+                        .format(working_dir.parent)) from error
 
 
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
