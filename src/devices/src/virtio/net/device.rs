@@ -11,7 +11,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::{cmp, mem, result};
 
-use dumbo::pdu::ethernet::EthernetFrame;
+use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
+use dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use libc::EAGAIN;
 use logger::{error, warn, IncMetric, METRICS};
 use mmds::data_store::Mmds;
@@ -27,15 +28,10 @@ use virtio_gen::virtio_net::{
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
-use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
-use dumbo::pdu::ethernet::PAYLOAD_OFFSET;
-
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
 use crate::virtio::net::iovec::IoVecBuffer;
 use crate::virtio::net::tap::Tap;
-#[cfg(test)]
-use crate::virtio::net::test_utils::Mocks;
 use crate::virtio::net::{
     Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
@@ -126,9 +122,6 @@ pub struct Net {
     pub(crate) activate_evt: EventFd,
 
     pub mmds_ns: Option<MmdsNetworkStack>,
-
-    #[cfg(test)]
-    pub(crate) mocks: Mocks,
 }
 
 impl Net {
@@ -195,9 +188,6 @@ impl Net {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             mmds_ns: None,
-
-            #[cfg(test)]
-            mocks: Mocks::default(),
         })
     }
 
@@ -461,7 +451,7 @@ impl Net {
             });
         }
 
-        match tap.write_vectored(frame_iovec) {
+        match Self::write_tap(tap, frame_iovec) {
             Ok(_) => {
                 METRICS.net.tx_bytes_count.add(frame_iovec.len());
                 METRICS.net.tx_packets_count.inc();
@@ -628,6 +618,11 @@ impl Net {
     #[cfg(not(test))]
     fn read_tap(&mut self) -> std::io::Result<usize> {
         self.tap.read(&mut self.rx_frame_buf)
+    }
+
+    #[cfg(not(test))]
+    fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
+        tap.write_vectored(buf)
     }
 
     pub fn process_rx_queue_event(&mut self) {
@@ -847,7 +842,7 @@ pub mod tests {
     use crate::virtio::net::test_utils::test::TestHelper;
     use crate::virtio::net::test_utils::{
         default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator,
+        TapTrafficSimulator, WriteTapMock,
     };
     use crate::virtio::net::QUEUE_SIZES;
     use crate::virtio::{
@@ -855,8 +850,8 @@ pub mod tests {
     };
 
     impl Net {
-        pub fn read_tap(&mut self) -> io::Result<usize> {
-            match &self.mocks.read_tap {
+        pub(crate) fn read_tap(&mut self) -> io::Result<usize> {
+            match &self.tap.mocks.read_tap {
                 ReadTapMock::MockFrame(frame) => {
                     self.rx_frame_buf[..frame.len()].copy_from_slice(frame);
                     Ok(frame.len())
@@ -866,6 +861,16 @@ pub mod tests {
                     "Read tap synthetically failed.",
                 )),
                 ReadTapMock::TapFrame => self.tap.read(&mut self.rx_frame_buf),
+            }
+        }
+
+        pub(crate) fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> io::Result<usize> {
+            match tap.mocks.write_tap {
+                WriteTapMock::Success => tap.write_vectored(buf),
+                WriteTapMock::Failure => Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "Write tap mock failure.",
+                )),
             }
         }
     }
@@ -1058,7 +1063,7 @@ pub mod tests {
     fn test_rx_retry() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Add invalid descriptor chain - read only descriptor.
         th.add_desc_chain(
@@ -1108,7 +1113,7 @@ pub mod tests {
     fn test_rx_complex_desc_chain() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Create a valid Rx avail descriptor chain with multiple descriptors.
         th.add_desc_chain(
@@ -1146,7 +1151,7 @@ pub mod tests {
     fn test_rx_multiple_frames() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
         // following 2 frames. But only 1 frame has to be written to each chain.
@@ -1338,6 +1343,28 @@ pub mod tests {
     }
 
     #[test]
+    fn test_tx_tap_failure() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_write_tap(WriteTapMock::Failure);
+
+        let desc_list = [(0, 1000, 0)];
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        let _ = th.write_tx_frame(&desc_list, 1000);
+
+        check_metric_after_block!(
+            METRICS.net.tap_write_fails,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        th.txq.check_used_elem(0, 0, 0);
+    }
+
+    #[test]
     fn test_tx_multiple_frame() {
         let mut th = TestHelper::get_default();
         th.activate_net();
@@ -1516,7 +1543,7 @@ pub mod tests {
     fn test_read_tap_fail_event_handler() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::Failure);
+        th.net().tap.mocks.set_read_tap(ReadTapMock::Failure);
 
         // The RX queue is empty and rx_deffered_frame is set.
         th.net().rx_deferred_frame = true;
@@ -1544,7 +1571,7 @@ pub mod tests {
     fn test_deferred_frame() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         let rx_packets_count = METRICS.net.rx_packets_count.count();
         let _ = inject_tap_tx_frame(&th.net(), 1000);
@@ -1736,7 +1763,7 @@ pub mod tests {
 
             // following RX procedure should succeed because bandwidth should now be available
             {
-                let frame = &th.net().mocks.read_tap.mock_frame();
+                let frame = &th.net().tap.mocks.read_tap.mock_frame();
                 // no longer throttled
                 check_metric_after_block!(
                     &METRICS.net.rx_rate_limiter_throttled,
@@ -1852,7 +1879,7 @@ pub mod tests {
 
             // following RX procedure should succeed because ops should now be available
             {
-                let frame = &th.net().mocks.read_tap.mock_frame();
+                let frame = &th.net().tap.mocks.read_tap.mock_frame();
                 th.simulate_event(NetEvent::RxRateLimiter);
                 // make sure the virtio queue operation completed this time
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));

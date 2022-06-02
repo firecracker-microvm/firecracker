@@ -71,6 +71,7 @@ pub fn default_net_no_mmds() -> Net {
     net
 }
 
+#[derive(Debug)]
 pub enum ReadTapMock {
     Failure,
     MockFrame(Vec<u8>),
@@ -86,14 +87,26 @@ impl ReadTapMock {
     }
 }
 
-// Used to simulate tap read fails in tests.
+#[derive(Debug)]
+pub enum WriteTapMock {
+    Failure,
+    Success,
+}
+
+// Used to simulate tap read and write fails in tests.
+#[derive(Debug)]
 pub struct Mocks {
     pub(crate) read_tap: ReadTapMock,
+    pub(crate) write_tap: WriteTapMock,
 }
 
 impl Mocks {
     pub fn set_read_tap(&mut self, read_tap: ReadTapMock) {
         self.read_tap = read_tap;
+    }
+
+    pub fn set_write_tap(&mut self, write_tap: WriteTapMock) {
+        self.write_tap = write_tap;
     }
 }
 
@@ -103,6 +116,7 @@ impl Default for Mocks {
             read_tap: ReadTapMock::MockFrame(
                 utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
             ),
+            write_tap: WriteTapMock::Success,
         }
     }
 }
@@ -445,7 +459,7 @@ pub mod test {
 
         /// Generate a tap frame of `frame_len` and check that it is deferred
         pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
-            self.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+            self.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
             let used_idx = self.rxq.used.idx.get();
 
             // Inject frame to tap and run epoll.
