@@ -424,6 +424,7 @@ mod tests {
         let bad_mmds_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
 
         // Buffer is too small.
+        assert!(!ns.is_mmds_frame(&bad_buf));
         assert!(!ns.detour_frame(bad_buf.as_ref()));
 
         // There's nothing to send right now.
@@ -601,5 +602,48 @@ mod tests {
         let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
         arp.set_tpa(ip);
         assert!(!ns.is_mmds_frame(&buf[..len]));
+    }
+
+    #[test]
+    fn test_wrong_ethertype() {
+        let mut buf = [0u8; 2000];
+        let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
+        let other_ip = Ipv4Addr::new(5, 6, 7, 8);
+        let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
+        let mut ns = MmdsNetworkStack::new(
+            mac,
+            ip,
+            DEFAULT_TCP_PORT,
+            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
+            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
+            Arc::new(Mutex::new(Mmds::default())),
+        );
+
+        // try IPv4 with detour_arp
+        let mut eth =
+            EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_IPV4).unwrap();
+        IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
+            .set_destination_address(other_ip);
+        let len = ns.write_incoming_tcp_segment(buf.as_mut(), other_ip, TcpFlags::SYN);
+
+        eth = EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_IPV4).unwrap();
+        let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
+        arp.set_tpa(ip);
+
+        assert!(ns.detour_ipv4(EthernetFrame::from_bytes(&buf[..len]).unwrap()));
+        assert!(!ns.detour_arp(EthernetFrame::from_bytes(&buf[..len]).unwrap()));
+
+        // try IPv4 with detour_arp
+        let mut eth =
+            EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_ARP).unwrap();
+        let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
+        arp.set_tpa(other_ip);
+        let len = ns.write_arp_request(buf.as_mut(), false);
+
+        eth = EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_ARP).unwrap();
+        IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut()).set_destination_address(ip);
+
+        assert!(ns.detour_arp(EthernetFrame::from_bytes(&buf[..len]).unwrap()));
+        assert!(!ns.detour_ipv4(EthernetFrame::from_bytes(&buf[..len]).unwrap()));
     }
 }
