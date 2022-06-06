@@ -68,7 +68,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "vm-fdt",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
 ]
 
 [[package]]
@@ -333,7 +333,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
  "vm-superio",
 ]
 
@@ -434,7 +434,7 @@ dependencies = [
  "libc",
  "proptest",
  "utils",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
 ]
 
 [[package]]
@@ -1025,7 +1025,7 @@ checksum = "bd986f4fdf949ab2181c7b4fedb03fb0e9de6b0aa788fff247b2608701ce3457"
 
 [[package]]
 name = "vm-memory"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "utils",
@@ -1073,7 +1073,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
  "vm-superio",
 ]
 
