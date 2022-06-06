@@ -26,7 +26,7 @@ LATENCY_AVG_BASELINES = {
             "delta": 0.040  # milliseconds
         },
         "5.10": {
-            "target": 0.250,  # milliseconds
+            "target": 0.230,  # milliseconds
             "delta": 0.020  # milliseconds
         }
     },
