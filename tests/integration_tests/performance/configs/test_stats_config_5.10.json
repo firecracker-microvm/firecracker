@@ -1,0 +1,26 @@
+{
+    "measurements": {
+        "10RandomIntsSumExercise": {
+            "ints": {
+                "unit": "none",
+                "statistics": [
+                    {
+                        "function": "Sum",
+                        "criteria": "LowerThan"
+                    }
+                ]
+            }
+        }
+    },
+    "baselines": {
+        "10RandomIntsSumExercise": {
+            "ints": {
+                "randint": {
+                    "Sum": {
+                        "target": 1001
+                    }
+                }
+            }
+        }
+    }
+}
