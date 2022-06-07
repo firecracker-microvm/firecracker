@@ -5,6 +5,7 @@
 
 use std::result::Result;
 use std::sync::{Arc, Mutex};
+use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
 use crate::EventManager;
@@ -324,8 +325,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager =
-            MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
+        let mut dev_manager = MMIODeviceManager::new(
+            arch::MMIO_MEM_START,
+            arch::MMIO_MEM_SIZE,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        )
+        .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
 
@@ -341,11 +346,28 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     .map_err(Error::Legacy)?;
 
                     dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+
+                    dev_manager
                         .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
+                    dev_manager
+                        .address_allocator
+                        .allocate(
+                            MMIO_LEN,
+                            MMIO_LEN,
+                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                        )
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
                     dev_manager
                         .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
@@ -360,16 +382,28 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   slot: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
-            dev_manager
-                .slot_sanity_check(slot)
-                .map_err(Error::DeviceManager)?;
-
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
             };
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+
+            // We do not currently require exact re-allocation of IDs via
+            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do
+            // this effectively as `IdAllocator` does not implement an exact
+            // match API.
+            // In the future we may require preserving `IdAllocator`'s state
+            // after snapshot restore so as to restore the exact interrupt IDs
+            // from the original device's state for implementing hot-plug.
+            // For now this is why we do not restore the state of the
+            // `IdAllocator` under `dev_manager`.
+
+            dev_manager
+                .address_allocator
+                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
+                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+
             dev_manager
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
@@ -506,7 +540,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
-
         Ok(dev_manager)
     }
 }
@@ -613,7 +646,11 @@ mod tests {
         fn soft_clone(&self) -> Self {
             let dummy_mmio_base = 0;
             let dummy_irq_range = (0, 0);
-            let mut clone = MMIODeviceManager::new(dummy_mmio_base, dummy_irq_range);
+            // We can unwrap here as we create with values directly in scope we
+            // know will results in `Ok`
+            let mut clone =
+                MMIODeviceManager::new(dummy_mmio_base, arch::MMIO_MEM_SIZE, dummy_irq_range)
+                    .unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone

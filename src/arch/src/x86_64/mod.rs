@@ -42,9 +42,12 @@ pub enum Error {
 // Where BIOS/VGA magic would live on a real PC.
 const EBDA_START: u64 = 0x9fc00;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
-const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
+/// Size of MMIO gap at top of 32-bit address space.
+pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
+/// The size of the memory area reserved for MMIO devices.
+pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.

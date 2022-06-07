@@ -254,8 +254,12 @@ fn create_vmm_and_vcpus(
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
-    let mmio_device_manager =
-        MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
+    let mmio_device_manager = MMIODeviceManager::new(
+        arch::MMIO_MEM_START,
+        arch::MMIO_MEM_SIZE,
+        (arch::IRQ_BASE, arch::IRQ_MAX),
+    )
+    .map_err(StartMicrovmError::RegisterMmioDevice)?;
 
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -1038,7 +1042,12 @@ pub mod tests {
     }
 
     fn default_mmio_device_manager() -> MMIODeviceManager {
-        MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX))
+        MMIODeviceManager::new(
+            arch::MMIO_MEM_START,
+            arch::MMIO_MEM_SIZE,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        )
+        .unwrap()
     }
 
     #[cfg(target_arch = "x86_64")]

@@ -68,7 +68,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "vm-fdt",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
 ]
 
 [[package]]
@@ -384,7 +384,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
  "vm-superio",
 ]
 
@@ -491,7 +491,7 @@ dependencies = [
  "libc",
  "proptest",
  "utils",
- "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
 ]
 
 [[package]]
@@ -588,7 +588,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a5e77493808403a6bd56a301a64ea6b9342e36ea845044bf0dfdf56fe52fa08"
 dependencies = [
- "vm-memory 0.7.0",
+ "vm-memory 0.8.0",
 ]
 
 [[package]]
@@ -1196,6 +1196,16 @@ name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
+name = "vm-allocator"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "565b6886b7dd1b3bf34ec9243d90a97db4f2a83c2416caa52fcc95fd255d45e4"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "vm-fdt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1203,18 +1213,18 @@ checksum = "bd986f4fdf949ab2181c7b4fedb03fb0e9de6b0aa788fff247b2608701ce3457"
 
 [[package]]
 name = "vm-memory"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "utils",
- "vm-memory 0.7.0",
+ "vm-memory 0.8.0",
 ]
 
 [[package]]
 name = "vm-memory"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339d4349c126fdcd87e034631d7274370cf19eb0e87b33166bcd956589fc72c5"
+checksum = "767ed8aaebbff902e02e6d3749dc2baef55e46565f8a6414a065e5baee4b4a81"
 dependencies = [
  "libc",
  "winapi",
@@ -1253,6 +1263,7 @@ dependencies = [
  "versionize_derive",
  "virtio_gen",
  "vm-memory 0.1.0",
+ "vm-memory 0.3.0",
  "vm-superio",
 ]
 

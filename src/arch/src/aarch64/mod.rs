@@ -30,6 +30,8 @@ pub enum Error {
 
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
+/// The size of the memory area reserved for MMIO devices.
+pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START; //>> 1GB
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.

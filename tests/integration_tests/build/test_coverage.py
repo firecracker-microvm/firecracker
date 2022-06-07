@@ -29,9 +29,9 @@ from host_tools import proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 84.89, "AMD": 84.38, "ARM": 84.06}
+    COVERAGE_DICT = {"Intel": 84.83, "AMD": 84.32, "ARM": 84.06}
 else:
-    COVERAGE_DICT = {"Intel": 81.89, "AMD": 81.43, "ARM": 81.05}
+    COVERAGE_DICT = {"Intel": 81.89, "AMD": 81.37, "ARM": 81.05}
 
 PROC_MODEL = proc.proc_type()
 
@@ -116,26 +116,29 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     print("Thus, coverage is: {:.2f}%".format(coverage))
 
     coverage_low_msg = (
-        'Current code coverage ({:.2f}%) is below the target ({}%).'
-        .format(coverage, coverage_target_pct)
+        'Current code coverage ({:.2f}%) is >{:.2f}% below the target ({}%).'
+        .format(coverage, COVERAGE_MAX_DELTA, coverage_target_pct)
     )
 
-    min_coverage = coverage_target_pct - COVERAGE_MAX_DELTA
-    assert coverage >= min_coverage, coverage_low_msg
+    assert coverage >= coverage_target_pct - COVERAGE_MAX_DELTA, \
+        coverage_low_msg
 
     # Get the name of the variable that needs updating.
     namespace = globals()
-    cov_target_name = [name for name in namespace if namespace[name]
-                       is COVERAGE_DICT][0]
+    cov_target_name = \
+        [name for name in namespace if namespace[name] is COVERAGE_DICT][0]
 
     coverage_high_msg = (
-        'Current code coverage ({:.2f}%) is above the target ({}%).\n'
-        'Please update the value of {}.'
-        .format(coverage, coverage_target_pct, cov_target_name)
+        'Current code coverage ({:.2f}%) is >{:.2f}% above the target ({}%).\n'
+        'Please update the value of {}.'.format(
+            coverage, COVERAGE_MAX_DELTA, coverage_target_pct, cov_target_name
+        )
     )
 
-    assert coverage - coverage_target_pct <= COVERAGE_MAX_DELTA,\
-        coverage_high_msg
+    assert \
+        coverage <= coverage_target_pct + COVERAGE_MAX_DELTA, coverage_high_msg
 
-    return f"{coverage}%", \
+    return (
+        f"{coverage}%",
         f"{coverage_target_pct}% +/- {COVERAGE_MAX_DELTA * 100}%"
+    )

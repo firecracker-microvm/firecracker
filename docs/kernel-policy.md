@@ -61,6 +61,7 @@ on which Firecracker is run:
 ### ARM
 
 * timekeeping - `CONFIG_ARM_AMBA`, `CONFIG_RTC_DRV_PL031`
+* serial console - `CONFIG_SERIAL_OF_PLATFORM`
 
 ### x86_64
 

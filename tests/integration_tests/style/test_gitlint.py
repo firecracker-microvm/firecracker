@@ -14,6 +14,8 @@ def test_gitlint():
     """
     os.environ['LC_ALL'] = 'C.UTF-8'
     os.environ['LANG'] = 'C.UTF-8'
+
+    utils.configure_git_safe_directory()
     try:
         utils.run_cmd('gitlint --commits origin/main..HEAD'
                       ' -C ../.gitlint'

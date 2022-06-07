@@ -64,12 +64,37 @@ pub struct PortIODeviceManager {
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
     pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
 
+    // Communication event on ports 1 & 3.
     pub com_evt_1_3: EventFdTrigger,
+    // Communication event on ports 2 & 4.
     pub com_evt_2_4: EventFdTrigger,
+    // Keyboard event.
     pub kbd_evt: EventFd,
 }
 
 impl PortIODeviceManager {
+    /// x86 global system interrupt for communication events on serial ports 1
+    /// & 3. See
+    /// <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
+    const COM_EVT_1_3_GSI: u32 = 4;
+    /// x86 global system interrupt for communication events on serial ports 2
+    /// & 4. See
+    /// <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
+    const COM_EVT_2_4_GSI: u32 = 3;
+    /// x86 global system interrupt for keyboard port.
+    /// See <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
+    const KBD_EVT_GSI: u32 = 1;
+    /// Legacy serial port device addresses. See
+    /// <https://tldp.org/HOWTO/Serial-HOWTO-10.html#ss10.1>.
+    const SERIAL_PORT_ADDRESSES: [u64; 4] = [0x3f8, 0x2f8, 0x3e8, 0x2e8];
+    /// Size of legacy serial ports.
+    const SERIAL_PORT_SIZE: u64 = 0x8;
+    /// i8042 keyboard data register address. See
+    /// <https://elixir.bootlin.com/linux/latest/source/drivers/input/serio/i8042-io.h#L41>.
+    const I8042_KDB_DATA_REGISTER_ADDRESS: u64 = 0x060;
+    /// i8042 keyboard data register size.
+    const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
+
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
     pub fn new(serial: Arc<Mutex<SerialDevice>>, i8042_reset_evfd: EventFd) -> Result<Self> {
         let io_bus = devices::Bus::new();
@@ -103,29 +128,49 @@ impl PortIODeviceManager {
         let serial_2_4 = create_serial(self.com_evt_2_4.try_clone().map_err(Error::EventFd)?)?;
         let serial_1_3 = create_serial(self.com_evt_1_3.try_clone().map_err(Error::EventFd)?)?;
         self.io_bus
-            .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
+            .insert(
+                self.stdio_serial.clone(),
+                Self::SERIAL_PORT_ADDRESSES[0],
+                Self::SERIAL_PORT_SIZE,
+            )
             .map_err(Error::BusError)?;
         self.io_bus
-            .insert(serial_2_4.clone(), 0x2f8, 0x8)
+            .insert(
+                serial_2_4.clone(),
+                Self::SERIAL_PORT_ADDRESSES[1],
+                Self::SERIAL_PORT_SIZE,
+            )
             .map_err(Error::BusError)?;
         self.io_bus
-            .insert(serial_1_3.clone(), 0x3e8, 0x8)
+            .insert(
+                serial_1_3.clone(),
+                Self::SERIAL_PORT_ADDRESSES[2],
+                Self::SERIAL_PORT_SIZE,
+            )
             .map_err(Error::BusError)?;
         self.io_bus
-            .insert(serial_2_4, 0x2e8, 0x8)
+            .insert(
+                serial_2_4,
+                Self::SERIAL_PORT_ADDRESSES[3],
+                Self::SERIAL_PORT_SIZE,
+            )
             .map_err(Error::BusError)?;
         self.io_bus
-            .insert(self.i8042.clone(), 0x060, 0x5)
+            .insert(
+                self.i8042.clone(),
+                Self::I8042_KDB_DATA_REGISTER_ADDRESS,
+                Self::I8042_KDB_DATA_REGISTER_SIZE,
+            )
             .map_err(Error::BusError)?;
 
         vm_fd
-            .register_irqfd(&self.com_evt_1_3, 4)
+            .register_irqfd(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
-            .register_irqfd(&self.com_evt_2_4, 3)
+            .register_irqfd(&self.com_evt_2_4, Self::COM_EVT_2_4_GSI)
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
-            .register_irqfd(&self.kbd_evt, 1)
+            .register_irqfd(&self.kbd_evt, Self::KBD_EVT_GSI)
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
         Ok(())
