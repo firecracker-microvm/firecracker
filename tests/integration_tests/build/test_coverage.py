@@ -82,7 +82,8 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     target = "{}-unknown-linux-musl".format(platform.machine())
 
     cmd = (
-        'RUSTFLAGS="{}" CARGO_TARGET_DIR={} cargo kcov --all '
+        'CARGO_WRAPPER="kcov" RUSTFLAGS="{}" CARGO_TARGET_DIR={} '
+        'cargo kcov --all '
         '--target {} --output {} -- '
         '--exclude-pattern={} '
         '--exclude-region={} --verify'
