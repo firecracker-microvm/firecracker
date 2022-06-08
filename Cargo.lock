@@ -1262,7 +1262,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
- "vm-memory 0.1.0",
+ "vm-allocator",
  "vm-memory 0.3.0",
  "vm-superio",
 ]
