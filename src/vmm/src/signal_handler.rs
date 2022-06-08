@@ -172,37 +172,16 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 mod tests {
     use super::*;
 
-    use libc::{cpu_set_t, syscall};
-    use std::{mem, process, thread};
+    use std::env;
+    use std::{process, thread};
 
+    use libc::syscall;
     use seccompiler::sock_filter;
-
-    // This function is used when running unit tests, so all the unsafes are safe.
-    fn cpu_count() -> usize {
-        let mut cpuset: cpu_set_t = unsafe { mem::zeroed() };
-        unsafe {
-            libc::CPU_ZERO(&mut cpuset);
-        }
-        let ret = unsafe {
-            libc::sched_getaffinity(
-                0,
-                mem::size_of::<cpu_set_t>(),
-                &mut cpuset as *mut cpu_set_t,
-            )
-        };
-        assert_eq!(ret, 0);
-
-        let mut num = 0;
-        for i in 0..libc::CPU_SETSIZE as usize {
-            if unsafe { libc::CPU_ISSET(i, &cpuset) } {
-                num += 1;
-            }
-        }
-        num
-    }
 
     #[test]
     fn test_signal_handler() {
+        let run_with_kcov = env::var("CARGO_WRAPPER").unwrap_or_else(|_| "".to_string()) == *"kcov";
+
         let child = thread::spawn(move || {
             assert!(register_signal_handlers().is_ok());
 
@@ -258,16 +237,12 @@ mod tests {
         });
         assert!(child.join().is_ok());
 
-        // Sanity check.
-        assert!(cpu_count() > 0);
-        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
-        // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
-        // way of either preventing this behaviour, or detecting for certain whether this test is
-        // run by kcov or not. The best we could do so far is to look at the perceived number of
-        // available CPUs. Kcov seems to make a single CPU available to the process running the
-        // tests, so we use this as an heuristic to decide if we check the assertion.
-        if cpu_count() > 1 {
-            // The signal handler should let the program continue during unit tests.
+        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on x86_64
+        // and thus not reach Firecracker:
+        // https://github.com/SimonKagstrom/kcov/blob/a8b60c43fb33f56553a2bb20633e3b59a08abae1/src/engines/ptrace.cc#L187
+        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad syscall
+        // if we run with kcov and we are on x86_64.
+        if !(cfg!(target_arch = "x86_64") && run_with_kcov) {
             assert!(METRICS.seccomp.num_faults.count() >= 1);
         }
         assert!(METRICS.signals.sigbus.count() >= 1);
@@ -276,9 +251,9 @@ mod tests {
         assert!(METRICS.signals.sigxcpu.count() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.count() >= 1);
-        // Workaround to GitHub issue 2216.
-        #[cfg(not(target_arch = "aarch64"))]
-        assert!(METRICS.signals.sigill.count() >= 1);
+        if !(cfg!(target_arch = "aarch64") && run_with_kcov) {
+            assert!(METRICS.signals.sigill.count() >= 1);
+        }
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
