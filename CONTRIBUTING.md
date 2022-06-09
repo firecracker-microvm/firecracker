@@ -68,6 +68,17 @@ testing. Your contribution needs to meet the following standards:
 - Document all your public functions.
 - Add a descriptive message for each commit. Follow
   [commit message best practices](https://github.com/erlang/otp/wiki/writing-good-commit-messages).
+- A good commit message may look like
+
+  ```
+  A descriptive title of 50 characters or fewer
+
+  A concise description where each line is 72 characters or fewer.
+
+  Signed-Off-By <A full name> <A email>
+  Co-Authored-By: <B full name> <B email>
+  ```
+
 - Document your pull requests. Include the reasoning behind each change, and
   the testing done.
 - Acknowledge Firecracker's [Apache 2.0 license](LICENSE) and certify that no
