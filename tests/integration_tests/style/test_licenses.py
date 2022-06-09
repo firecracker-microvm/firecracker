@@ -30,6 +30,13 @@ ALIBABA_COPYRIGHT = (
 ALIBABA_LICENSE = (
     "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
 )
+AMETROS_COPYRIGHT_YEARS = range(2022, datetime.datetime.now().year + 1)
+AMETROS_COPYRIGHT = (
+    "Copyright {} Ametros. All Rights Reserved."
+)
+AMETROS_LICENSE = (
+    "SPDX-License-Identifier: Apache-2.0"
+)
 
 EXCLUDE = ["build", ".kernel"]
 
@@ -37,6 +44,13 @@ EXCLUDE = ["build", ".kernel"]
 def _has_amazon_copyright(string):
     for year in AMAZON_COPYRIGHT_YEARS:
         if AMAZON_COPYRIGHT.format(year) in string:
+            return True
+    return False
+
+
+def _has_ametros_copyright(string):
+    for year in AMETROS_COPYRIGHT_YEARS:
+        if AMETROS_COPYRIGHT.format(year) in string:
             return True
     return False
 
@@ -84,11 +98,18 @@ def _validate_license(filename):
             ALIBABA_COPYRIGHT in copyright_info and
             _look_for_license(file, ALIBABA_LICENSE)
         )
+
+        has_ametros_copyright = (
+            _has_ametros_copyright(copyright_info) and
+            _look_for_license(file, AMETROS_LICENSE)
+        )
+
         return (
             has_amazon_copyright or
             has_chromium_copyright or
             has_tuntap_copyright or
-            has_alibaba_copyright
+            has_alibaba_copyright or
+            has_ametros_copyright
         )
     return True
 
