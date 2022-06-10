@@ -393,14 +393,14 @@ class ArtifactCollection:
 
         # Filter out binaries with versions older than the `min_version` arg.
         if min_version is not None:
-            return list(filter(
+            firecrackers = list(filter(
                 lambda fc: compare_versions(fc.version, min_version) >= 0,
                 firecrackers
             ))
 
         # Filter out binaries with versions newer than the `max_version` arg.
         if max_version is not None:
-            return list(filter(
+            firecrackers = list(filter(
                 lambda fc: compare_versions(fc.version, max_version) <= 0,
                 firecrackers
             ))
