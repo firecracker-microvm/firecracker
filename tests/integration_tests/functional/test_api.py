@@ -1189,8 +1189,15 @@ def test_api_version(test_microvm_with_api):
     test_utils.configure_git_safe_directory()
     # Check that the version is the same as `git describe --dirty`.
     out = subprocess.check_output(['git', 'describe', '--dirty']).decode()
-    # Skip the "v" at the start and the newline at the end.
-    assert out.strip()[1:] == preboot_response.json()['firecracker_version']
+
+    tag_version = test_utils.sanitize_version_string(out)
+    preboot_response_fc_version = test_utils.sanitize_version_string(
+        preboot_response.json()['firecracker_version'])
+
+    # Git tag should match FC API version
+    assert tag_version == preboot_response_fc_version, \
+        "Expected [{}], Actual [{}]".format(
+            preboot_response_fc_version, tag_version)
 
 
 def test_api_vsock(bin_cloner_path):
