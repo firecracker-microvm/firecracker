@@ -24,20 +24,20 @@ BASELINES = {
         "serialize": {
             "no-crc": {
                 "target": 0.146,  # milliseconds
-                "delta": 0.025  # milliseconds
+                "delta": 0.030  # milliseconds
             },
             "crc": {
-                "target": 0.205,  # milliseconds
-                "delta": 0.025  # milliseconds
+                "target": 0.180,  # milliseconds
+                "delta": 0.030  # milliseconds
             }
         },
         "deserialize": {
             "no-crc": {
-                "target": 0.034,  # milliseconds
+                "target": 0.040,  # milliseconds
                 "delta": 0.015  # milliseconds
             },
             "crc": {
-                "target": 0.042,  # milliseconds
+                "target": 0.050,  # milliseconds
                 "delta": 0.015  # milliseconds
             }
         }
@@ -55,12 +55,12 @@ BASELINES = {
         },
         "deserialize": {
             "no-crc": {
-                "target": 0.037,  # milliseconds
-                "delta": 0.015  # milliseconds
+                "target": 0.050,  # milliseconds
+                "delta": 0.020  # milliseconds
             },
             "crc": {
-                "target": 0.045,  # milliseconds
-                "delta": 0.015  # milliseconds
+                "target": 0.055,  # milliseconds
+                "delta": 0.025  # milliseconds
             }
         }
     },
@@ -106,8 +106,9 @@ def _check_statistics(directory, mean):
     measure = BASELINES[proc_model[0]][bench][attribute]
     low = measure["target"] - measure["delta"]
     high = measure["target"] + measure["delta"]
-    assert low <= mean <= high, "Benchmark result {} has changed!" \
-        .format(directory)
+    assert low <= mean <= high, "Benchmark result {} has changed! " \
+                                "(Low:[{}] Mean:[{}] High:[{}]" \
+        .format(directory, low, mean, high)
 
     return directory, f"{mean} ms", f"{low} <= result <= {high}"
 
