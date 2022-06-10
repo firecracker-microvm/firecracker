@@ -655,3 +655,19 @@ def generate_mmds_v2_get_request(ipv4_address, token, app_json=True):
     cmd += ' http://{}/'.format(ipv4_address)
 
     return cmd
+
+
+def sanitize_version_string(fc_version_string):
+    """Clean up a version string from different sources to number only."""
+    clean_version = fc_version_string
+    # Skip the "v" at the start of some version strings
+    if not fc_version_string[0].isnumeric():
+        clean_version = clean_version[1:]
+    # Strip the metadata appended to the tag
+    if clean_version.find('-') > -1:
+        clean_version = clean_version[:clean_version.index('-')]
+    else:
+        # Just strip potential newlines
+        clean_version = clean_version.strip()
+
+    return clean_version
