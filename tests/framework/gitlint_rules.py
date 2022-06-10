@@ -23,7 +23,78 @@ class EndsSigned(CommitRule):
     id = "UC2"
 
     def validate(self, commit):
-        """Validate user defined gitlint rules."""
+        r"""Validate user defined gitlint rules.
+
+        >>> from gitlint.tests.base import BaseTestCase
+        >>> from gitlint.rules import RuleViolation
+        ...
+        >>> ends_signed = EndsSigned()
+        ...
+        >>> msg1 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... f"Signed-off-by: name <email@domain>"
+        ... )
+        >>> commit1 = BaseTestCase.gitcommit(msg1)
+        >>> ends_signed.validate(commit1)
+        []
+        >>> msg2 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... f"Signed-off-by: name <email>\n\n"
+        ... f"Co-authored-by: name <email>"
+        ... )
+        >>> commit2 = BaseTestCase.gitcommit(msg2)
+        >>> ends_signed.validate(commit2)
+        []
+        >>> msg3 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... )
+        >>> commit3 = BaseTestCase.gitcommit(msg3)
+        >>> vio3 = ends_signed.validate(commit3)
+        >>> vio_msg3 = (
+        ... f"'Signed-off-by:' not found "
+        ... f"in commit message body"
+        ... )
+        >>> vio3 == [RuleViolation("UC2", vio_msg3)]
+        True
+        >>> msg4 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... f"Signed-off-by: name <email@domain>\n\na sentence"
+        ... )
+        >>> commit4 = BaseTestCase.gitcommit(msg4)
+        >>> vio4 = ends_signed.validate(commit4)
+        >>> vio_msg4 = (
+        ... f"Non 'Co-authored-by:' or 'Signed-off-by:'"
+        ... f" string found following 1st 'Signed-off-by:'"
+        ... )
+        >>> vio4 == [RuleViolation("UC2", vio_msg4, None, 5)]
+        True
+        >>> msg5 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... f"Co-authored-by: name <email@domain>\n\n"
+        ... f"a sentence."
+        ... )
+        >>> commit5 = BaseTestCase.gitcommit(msg5)
+        >>> vio5 = ends_signed.validate(commit5)
+        >>> vio_msg5 = (
+        ... f"'Co-authored-by:' found before 'Signed-off-by:'"
+        ... )
+        >>> vio5 == [RuleViolation("UC2", vio_msg5, None, 3)]
+        True
+        >>> msg6 = (
+        ... f"Title\n\nMessage.\n\n"
+        ... f"Signed-off-by: name <email@domain>\n\n"
+        ... f"Co-authored-by: name <email@domain>\n\n"
+        ... f"a sentence"
+        ... )
+        >>> commit6 = BaseTestCase.gitcommit(msg6)
+        >>> vio6 = ends_signed.validate(commit6)
+        >>> vio_msg6 = (
+        ... f"Non 'Co-authored-by:' string found "
+        ... f"after 1st 'Co-authored-by:'"
+        ... )
+        >>> vio6 == [RuleViolation("UC2", vio_msg6, None, 6)]
+        True
+        """
         # Utilities
         def rtn(stmt, i):
             return [RuleViolation(self.id, stmt, None, i)]
