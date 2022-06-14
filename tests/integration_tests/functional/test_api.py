@@ -1165,6 +1165,8 @@ def test_api_version(test_microvm_with_api):
     assert 'firecracker_version' in postboot_response.json()
     # Validate VM version post-boot is the same as pre-boot.
     assert preboot_response.json() == postboot_response.json()
+
+    test_utils.configure_git_safe_directory()
     # Check that the version is the same as `git describe --dirty`.
     out = subprocess.check_output(['git', 'describe', '--dirty']).decode()
 
