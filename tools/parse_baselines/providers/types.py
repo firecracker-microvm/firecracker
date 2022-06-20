@@ -12,6 +12,7 @@ from typing import List
 
 # pylint: disable=R0903
 
+
 def nested_dict():
     """Create an infinitely nested dictionary."""
     return defaultdict(nested_dict)
@@ -22,9 +23,9 @@ class FileDataProvider(Iterator):
 
     def __init__(self, file_path: str):
         """Construct the file based data provider."""
-        self._file = open(file_path, "r", encoding='utf-8')
+        self._file = open(file_path, "r", encoding="utf-8")
 
-    def __iter__(self) -> 'FileDataProvider':
+    def __iter__(self) -> "FileDataProvider":
         """Return the iterator object (self)."""
         return self
 
@@ -58,8 +59,8 @@ class DataParser(ABC):
 
         for cpu_model in self._data:
             baselines[cpu_model] = {
-                'model': cpu_model,
-                'baselines': self._data[cpu_model]
+                "model": cpu_model,
+                "baselines": self._data[cpu_model],
             }
 
         temp_baselines = baselines
@@ -92,8 +93,8 @@ class DataParser(ABC):
         line = next(self._data_provider)
         while line:
             json_line = json.loads(line.strip())
-            measurements = json_line['results']
-            cpu_model = json_line['custom']['cpu_model_name']
+            measurements = json_line["results"]
+            cpu_model = json_line["custom"]["cpu_model_name"]
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
                 for key in self._baselines_defs:
@@ -103,12 +104,14 @@ class DataParser(ABC):
                     if ms_data is None:
                         continue
 
-                    st_data = ms_data.get(st_name)['value']
+                    st_data = ms_data.get(st_name)["value"]
 
-                    [kernel_version,
-                     rootfs_type,
-                     microvm_config,
-                     test_config] = tag.split("/")
+                    [
+                        kernel_version,
+                        rootfs_type,
+                        microvm_config,
+                        test_config,
+                    ] = tag.split("/")
 
                     data = self._data[cpu_model][ms_name]
                     data = data[kernel_version][rootfs_type]

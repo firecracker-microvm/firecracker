@@ -24,10 +24,10 @@ class MatchStaticString:
         Preserve built `_input` if partially matches `_string`.
         Return True when `_input` is the same as `_string`.
         """
-        if input_char == '':
+        if input_char == "":
             return False
         self._input += str(input_char)
-        if self._input == self._string[:len(self._input)]:
+        if self._input == self._string[: len(self._input)]:
             if len(self._input) == len(self._string):
                 self._input = ""
                 return True
@@ -43,10 +43,10 @@ class TestState(MatchStaticString):
     # Prevent state objects from being collected by pytest.
     __test__ = False
 
-    def __init__(self, match_string=''):
+    def __init__(self, match_string=""):
         """Initialize state fields."""
         MatchStaticString.__init__(self, match_string)
-        print('\n*** Current test state: ', str(self), end='')
+        print("\n*** Current test state: ", str(self), end="")
 
     def handle_input(self, serial, input_char):
         """Handle input event and return next state."""

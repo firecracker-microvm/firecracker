@@ -11,7 +11,7 @@ from framework.utils import wait_process_termination
 @pytest.mark.skipif(
     platform.machine() != "aarch64",
     reason="The error code returned on aarch64 will not be returned on x86 "
-           "under the same conditions."
+    "under the same conditions.",
 )
 def test_enosys_error_code(test_microvm_with_initrd):
     """
@@ -32,8 +32,8 @@ def test_enosys_error_code(test_microvm_with_initrd):
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,
-        boot_args='console=ttyS0 reboot=k panic=1 pci=off',
-        use_initrd=True
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        use_initrd=True,
     )
 
     vm.start()
@@ -41,6 +41,7 @@ def test_enosys_error_code(test_microvm_with_initrd):
     # Check if FC process is closed
     wait_process_termination(vm.jailer_clone_pid)
 
-    vm.check_log_message("Received ENOSYS error because KVM failed to"
-                         " emulate an instruction.")
+    vm.check_log_message(
+        "Received ENOSYS error because KVM failed to" " emulate an instruction."
+    )
     vm.check_log_message("Vmm is stopping.")
