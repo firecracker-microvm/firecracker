@@ -236,7 +236,6 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
 
     @pytest.mark.tryfirst
     # pylint: disable=unused-argument
-    # pylint: disable=no-self-use
     def pytest_sessionfinish(self, session, exitstatus):
         """Pytest hook. Wrap up the whole testing session.
 

@@ -290,7 +290,7 @@ class Microvm:
     @ssh_config.setter
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
-        self._ssh_config.__setattr__(key, value)
+        setattr(self._ssh_config, key, value)
 
     @property
     def metadata_file(self):

@@ -57,7 +57,15 @@ If you just want to receive feedback for a contribution proposal, open an “RFC
 ## Contribution Quality Standards
 
 Most quality and style standards are enforced automatically during integration
-testing. Your contribution needs to meet the following standards:
+testing. For ease of use you can setup a git pre-commit hook by running the
+following in the Firecracker root directory:
+
+```
+cargo install rusty-hooks
+rusty-hook init
+```
+
+Your contribution needs to meet the following standards:
 
 - Separate each **logical change** into its own commit.
 - Each commit must pass all unit & code style tests, and the full pull request
