@@ -13,9 +13,10 @@ pub mod legacy;
 pub mod pseudo;
 pub mod virtio;
 
+use logger::{error, IncMetric, METRICS};
+
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 use crate::virtio::{QueueError, VsockError};
-use logger::{error, IncMetric, METRICS};
 
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.

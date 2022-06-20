@@ -5,8 +5,7 @@
 use std::io::Write;
 use std::num::Wrapping;
 
-use super::defs;
-use super::{Error, Result};
+use super::{defs, Error, Result};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
@@ -95,8 +94,7 @@ impl TxBuf {
 
         // Flushing the buffer can take either one or two writes:
         // - one write, if the tail doesn't need to wrap around to reach the head; or
-        // - two writes, if the tail would wrap around: tail to slice end, then slice end to
-        //   head.
+        // - two writes, if the tail would wrap around: tail to slice end, then slice end to head.
 
         // First write length: the lesser of tail to slice end, or tail to head.
         let len_to_write = std::cmp::min(Self::SIZE - tail_ofs, self.len());
@@ -149,10 +147,9 @@ impl Write for TxBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Error as IoError, ErrorKind, Result as IoResult, Write};
+
     use super::*;
-    use std::io::Error as IoError;
-    use std::io::Result as IoResult;
-    use std::io::{ErrorKind, Write};
 
     struct TestSink {
         data: Vec<u8>,

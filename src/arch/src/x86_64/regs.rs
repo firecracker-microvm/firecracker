@@ -7,10 +7,11 @@
 
 use std::mem;
 
-use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+
+use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -68,7 +69,8 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<()> {
         rip: boot_ip,
         // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
         // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
-        // local variables and function parameters are still accessible from a constant offset from rbp.
+        // local variables and function parameters are still accessible from a constant offset from
+        // rbp.
         rsp: super::layout::BOOT_STACK_POINTER as u64,
         // Starting stack pointer.
         rbp: super::layout::BOOT_STACK_POINTER as u64,
@@ -156,7 +158,7 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
     sregs.ss = data_seg;
     sregs.tr = tss_seg;
 
-    /* 64-bit protected mode */
+    // 64-bit protected mode
     sregs.cr0 |= X86_CR0_PE;
     sregs.efer |= EFER_LME | EFER_LMA;
 
@@ -191,9 +193,10 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+
+    use super::*;
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;

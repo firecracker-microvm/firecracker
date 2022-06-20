@@ -4,18 +4,16 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::{
-    regs::{SimpleReg, VgicRegEngine, VgicSysRegsState},
-    Result,
-};
+use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
+use crate::aarch64::gic::Result;
 
 // CPU interface registers as detailed at page 76 from
 // https://developer.arm.com/documentation/ihi0048/latest/.
 // Address offsets are relative to the cpu interface base address defined
 // by the system memory map.
 // Criteria for the present list of registers: only R/W registers, optional registers are not saved.
-// GICC_NSAPR are not saved since they are only present in GICv2 implementations that include the GIC
-// security extensions so it might crash on some systems.
+// GICC_NSAPR are not saved since they are only present in GICv2 implementations that include the
+// GIC security extensions so it might crash on some systems.
 const GICC_CTLR: SimpleReg = SimpleReg::new(0x0, 4);
 const GICC_PMR: SimpleReg = SimpleReg::new(0x04, 4);
 const GICC_BPR: SimpleReg = SimpleReg::new(0x08, 4);
@@ -79,10 +77,12 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, Error, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_icc_regs() {

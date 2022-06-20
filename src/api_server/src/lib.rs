@@ -9,12 +9,10 @@
 mod parsed_request;
 mod request;
 
-use serde_json::json;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::{fmt, io};
 
-use crate::parsed_request::{ParsedRequest, RequestAction};
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
@@ -23,9 +21,12 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use seccompiler::BpfProgramRef;
+use serde_json::json;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
+
+use crate::parsed_request::{ParsedRequest, RequestAction};
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -103,21 +104,20 @@ impl ApiServer {
     /// # Example
     ///
     /// ```
+    /// use std::convert::TryInto;
+    /// use std::env::consts::ARCH;
+    /// use std::io::{Read, Write};
+    /// use std::os::unix::net::UnixStream;
+    /// use std::path::PathBuf;
+    /// use std::sync::mpsc::{channel, Receiver, Sender};
+    /// use std::sync::{Arc, Barrier};
+    /// use std::thread;
+    /// use std::time::Duration;
+    ///
     /// use api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
-    /// use std::env::consts::ARCH;
-    /// use std::{
-    ///     convert::TryInto,
-    ///     io::Read,
-    ///     io::Write,
-    ///     os::unix::net::UnixStream,
-    ///     path::PathBuf,
-    ///     sync::mpsc::{channel, Receiver, Sender},
-    ///     sync::{Arc, Barrier},
-    ///     thread,
-    ///     time::Duration,
-    /// };
-    /// use utils::{eventfd::EventFd, tempfile::TempFile};
+    /// use utils::eventfd::EventFd;
+    /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
@@ -175,8 +175,8 @@ impl ApiServer {
             std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
         // Announce main thread that the socket path was created.
-        // As per the doc, "A send operation can only fail if the receiving end of a channel is disconnected".
-        // so this means that the main thread has exited.
+        // As per the doc, "A send operation can only fail if the receiving end of a channel is
+        // disconnected". so this means that the main thread has exited.
         socket_ready
             .send(true)
             .expect("No one to signal that the socket path is ready!");
@@ -329,7 +329,6 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
@@ -339,6 +338,8 @@ mod tests {
     use vmm::seccomp_filters::{get_filters, SeccompConfig};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
+
+    use super::*;
 
     #[test]
     fn test_error_messages() {

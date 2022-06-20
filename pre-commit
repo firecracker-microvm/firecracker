@@ -23,7 +23,7 @@ for i in $(git diff --name-only --cached); do
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # Read rustfmt config, replace '\n' with ','
-        rustfmt_config_1="$(sed -z "s/\n/,/g;s/,$/\n/" /tests/fmt.toml)"
+        rustfmt_config_1="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
         # Remove '"'
         rustfmt_config_2="${rustfmt_config_1//\"}"
         # We first do a check run, this will fail when it finds a non-matching license.

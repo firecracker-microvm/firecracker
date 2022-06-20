@@ -165,10 +165,12 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_icc_regs() {

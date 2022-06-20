@@ -94,8 +94,9 @@ impl MutEventSubscriber for PeriodicMetrics {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::*;
     use event_manager::{EventManager, SubscriberOps};
+
+    use super::*;
 
     #[test]
     fn test_periodic_metrics() {

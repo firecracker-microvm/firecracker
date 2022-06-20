@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
 pub(crate) fn parse_put_drive(
     body: &Body,

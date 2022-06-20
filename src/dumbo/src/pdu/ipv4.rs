@@ -12,8 +12,7 @@ use std::net::Ipv4Addr;
 use std::result::Result;
 
 use crate::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use crate::pdu::ethernet;
-use crate::pdu::Incomplete;
+use crate::pdu::{ethernet, Incomplete};
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -469,9 +468,8 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 mod tests {
     use std::fmt;
 
-    use crate::MacAddr;
-
     use super::*;
+    use crate::MacAddr;
 
     const MAX_HEADER_LEN: usize = 60;
 

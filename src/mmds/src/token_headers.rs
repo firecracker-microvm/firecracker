@@ -1,9 +1,10 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use micro_http::{HttpHeaderError, RequestError};
 use std::collections::HashMap;
 use std::result::Result;
+
+use micro_http::{HttpHeaderError, RequestError};
 
 /// Header rejected by MMDS.
 pub const REJECTED_HEADER: &str = "X-Forwarded-For";

@@ -1,7 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use io_uring::{operation::OpCode, operation::Operation, Error, IoUring, SQueueError};
+use io_uring::operation::{OpCode, Operation};
+use io_uring::{Error, IoUring, SQueueError};
 use vm_memory::{MmapRegion, VolatileMemory};
 
 fn drain_cqueue(ring: &mut IoUring) {

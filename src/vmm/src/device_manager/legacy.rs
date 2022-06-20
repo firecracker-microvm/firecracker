@@ -6,15 +6,13 @@
 // found in the THIRD-PARTY file.
 #![cfg(target_arch = "x86_64")]
 
-use devices::legacy::SerialDevice;
-use devices::legacy::SerialEventsWrapper;
-use libc::EFD_NONBLOCK;
-use logger::METRICS;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use devices::legacy::EventFdTrigger;
+use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 use kvm_ioctls::VmFd;
+use libc::EFD_NONBLOCK;
+use logger::METRICS;
 use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
@@ -179,8 +177,9 @@ impl PortIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_memory::GuestAddress;
+
+    use super::*;
 
     #[test]
     fn test_register_legacy_devices() {

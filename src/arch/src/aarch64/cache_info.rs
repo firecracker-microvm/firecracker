@@ -1,12 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    fmt::{Display, Formatter},
-    fs, io,
-    path::{Path, PathBuf},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::path::{Path, PathBuf};
+use std::{fs, io, result};
 
 use logger::warn;
 
@@ -337,9 +334,10 @@ pub(crate) fn read_cache_config(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::aarch64::cache_info::{read_cache_config, CacheEngine, CacheEntry, CacheStore};
-    use std::collections::HashMap;
 
     #[derive(Debug)]
     struct MockCacheStore {
@@ -405,7 +403,8 @@ mod tests {
         assert!(
             res.is_err()
                 && format!("{}", res.unwrap_err())
-                    == "Invalid cache configuration found for shared_cpu_map: invalid digit found in string"
+                    == "Invalid cache configuration found for shared_cpu_map: invalid digit found \
+                        in string"
         );
     }
 
@@ -534,7 +533,8 @@ mod tests {
         let res = CacheEntry::from_index(0, engine.store.as_ref());
         assert_eq!(
             format!("{}", res.unwrap_err()),
-            "Invalid cache configuration found for coherency_line_size: invalid digit found in string"
+            "Invalid cache configuration found for coherency_line_size: invalid digit found in \
+             string"
         );
     }
 

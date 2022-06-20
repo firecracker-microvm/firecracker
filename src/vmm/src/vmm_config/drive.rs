@@ -4,21 +4,19 @@
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::ops::Deref;
 use std::path::PathBuf;
-use std::result;
 use std::sync::{Arc, Mutex};
+use std::{io, result};
+
+pub use devices::virtio::block::device::FileEngineType;
+use devices::virtio::block::Error as BlockError;
+use devices::virtio::Block;
+pub use devices::virtio::CacheType;
+use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-
-pub use devices::virtio::block::device::FileEngineType;
-pub use devices::virtio::CacheType;
-
-use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -247,9 +245,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {

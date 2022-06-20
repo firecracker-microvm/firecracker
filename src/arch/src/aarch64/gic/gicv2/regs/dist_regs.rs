@@ -29,8 +29,8 @@ const GICD_SPENDSGIR: DistReg = DistReg::simple(0xF20, 16);
 
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
-// Criteria for the present list of registers: only R/W registers, implementation specific registers are not saved.
-// NOTICE: Any changes to this structure require a snapshot version bump.
+// Criteria for the present list of registers: only R/W registers, implementation specific registers
+// are not saved. NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_CTLR,
     GICD_ICENABLER,
@@ -126,10 +126,12 @@ pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, Error, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_dist_regs() {

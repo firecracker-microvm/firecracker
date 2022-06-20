@@ -1,10 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
-use crate::aarch64::gic::Result;
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
+
+use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::Result;
 
 // Relevant PPI redistributor registers that we want to save/restore.
 const GICR_CTLR: SimpleReg = SimpleReg::new(0x0000, 4);
@@ -78,10 +79,12 @@ pub(crate) fn set_redist_regs(fd: &DeviceFd, mpidr: u64, data: &[GicRegState<u32
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_redist_regs() {

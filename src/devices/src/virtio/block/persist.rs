@@ -7,7 +7,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::warn;
-use rate_limiter::{persist::RateLimiterState, RateLimiter};
+use rate_limiter::persist::RateLimiterState;
+use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -16,7 +17,6 @@ use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 use vm_memory::GuestMemoryMmap;
 
 use super::*;
-
 use crate::virtio::block::device::FileEngineType;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BLOCK};
@@ -105,8 +105,8 @@ impl BlockState {
     fn block_cache_type_ser(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 3 && self.cache_type != CacheTypeState::Unsafe {
             warn!(
-                "Target version does not implement the current cache type. \
-                Defaulting to \"unsafe\" mode."
+                "Target version does not implement the current cache type. Defaulting to \
+                 \"unsafe\" mode."
             );
         }
 
@@ -164,7 +164,7 @@ impl Persist<'_> for Block {
                 // If the kernel does not support `Async`, fallback to `Sync`.
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \
-                    Defaulting to \"Sync\" mode.",
+                     Defaulting to \"Sync\" mode.",
                     min_kernel_version_for_io_uring()
                 );
 
@@ -203,12 +203,13 @@ impl Persist<'_> for Block {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::virtio::device::VirtioDevice;
+    use std::sync::atomic::Ordering;
+
     use utils::tempfile::TempFile;
 
+    use super::*;
+    use crate::virtio::device::VirtioDevice;
     use crate::virtio::test_utils::default_mem;
-    use std::sync::atomic::Ordering;
 
     #[test]
     fn test_cache_type_state_from() {

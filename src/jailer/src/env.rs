@@ -3,21 +3,22 @@
 
 use std::ffi::{CStr, OsString};
 use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
+use std::io;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use utils::arg_parser::Error::MissingValue;
+use utils::syscall::SyscallReturnCode;
+use utils::{arg_parser, validators};
+
 use crate::cgroup::{Cgroup, CgroupBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::{Error, Result};
-use std::io;
-use std::io::Write;
-use utils::arg_parser::Error::MissingValue;
-use utils::syscall::SyscallReturnCode;
-use utils::{arg_parser, validators};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -108,7 +109,8 @@ impl Env {
         start_time_us: u64,
         start_time_cpu_us: u64,
     ) -> Result<Self> {
-        // Unwraps should not fail because the arguments are mandatory arguments or with default values.
+        // Unwraps should not fail because the arguments are mandatory arguments or with default
+        // values.
         let id = arguments
             .single_value("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
@@ -380,8 +382,8 @@ impl Env {
     }
 
     fn join_netns(path: &str) -> Result<()> {
-        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately) instead
-        // used `into_raw_fd` which provides underlying fd ownership to caller.
+        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately)
+        // instead used `into_raw_fd` which provides underlying fd ownership to caller.
         let netns_fd = File::open(path)
             .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
             .into_raw_fd();
@@ -452,8 +454,8 @@ impl Env {
             fs::create_dir_all(&jailer_path)
                 .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
 
-            // We now read the contents of the current directory and copy the files we are interested in
-            // to the destination path.
+            // We now read the contents of the current directory and copy the files we are
+            // interested in to the destination path.
             for entry in FOLDER_HIERARCHY.iter() {
                 let host_cache_file = host_path.join(&entry);
                 let jailer_cache_file = jailer_path.join(&entry);
@@ -607,14 +609,15 @@ impl Env {
 
 #[cfg(test)]
 mod tests {
+    use std::os::linux::fs::MetadataExt;
+    use std::os::unix::ffi::OsStrExt;
+
+    use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::build_arg_parser;
     use crate::cgroup::test_util::MockCgroupFs;
-
-    use std::os::linux::fs::MetadataExt;
-    use std::os::unix::ffi::OsStrExt;
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
@@ -882,7 +885,8 @@ mod tests {
         let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
         assert_eq!(
             format!("{}", env.setup_jailed_folder(bad_string).err().unwrap()),
-            "Failed to decode string from byte array: data provided contains an interior nul byte at byte pos 0"
+            "Failed to decode string from byte array: data provided contains an interior nul byte \
+             at byte pos 0"
         );
 
         // Error case: inaccessible path - can't be triggered with unit tests running as root.

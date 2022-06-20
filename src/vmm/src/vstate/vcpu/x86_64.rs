@@ -5,16 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
-use crate::vstate::{
-    vcpu::{VcpuConfig, VcpuEmulation},
-    vm::Vm,
-};
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -25,6 +18,10 @@ use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
+use crate::vstate::vm::Vm;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -243,28 +240,26 @@ impl KvmVcpu {
 
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
-        /*
-         * Ordering requirements:
-         *
-         * KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
-         * vCPU/LAPIC state. As such, it must be done before most everything
-         * else, otherwise we cannot restore everything and expect it to work.
-         *
-         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
-         * still running.
-         *
-         * KVM_GET_LAPIC may change state of LAPIC before returning it.
-         *
-         * GET_VCPU_EVENTS should probably be last to save. The code looks as
-         * it might as well be affected by internal state modifications of the
-         * GET ioctls.
-         *
-         * SREGS saves/restores a pending interrupt, similar to what
-         * VCPU_EVENTS also does.
-         *
-         * GET_MSRS requires a pre-populated data structure to do something
-         * meaningful. For SET_MSRS it will then contain good data.
-         */
+        // Ordering requirements:
+        //
+        // KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
+        // vCPU/LAPIC state. As such, it must be done before most everything
+        // else, otherwise we cannot restore everything and expect it to work.
+        //
+        // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+        // still running.
+        //
+        // KVM_GET_LAPIC may change state of LAPIC before returning it.
+        //
+        // GET_VCPU_EVENTS should probably be last to save. The code looks as
+        // it might as well be affected by internal state modifications of the
+        // GET ioctls.
+        //
+        // SREGS saves/restores a pending interrupt, similar to what
+        // VCPU_EVENTS also does.
+        //
+        // GET_MSRS requires a pre-populated data structure to do something
+        // meaningful. For SET_MSRS it will then contain good data.
 
         // Build the list of MSRs we want to save.
         let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
@@ -288,10 +283,7 @@ impl KvmVcpu {
             // v0.25 and newer snapshots without TSC will only work on
             // the same CPU model as the host on which they were taken.
             // TODO: Add negative test for this warning failure.
-            warn!(
-                "TSC freq not available. Snapshot cannot be loaded on a \
-                different CPU model."
-            );
+            warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
         let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
@@ -340,28 +332,26 @@ impl KvmVcpu {
 
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
-        /*
-         * Ordering requirements:
-         *
-         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
-         * still running.
-         *
-         * Some SET ioctls (like set_mp_state) depend on kvm_vcpu_is_bsp(), so
-         * if we ever change the BSP, we have to do that before restoring anything.
-         * The same seems to be true for CPUID stuff.
-         *
-         * SREGS saves/restores a pending interrupt, similar to what
-         * VCPU_EVENTS also does.
-         *
-         * SET_REGS clears pending exceptions unconditionally, thus, it must be
-         * done before SET_VCPU_EVENTS, which restores it.
-         *
-         * SET_LAPIC must come after SET_SREGS, because the latter restores
-         * the apic base msr.
-         *
-         * SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
-         * only restores successfully, when the LAPIC is correctly configured.
-         */
+        // Ordering requirements:
+        //
+        // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+        // still running.
+        //
+        // Some SET ioctls (like set_mp_state) depend on kvm_vcpu_is_bsp(), so
+        // if we ever change the BSP, we have to do that before restoring anything.
+        // The same seems to be true for CPUID stuff.
+        //
+        // SREGS saves/restores a pending interrupt, similar to what
+        // VCPU_EVENTS also does.
+        //
+        // SET_REGS clears pending exceptions unconditionally, thus, it must be
+        // done before SET_VCPU_EVENTS, which restores it.
+        //
+        // SET_LAPIC must come after SET_SREGS, because the latter restores
+        // the apic base msr.
+        //
+        // SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
+        // only restores successfully, when the LAPIC is correctly configured.
 
         self.fd
             .set_cpuid2(&state.cpuid)
@@ -467,10 +457,12 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
-    use super::*;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
     use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
+
+    use super::*;
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
         fn default() -> Self {

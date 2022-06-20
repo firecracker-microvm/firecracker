@@ -7,18 +7,18 @@ pub mod persist;
 mod token;
 pub mod token_headers;
 
-use serde_json::{Map, Value};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
-use crate::token::PATH_TO_TOKEN;
-
-use crate::token_headers::REJECTED_HEADER;
 use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
+use serde_json::{Map, Value};
 use token_headers::TokenHeaders;
+
+use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
+use crate::token::PATH_TO_TOKEN;
+use crate::token_headers::REJECTED_HEADER;
 
 pub enum Error {
     InvalidToken,
@@ -37,13 +37,13 @@ impl fmt::Display for Error {
             Error::MethodNotAllowed => write!(f, "Not allowed HTTP method."),
             Error::NoTokenProvided => write!(
                 f,
-                "No MMDS token provided. Use `X-metadata-token` \
-                header to specify the session token."
+                "No MMDS token provided. Use `X-metadata-token` header to specify the session \
+                 token."
             ),
             Error::NoTtlProvided => write!(
                 f,
-                "Token time to live value not found. Use `X-metadata-token-ttl_seconds` \
-                header to specify the token's lifetime."
+                "Token time to live value not found. Use `X-metadata-token-ttl_seconds` header to \
+                 specify the token's lifetime."
             ),
             Error::ResourceNotFound(ref uri) => {
                 write!(f, "{}", format!("Resource not found: {}.", uri))
@@ -307,9 +307,10 @@ fn respond_to_put_request(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
-    use std::time::Duration;
 
     fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{
@@ -480,8 +481,8 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new(
-            "Invalid header. Reason: Invalid value. \
-            Key:X-metadata-token-ttl-seconds; Value:application/json"
+            "Invalid header. Reason: Invalid value. Key:X-metadata-token-ttl-seconds; \
+             Value:application/json"
                 .to_string(),
         ));
         let actual_response = convert_to_response(mmds.clone(), request);
@@ -514,15 +515,15 @@ mod tests {
         let invalid_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1];
         for invalid_value in invalid_values.iter() {
             let request_bytes = format!(
-                "PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
-                X-metadata-token-ttl-seconds: {}\r\n\r\n",
+                "PUT http://169.254.169.254/latest/api/token \
+                 HTTP/1.0\r\nX-metadata-token-ttl-seconds: {}\r\n\r\n",
                 invalid_value
             );
             let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
             let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
             let error_msg = format!(
-                "Invalid time to live value provided for token: {}. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: {}. Please provide a value \
+                 between {} and {}.",
                 invalid_value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
             );
             expected_response.set_body(Body::new(error_msg));
@@ -549,9 +550,8 @@ mod tests {
         // Test valid GET.
         let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
         let request_bytes = format!(
-            "GET http://169.254.169.254/ HTTP/1.0\r\n\
-            Accept: application/json\r\n\
-            X-metadata-token: {}\r\n\r\n",
+            "GET http://169.254.169.254/ HTTP/1.0\r\nAccept: \
+             application/json\r\nX-metadata-token: {}\r\n\r\n",
             valid_token
         );
         let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
@@ -564,8 +564,7 @@ mod tests {
 
         // Test GET request towards unsupported value type.
         let request_bytes = format!(
-            "GET /age HTTP/1.1\r\n\
-            X-metadata-token: {}\r\n\r\n",
+            "GET /age HTTP/1.1\r\nX-metadata-token: {}\r\n\r\n",
             valid_token
         );
         let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
@@ -577,8 +576,7 @@ mod tests {
 
         // Test GET request towards invalid resource.
         let request_bytes = format!(
-            "GET http://169.254.169.254/invalid HTTP/1.0\r\n\
-            X-metadata-token: {}\r\n\r\n",
+            "GET http://169.254.169.254/invalid HTTP/1.0\r\nX-metadata-token: {}\r\n\r\n",
             valid_token
         );
         let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
@@ -621,8 +619,7 @@ mod tests {
         let tokens = [invalid_token, valid_token];
         for token in tokens.iter() {
             let request_bytes = format!(
-                "GET http://169.254.169.254/ HTTP/1.0\r\n\
-                X-metadata-token: {}\r\n\r\n",
+                "GET http://169.254.169.254/ HTTP/1.0\r\nX-metadata-token: {}\r\n\r\n",
                 token
             );
             let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
@@ -708,8 +705,8 @@ mod tests {
 
         assert_eq!(
             Error::NoTtlProvided.to_string(),
-            "Token time to live value not found. Use `X-metadata-token-ttl_seconds` \
-            header to specify the token's lifetime."
+            "Token time to live value not found. Use `X-metadata-token-ttl_seconds` header to \
+             specify the token's lifetime."
         );
 
         assert_eq!(

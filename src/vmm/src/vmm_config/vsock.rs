@@ -6,7 +6,6 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-
 use serde::{Deserialize, Serialize};
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
@@ -127,9 +126,10 @@ impl VsockBuilder {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {
@@ -180,8 +180,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_error_messages() {
-        use super::VsockConfigError::*;
         use std::io;
+
+        use super::VsockConfigError::*;
         let err = CreateVsockBackend(devices::virtio::VsockUnixBackendError::EpollAdd(
             io::Error::from_raw_os_error(0),
         ));

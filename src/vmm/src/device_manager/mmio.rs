@@ -5,13 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
-#[cfg(target_arch = "x86_64")]
-use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
@@ -19,6 +15,8 @@ use arch::DeviceType;
 use arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::SerialDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
     Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
@@ -31,6 +29,8 @@ use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
+#[cfg(target_arch = "x86_64")]
+use vm_memory::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -458,14 +458,16 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::builder;
-    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+
+    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use utils::errno;
     use utils::eventfd::EventFd;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    use super::*;
+    use crate::builder;
 
     const QUEUE_SIZES: &[u16] = &[64];
 

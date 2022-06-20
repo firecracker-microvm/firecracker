@@ -1,11 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use devices::legacy::serial::ReadableFd;
 use std::io;
 use std::os::raw::c_void;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
+
+use devices::legacy::serial::ReadableFd;
 
 pub struct MockSerialInput(pub RawFd);
 

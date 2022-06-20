@@ -7,7 +7,6 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;
 
-use crate::DirtyBitmap;
 use utils::{errno, get_page_size};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -15,6 +14,8 @@ use vm_memory::{
     Bitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
     GuestMemoryRegion, MemoryRegionAddress,
 };
+
+use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
@@ -204,12 +205,13 @@ impl SnapshotMemory for GuestMemoryMmap {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-
-    use super::*;
     use std::io::{Read, Seek};
+
     use utils::get_page_size;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
+
+    use super::*;
 
     #[test]
     fn test_describe_state() {

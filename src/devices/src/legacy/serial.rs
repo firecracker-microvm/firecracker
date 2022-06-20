@@ -5,23 +5,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use crate::legacy::EventFdTrigger;
-use crate::BusDevice;
-use logger::SerialDeviceMetrics;
-use std::io;
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
-use std::result;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
-use vm_superio::serial::Error as SerialError;
-use vm_superio::serial::SerialEvents;
-use vm_superio::Serial;
-use vm_superio::Trigger;
+use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric};
-use std::os::unix::io::RawFd;
+use logger::{error, warn, IncMetric, SerialDeviceMetrics};
 use utils::epoll::EventSet;
+use vm_superio::serial::{Error as SerialError, SerialEvents};
+use vm_superio::{Serial, Trigger};
+
+use crate::legacy::EventFdTrigger;
+use crate::BusDevice;
 
 // Cannot use multiple types as bounds for a trait object, so we define our own trait
 // which is a composition of the desired bounds. In this case, io::Read and AsRawFd.
@@ -194,7 +190,11 @@ impl<W: std::io::Write> MutEventSubscriber
             match self.consume_buffer_ready_event() {
                 Ok(_) => (),
                 Err(err) => {
-                    error!("Detach serial device input source due to error in consuming the buffer ready event: {:?}", err);
+                    error!(
+                        "Detach serial device input source due to error in consuming the buffer \
+                         ready event: {:?}",
+                        err
+                    );
                     unregister_source(ops, &input_fd);
                     unregister_source(ops, &buffer_ready_fd);
                     return;
@@ -282,10 +282,12 @@ impl<W: Write + Send + 'static> BusDevice
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io;
     use std::sync::{Arc, Mutex};
+
     use utils::eventfd::EventFd;
+
+    use super::*;
 
     #[derive(Clone)]
     struct SharedBuffer {

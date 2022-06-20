@@ -5,14 +5,7 @@
 
 use std::result::Result;
 use std::sync::{Arc, Mutex};
-use vm_allocator::AllocPolicy;
 
-use super::mmio::*;
-use crate::EventManager;
-use logger::{error, warn};
-
-use crate::resources::VmResources;
-use crate::vmm_config::mmds::MmdsConfigError;
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -29,11 +22,18 @@ use devices::virtio::{
 };
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
+use logger::{error, warn};
 use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_allocator::AllocPolicy;
 use vm_memory::GuestMemoryMmap;
+
+use super::mmio::*;
+use crate::resources::VmResources;
+use crate::vmm_config::mmds::MmdsConfigError;
+use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug)]
@@ -187,7 +187,7 @@ impl DeviceStates {
         if target_version < 3 && self.mmds_version.is_some() {
             warn!(
                 "Target version does not support persisting the MMDS version. The default will be \
-                used when restoring."
+                 used when restoring."
             );
         }
 
@@ -546,14 +546,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
+    use devices::virtio::block::CacheType;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::builder::tests::*;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
-    use devices::virtio::block::CacheType;
-    use utils::tempfile::TempFile;
 
     impl PartialEq for ConnectedBalloonState {
         fn eq(&self, other: &ConnectedBalloonState) -> bool {

@@ -6,12 +6,12 @@
 mod cqe;
 mod sqe;
 
-pub use cqe::Cqe;
-pub(crate) use sqe::Sqe;
-
 #[cfg(test)]
 use core::fmt::{self, Debug, Formatter};
 use std::convert::From;
+
+pub use cqe::Cqe;
+pub(crate) use sqe::Sqe;
 
 use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
 

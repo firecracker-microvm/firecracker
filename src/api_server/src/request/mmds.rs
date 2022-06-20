@@ -1,13 +1,14 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
 use mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::mmds::MmdsConfig;
+
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 
 pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.mmds_count.inc();

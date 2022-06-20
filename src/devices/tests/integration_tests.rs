@@ -3,21 +3,19 @@
 
 mod serial_utils;
 
-use devices::legacy::EventFdTrigger;
-use devices::legacy::SerialEventsWrapper;
-use devices::legacy::SerialWrapper;
-use devices::BusDevice;
-use event_manager::{EventManager, SubscriberOps};
-use libc::EFD_NONBLOCK;
-use logger::METRICS;
 use std::io;
 use std::io::Stdout;
 use std::os::raw::{c_int, c_void};
 use std::sync::{Arc, Mutex};
-use vm_superio::Serial;
 
+use devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use devices::BusDevice;
+use event_manager::{EventManager, SubscriberOps};
+use libc::EFD_NONBLOCK;
+use logger::METRICS;
 use serial_utils::MockSerialInput;
 use utils::eventfd::EventFd;
+use vm_superio::Serial;
 
 fn create_serial(
     pipe: c_int,

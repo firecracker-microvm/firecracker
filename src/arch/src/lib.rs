@@ -4,8 +4,7 @@
 #![deny(missing_docs)]
 //! Implements platform specific functionality.
 //! Supported platforms: x86_64 and aarch64.
-use std::fmt;
-use std::result;
+use std::{fmt, result};
 
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;

@@ -1,11 +1,13 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::token::{Error as TokenError, TokenAuthority};
-use serde::{Deserialize, Serialize};
-use serde_json::{to_vec, Value};
 use std::fmt;
 use std::fmt::{Display, Formatter};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{to_vec, Value};
+
+use crate::token::{Error as TokenError, TokenAuthority};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 pub struct Mmds {
@@ -252,8 +254,8 @@ impl Mmds {
         }
     }
 
-    /// Returns the subtree located at path. When the path corresponds to a leaf, it returns the value.
-    /// Returns Error::NotFound when the path is invalid.
+    /// Returns the subtree located at path. When the path corresponds to a leaf, it returns the
+    /// value. Returns Error::NotFound when the path is invalid.
     pub fn get_value(&self, path: String, format: OutputFormat) -> Result<String, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.

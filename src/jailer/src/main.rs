@@ -4,19 +4,14 @@ mod cgroup;
 mod chroot;
 mod env;
 mod resource_limits;
-use std::env as p_env;
-
 use std::ffi::{CString, NulError, OsString};
-use std::fmt;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::result;
+use std::{env as p_env, fmt, fs, io, process, result};
 
-use crate::env::Env;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
+
+use crate::env::Env;
 
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 #[derive(Debug)]
@@ -121,7 +116,8 @@ impl fmt::Display for Error {
             CgroupInvalidParentPath() => {
                 write!(
                     f,
-                    "Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'",
+                    "Parent cgroup path is invalid. Path should not be absolute or contain '..' \
+                     or '.'",
                 )
             }
             ChangeFileOwner(ref path, ref err) => {
@@ -243,8 +239,8 @@ impl fmt::Display for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// Create an ArgParser object which contains info about the command line argument parser and populate
-/// it with the expected arguments and their characteristics.
+/// Create an ArgParser object which contains info about the command line argument parser and
+/// populate it with the expected arguments and their characteristics.
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
         .arg(
@@ -283,8 +279,8 @@ pub fn build_arg_parser() -> ArgParser<'static> {
                 .help("Path to the network namespace this microVM should join."),
         )
         .arg(Argument::new("daemonize").takes_value(false).help(
-            "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
-             the standard I/O file descriptors to /dev/null.",
+            "Daemonize the jailer before exec, by invoking setsid(), and redirecting the standard \
+             I/O file descriptors to /dev/null.",
         ))
         .arg(
             Argument::new("new-pid-ns")
@@ -293,17 +289,16 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         )
         .arg(Argument::new("cgroup").allow_multiple(true).help(
             "Cgroup and value to be set by the jailer. It must follow this format: \
-             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used \
-             multiple times to add multiple cgroups.",
+             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used multiple times \
+             to add multiple cgroups.",
         ))
         .arg(Argument::new("resource-limit").allow_multiple(true).help(
             "Resource limit values to be set by the jailer. It must follow this format: \
-             <resource>=<value> (e.g no-file=1024). This argument can be used \
-             multiple times to add multiple resource limits. \
-             Current available resource values are:\n\
-             \t\tfsize: The maximum size in bytes for files created by the process.\n\
-             \t\tno-file: Specifies a value one greater than the maximum file descriptor number \
-             that can be opened by this process.",
+             <resource>=<value> (e.g no-file=1024). This argument can be used multiple times to \
+             add multiple resource limits. Current available resource values are:\n\t\tfsize: The \
+             maximum size in bytes for files created by the process.\n\t\tno-file: Specifies a \
+             value one greater than the maximum file descriptor number that can be opened by this \
+             process.",
         ))
         .arg(
             Argument::new("cgroup-version")
@@ -398,8 +393,7 @@ fn main() {
     match arg_parser.parse_from_cmdline() {
         Err(err) => {
             println!(
-                "Arguments parsing error: {} \n\n\
-                 For more information try --help.",
+                "Arguments parsing error: {} \n\nFor more information try --help.",
                 err
             );
             process::exit(1);
@@ -409,8 +403,7 @@ fn main() {
                 println!("Jailer v{}\n", JAILER_VERSION);
                 println!("{}\n", arg_parser.formatted_help());
                 println!(
-                    "Any arguments after the -- separator will be supplied to the jailed \
-                     binary.\n"
+                    "Any arguments after the -- separator will be supplied to the jailed binary.\n"
                 );
                 process::exit(0);
             }
@@ -437,12 +430,13 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
     use utils::arg_parser;
+
+    use super::*;
 
     #[test]
     fn test_sanitize_process() {
@@ -505,7 +499,8 @@ mod tests {
 
         assert_eq!(
             format!("{}", Error::ArgumentParsing(err_args_parse)),
-            "Failed to parse arguments: Found argument 'foo' which wasn't expected, or isn't valid in this context."
+            "Failed to parse arguments: Found argument 'foo' which wasn't expected, or isn't \
+             valid in this context."
         );
         assert_eq!(
             format!(
@@ -664,11 +659,16 @@ mod tests {
         );
         assert_eq!(
             format!("{}", Error::MountBind(io::Error::from_raw_os_error(42))),
-            "Failed to bind mount the jail root directory: No message of desired type (os error 42)",
+            "Failed to bind mount the jail root directory: No message of desired type (os error \
+             42)",
         );
         assert_eq!(
-            format!("{}", Error::MountPropagationSlave(io::Error::from_raw_os_error(42))),
-            "Failed to change the propagation type to slave: No message of desired type (os error 42)",
+            format!(
+                "{}",
+                Error::MountPropagationSlave(io::Error::from_raw_os_error(42))
+            ),
+            "Failed to change the propagation type to slave: No message of desired type (os error \
+             42)",
         );
         assert_eq!(
             format!("{}", Error::NotAFile(file_path.clone())),
