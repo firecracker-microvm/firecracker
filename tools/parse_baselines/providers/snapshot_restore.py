@@ -22,17 +22,19 @@ class SnapshotRestoreDataParser(DataParser):
     # pylint: disable=W0102
     def __init__(self, data_provider: Iterator):
         """Initialize the data parser."""
-        super().__init__(data_provider, [
-            "restore_latency/P50",
-            "restore_latency/P90",
-        ])
+        super().__init__(
+            data_provider,
+            [
+                "restore_latency/P50",
+                "restore_latency/P90",
+            ],
+        )
 
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
         stddev = statistics.stdev(data)
         return {
-            'target': math.ceil(round(avg, 2)),
-            'delta_percentage':
-                math.ceil(3 * stddev/avg * 100) + DELTA_EXTRA_MARGIN
+            "target": math.ceil(round(avg, 2)),
+            "delta_percentage": math.ceil(3 * stddev / avg * 100) + DELTA_EXTRA_MARGIN,
         }

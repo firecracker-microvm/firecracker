@@ -22,70 +22,34 @@ NSEC_IN_MSEC = 1000000
 BASELINES = {
     "Intel": {
         "serialize": {
-            "no-crc": {
-                "target": 0.146,  # milliseconds
-                "delta": 0.025  # milliseconds
-            },
-            "crc": {
-                "target": 0.205,  # milliseconds
-                "delta": 0.025  # milliseconds
-            }
+            "no-crc": {"target": 0.146, "delta": 0.025},  # milliseconds  # milliseconds
+            "crc": {"target": 0.205, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {
-                "target": 0.034,  # milliseconds
-                "delta": 0.015  # milliseconds
-            },
-            "crc": {
-                "target": 0.042,  # milliseconds
-                "delta": 0.015  # milliseconds
-            }
-        }
+            "no-crc": {"target": 0.034, "delta": 0.015},  # milliseconds  # milliseconds
+            "crc": {"target": 0.042, "delta": 0.015},  # milliseconds  # milliseconds
+        },
     },
     "AMD": {
         "serialize": {
-            "no-crc": {
-                "target": 0.096,  # milliseconds
-                "delta": 0.025  # milliseconds
-            },
-            "crc": {
-                "target": 0.122,  # milliseconds
-                "delta": 0.025  # milliseconds
-            }
+            "no-crc": {"target": 0.096, "delta": 0.025},  # milliseconds  # milliseconds
+            "crc": {"target": 0.122, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {
-                "target": 0.037,  # milliseconds
-                "delta": 0.015  # milliseconds
-            },
-            "crc": {
-                "target": 0.045,  # milliseconds
-                "delta": 0.015  # milliseconds
-            }
-        }
+            "no-crc": {"target": 0.037, "delta": 0.015},  # milliseconds  # milliseconds
+            "crc": {"target": 0.045, "delta": 0.015},  # milliseconds  # milliseconds
+        },
     },
     "ARM": {
         "serialize": {
-            "no-crc": {
-                "target": 0.096,  # milliseconds
-                "delta": 0.025  # milliseconds
-            },
-            "crc": {
-                "target": 0.186,  # milliseconds
-                "delta": 0.025  # milliseconds
-            }
+            "no-crc": {"target": 0.096, "delta": 0.025},  # milliseconds  # milliseconds
+            "crc": {"target": 0.186, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {
-                "target": 0.034,  # milliseconds
-                "delta": 0.015  # milliseconds
-            },
-            "crc": {
-                "target": 0.042,  # milliseconds
-                "delta": 0.015  # milliseconds
-            }
-        }
-    }
+            "no-crc": {"target": 0.034, "delta": 0.015},  # milliseconds  # milliseconds
+            "crc": {"target": 0.042, "delta": 0.015},  # milliseconds  # milliseconds
+        },
+    },
 }
 
 
@@ -106,16 +70,12 @@ def _check_statistics(directory, mean):
     measure = BASELINES[proc_model[0]][bench][attribute]
     low = measure["target"] - measure["delta"]
     high = measure["target"] + measure["delta"]
-    assert low <= mean <= high, "Benchmark result {} has changed!" \
-        .format(directory)
+    assert low <= mean <= high, "Benchmark result {} has changed!".format(directory)
 
     return directory, f"{mean} ms", f"{low} <= result <= {high}"
 
 
-@pytest.mark.skipif(
-    get_cpu_vendor() != CpuVendor.INTEL,
-    reason="Not supported yet."
-)
+@pytest.mark.skipif(get_cpu_vendor() != CpuVendor.INTEL, reason="Not supported yet.")
 def test_serialization_benchmark():
     """
     Benchmark test for MicrovmState serialization/deserialization.
@@ -128,7 +88,7 @@ def test_serialization_benchmark():
     os.chdir(BENCHMARK_DIRECTORY)
 
     # Run benchmark test
-    cmd = 'cargo bench'
+    cmd = "cargo bench"
     result = utils.run_cmd_sync(cmd)
     assert result.returncode == 0
 
@@ -146,13 +106,13 @@ def test_serialization_benchmark():
 
         # Retrieve the 'estimates.json' file content
         json_file = os.path.join(
-            results_dir,
-            "{}/{}".format(directory, "base/estimates.json"))
-        with open(json_file, "r", encoding='utf-8') as read_file:
+            results_dir, "{}/{}".format(directory, "base/estimates.json")
+        )
+        with open(json_file, "r", encoding="utf-8") as read_file:
             estimates = json.load(read_file)
 
         # Save the Mean measurement(nanoseconds) and transform it(milliseconds)
-        mean = estimates['mean']['point_estimate'] / NSEC_IN_MSEC
+        mean = estimates["mean"]["point_estimate"] / NSEC_IN_MSEC
         logger.info("Mean: %f", mean)
 
         res = _check_statistics(directory, mean)

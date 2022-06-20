@@ -10,7 +10,7 @@ import platform
 import host_tools.logging as log_tools
 from host_tools.cargo_build import run_seccompiler_bin
 
-MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 3400}
+MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3400}
 """ The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
@@ -56,7 +56,7 @@ def _test_startup_time(microvm):
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
 
     # Configure metrics.
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.metrics.put(
@@ -71,11 +71,14 @@ def _test_startup_time(microvm):
     # Since metrics are flushed at InstanceStart, the first line will suffice.
     lines = metrics_fifo.sequential_reader(1)
     metrics = json.loads(lines[0])
-    startup_time_us = metrics['api_server']['process_startup_time_us']
-    cpu_startup_time_us = metrics['api_server']['process_startup_time_cpu_us']
+    startup_time_us = metrics["api_server"]["process_startup_time_us"]
+    cpu_startup_time_us = metrics["api_server"]["process_startup_time_cpu_us"]
 
-    print('Process startup time is: {} us ({} CPU us)'
-          .format(startup_time_us, cpu_startup_time_us))
+    print(
+        "Process startup time is: {} us ({} CPU us)".format(
+            startup_time_us, cpu_startup_time_us
+        )
+    )
 
     max_startup_time = MAX_STARTUP_TIME_CPU_US[platform.machine()]
     assert cpu_startup_time_us > 0
@@ -85,9 +88,9 @@ def _test_startup_time(microvm):
 
 
 def _custom_filter_setup(test_microvm):
-    bpf_path = os.path.join(test_microvm.path, 'bpf.out')
+    bpf_path = os.path.join(test_microvm.path, "bpf.out")
 
     run_seccompiler_bin(bpf_path)
 
     test_microvm.create_jailed_resource(bpf_path)
-    test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})
+    test_microvm.jailer.extra_args.update({"seccomp-filter": "bpf.out"})

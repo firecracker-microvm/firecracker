@@ -31,13 +31,13 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=0.5):
 
     def get_rss_from_pmap():
         _, output, _ = run_cmd("pmap -X {}".format(pid))
-        return int(output.split('\n')[-2].split()[1], 10)
+        return int(output.split("\n")[-2].split()[1], 10)
 
     first_rss = get_rss_from_pmap()
     time.sleep(1)
     second_rss = get_rss_from_pmap()
 
-    delta = (abs(first_rss - second_rss)/float(first_rss)) * 100
+    delta = (abs(first_rss - second_rss) / float(first_rss)) * 100
     assert delta < percentage_delta
 
     return second_rss
@@ -54,15 +54,13 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount=8192):
     cmd = "cat /tmp/fillmem_output.txt"
     _, stdout, _ = ssh_connection.execute_command(cmd)
     if should_oom:
-        assert exit_code == 0 and (
-            "OOM Killer stopped the program with "
-            "signal 9, exit code 0"
-        ) in stdout.read()
+        assert (
+            exit_code == 0
+            and ("OOM Killer stopped the program with " "signal 9, exit code 0")
+            in stdout.read()
+        )
     else:
-        assert exit_code == 0 and (
-            "Memory filling was "
-            "successful"
-        ) in stdout.read()
+        assert exit_code == 0 and ("Memory filling was " "successful") in stdout.read()
 
 
 def build_test_matrix(network_config, bin_cloner_path, logger):
@@ -74,29 +72,23 @@ def build_test_matrix(network_config, bin_cloner_path, logger):
     # - Microvm: 2vCPU with 256 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(
-        keyword="vmlinux-4.14"
-    ))
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'network_config': network_config,
-        'logger': logger,
-        'snapshot_type': SnapshotType.FULL,
-        'seq_len': 5
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "network_config": network_config,
+        "logger": logger,
+        "snapshot_type": SnapshotType.FULL,
+        "seq_len": 5,
     }
 
     # Create the test matrix.
     return TestMatrix(
         context=test_context,
-        artifact_sets=[
-            microvm_artifacts,
-            kernel_artifacts,
-            disk_artifacts
-        ]
+        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
     )
 
 
@@ -108,18 +100,14 @@ def _test_rss_memory_lower(test_microvm):
 
     # Using deflate_on_oom, get the RSS as low as possible
     response = test_microvm.balloon.patch(amount_mib=200)
-    assert test_microvm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Get initial rss consumption.
     init_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Get the balloon back to 0.
     response = test_microvm.balloon.patch(amount_mib=0)
-    assert test_microvm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
@@ -127,9 +115,7 @@ def _test_rss_memory_lower(test_microvm):
     make_guest_dirty_memory(ssh_connection)
 
     response = test_microvm.balloon.patch(amount_mib=200)
-    assert test_microvm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
     balloon_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Check that the ballooning reclaimed the memory.
@@ -146,13 +132,11 @@ def test_rss_memory_lower(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -163,8 +147,7 @@ def test_rss_memory_lower(test_microvm_with_api, network_config):
 
 
 # pylint: disable=C0103
-def test_inflate_reduces_free(test_microvm_with_api,
-                              network_config):
+def test_inflate_reduces_free(test_microvm_with_api, network_config):
     """
     Check that the output of free in guest changes with inflate.
 
@@ -173,13 +156,11 @@ def test_inflate_reduces_free(test_microvm_with_api,
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Install deflated balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=False,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -207,8 +188,7 @@ def test_inflate_reduces_free(test_microvm_with_api,
 
 
 # pylint: disable=C0103
-def test_deflate_on_oom_true(test_microvm_with_api,
-                             network_config):
+def test_deflate_on_oom_true(test_microvm_with_api, network_config):
     """
     Verify that setting the `deflate_on_oom` to True works correctly.
 
@@ -217,13 +197,11 @@ def test_deflate_on_oom_true(test_microvm_with_api,
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a deflated memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -255,8 +233,7 @@ def test_deflate_on_oom_true(test_microvm_with_api,
 
 
 # pylint: disable=C0103
-def test_deflate_on_oom_false(test_microvm_with_api,
-                              network_config):
+def test_deflate_on_oom_false(test_microvm_with_api, network_config):
     """
     Verify that setting the `deflate_on_oom` to False works correctly.
 
@@ -265,13 +242,11 @@ def test_deflate_on_oom_false(test_microvm_with_api,
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=False,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -309,13 +284,11 @@ def test_reinflate_balloon(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a deflated memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -381,13 +354,11 @@ def test_size_reduction(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -402,7 +373,7 @@ def test_size_reduction(test_microvm_with_api, network_config):
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Have the guest drop its caches.
-    ssh_connection.execute_command('sync; echo 3 > /proc/sys/vm/drop_caches')
+    ssh_connection.execute_command("sync; echo 3 > /proc/sys/vm/drop_caches")
     time.sleep(5)
 
     # We take the initial reading of the RSS, then calculate the amount
@@ -432,13 +403,11 @@ def test_stats(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon with stats enabled.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -460,8 +429,8 @@ def test_stats(test_microvm_with_api, network_config):
 
     # Make sure that the stats catch the page faults.
     after_workload_stats = test_microvm.balloon.get_stats().json()
-    assert initial_stats['minor_faults'] < after_workload_stats['minor_faults']
-    assert initial_stats['major_faults'] < after_workload_stats['major_faults']
+    assert initial_stats["minor_faults"] < after_workload_stats["minor_faults"]
+    assert initial_stats["major_faults"] < after_workload_stats["major_faults"]
 
     # Now inflate the balloon with 10MB of pages.
     response = test_microvm.balloon.patch(amount_mib=10)
@@ -473,14 +442,8 @@ def test_stats(test_microvm_with_api, network_config):
     inflated_stats = test_microvm.balloon.get_stats().json()
 
     # Ensure the stats reflect inflating the balloon.
-    assert (
-        after_workload_stats['free_memory'] >
-        inflated_stats['free_memory']
-    )
-    assert (
-        after_workload_stats['available_memory'] >
-        inflated_stats['available_memory']
-    )
+    assert after_workload_stats["free_memory"] > inflated_stats["free_memory"]
+    assert after_workload_stats["available_memory"] > inflated_stats["available_memory"]
 
     # Deflate the balloon.check that the stats show the increase in
     # available memory.
@@ -493,14 +456,8 @@ def test_stats(test_microvm_with_api, network_config):
     deflated_stats = test_microvm.balloon.get_stats().json()
 
     # Ensure the stats reflect deflating the balloon.
-    assert (
-        inflated_stats['free_memory'] <
-        deflated_stats['free_memory']
-    )
-    assert (
-        inflated_stats['available_memory'] <
-        deflated_stats['available_memory']
-    )
+    assert inflated_stats["free_memory"] < deflated_stats["free_memory"]
+    assert inflated_stats["available_memory"] < deflated_stats["available_memory"]
 
 
 def test_stats_update(test_microvm_with_api, network_config):
@@ -512,13 +469,11 @@ def test_stats_update(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon with stats enabled.
     response = test_microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -545,7 +500,7 @@ def test_stats_update(test_microvm_with_api, network_config):
     # Wait out the polling interval, then get the updated stats.
     time.sleep(1)
     next_stats = test_microvm.balloon.get_stats().json()
-    assert initial_stats['available_memory'] != next_stats['available_memory']
+    assert initial_stats["available_memory"] != next_stats["available_memory"]
 
     # Inflate the balloon more to trigger a change in the stats.
     response = test_microvm.balloon.patch(amount_mib=30)
@@ -557,13 +512,10 @@ def test_stats_update(test_microvm_with_api, network_config):
 
     # The polling interval change should update the stats.
     final_stats = test_microvm.balloon.get_stats().json()
-    assert next_stats['available_memory'] != final_stats['available_memory']
+    assert next_stats["available_memory"] != final_stats["available_memory"]
 
 
-def test_balloon_snapshot(
-    network_config,
-    bin_cloner_path
-):
+def test_balloon_snapshot(network_config, bin_cloner_path):
     """
     Test that the balloon works after pause/resume.
 
@@ -578,16 +530,19 @@ def test_balloon_snapshot(
 
 
 def _test_balloon_snapshot(context):
-    logger = context.custom['logger']
-    vm_builder = context.custom['builder']
-    snapshot_type = context.custom['snapshot_type']
+    logger = context.custom["logger"]
+    vm_builder = context.custom["builder"]
+    snapshot_type = context.custom["snapshot_type"]
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
-                .format(snapshot_type,
-                        context.microvm.name(),
-                        context.kernel.name(),
-                        context.disk.name()))
+    logger.info(
+        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
+            snapshot_type,
+            context.microvm.name(),
+            context.kernel.name(),
+            context.disk.name(),
+        )
+    )
 
     # Create a rw copy artifact.
     root_disk = context.disk.copy()
@@ -595,18 +550,18 @@ def _test_balloon_snapshot(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(kernel=context.kernel,
-                                   disks=[root_disk],
-                                   ssh_key=ssh_key,
-                                   config=context.microvm,
-                                   diff_snapshots=diff_snapshots)
+    vm_instance = vm_builder.build(
+        kernel=context.kernel,
+        disks=[root_disk],
+        ssh_key=ssh_key,
+        config=context.microvm,
+        diff_snapshots=diff_snapshots,
+    )
     basevm = vm_instance.vm
 
     # Add a memory balloon with stats enabled.
     response = basevm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
 
@@ -639,17 +594,13 @@ def _test_balloon_snapshot(context):
     snapshot_builder = SnapshotBuilder(basevm)
 
     # Create base snapshot.
-    snapshot = snapshot_builder.create([root_disk.local_path()],
-                                       ssh_key,
-                                       snapshot_type)
+    snapshot = snapshot_builder.create([root_disk.local_path()], ssh_key, snapshot_type)
 
     basevm.kill()
 
     logger.info("Load snapshot #{}, mem {}".format(1, snapshot.mem))
     microvm, _ = vm_builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        diff_snapshots=diff_snapshots
+        snapshot, resume=True, diff_snapshots=diff_snapshots
     )
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
@@ -687,18 +638,12 @@ def _test_balloon_snapshot(context):
 
     # Ensure the stats are still working after restore and show
     # that the balloon inflated.
-    assert (
-        stats_after_snap['available_memory'] >
-        latest_stats['available_memory']
-    )
+    assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
 
     microvm.kill()
 
 
-def test_snapshot_compatibility(
-    network_config,
-    bin_cloner_path
-):
+def test_snapshot_compatibility(network_config, bin_cloner_path):
     """
     Test that the balloon serializes correctly.
 
@@ -713,16 +658,19 @@ def test_snapshot_compatibility(
 
 
 def _test_snapshot_compatibility(context):
-    logger = context.custom['logger']
-    vm_builder = context.custom['builder']
-    snapshot_type = context.custom['snapshot_type']
+    logger = context.custom["logger"]
+    vm_builder = context.custom["builder"]
+    snapshot_type = context.custom["snapshot_type"]
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
-                .format(snapshot_type,
-                        context.microvm.name(),
-                        context.kernel.name(),
-                        context.disk.name()))
+    logger.info(
+        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
+            snapshot_type,
+            context.microvm.name(),
+            context.kernel.name(),
+            context.disk.name(),
+        )
+    )
 
     # Create a rw copy artifact.
     root_disk = context.disk.copy()
@@ -734,14 +682,12 @@ def _test_snapshot_compatibility(context):
         disks=[root_disk],
         ssh_key=ssh_key,
         config=context.microvm,
-        diff_snapshots=diff_snapshots
+        diff_snapshots=diff_snapshots,
     )
     microvm = vm_instance.vm
     # Add a memory balloon with stats enabled.
     response = microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
@@ -750,7 +696,7 @@ def _test_snapshot_compatibility(context):
     logger.info("Create {} #0.".format(snapshot_type))
 
     # Pause the microVM in order to allow snapshots
-    response = microvm.vm.patch(state='Paused')
+    response = microvm.vm.patch(state="Paused")
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Try to create a snapshot with a balloon on version 0.23.0.
@@ -758,36 +704,25 @@ def _test_snapshot_compatibility(context):
     # was introduced in v0.24.0.
     if platform.machine() == "x86_64":
         response = microvm.snapshot.create(
-            mem_file_path='memfile',
-            snapshot_path='dummy',
-            diff=False,
-            version='0.23.0'
+            mem_file_path="memfile", snapshot_path="dummy", diff=False, version="0.23.0"
         )
 
         # This should fail as the balloon was introduced in 0.24.0.
         assert microvm.api_session.is_status_bad_request(response.status_code)
         assert (
-            'Target version does not implement the '
-            'virtio-balloon device'
-        ) in response.json()['fault_message']
+            "Target version does not implement the " "virtio-balloon device"
+        ) in response.json()["fault_message"]
 
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(microvm)
 
     # Check we can create a snapshot with a balloon on current version.
-    snapshot_builder.create(
-        [root_disk.local_path()],
-        ssh_key,
-        snapshot_type
-    )
+    snapshot_builder.create([root_disk.local_path()], ssh_key, snapshot_type)
 
     microvm.kill()
 
 
-def test_memory_scrub(
-    network_config,
-    bin_cloner_path
-):
+def test_memory_scrub(network_config, bin_cloner_path):
     """
     Test that the memory is zeroed after deflate.
 
@@ -802,7 +737,7 @@ def test_memory_scrub(
 
 
 def _test_memory_scrub(context):
-    vm_builder = context.custom['builder']
+    vm_builder = context.custom["builder"]
 
     # Create a rw copy artifact.
     root_disk = context.disk.copy()
@@ -813,15 +748,13 @@ def _test_memory_scrub(context):
         kernel=context.kernel,
         disks=[root_disk],
         ssh_key=ssh_key,
-        config=context.microvm
+        config=context.microvm,
     )
     microvm = vm_instance.vm
 
     # Add a memory balloon with stats enabled.
     response = microvm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=1
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 

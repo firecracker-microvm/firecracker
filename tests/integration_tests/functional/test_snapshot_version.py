@@ -15,9 +15,9 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 FC_V0_23_MAX_DEVICES_ATTACHED = 11
 
 
-def _create_and_start_microvm_with_net_devices(test_microvm,
-                                               network_config=None,
-                                               devices_no=0):
+def _create_and_start_microvm_with_net_devices(
+    test_microvm, network_config=None, devices_no=0
+):
     test_microvm.spawn()
     # Set up a basic microVM: configure the boot source and
     # add a root device.
@@ -28,8 +28,7 @@ def _create_and_start_microvm_with_net_devices(test_microvm,
     for i in range(devices_no):
         # Create tap before configuring interface.
         _tap, _host_ip, _guest_ip = test_microvm.ssh_network_config(
-            network_config,
-            str(i)
+            network_config, str(i)
         )
     test_microvm.start()
 
@@ -41,8 +40,7 @@ def _create_and_start_microvm_with_net_devices(test_microvm,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "aarch64",
-    reason="Exercises specific x86_64 functionality."
+    platform.machine() != "aarch64", reason="Exercises specific x86_64 functionality."
 )
 def test_create_v0_23_snapshot(test_microvm_with_api):
     """
@@ -59,24 +57,22 @@ def test_create_v0_23_snapshot(test_microvm_with_api):
     _snapshot_dir = snapshot_builder.create_snapshot_dir()
 
     # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state='Paused')
+    response = test_microvm.vm.patch(state="Paused")
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.snapshot.create(
         mem_file_path="/snapshot/vm.mem",
         snapshot_path="/snapshot/vm.vmstate",
         diff=True,
-        version="0.23.0"
+        version="0.23.0",
     )
 
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot translate microVM version to snapshot data version"\
-           in response.text
+    assert "Cannot translate microVM version to snapshot data version" in response.text
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Exercises specific x86_64 functionality."
+    platform.machine() != "x86_64", reason="Exercises specific x86_64 functionality."
 )
 def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     """
@@ -89,16 +85,14 @@ def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     # Create and start a microVM with `FC_V0_23_MAX_DEVICES_ATTACHED`
     # network devices.
     devices_no = FC_V0_23_MAX_DEVICES_ATTACHED
-    _create_and_start_microvm_with_net_devices(test_microvm,
-                                               network_config,
-                                               devices_no)
+    _create_and_start_microvm_with_net_devices(test_microvm, network_config, devices_no)
 
     snapshot_builder = SnapshotBuilder(test_microvm)
     # Create directory and files for saving snapshot state and memory.
     _snapshot_dir = snapshot_builder.create_snapshot_dir()
 
     # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state='Paused')
+    response = test_microvm.vm.patch(state="Paused")
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Attempt to create a snapshot with version: `0.23.0`. Firecracker
@@ -109,7 +103,7 @@ def test_create_with_too_many_devices(test_microvm_with_api, network_config):
         mem_file_path="/snapshot/vm.mem",
         snapshot_path="/snapshot/vm.vmstate",
         diff=True,
-        version="0.23.0"
+        version="0.23.0",
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Too many devices attached" in response.text
@@ -132,11 +126,11 @@ def test_create_invalid_version(bin_cloner_path):
             mem_file_path="/vm.mem",
             snapshot_path="/vm.vmstate",
             diff=False,
-            version="invalid")
+            version="invalid",
+        )
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Invalid microVM version format" in \
-            str(error)
+        assert "Invalid microVM version format" in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -146,11 +140,11 @@ def test_create_invalid_version(bin_cloner_path):
             mem_file_path="/vm.mem",
             snapshot_path="/vm.vmstate",
             diff=False,
-            version="0.22.0")
+            version="0.22.0",
+        )
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot translate microVM version to snapshot data version" in \
-            str(error)
+        assert "Cannot translate microVM version to snapshot data version" in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -168,7 +162,7 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
     # Init a ssh connection in order to wait for the VM to boot. This way
     # we can be sure that the block device was activated.
     iface = NetIfaceConfig()
-    test_microvm.ssh_config['hostname'] = iface.guest_ip
+    test_microvm.ssh_config["hostname"] = iface.guest_ip
     _ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Create directory and files for saving snapshot state and memory.
@@ -176,7 +170,7 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
     _snapshot_dir = snapshot_builder.create_snapshot_dir()
 
     # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state='Paused')
+    response = test_microvm.vm.patch(state="Paused")
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # We try to create a snapshot to a target version < 1.0.0.
@@ -189,35 +183,32 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
         response = test_microvm.snapshot.create(
             mem_file_path="/snapshot/vm.mem",
             snapshot_path="/snapshot/vm.vmstate",
-            version=target_fc_version
+            version=target_fc_version,
         )
-        assert test_microvm.api_session.is_status_bad_request(
-            response.status_code
+        assert test_microvm.api_session.is_status_bad_request(response.status_code)
+        assert (
+            "The virtio devices use a features that is incompatible "
+            "with older versions of Firecracker: notification suppression"
+            in response.text
         )
-        assert "The virtio devices use a features that is incompatible " \
-               "with older versions of Firecracker: notification suppression" \
-               in response.text
 
     # We try to create a snapshot for target version 1.0.0. This should
     # fail because in 1.0.0 we do not support notification suppression for Net.
     response = test_microvm.snapshot.create(
         mem_file_path="/snapshot/vm.mem",
         snapshot_path="/snapshot/vm.vmstate",
-        version="1.0.0"
+        version="1.0.0",
     )
-    assert test_microvm.api_session.is_status_bad_request(
-        response.status_code
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert (
+        "The virtio devices use a features that is incompatible "
+        "with older versions of Firecracker: notification suppression" in response.text
     )
-    assert "The virtio devices use a features that is incompatible " \
-           "with older versions of Firecracker: notification suppression" \
-           in response.text
 
     # It should work when we target a version >= 1.1.0
     response = test_microvm.snapshot.create(
         mem_file_path="/snapshot/vm.mem",
         snapshot_path="/snapshot/vm.vmstate",
-        version="1.1.0"
+        version="1.1.0",
     )
-    assert test_microvm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)

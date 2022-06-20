@@ -18,8 +18,8 @@ class CpuLoadExceededException(Exception):
     def __init__(self, cpu_load_samples, threshold):
         """Compose the error message containing the cpu load details."""
         super().__init__(
-            f'Cpu load samples {cpu_load_samples} exceeded maximum'
-            f'threshold {threshold}.\n'
+            f"Cpu load samples {cpu_load_samples} exceeded maximum"
+            f"threshold {threshold}.\n"
         )
 
 
@@ -28,12 +28,7 @@ class CpuLoadMonitor(Thread):
 
     CPU_LOAD_SAMPLES_TIMEOUT_S = 1
 
-    def __init__(
-        self,
-        process_pid,
-        thread_pid,
-        threshold
-    ):
+    def __init__(self, process_pid, thread_pid, threshold):
         """Set up monitor attributes."""
         Thread.__init__(self)
         self._process_pid = process_pid
@@ -72,8 +67,7 @@ class CpuLoadMonitor(Thread):
         It is up to the caller to check the queue.
         """
         while not self._should_stop:
-            cpu_load = utils.ProcessManager.get_cpu_percent(
-                self._process_pid)["real"]
+            cpu_load = utils.ProcessManager.get_cpu_percent(self._process_pid)["real"]
             if cpu_load > self.threshold:
                 self.cpu_load_samples.append(cpu_load)
             time.sleep(1)  # 1 second granularity.
@@ -81,5 +75,4 @@ class CpuLoadMonitor(Thread):
     def check_samples(self):
         """Check that there are no samples above the threshold."""
         if len(self.cpu_load_samples) > 0:
-            raise CpuLoadExceededException(
-                self._cpu_load_samples, self._threshold)
+            raise CpuLoadExceededException(self._cpu_load_samples, self._threshold)

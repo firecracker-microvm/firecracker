@@ -5,6 +5,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, List
+
 # pylint: disable=E0611
 from statistics import mean, stdev
 from pydoc import locate
@@ -15,7 +16,7 @@ class FunctionFactory:
     """Function factory class."""
 
     @classmethod
-    def get(cls, func_cls_name) -> 'Function':
+    def get(cls, func_cls_name) -> "Function":
         """`func_cls_name` must be a valid function class name."""
         return locate(f"framework.stats.function.{func_cls_name}")
 
@@ -162,8 +163,7 @@ class Percentile(Function, ABC):
         result.sort()
         idx = length * self.k / 100
         if not idx.is_integer():
-            return (result[int(idx)] + result[min((int(idx) + 1),
-                    length - 1)]) / 2
+            return (result[int(idx)] + result[min((int(idx) + 1), length - 1)]) / 2
 
         return result[int(idx)]
 

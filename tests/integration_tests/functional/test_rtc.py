@@ -8,12 +8,11 @@ import pytest
 from framework import utils
 from host_tools.network import SSHConnection
 
-DMESG_LOG_REGEX = r'rtc-pl031\s+(\d+).rtc: setting system clock to'
+DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 
 
 @pytest.mark.skipif(
-    platform.machine() != "aarch64",
-    reason="RTC exists only on aarch64."
+    platform.machine() != "aarch64", reason="RTC exists only on aarch64."
 )
 def test_rtc(test_microvm_with_api, network_config):
     """
@@ -25,7 +24,7 @@ def test_rtc(test_microvm_with_api, network_config):
     vm.spawn()
     vm.memory_monitor = None
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, '1')
+    _tap, _, _ = vm.ssh_network_config(network_config, "1")
 
     vm.start()
     conn = SSHConnection(vm.ssh_config)

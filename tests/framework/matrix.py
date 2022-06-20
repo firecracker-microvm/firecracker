@@ -29,62 +29,62 @@ class TestContext:
     @property
     def firecracker(self):
         """Return the firecracker binary artifact."""
-        return self._context.get('firecracker', None)
+        return self._context.get("firecracker", None)
 
     @firecracker.setter
     def firecracker(self, firecracker):
         """Setter for firecracker binary artifact."""
-        self._context['firecracker'] = firecracker
+        self._context["firecracker"] = firecracker
 
     @property
     def kernel(self):
         """Return the kernel artifact."""
-        return self._context.get('kernel', None)
+        return self._context.get("kernel", None)
 
     @kernel.setter
     def kernel(self, kernel):
         """Setter for kernel artifact."""
-        self._context['kernel'] = kernel
+        self._context["kernel"] = kernel
 
     @property
     def disk(self):
         """Return the disk artifact."""
-        return self._context.get('disk', None)
+        return self._context.get("disk", None)
 
     @disk.setter
     def disk(self, disk):
         """Setter for disk artifact."""
-        self._context['disk'] = disk
+        self._context["disk"] = disk
 
     @property
     def microvm(self):
         """Return the microvm artifact."""
-        return self._context.get('microvm', None)
+        return self._context.get("microvm", None)
 
     @microvm.setter
     def microvm(self, microvm):
         """Setter for kernel artifact."""
-        self._context['microvm'] = microvm
+        self._context["microvm"] = microvm
 
     @property
     def snapshot(self):
         """Return the snapshot artifact."""
-        return self._context.get('snapshot', None)
+        return self._context.get("snapshot", None)
 
     @snapshot.setter
     def snapshot(self, snapshot):
         """Setter for snapshot artifact."""
-        self._context['snapshot'] = snapshot
+        self._context["snapshot"] = snapshot
 
     @property
     def custom(self):
         """Return the custom context."""
-        return self._context.get('custom', None)
+        return self._context.get("custom", None)
 
     @custom.setter
     def custom(self, custom):
         """Setter for custom context."""
-        self._context['custom'] = custom
+        self._context["custom"] = custom
 
 
 class TestMatrix:
@@ -92,10 +92,9 @@ class TestMatrix:
 
     __test__ = False
 
-    def __init__(self,
-                 artifact_sets,
-                 context=TestContext(),
-                 cache_dir=ARTIFACTS_LOCAL_ROOT):
+    def __init__(
+        self, artifact_sets, context=TestContext(), cache_dir=ARTIFACTS_LOCAL_ROOT
+    ):
         """Initialize context, cache dir, and artifact_sets."""
         self._context = context
         # Stores the artifact sets array.

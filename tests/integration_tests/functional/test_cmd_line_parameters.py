@@ -26,7 +26,8 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
     # of the snapshot state file.
 
     firecracker_artifacts = artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml()
+    )
 
     for firecracker in firecracker_artifacts:
         firecracker.download()
@@ -39,16 +40,17 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
         if platform.machine() == "aarch64" and "v0.23" in target_version:
             continue
 
-        logger.info("Creating snapshot with Firecracker: %s",
-                    firecracker.local_path())
+        logger.info("Creating snapshot with Firecracker: %s", firecracker.local_path())
         logger.info("Using Jailer: %s", jailer.local_path())
         logger.info("Using target version: %s", target_version)
 
         # v0.23 does not support creating diff snapshots.
         diff_snapshots = "0.23" not in target_version
-        vm_instance = builder.build_vm_nano(fc_binary=firecracker.local_path(),
-                                            jailer_binary=jailer.local_path(),
-                                            diff_snapshots=diff_snapshots)
+        vm_instance = builder.build_vm_nano(
+            fc_binary=firecracker.local_path(),
+            jailer_binary=jailer.local_path(),
+            diff_snapshots=diff_snapshots,
+        )
         vm = vm_instance.vm
         vm.start()
 
@@ -59,10 +61,12 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
         # Version 0.24 and greater have Diff support.
         snap_type = SnapshotType.DIFF if diff_snapshots else SnapshotType.FULL
 
-        snapshot = snapshot_builder.create(disks,
-                                           vm_instance.ssh_key,
-                                           target_version=target_version,
-                                           snapshot_type=snap_type)
+        snapshot = snapshot_builder.create(
+            disks,
+            vm_instance.ssh_key,
+            target_version=target_version,
+            snapshot_type=snap_type,
+        )
         logger.debug("========== Firecracker create snapshot log ==========")
         logger.debug(vm.log_data)
         vm.kill()
@@ -74,5 +78,5 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
 
         code, stdout, stderr = run_cmd(cmd)
         assert code == 0
-        assert stderr == ''
+        assert stderr == ""
         assert target_version in stdout
