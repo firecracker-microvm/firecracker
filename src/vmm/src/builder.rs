@@ -3,54 +3,29 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use devices::legacy::serial::ReadableFd;
-use devices::legacy::EventFdTrigger;
-use devices::legacy::SerialDevice;
-use devices::legacy::SerialEventsWrapper;
-use devices::legacy::SerialWrapper;
-use libc::EFD_NONBLOCK;
-use logger::METRICS;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
-use vm_superio::Serial;
 
-#[cfg(target_arch = "aarch64")]
-use crate::construct_kvm_mpidrs;
+use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-
+use cpuid::common::is_same_model;
+use devices::legacy::serial::ReadableFd;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCDevice;
+use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
+use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use event_manager::{MutEventSubscriber, SubscriberOps};
+use libc::EFD_NONBLOCK;
+use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
-
-use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::vmm_config::boot_source::BootConfig;
-use crate::vstate::{
-    system::KvmContext,
-    vcpu::{Vcpu, VcpuConfig},
-    vm::Vm,
-};
-use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
-
-use crate::resources::VmResources;
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
-use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::is_same_model;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
-use event_manager::{MutEventSubscriber, SubscriberOps};
-use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use linux_loader::loader::KernelLoader;
-use logger::{error, warn};
+use logger::{error, warn, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use userfaultfd::Uffd;
@@ -60,6 +35,23 @@ use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
+use vm_superio::Serial;
+
+#[cfg(target_arch = "aarch64")]
+use crate::construct_kvm_mpidrs;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::resources::VmResources;
+use crate::vmm_config::boot_source::BootConfig;
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
+use crate::vstate::system::KvmContext;
+use crate::vstate::vcpu::{Vcpu, VcpuConfig};
+use crate::vstate::vm::Vm;
+use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -178,7 +170,8 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
                 write!(
                     f,
-                    "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline. {}",
+                    "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline. \
+                     {}",
                     err_msg
                 )
             }
@@ -490,9 +483,7 @@ pub fn build_microvm_from_snapshot(
             .tsc_khz
             .ok_or_else(|| {
                 MicrovmStateError::IncompatibleState(
-                    "Error configuring the TSC, frequency not \
-                    present in snapshot."
-                        .to_string(),
+                    "Error configuring the TSC, frequency not present in snapshot.".to_string(),
                 )
             })
             .map_err(RestoreMicrovmState)?;
@@ -999,13 +990,6 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
-    use super::*;
-    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
-    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
-    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
@@ -1014,6 +998,14 @@ pub mod tests {
     use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use vm_memory::GuestMemory;
+
+    use super::*;
+    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
+    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -1454,9 +1446,10 @@ pub mod tests {
 
             // Check if these three block devices are inserted in kernel_cmdline.
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            assert!(cmdline
-                .as_str()
-                .contains("virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7"));
+            assert!(cmdline.as_str().contains(
+                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 \
+                 virtio_mmio.device=4K@0xd0002000:7"
+            ));
         }
 
         // Use case 5: root block device is rw.

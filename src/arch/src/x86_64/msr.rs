@@ -246,8 +246,9 @@ pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     #[test]
     fn test_msr_allowlist() {

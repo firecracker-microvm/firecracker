@@ -19,8 +19,10 @@
 
 use std::collections::HashMap;
 use std::convert::{Into, TryInto};
-use std::fmt;
-use std::result;
+use std::{fmt, result};
+
+use serde::de::{self, Error as _, MapAccess, Visitor};
+use serde::Deserialize;
 
 use crate::backend::{
     Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition, SeccompFilter,
@@ -28,8 +30,6 @@ use crate::backend::{
 };
 use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
-use serde::de::{self, Error as _, MapAccess, Visitor};
-use serde::Deserialize;
 
 type Result<T> = result::Result<T, Error>;
 
@@ -267,14 +267,17 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use super::{Compiler, Error, Filter, SyscallRule};
-    use crate::backend::{
-        Error as SeccompFilterError, SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*,
-        SeccompCondition as Cond, SeccompFilter, SeccompRule, TargetArch,
-    };
     use std::collections::HashMap;
     use std::convert::TryInto;
     use std::env::consts::ARCH;
+
+    use super::{Compiler, Error, Filter, SyscallRule};
+    use crate::backend::SeccompCmpArgLen::*;
+    use crate::backend::SeccompCmpOp::*;
+    use crate::backend::{
+        Error as SeccompFilterError, SeccompAction, SeccompCondition as Cond, SeccompFilter,
+        SeccompRule, TargetArch,
+    };
 
     impl Filter {
         pub fn new(

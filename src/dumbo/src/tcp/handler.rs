@@ -9,12 +9,13 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
+use micro_http::{Request, Response};
+
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use crate::tcp::endpoint::Endpoint;
 use crate::tcp::{NextSegmentStatus, RstConfig};
-use micro_http::{Request, Response};
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
@@ -101,20 +102,19 @@ impl ConnectionTuple {
 /// tuple, or attempts to establish new connections (when receiving `SYN` segments). Aside from
 /// constructors, the handler operation is based on three methods:
 ///
-/// * [`receive_packet`] examines an incoming IPv4 packet. It checks whether the destination
-///   address is correct, the attempts examine the inner TCP segment, making sure the destination
-///   port number is also correct. Then, it steers valid segments towards exiting connections,
-///   creates new connections for incoming `SYN` segments, and enqueues `RST` replies in response
-///   to any segments which cannot be associated with a connection (except other `RST` segments).
-///   On success, also describes any internal status changes triggered by the reception of the
-///   packet.
+/// * [`receive_packet`] examines an incoming IPv4 packet. It checks whether the destination address
+///   is correct, the attempts examine the inner TCP segment, making sure the destination port
+///   number is also correct. Then, it steers valid segments towards exiting connections, creates
+///   new connections for incoming `SYN` segments, and enqueues `RST` replies in response to any
+///   segments which cannot be associated with a connection (except other `RST` segments). On
+///   success, also describes any internal status changes triggered by the reception of the packet.
 /// * [`write_next_packet`] writes the next IPv4 packet (if available) that would be sent by the
 ///   handler itself (right now it can only mean an enqueued `RST`), or one of the existing
 ///   connections. On success, also describes any internal status changes triggered as the packet
 ///   gets transmitted.
-/// * [`next_segment_status`] describes whether the handler can send a packet immediately, or
-///   after some retransmission timeout associated with a connection fires, or if there's nothing
-///   to send for the moment. This is used to determine whether it's appropriate to call
+/// * [`next_segment_status`] describes whether the handler can send a packet immediately, or after
+///   some retransmission timeout associated with a connection fires, or if there's nothing to send
+///   for the moment. This is used to determine whether it's appropriate to call
 ///   [`write_next_packet`].
 ///
 /// [`receive_packet`]: ../handler/struct.TcpIPv4Handler.html#method.receive_packet

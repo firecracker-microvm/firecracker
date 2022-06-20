@@ -9,9 +9,8 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::fmt;
-use std::result;
 use std::sync::{Arc, Mutex};
+use std::{fmt, result};
 
 use crate::virtio::AsAny;
 

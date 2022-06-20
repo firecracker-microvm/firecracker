@@ -5,12 +5,9 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use io_uring::{
-    operation::{Cqe, OpCode, Operation},
-    restriction::Restriction,
-    Error as IoUringError, IoUring,
-};
-
+use io_uring::operation::{Cqe, OpCode, Operation};
+use io_uring::restriction::Restriction;
+use io_uring::{Error as IoUringError, IoUring};
 use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
 use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};

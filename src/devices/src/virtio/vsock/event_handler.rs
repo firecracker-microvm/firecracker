@@ -6,8 +6,8 @@
 // found in the THIRD-PARTY file.
 
 /// The vsock object implements the runtime logic of our vsock device:
-/// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending those
-///    packets to the `VsockBackend`;
+/// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
+/// those    packets to the `VsockBackend`;
 /// 2. Forward backend FD event notifications to the `VsockBackend`;
 /// 3. Fetch incoming packets from the `VsockBackend` and place them into the virtio RX queue;
 /// 4. Whenever we have processed some virtio buffers (either TX or RX), let the driver know by
@@ -16,12 +16,14 @@
 /// In a nutshell, the logic looks like this:
 /// - on TX queue event:
 ///   - fetch all packets from the TX queue and send them to the backend; then
-///   - if the backend has queued up any incoming packets, fetch them into any available RX buffers.
+///   - if the backend has queued up any incoming packets, fetch them into any available RX
+///     buffers.
 /// - on RX queue event:
 ///   - fetch any incoming packets, queued up by the backend, into newly available RX buffers.
 /// - on backend event:
 ///   - forward the event to the backend; then
-///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
+///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX
+///     buffers.
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
@@ -202,13 +204,13 @@ where
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::super::*;
-    use super::*;
-
-    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
-    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
     use event_manager::{EventManager, SubscriberOps};
     use vm_memory::Bytes;
+
+    use super::super::*;
+    use super::*;
+    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
 
     #[test]
     fn test_txq_event() {

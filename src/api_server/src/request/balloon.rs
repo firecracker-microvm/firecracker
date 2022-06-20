@@ -1,13 +1,14 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 use micro_http::StatusCode;
 use vmm::vmm_config::balloon::{
     BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
 };
+
+use super::super::VmmAction;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 
 pub(crate) fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
     match path_second_token {

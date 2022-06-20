@@ -10,16 +10,16 @@ mod i8042;
 mod rtc_pl031;
 pub mod serial;
 
-pub use self::i8042::Error as I8042DeviceError;
-pub use self::i8042::I8042Device;
+use std::io;
+use std::ops::Deref;
+
+use utils::eventfd::EventFd;
+use vm_superio::Trigger;
+
+pub use self::i8042::{Error as I8042DeviceError, I8042Device};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{SerialDevice, SerialEventsWrapper, SerialWrapper};
-
-use std::io;
-use std::ops::Deref;
-use utils::eventfd::EventFd;
-use vm_superio::Trigger;
 
 /// Newtype for implementing the trigger functionality for `EventFd`.
 ///

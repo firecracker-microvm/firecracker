@@ -5,17 +5,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-pub use vm_memory_upstream::{
-    address, bitmap::Bitmap, mmap::MmapRegionBuilder, mmap::MmapRegionError, Address, ByteValued,
-    Bytes, Error, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, MmapRegion, VolatileMemory, VolatileMemoryError,
-};
-
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;
 
 use vm_memory_upstream::bitmap::AtomicBitmap;
+pub use vm_memory_upstream::bitmap::Bitmap;
 use vm_memory_upstream::mmap::{check_file_offset, NewBitmap};
+pub use vm_memory_upstream::mmap::{MmapRegionBuilder, MmapRegionError};
+pub use vm_memory_upstream::{
+    address, Address, ByteValued, Bytes, Error, FileOffset, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
+    VolatileMemory, VolatileMemoryError,
+};
 
 pub type GuestMemoryMmap = vm_memory_upstream::GuestMemoryMmap<Option<AtomicBitmap>>;
 pub type GuestRegionMmap = vm_memory_upstream::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -188,8 +189,10 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    use utils::get_page_size;
+    use utils::tempfile::TempFile;
+
     use super::*;
-    use utils::{get_page_size, tempfile::TempFile};
 
     enum AddrOp {
         Read,

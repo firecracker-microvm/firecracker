@@ -5,10 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -345,11 +343,12 @@ pub struct VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
-    use crate::vstate::system::KvmContext;
     use std::os::unix::io::FromRawFd;
+
     use vm_memory::GuestAddress;
+
+    use super::*;
+    use crate::vstate::system::KvmContext;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
@@ -367,6 +366,7 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         use std::os::unix::io::AsRawFd;
+
         use utils::tempfile::TempFile;
         // Testing an error case.
         let vm =

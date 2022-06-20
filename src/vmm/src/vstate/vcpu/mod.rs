@@ -5,30 +5,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc::{c_int, c_void, siginfo_t};
+use std::cell::Cell;
+use std::fmt::{Display, Formatter};
+use std::sync::atomic::{fence, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 #[cfg(test)]
 use std::sync::Mutex;
 use std::sync::{Arc, Barrier};
-use std::{
-    cell::Cell,
-    fmt::{Display, Formatter},
-    io, result,
-    sync::atomic::{fence, Ordering},
-    sync::mpsc::{channel, Receiver, Sender, TryRecvError},
-    thread,
-};
+use std::{io, result, thread};
 
-use crate::{vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FcExitCode};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
+use libc::{c_int, c_void, siginfo_t};
 use logger::{error, info, IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
-use utils::{
-    errno,
-    eventfd::EventFd,
-    signal::{register_signal_handler, sigrtmin, Killable},
-    sm::StateMachine,
-};
+use utils::errno;
+use utils::eventfd::EventFd;
+use utils::signal::{register_signal_handler, sigrtmin, Killable};
+use utils::sm::StateMachine;
+
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::vstate::vm::Vm;
+use crate::FcExitCode;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
@@ -37,7 +35,6 @@ pub(crate) mod x86_64;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) use aarch64::{Error as VcpuError, *};
-
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
 
@@ -287,8 +284,7 @@ impl Vcpu {
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
                 // If the guest was rebooted or halted:
-                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or
-                //   KVM_EXIT_HLT.
+                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or KVM_EXIT_HLT.
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
@@ -403,25 +399,23 @@ impl Vcpu {
 
     // Transition to the exited state and finish on command.
     fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
-        /*
-           To avoid cycles, all teardown paths take the following route:
-           +------------------------+----------------------------+------------------------+
-           |        Vmm             |           Action           |           Vcpu         |
-           +------------------------+----------------------------+------------------------+
-         1 |                        |                            | vcpu.exit(exit_code)   |
-         2 |                        |                            | vcpu.exit_evt.write(1) |
-         3 |                        | <--- EventFd::exit_evt --- |                        |
-         4 | vmm.stop()             |                            |                        |
-         5 |                        | --- VcpuEvent::Finish ---> |                        |
-         6 |                        |                            | StateMachine::finish() |
-         7 | VcpuHandle::join()     |                            |                        |
-         8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-           +------------------------+----------------------------+------------------------+
-            Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
-            Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-            Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
-            responsibility to break main event loop and propagate the exit code value.
-        */
+        // To avoid cycles, all teardown paths take the following route:
+        // +------------------------+----------------------------+------------------------+
+        // |        Vmm             |           Action           |           Vcpu         |
+        // +------------------------+----------------------------+------------------------+
+        // 1 |                        |                            | vcpu.exit(exit_code)   |
+        // 2 |                        |                            | vcpu.exit_evt.write(1) |
+        // 3 |                        | <--- EventFd::exit_evt --- |                        |
+        // 4 | vmm.stop()             |                            |                        |
+        // 5 |                        | --- VcpuEvent::Finish ---> |                        |
+        // 6 |                        |                            | StateMachine::finish() |
+        // 7 | VcpuHandle::join()     |                            |                        |
+        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+        // +------------------------+----------------------------+------------------------+
+        // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
+        // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
+        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+        // responsibility to break main event loop and propagate the exit code value.
         // Signal Vmm of Vcpu exit.
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
@@ -650,22 +644,21 @@ pub enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fmt,
-        sync::Mutex,
-        sync::{Arc, Barrier},
-    };
+    use std::fmt;
+    use std::sync::{Arc, Barrier, Mutex};
+
+    use linux_loader::loader::KernelLoader;
+    use utils::errno;
+    use utils::signal::validate_signal_num;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder::StartMicrovmError;
     use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
     use crate::RECV_TIMEOUT_SEC;
-    use linux_loader::loader::KernelLoader;
-    use utils::errno;
-    use utils::signal::validate_signal_num;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     struct DummyDevice;
     impl devices::BusDevice for DummyDevice {}
@@ -863,7 +856,8 @@ mod tests {
     }
 
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
-        use std::{fs::File, path::PathBuf};
+        use std::fs::File;
+        use std::path::PathBuf;
 
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 

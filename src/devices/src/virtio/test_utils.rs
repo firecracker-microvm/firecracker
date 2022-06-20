@@ -7,9 +7,9 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+
+use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
 #[macro_export]
 macro_rules! check_metric_after_block {

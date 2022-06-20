@@ -4,11 +4,9 @@ mod api_server_adapter;
 mod metrics;
 
 use std::fs::{self, File};
-use std::io;
-use std::panic;
 use std::path::PathBuf;
-use std::process;
 use std::sync::{Arc, Mutex};
+use std::{io, panic, process};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
@@ -17,12 +15,13 @@ use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
-use vmm::{resources::VmResources, EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
+use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -123,15 +122,18 @@ fn main_exitable() -> FcExitCode {
                 .takes_value(true)
                 .forbids(vec!["no-seccomp"])
                 .help(
-                    "Optional parameter which allows specifying the path to a custom seccomp filter. For advanced users."
+                    "Optional parameter which allows specifying the path to a custom seccomp \
+                     filter. For advanced users.",
                 ),
         )
         .arg(
             Argument::new("no-seccomp")
                 .takes_value(false)
                 .forbids(vec!["seccomp-filter"])
-                .help("Optional parameter which allows starting and using a microVM without seccomp filtering. \
-                    Not recommended.")
+                .help(
+                    "Optional parameter which allows starting and using a microVM without seccomp \
+                     filtering. Not recommended.",
+                ),
         )
         .arg(
             Argument::new("start-time-us")
@@ -139,15 +141,13 @@ fn main_exitable() -> FcExitCode {
                 .help("Process start time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
-            Argument::new("start-time-cpu-us")
-                .takes_value(true)
-                .help("Process start CPU time (wall clock, microseconds). This parameter is optional."),
+            Argument::new("start-time-cpu-us").takes_value(true).help(
+                "Process start CPU time (wall clock, microseconds). This parameter is optional.",
+            ),
         )
-        .arg(
-            Argument::new("parent-cpu-time-us")
-                .takes_value(true)
-                .help("Parent process CPU time (wall clock, microseconds). This parameter is optional."),
-        )
+        .arg(Argument::new("parent-cpu-time-us").takes_value(true).help(
+            "Parent process CPU time (wall clock, microseconds). This parameter is optional.",
+        ))
         .arg(
             Argument::new("config-file")
                 .takes_value(true)
@@ -156,69 +156,72 @@ fn main_exitable() -> FcExitCode {
         .arg(
             Argument::new(MMDS_CONTENT_ARG)
                 .takes_value(true)
-                .help("Path to a file that contains metadata in JSON format to add to the mmds.")
+                .help("Path to a file that contains metadata in JSON format to add to the mmds."),
         )
         .arg(
             Argument::new("no-api")
                 .takes_value(false)
                 .requires("config-file")
-                .help("Optional parameter which allows starting and using a microVM without an active API socket.")
+                .help(
+                    "Optional parameter which allows starting and using a microVM without an \
+                     active API socket.",
+                ),
         )
         .arg(
             Argument::new("log-path")
                 .takes_value(true)
-                .help("Path to a fifo or a file used for configuring the logger on startup.")
+                .help("Path to a fifo or a file used for configuring the logger on startup."),
         )
         .arg(
             Argument::new("level")
                 .takes_value(true)
                 .requires("log-path")
                 .default_value("Warning")
-                .help("Set the logger level.")
+                .help("Set the logger level."),
         )
         .arg(
             Argument::new("show-level")
                 .takes_value(false)
                 .requires("log-path")
-                .help("Whether or not to output the level in the logs.")
+                .help("Whether or not to output the level in the logs."),
         )
         .arg(
             Argument::new("show-log-origin")
                 .takes_value(false)
                 .requires("log-path")
-                .help("Whether or not to include the file path and line number of the log's origin.")
+                .help(
+                    "Whether or not to include the file path and line number of the log's origin.",
+                ),
         )
-        .arg(
-            Argument::new("boot-timer")
-                .takes_value(false)
-                .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
-        )
-        .arg(
-            Argument::new("version")
-                .takes_value(false)
-                .help("Print the binary version number and a list of supported snapshot data format versions.")
-        )
+        .arg(Argument::new("boot-timer").takes_value(false).help(
+            "Whether or not to load boot timer device for logging elapsed time since \
+             InstanceStart command.",
+        ))
+        .arg(Argument::new("version").takes_value(false).help(
+            "Print the binary version number and a list of supported snapshot data format \
+             versions.",
+        ))
         .arg(
             Argument::new("describe-snapshot")
                 .takes_value(true)
-                .help("Print the data format version of the provided snapshot state file.")
+                .help("Print the data format version of the provided snapshot state file."),
         )
         .arg(
             Argument::new("http-api-max-payload-size")
                 .takes_value(true)
                 .default_value(&http_max_payload_size_str)
-                .help("Http API request payload max size, in bytes.")
-        ).arg(
+                .help("Http API request payload max size, in bytes."),
+        )
+        .arg(
             Argument::new("mmds-size-limit")
                 .takes_value(true)
-                .help("Mmds data store limit, in bytes.")
+                .help("Mmds data store limit, in bytes."),
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
         Err(err) => {
             error!(
-                "Arguments parsing error: {} \n\n\
-                 For more information try --help.",
+                "Arguments parsing error: {} \n\nFor more information try --help.",
                 err
             );
             return vmm::FcExitCode::ArgParsing;
@@ -270,8 +273,8 @@ fn main_exitable() -> FcExitCode {
             Ok(level) => level,
             Err(e) => {
                 return generic_error_exit(&format!(
-                    "Invalid value for logger level: {}.\
-                    Possible values: [Error, Warning, Info, Debug]",
+                    "Invalid value for logger level: {}.Possible values: [Error, Warning, Info, \
+                     Debug]",
                     e
                 ));
             }

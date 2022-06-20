@@ -5,10 +5,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use logger::{error, warn, IncMetric, METRICS};
-use std::fmt;
 use std::num::Wrapping;
-use std::{io, result};
+use std::{fmt, io, result};
+
+use logger::{error, warn, IncMetric, METRICS};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;

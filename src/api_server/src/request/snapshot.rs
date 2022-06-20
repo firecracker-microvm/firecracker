@@ -1,16 +1,16 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
-use crate::request::{Method, StatusCode};
 use logger::{IncMetric, METRICS};
 use serde::de::Error as DeserializeError;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
+    Vm, VmState,
 };
-use vmm::vmm_config::snapshot::{Vm, VmState};
+
+use super::super::VmmAction;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
@@ -111,13 +111,15 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+
     use super::*;
     use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     #[test]
     fn test_parse_put_snapshot() {
         use std::path::PathBuf;
+
         use vmm::vmm_config::snapshot::SnapshotType;
 
         let mut body = r#"{
@@ -284,8 +286,12 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load")).err().unwrap().to_string(),
-            "An error occurred when deserializing the json body of a request: missing field `backend_type` at line 5 column 17."
+            parse_put_snapshot(&Body::new(body), Some(&"load"))
+                .err()
+                .unwrap()
+                .to_string(),
+            "An error occurred when deserializing the json body of a request: missing field \
+             `backend_type` at line 5 column 17."
         );
 
         body = r#"{
@@ -297,8 +303,11 @@ mod tests {
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some(&"load"))
-                .err().unwrap().to_string(),
-            "An error occurred when deserializing the json body of a request: trailing comma at line 5 column 17."
+                .err()
+                .unwrap()
+                .to_string(),
+            "An error occurred when deserializing the json body of a request: trailing comma at \
+             line 5 column 17."
         );
 
         body = r#"{
@@ -339,8 +348,11 @@ mod tests {
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some(&"load"))
-                .err().unwrap().to_string(),
-            "An error occurred when deserializing the json body of a request: missing field `snapshot_path` at line 6 column 15."
+                .err()
+                .unwrap()
+                .to_string(),
+            "An error occurred when deserializing the json body of a request: missing field \
+             `snapshot_path` at line 6 column 15."
         );
 
         assert!(parse_put_snapshot(&Body::new(body), Some(&"invalid")).is_err());

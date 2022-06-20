@@ -13,14 +13,15 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use crate::pdu::{bytes::NetworkBytes, tcp::TcpSegment, Incomplete};
-use crate::tcp::{
-    connection::{Connection, PassiveOpenError, RecvStatusFlags},
-    seq_after, NextSegmentStatus, MAX_WINDOW_SIZE,
-};
 use logger::{IncMetric, METRICS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
+
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::TcpSegment;
+use crate::pdu::Incomplete;
+use crate::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
+use crate::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until
@@ -185,8 +186,8 @@ impl Endpoint {
             // available in self.receive_buf.
 
             // The following is some ugly but workable code that attempts to find the end of an
-            // HTTP 1.x request in receive_buf. We need to do this for now because parse_request_bytes()
-            // expects the entire request contents as parameter.
+            // HTTP 1.x request in receive_buf. We need to do this for now because
+            // parse_request_bytes() expects the entire request contents as parameter.
             if self.receive_buf_left > 2 {
                 let b = self.receive_buf.as_mut();
                 for i in 0..self.receive_buf_left - 1 {
@@ -348,11 +349,10 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::fmt;
     use std::str::from_utf8;
 
+    use super::*;
     use crate::pdu::tcp::Flags as TcpFlags;
     use crate::tcp::connection::tests::ConnectionTester;
     use crate::tcp::tests::mock_callback;

@@ -18,22 +18,20 @@ mod probe;
 mod queue;
 pub mod restriction;
 
-pub use queue::completion::Error as CQueueError;
-pub use queue::submission::Error as SQueueError;
-
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use utils::syscall::SyscallReturnCode;
-
 use bindings::io_uring_params;
 use operation::{Cqe, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
 use queue::completion::CompletionQueue;
+pub use queue::completion::Error as CQueueError;
+pub use queue::submission::Error as SQueueError;
 use queue::submission::SubmissionQueue;
 use restriction::Restriction;
+use utils::syscall::SyscallReturnCode;
 
 // IO_uring operations that we require to be supported by the host kernel.
 const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
@@ -382,18 +380,20 @@ impl IoUring {
 
 #[cfg(test)]
 mod tests {
-    /// -------------------------------------
-    /// BEGIN PROPERTY BASED TESTING
-    use super::*;
+    use std::os::unix::fs::FileExt;
+
     use proptest::prelude::*;
     use proptest::strategy::Strategy;
     use proptest::test_runner::{Config, TestRunner};
-    use std::os::unix::fs::FileExt;
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
     use vm_memory::{Bytes, MmapRegion, VolatileMemory};
+
+    /// -------------------------------------
+    /// BEGIN PROPERTY BASED TESTING
+    use super::*;
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {

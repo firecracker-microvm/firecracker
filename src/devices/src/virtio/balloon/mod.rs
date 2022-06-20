@@ -9,9 +9,7 @@ mod utils;
 
 use vm_memory::GuestMemoryError;
 
-pub use self::device::Balloon;
-pub use self::device::BalloonConfig;
-pub use self::device::BalloonStats;
+pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 pub use self::event_handler::*;
 
 /// Device ID used in MMIO device identification.

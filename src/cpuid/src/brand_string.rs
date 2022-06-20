@@ -1,9 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
+
+use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {

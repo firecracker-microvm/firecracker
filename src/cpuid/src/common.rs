@@ -1,14 +1,16 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::bit_helper::BitHelper;
-use crate::cpu_leaf::*;
-#[cfg(target_arch = "x86_64")]
-use kvm_bindings::CpuId;
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{CpuidResult, __cpuid_count, __get_cpuid_max};
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
+
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::CpuId;
+
+use crate::bit_helper::BitHelper;
+use crate::cpu_leaf::*;
 
 /// Intel brand string.
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
@@ -33,7 +35,8 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
     {
         return Err(Error::NotSupported);
     }
-    // For x86 the host supports the `cpuid` instruction if SSE is enabled. Otherwise it's hard to check.
+    // For x86 the host supports the `cpuid` instruction if SSE is enabled. Otherwise it's hard to
+    // check.
     #[cfg(target_arch = "x86")]
     {
         #[cfg(not(target_feature = "sse"))]

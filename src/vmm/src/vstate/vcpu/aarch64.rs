@@ -5,17 +5,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
-use crate::vstate::{vcpu::VcpuEmulation, vm::Vm};
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+use crate::vstate::vcpu::VcpuEmulation;
+use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -184,10 +184,12 @@ pub struct VcpuState {
 mod tests {
     use std::os::unix::io::AsRawFd;
 
-    use super::*;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
     use kvm_bindings::kvm_one_reg;
     use vm_memory::GuestMemoryMmap;
+
+    use super::*;
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
 
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
@@ -233,7 +235,8 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: Failed to set processor state register: Bad file descriptor (os error 9)"
+            "Error configuring the general purpose registers: Failed to set processor state \
+             register: Bad file descriptor (os error 9)"
                 .to_string()
         );
 
@@ -243,7 +246,8 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: Failed to set processor state register: Bad file descriptor (os error 9)"
+            "Error configuring the general purpose registers: Failed to set processor state \
+             register: Bad file descriptor (os error 9)"
                 .to_string()
         );
     }
@@ -272,7 +276,9 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             res.err().unwrap().to_string(),
-            "Failed to save the state of the vcpu: Failed to get X0 register: Exec format error (os error 8)".to_string()
+            "Failed to save the state of the vcpu: Failed to get X0 register: Exec format error \
+             (os error 8)"
+                .to_string()
         );
 
         // Try to restore the register using a faulty state.
@@ -284,9 +290,11 @@ mod tests {
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(res.is_err());
         assert_eq!(
-                res.err().unwrap().to_string(),
-                "Failed to restore the state of the vcpu: Failed to set register: Exec format error (os error 8)".to_string()
-            );
+            res.err().unwrap().to_string(),
+            "Failed to restore the state of the vcpu: Failed to set register: Exec format error \
+             (os error 8)"
+                .to_string()
+        );
 
         init_vcpu(&vcpu.fd, &vm.fd());
         let state = vcpu.save_state().expect("Cannot save state of vcpu");

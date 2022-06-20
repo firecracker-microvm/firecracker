@@ -59,8 +59,7 @@ impl Display for BootSourceConfigError {
             InvalidKernelPath(ref e) => write!(f, "The kernel file cannot be opened: {}", e),
             InvalidInitrdPath(ref e) => write!(
                 f,
-                "The initrd file cannot be opened due to invalid path or \
-                 invalid permissions. {}",
+                "The initrd file cannot be opened due to invalid path or invalid permissions. {}",
                 e,
             ),
             InvalidKernelCommandLine(ref e) => {
@@ -116,8 +115,9 @@ impl BootConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     #[test]
     fn test_boot_config() {

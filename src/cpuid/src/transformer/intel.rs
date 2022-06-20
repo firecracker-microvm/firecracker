@@ -56,7 +56,7 @@ fn update_extended_topology_entry(
 ) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0xb::*;
 
-    //reset eax, ebx, ecx
+    // reset eax, ebx, ecx
     entry.eax = 0_u32;
     entry.ebx = 0_u32;
     entry.ecx = 0_u32;
@@ -133,10 +133,11 @@ impl CpuidTransformer for IntelCpuidTransformer {
 
 #[cfg(test)]
 mod tests {
+    use kvm_bindings::kvm_cpuid_entry2;
+
     use super::*;
     use crate::cpu_leaf::leaf_0xb::{LEVEL_TYPE_CORE, LEVEL_TYPE_THREAD};
     use crate::transformer::VmSpec;
-    use kvm_bindings::kvm_cpuid_entry2;
 
     #[test]
     fn test_update_perf_mon_entry() {

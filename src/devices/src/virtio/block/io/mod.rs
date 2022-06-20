@@ -6,11 +6,11 @@ pub mod sync_io;
 
 use std::fs::File;
 
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
 pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
 use crate::virtio::block::device::FileEngineType;
-
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct UserDataOk<T> {
@@ -175,13 +175,14 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 
-    use super::*;
-    use crate::virtio::block::device::FileEngineType;
-    use crate::virtio::block::request::PendingRequest;
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
     use vm_memory::{Bitmap, Bytes, GuestMemory};
+
+    use super::*;
+    use crate::virtio::block::device::FileEngineType;
+    use crate::virtio::block::request::PendingRequest;
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.

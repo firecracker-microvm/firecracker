@@ -2,25 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-/// `MuxerRxQ` implements a helper object that `VsockMuxer` can use for queuing RX (host -> guest)
-/// packets (or rather instructions on how to build said packets).
+/// `MuxerRxQ` implements a helper object that `VsockMuxer` can use for queuing RX (host ->
+/// guest) packets (or rather instructions on how to build said packets).
 ///
-/// Under ideal operation, every connection, that has pending RX data, will be present in the muxer
-/// RX queue. However, since the RX queue is smaller than the connection pool, it may, under some
-/// conditions, become full, meaning that it can no longer account for all the connections that can
-/// yield RX data.  When that happens, we say that it is no longer "synchronized" (i.e. with the
-/// connection pool).  A desynchronized RX queue still holds valid data, and the muxer will
-/// continue to pop packets from it. However, when a desynchronized queue is drained, additional
-/// data may still be available, so the muxer will have to perform a more costly walk of the entire
-/// connection pool to find it.  This walk is performed here, as part of building an RX queue from
-/// the connection pool. When an out-of-sync is drained, the muxer will discard it, and attempt to
-/// rebuild a synced one.
+/// Under ideal operation, every connection, that has pending RX data, will be present in the
+/// muxer RX queue. However, since the RX queue is smaller than the connection pool, it may,
+/// under some conditions, become full, meaning that it can no longer account for all the
+/// connections that can yield RX data.  When that happens, we say that it is no longer
+/// "synchronized" (i.e. with the connection pool).  A desynchronized RX queue still holds
+/// valid data, and the muxer will continue to pop packets from it. However, when a
+/// desynchronized queue is drained, additional data may still be available, so the muxer will
+/// have to perform a more costly walk of the entire connection pool to find it.  This walk is
+/// performed here, as part of building an RX queue from the connection pool. When an
+/// out-of-sync is drained, the muxer will discard it, and attempt to rebuild a synced one.
 use std::collections::{HashMap, VecDeque};
 
 use super::super::VsockChannel;
-use super::defs;
 use super::muxer::{ConnMapKey, MuxerRx};
-use super::MuxerConnection;
+use super::{defs, MuxerConnection};
 
 /// The muxer RX queue.
 pub struct MuxerRxQ {

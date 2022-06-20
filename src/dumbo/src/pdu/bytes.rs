@@ -67,6 +67,7 @@
 use std::marker::PhantomData;
 use std::mem::replace;
 use std::ops::{Deref, DerefMut};
+
 use utils::byte_order;
 
 /// Represents an immutable view into a sequence of bytes which stands for different values packed

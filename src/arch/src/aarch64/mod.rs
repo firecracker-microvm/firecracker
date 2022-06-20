@@ -14,10 +14,11 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::DeviceType;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug)]
