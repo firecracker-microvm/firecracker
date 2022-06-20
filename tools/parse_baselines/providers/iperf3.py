@@ -28,7 +28,6 @@ class Iperf3DataParser(DataParser):
             "cpu_utilization_vmm/Avg",
         ])
 
-    # pylint: disable=R0201
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
