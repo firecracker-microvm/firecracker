@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
-use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::{fs, result};
 
 use logger::*;
 use mmds::data_store::{self, Mmds};
@@ -34,6 +34,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, Drive
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use crate::vmm_config::memory_backing_file::{MemoryBackingFileConfig, MemoryBackingFileError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -99,6 +100,9 @@ pub enum VmmAction {
     /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
     /// has booted.
     SetBalloonDevice(BalloonDeviceConfig),
+    /// Set the memory backing file for the VM. The VM will use this backing file to store its
+    /// memory. This action can only be called before the microVM has booted.
+    SetMemoryBackingFile(MemoryBackingFileConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
@@ -130,6 +134,8 @@ pub enum VmmAction {
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
     BalloonConfig(BalloonConfigError),
+    /// The action `SetMemoryBackingFile` failed because of bad user input.
+    MemoryBackingFile(MemoryBackingFileError),
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
@@ -182,6 +188,7 @@ impl Display for VmmActionError {
             match self {
                 BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
+                MemoryBackingFile(err) => err.to_string(),
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
@@ -422,6 +429,7 @@ impl<'a> PrebootApiController<'a> {
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
+            SetMemoryBackingFile(config) => self.set_backing_memory_file(config),
             StartMicroVm => self.start_microvm(),
             UpdateVmConfiguration(config) => self.update_vm_config(config),
             // Operations not allowed pre-boot.
@@ -445,6 +453,23 @@ impl<'a> PrebootApiController<'a> {
             .get_config()
             .map(VmmData::BalloonConfig)
             .map_err(VmmActionError::BalloonConfig)
+    }
+
+    fn set_backing_memory_file(&mut self, cfg: MemoryBackingFileConfig) -> ActionResult {
+        self.boot_path = true;
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(cfg.path)
+            .map(Arc::new)
+            .map_err(|e| {
+                VmmActionError::MemoryBackingFile(MemoryBackingFileError::CreateFile(e))
+            })?;
+
+        self.vm_resources.backing_memory_file = Some(file);
+
+        Ok(VmmData::Empty)
     }
 
     fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> ActionResult {
@@ -654,6 +679,7 @@ impl RuntimeApiController {
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
             | SetBalloonDevice(_)
+            | SetMemoryBackingFile(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | StartMicroVm
@@ -720,14 +746,14 @@ impl RuntimeApiController {
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
         log_dev_preview_warning("Virtual machine snapshots", None);
 
-        if create_params.snapshot_type == SnapshotType::Diff
-            && !self.vm_resources.track_dirty_pages()
-        {
-            return Err(VmmActionError::NotSupported(
-                "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
-                    .to_string(),
-            ));
-        }
+        // if create_params.snapshot_type == SnapshotType::Diff
+        //     && !self.vm_resources.track_dirty_pages()
+        // {
+        //     return Err(VmmActionError::NotSupported(
+        //         "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
+        //             .to_string(),
+        //     ));
+        // }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
@@ -862,6 +888,7 @@ mod tests {
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
+        pub backing_memory_file: Option<Arc<File>>,
     }
 
     impl MockVmRes {

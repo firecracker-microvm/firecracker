@@ -325,6 +325,27 @@ fn snapshot_memory_to_file(
     snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
+    if OpenOptions::new().read(true).open(mem_file_path).is_ok()
+        && snapshot_type == &SnapshotType::Diff
+    {
+        // // The memory file already exists.
+        // // We're going to use the msync behaviour
+        // for region in vmm.guest_memory().iter() {
+        //     info!("msyncing memory region");
+        //     unsafe {
+        //         if libc::msync(region.as_ptr() as _, region.len() as _, libc::MS_SYNC) == -1 {
+        //             return Err(CreateSnapshotError::Memory(
+        //                 memory_snapshot::Error::CreateRegion(vm_memory::MmapRegionError::Mmap(
+        //                     std::io::Error::last_os_error(),
+        //                 )),
+        //             ));
+        //         }
+        //     };
+        // }
+
+        return Ok(());
+    }
+
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -483,6 +504,16 @@ pub fn snapshot_state_sanity_check(
     Ok(())
 }
 
+/// Describes a descriptor that connects to the memory used by the VM. This could either be the a file descriptor
+/// or a UFFD descriptor.
+#[derive(Debug)]
+pub enum MemoryDescriptor {
+    /// A file descriptor that connects to the user fault process.
+    Uffd(Uffd),
+    /// A file descriptor of the backing memory file.
+    File(Arc<File>),
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
     instance_info: &InstanceInfo,
@@ -501,26 +532,31 @@ pub fn restore_from_snapshot(
     let mem_backend_path = &params.mem_backend.backend_path;
     let mem_state = &microvm_state.memory_state;
     let track_dirty_pages = params.enable_diff_snapshots;
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
-        MemBackendType::File => (
-            guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)?,
-            None,
-        ),
-        MemBackendType::Uffd => guest_memory_from_uffd(
-            mem_backend_path,
-            mem_state,
-            track_dirty_pages,
-            // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
-            // is present in the microVM state.
-            microvm_state.device_states.balloon_device.is_some(),
-        )?,
+    let (guest_memory, memory_descriptor) = match params.mem_backend.backend_type {
+        MemBackendType::File => {
+            let (guest_memory, file) =
+                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)?;
+            (guest_memory, Some(MemoryDescriptor::File(Arc::new(file))))
+        }
+        MemBackendType::Uffd => {
+            let (guest_memory, uffd) = guest_memory_from_uffd(
+                mem_backend_path,
+                mem_state,
+                track_dirty_pages,
+                // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
+                // is present in the microVM state.
+                microvm_state.device_states.balloon_device.is_some(),
+            )?;
+
+            (guest_memory, uffd.map(MemoryDescriptor::Uffd))
+        }
     };
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
         microvm_state,
         guest_memory,
-        uffd,
+        memory_descriptor,
         track_dirty_pages,
         seccomp_filters,
         vm_resources,
@@ -545,11 +581,19 @@ fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
+) -> std::result::Result<(GuestMemoryMmap, File), LoadSnapshotError> {
     use self::LoadSnapshotError::{DeserializeMemory, MemoryBackingFile};
-    let mem_file = File::open(mem_file_path).map_err(MemoryBackingFile)?;
-    GuestMemoryMmap::restore(Some(&mem_file), mem_state, track_dirty_pages)
-        .map_err(DeserializeMemory)
+    let mem_file = OpenOptions::new()
+        .write(true)
+        .read(true)
+        .open(mem_file_path)
+        .map_err(MemoryBackingFile)?;
+
+    Ok((
+        GuestMemoryMmap::restore(Some(&mem_file), mem_state, track_dirty_pages)
+            .map_err(DeserializeMemory)?,
+        mem_file,
+    ))
 }
 
 fn guest_memory_from_uffd(

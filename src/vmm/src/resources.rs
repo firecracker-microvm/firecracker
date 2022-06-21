@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use logger::info;
@@ -117,6 +118,8 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    /// When backed by a memory file, this should be set
+    pub backing_memory_file: Option<Arc<File>>,
 }
 
 impl VmResources {
@@ -234,6 +237,16 @@ impl VmResources {
     /// Configures the dirty page tracking functionality of the microVM.
     pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
         self.vm_config.track_dirty_pages = dirty_page_tracking;
+    }
+
+    /// Returns the config for the backing memory file
+    pub fn backing_memory_file(&self) -> Option<Arc<File>> {
+        self.backing_memory_file.clone()
+    }
+
+    /// Sets the backing memory file
+    pub fn set_backing_memory_file(&mut self, backing_mem_file: Arc<File>) {
+        self.backing_memory_file.get_or_insert(backing_mem_file);
     }
 
     /// Returns the VmConfig.
@@ -575,6 +588,7 @@ mod tests {
             mmds: None,
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
+            backing_memory_file: None,
         }
     }
 

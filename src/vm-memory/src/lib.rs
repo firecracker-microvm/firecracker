@@ -117,7 +117,7 @@ pub fn create_guest_memory(
     for region in regions {
         let flags = match region.0 {
             None => libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            Some(_) => libc::MAP_NORESERVE | libc::MAP_PRIVATE,
+            Some(_) => libc::MAP_NORESERVE | libc::MAP_SHARED,
         };
 
         let mmap_region =

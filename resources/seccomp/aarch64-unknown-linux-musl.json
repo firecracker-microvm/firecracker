@@ -597,6 +597,19 @@
                 ]
             },
             {
+                "syscall": "msync",
+                "comment": "Used to sync memory from mmap to disk",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "MS_SYNC"
+                    }
+                ]
+            },
+            {
                 "syscall": "rt_sigaction",
                 "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
                 "args": [

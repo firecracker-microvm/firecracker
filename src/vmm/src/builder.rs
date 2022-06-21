@@ -5,9 +5,11 @@
 
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
+use vm_memory::FileOffset;
 
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
@@ -28,7 +30,6 @@ use linux_loader::loader::KernelLoader;
 use logger::{error, warn, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
-use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
@@ -43,7 +44,7 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::persist::{MemoryDescriptor, MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -58,6 +59,8 @@ use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObs
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
+    /// Unable to create the memory backing file.
+    BackingMemoryFile(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
     ConfigureSystem(arch::Error),
     /// Internal errors are due to resource exhaustion.
@@ -112,6 +115,9 @@ impl Display for StartMicrovmError {
                 write!(f, "Unable to attach block device to Vmm: {}", err)
             }
             ConfigureSystem(err) => write!(f, "System configuration error: {:?}", err),
+            BackingMemoryFile(err) => {
+                write!(f, "Unable to create the memory backing file: {}", err)
+            }
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
             CreateNetDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
@@ -231,7 +237,7 @@ fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
-    uffd: Option<Uffd>,
+    memory_descriptor: Option<MemoryDescriptor>,
     track_dirty_pages: bool,
     vcpu_count: u8,
 ) -> std::result::Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
@@ -297,7 +303,7 @@ fn create_vmm_and_vcpus(
         shutdown_exit_code: None,
         vm,
         guest_memory,
-        uffd,
+        memory_descriptor,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         mmio_device_manager,
@@ -329,8 +335,23 @@ pub fn build_microvm_for_boot(
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory =
-        create_guest_memory(vm_resources.vm_config().mem_size_mib, track_dirty_pages)?;
+
+    let backing_memory_file = if let Some(ref file) = vm_resources.backing_memory_file {
+        file.set_len((vm_resources.vm_config().mem_size_mib * 1024 * 1024) as u64)
+            .map_err(|e| {
+                error!("Failed to set backing memory file size: {}", e);
+                StartMicrovmError::BackingMemoryFile(e)
+            })?;
+
+        Some(file.clone())
+    } else {
+        None
+    };
+    let guest_memory = create_guest_memory(
+        vm_resources.vm_config().mem_size_mib,
+        backing_memory_file.clone(),
+        track_dirty_pages,
+    )?;
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
@@ -362,7 +383,7 @@ pub fn build_microvm_for_boot(
         instance_info,
         event_manager,
         guest_memory,
-        None,
+        backing_memory_file.map(MemoryDescriptor::File),
         track_dirty_pages,
         vcpu_config.vcpu_count,
     )?;
@@ -451,7 +472,7 @@ pub fn build_microvm_from_snapshot(
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
-    uffd: Option<Uffd>,
+    memory_descriptor: Option<MemoryDescriptor>,
     track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
@@ -466,7 +487,7 @@ pub fn build_microvm_from_snapshot(
         instance_info,
         event_manager,
         guest_memory.clone(),
-        uffd,
+        memory_descriptor,
         track_dirty_pages,
         vcpu_count,
     )?;
@@ -581,15 +602,24 @@ pub fn build_microvm_from_snapshot(
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
 pub fn create_guest_memory(
     mem_size_mib: usize,
+    backing_memory_file: Option<Arc<File>>,
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
+    let mut offset = 0_u64;
     vm_memory::create_guest_memory(
         &arch_mem_regions
             .iter()
-            .map(|(addr, size)| (None, *addr, *size))
+            .map(|(addr, size)| {
+                let file_offset = backing_memory_file
+                    .clone()
+                    .map(|file| FileOffset::from_arc(file, offset));
+                offset += *size as u64;
+
+                (file_offset, *addr, *size)
+            })
             .collect::<Vec<_>>()[..],
         track_dirty_pages,
     )
@@ -1068,7 +1098,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = create_guest_memory(128, false).unwrap();
+        let guest_memory = create_guest_memory(128, None, false).unwrap();
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(Error::EventFd)
@@ -1096,12 +1126,12 @@ pub mod tests {
             shutdown_exit_code: None,
             vm,
             guest_memory,
-            uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
+            memory_descriptor: None,
         }
     }
 
@@ -1283,13 +1313,13 @@ pub mod tests {
 
         // Case 1: create guest memory without dirty page tracking
         {
-            let guest_memory = create_guest_memory(mem_size, false).unwrap();
+            let guest_memory = create_guest_memory(mem_size, None, false).unwrap();
             assert!(!is_dirty_tracking_enabled(&guest_memory));
         }
 
         // Case 2: create guest memory with dirty page tracking
         {
-            let guest_memory = create_guest_memory(mem_size, true).unwrap();
+            let guest_memory = create_guest_memory(mem_size, None, true).unwrap();
             assert!(is_dirty_tracking_enabled(&guest_memory));
         }
     }
@@ -1297,7 +1327,7 @@ pub mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = create_guest_memory(128, false).unwrap();
+        let guest_memory = create_guest_memory(128, None, false).unwrap();
 
         #[allow(unused_mut)]
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();

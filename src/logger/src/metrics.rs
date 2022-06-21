@@ -403,6 +403,10 @@ pub struct PutRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of PUTs for setting memory backing file.
+    pub memory_backing_file_cfg_count: SharedIncMetric,
+    /// Number of failures in configuring the machine.
+    pub memory_backing_file_cfg_fails: SharedIncMetric,
     /// Number of PUTs for initializing the metrics system.
     pub metrics_count: SharedIncMetric,
     /// Number of failures in initializing the metrics system.

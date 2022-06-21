@@ -350,6 +350,29 @@ paths:
           description: Internal server error
           schema:
             $ref: "#/definitions/Error"
+  
+  /memory-backing-file:
+    put:
+      summary: Configures a memory backing file to sync the memory changes to during the runtime of the vm
+      operationId: putMemoryBackingFile
+      parameters:
+        - name: body
+          in: body
+          description: Path to memory backing file
+          required: true
+          schema:
+            $ref: "#/definitions/MemoryBackingFile"
+      responses:
+        204:
+          description: Memory backing file configured
+        400:
+          description: Memory backing file failed
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /metrics:
     put:
@@ -1046,6 +1069,14 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
+
+  MemoryBackingFile:
+    type: object
+    required: 
+      - path
+    properties:
+      path:
+        type: string
 
   PartialDrive:
     type: object
