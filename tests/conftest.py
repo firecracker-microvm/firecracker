@@ -473,6 +473,28 @@ def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
         shutil.rmtree(os.path.join(test_fc_session_root_path, microvms[i].id))
 
 
+@pytest.fixture(autouse=True, scope="session")
+def test_spectre_mitigations():
+    """Check the kernel is compiled with SPECTREv2 mitigations."""
+
+    def x86_64(body):
+        return ("IBPB: conditional" in body or "IBPB: always-on" in body) and (
+            "Enhanced IBRS" in body or "Retpolines" in body
+        )
+
+    def aarch64(body):
+        return "Mitigation: CSV2, BHB" in body or "Not affected" in body
+
+    arch = platform.machine()
+    assert arch in ("x86_64", "aarch64"), f"Unsupported arch {arch}"
+
+    body = open(
+        "/sys/devices/system/cpu/vulnerabilities/spectre_v2", encoding="utf-8"
+    ).read()
+    mitigated = x86_64(body) if arch == "x86_64" else aarch64(body)
+    assert mitigated, "SPECTREv2 not mitigated"
+
+
 def pytest_generate_tests(metafunc):
     """Implement customized parametrization scheme.
 
