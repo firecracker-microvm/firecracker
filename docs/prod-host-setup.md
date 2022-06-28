@@ -293,70 +293,54 @@ echo "KSM: ENABLED (Recommendation: DISABLED)"
 
 #### Check for mitigations against Spectre Side Channels
 
-##### Branch Target Injection mitigation (Spectre V2)
+##### Branch Target Injection mitigation (Spectre V2, including Spectre-BHB)
 
-**Intel and AMD**
-Where available, Intel recommends using Enhanced Indirect Branch Restricted
-Speculation (eIBRS) together with microcode supporting conditional
-Indirect Branch Prediction Barriers (IBPB).
+###### Intel and AMD
 
-If eIBRS is not available, use a kernel compiled with retpoline and run on
-hardware with microcode supporting IBPB and
-Indirect Branch Restricted Speculation (IBRS).
+We recommend using a kernel compiled with eIBRS or `RETPOLINE`, together with
+microcode supporting conditional Indirect Branch Prediction Barriers (IBPB).
 
 Verification can be done by running:
 
 ```bash
-(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline,
-IBPB: conditional, IBRS_FW' \
-/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
-echo "retpoline, IBPB, IBRS: ENABLED (OK)") \
-|| (grep -Eq '^Mitigation: Enhanced IBRS,
-IBPB: conditional' \
-/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
-echo "eIBRS, IBPB: ENABLED (OK)") \
-|| echo "eIBRS, IBPB: DISABLED (Recommendation: ENABLED)"
+cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
 ```
 
-**ARM** The mitigations for ARM systems are patched in all linux stable versions
-starting with 4.16. More information on the processors vulnerable to this type
+The output should mention the following mitigations being in use:
+
+- `Enhanced IBRS` or `Retpolines`
+- `IBPB` at least `conditional`
+
+###### ARM64
+
+We recommend using a kernel compiled with `MITIGATE_SPECTRE_BRANCH_HISTORY`.
+
+More information on the processors vulnerable to this type
 of attack and detailed information on the mitigations can be found in the
 [ARM security documentation](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
 
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v2 || \
-grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v2) && \
+grep -q "^(Mitigation: CSV2, BHB|Not affected)$" \
+/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
 echo "SPECTRE V2 -> OK" || echo "SPECTRE V2 -> NOT OK"
 ```
-
-##### Spectre-BHB
-
-**All hosts** Use latest default SpectreV2 mitigations by keeping kernels up to
-date. Additionally, use a host kernel that has unprivileged BPF disabled by
-enabling `BPF_UNPRIV_DEFAULT_OFF` in the kernel config or by writing `1` or `2`
-to `/proc/sys/kernel/unprivileged_bpf_disabled`.
-
-**Intel** . For an extra layer of security, while trading off performance, you
-can add `spectrev2=eibrs,lfence` or more strictly, `spectrev2=eibrs,retpoline`
-to the kernel commandline of the host.
 
 ##### Bounds Check Bypass Store (Spectre V1)
 
 Verification for mitigation against Spectre V1 can be done:
 
 ```bash
-(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v1 || \
-grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v1) && \
+grep -q "^(Mitigation:|Not affected)$" \
+/sys/devices/system/cpu/vulnerabilities/spectre_v1 && \
 echo "SPECTRE V1 -> OK" || echo "SPECTRE V1 -> NOT OK"
 ```
 
-#### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
+##### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
 
 These features provide mitigation for Foreshadow/L1TF side-channel issue on
 affected hardware.
-
 They can be enabled by adding the following Linux kernel boot parameter:
 
 ```console
@@ -365,7 +349,6 @@ l1tf=full,force
 
 which will also implicitly disable SMT.  This will apply the mitigation when
 execution context switches into microVMs.
-
 Verification can be done by running:
 
 ```bash
@@ -378,30 +361,44 @@ echo "$cond: DISABLED (Recommendation: ENABLED)"; done
 
 See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html#guest-mitigation-mechanisms).
 
-#### Apply Speculative Store Bypass (SSBD) mitigation
+##### Apply Speculative Store Bypass (SSBD) mitigation
 
 This will mitigate variants of Spectre side-channel issues such as
-Speculative Store Bypass and SpectreNG.
+Speculative Store Bypass (Spectre v4) and SpectreNG.
 
-On x86_64 systems, it can be enabled by adding the following Linux kernel boot
+We recommend applying SSBD to Firecracker and the host kernel.
+
+###### X86_64
+
+On x86_64 systems, this can be done using the following kernel cmdline
 parameter:
 
 ```console
-spec_store_bypass_disable=seccomp
+spec_store_bypass_disable=on
 ```
 
-which will apply SSB if seccomp is enabled by Firecracker.
+Unfortunately, this applies SSBD to all the other processes running on the
+host as well.
 
-On aarch64 systems, it is enabled by Firecracker
-[using the `prctl` interface][3]. However, this is only available on host
-kernels Linux >=4.17 and also Amazon Linux 4.14. Alternatively, a global
-mitigation can be enabled by adding the following Linux kernel boot parameter:
+###### ARM64
+
+On aarch64 systems, SSBD can be applied to the kernel by using the following
+kernel cmdline parameter:
+
+```console
+ssbd=kernel
+```
+
+SSBD is applied to Firecracker by [using the `prctl` interface][3].
+However, this is only available on host kernels Linux >=4.17 and also Amazon
+Linux 4.14. Alternatively, a global mitigation can be enabled by adding the
+following Linux kernel cmdline parameter:
 
 ```console
 ssbd=force-on
 ```
 
-Verification can be done by running:
+The following command can be used to check if SSBD is applied to Firecracker:
 
 ```bash
 cat /proc/$(pgrep firecracker | head -n1)/status | grep Speculation_Store_Bypass
@@ -414,6 +411,16 @@ Output shows one of the following:
 - thread mitigated
 - thread force mitigated
 - globally mitigated
+
+##### Hardening other processes
+
+For any process running on the host that communicates with Firecracker
+and handles sensitive data, we recommend hardening it against spectre-like
+attacks by:
+
+- compiling it with speculative load hardening
+- compiling it with retpolines
+- applying SSBD to it
 
 #### Use memory with Rowhammer mitigation support
 
