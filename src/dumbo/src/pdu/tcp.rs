@@ -12,12 +12,12 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroU16;
 use std::result::Result;
 
+use bitflags::bitflags;
+
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
 use crate::pdu::ChecksumProto;
 use crate::ByteBuffer;
-
-use bitflags::bitflags;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -227,9 +227,9 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         let mut i = 0;
 
         // All TCP options (except EOL and NOP) are encoded using x bytes (x >= 2), where the first
-        // byte represents the option kind, the second is the option length (including these first two
-        // bytes), and finally the next x - 2 bytes represent option data. The length of the MSS option
-        // is 4, so the option data encodes an u16 in network order.
+        // byte represents the option kind, the second is the option length (including these first
+        // two bytes), and finally the next x - 2 bytes represent option data. The length of
+        // the MSS option is 4, so the option data encodes an u16 in network order.
 
         // The MSS option is 4 bytes wide, so we need at least 4 more bytes to look for it.
         while i + 3 < b.len() {
@@ -406,13 +406,13 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     /// * `window_size` - Value to write in the `window size` field.
     /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
     /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
-    ///    used up by things like IP options have to be subtracted from the MSS). There is some
-    ///    redundancy looking at this argument and the next one, so we might end up removing
-    ///    or changing something.
+    ///   used up by things like IP options have to be subtracted from the MSS). There is some
+    ///   redundancy looking at this argument and the next one, so we might end up removing or
+    ///   changing something.
     /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
-    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
+    ///   we should read from that buffer. When `None`, the TCP segment will carry no payload.
     /// * `compute_checksum` - May contain the pair addresses from the enclosing IPv4 packet, which
-    ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
+    ///   are required for TCP checksum computation. Skip the checksum altogether when `None`.
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn write_segment<R: ByteBuffer + ?Sized>(
@@ -457,11 +457,11 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     /// * `window_size` - Value to write in the `window size` field.
     /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
     /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
-    ///    used up by things like IP options have to be subtracted from the MSS). There is some
-    ///    redundancy looking at this argument and the next one, so we might end up removing
-    ///    or changing something.
+    ///   used up by things like IP options have to be subtracted from the MSS). There is some
+    ///   redundancy looking at this argument and the next one, so we might end up removing or
+    ///   changing something.
     /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
-    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
+    ///   we should read from that buffer. When `None`, the TCP segment will carry no payload.
     // Marked inline because a lot of code vanishes after constant folding when
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
     #[allow(clippy::too_many_arguments)]
@@ -540,7 +540,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
         // This is ok because segment_len <= buf.len().
         segment.bytes.shrink_unchecked(segment_len);
 
-        //Shrink the resulting segment to a slice of exact size, so using self.len() makes sense.
+        // Shrink the resulting segment to a slice of exact size, so using self.len() makes sense.
         Ok(Incomplete::new(segment))
     }
 }

@@ -131,8 +131,7 @@ class EndsSigned(CommitRule):
                 break
 
             return rtn(
-                (f"Non '{co_auth}' or '{sig}' string found "
-                 f"following 1st '{sig}'"),
+                (f"Non '{co_auth}' or '{sig}' string found " f"following 1st '{sig}'"),
                 i,
             )
 

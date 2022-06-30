@@ -12,13 +12,15 @@ def test_gitlint():
 
     @type: style
     """
-    os.environ['LC_ALL'] = 'C.UTF-8'
-    os.environ['LANG'] = 'C.UTF-8'
+    os.environ["LC_ALL"] = "C.UTF-8"
+    os.environ["LANG"] = "C.UTF-8"
 
     utils.configure_git_safe_directory()
     try:
-        utils.run_cmd('gitlint --commits origin/main..HEAD'
-                      ' -C ../.gitlint'
-                      ' --extra-path framework/gitlint_rules.py')
+        utils.run_cmd(
+            "gitlint --commits origin/main..HEAD"
+            " -C ../.gitlint"
+            " --extra-path framework/gitlint_rules.py"
+        )
     except ChildProcessError as error:
         assert False, "Commit message violates gitlint rules: {}".format(error)

@@ -1,10 +1,9 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
-
 use kvm_bindings::{CpuId, KVM_CPUID_FLAG_SIGNIFCANT_INDEX};
 
+use super::*;
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
 use crate::transformer::common::use_host_cpuid_function;

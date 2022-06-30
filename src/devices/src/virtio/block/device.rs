@@ -5,16 +5,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
-use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::{cmp, result};
 
+use block_io::FileEngine;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use serde::{Deserialize, Serialize};
@@ -26,15 +26,11 @@ use virtio_gen::virtio_blk::{
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
-use super::io as block_io;
+use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
-use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
-    request::*,
-    Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
-};
+use super::request::*;
+use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
 use crate::virtio::{IrqTrigger, IrqType};
-use block_io::FileEngine;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -106,8 +102,8 @@ impl DiskProperties {
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
         if disk_size % SECTOR_SIZE != 0 {
             warn!(
-                "Disk size {} is not a multiple of sector size {}; \
-                 the remainder will not be visible to the guest.",
+                "Disk size {} is not a multiple of sector size {}; the remainder will not be \
+                 visible to the guest.",
                 disk_size, SECTOR_SIZE
             );
         }
@@ -637,23 +633,22 @@ pub(crate) mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
-    use std::thread;
     use std::time::Duration;
-    use std::u32;
+    use std::{thread, u32};
 
-    use super::*;
-    use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};
 
+    use super::*;
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
         default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
         simulate_queue_event,
     };
+    use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use crate::virtio::IO_URING_NUM_ENTRIES;
 
@@ -1348,7 +1343,8 @@ pub(crate) mod tests {
             assert_eq!(received_device_id, expected_device_id);
         }
 
-        // Test that a device ID request will be discarded, if it fails to provide enough buffer space.
+        // Test that a device ID request will be discarded, if it fails to provide enough buffer
+        // space.
         {
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());

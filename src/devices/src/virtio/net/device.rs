@@ -7,8 +7,7 @@
 
 #[cfg(not(test))]
 use std::io;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};

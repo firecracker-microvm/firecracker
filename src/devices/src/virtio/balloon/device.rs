@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
@@ -9,20 +8,23 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use logger::{error, IncMetric, METRICS};
+use serde::Serialize;
+use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use utils::eventfd::EventFd;
+use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
-use ::logger::{error, IncMetric, METRICS};
-use ::utils::eventfd::EventFd;
-use ::virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
-use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
-
-use super::*;
+use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::utils::{compact_page_frame_numbers, remove_range};
 use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON},
-    utils::{compact_page_frame_numbers, remove_range},
-    BALLOON_DEV_ID,
+    BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER,
+    MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
+    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
+    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
+    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
+    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
-
 use crate::virtio::balloon::Error as BalloonError;
 use crate::virtio::{IrqTrigger, IrqType};
 
@@ -263,7 +265,8 @@ impl Balloon {
                         // Skip descriptor.
                         continue;
                     }
-                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current desc.
+                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
+                    // desc.
                     if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len as usize / SIZE_OF_U32 {
                         queue.undo_pop();
                         break;
@@ -584,6 +587,8 @@ impl VirtioDevice for Balloon {
 pub(crate) mod tests {
     use std::u32;
 
+    use vm_memory::GuestAddress;
+
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
     use crate::virtio::balloon::test_utils::{
@@ -592,7 +597,6 @@ pub(crate) mod tests {
     use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::{check_metric_after_block, report_balloon_event_fail};
-    use vm_memory::GuestAddress;
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {

@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::BTreeMap;
-use std::env;
-use std::fmt;
-use std::result;
+use std::{env, fmt, result};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -384,7 +382,8 @@ impl<'a> Arguments<'a> {
         self.populate_args(args)
     }
 
-    // Check if `required`, `requires` and `forbids` field rules are indeed followed by every argument.
+    // Check if `required`, `requires` and `forbids` field rules are indeed followed by every
+    // argument.
     fn validate_requirements(&self, args: &[String]) -> Result<()> {
         for argument in self.args.values() {
             // The arguments that are marked `required` must be provided by user.
@@ -474,7 +473,8 @@ impl<'a> Arguments<'a> {
             argument.user_value = Some(arg_val);
         }
 
-        // Check the constraints for the `required`, `requires` and `forbids` fields of all arguments.
+        // Check the constraints for the `required`, `requires` and `forbids` fields of all
+        // arguments.
         self.validate_requirements(&args)?;
 
         Ok(())
@@ -619,10 +619,8 @@ mod tests {
 
         assert_eq!(
             arg_parser.formatted_help(),
-            "required arguments:\n  \
-             --exec-file <exec-file>   'exec-file' info.\n\n\
-             optional arguments:\n  \
-             --api-sock <api-sock>   'api-sock' info."
+            "required arguments:\n  --exec-file <exec-file>   'exec-file' info.\n\noptional \
+             arguments:\n  --api-sock <api-sock>   'api-sock' info."
         );
 
         arg_parser = ArgParser::new()
@@ -640,16 +638,15 @@ mod tests {
 
         assert_eq!(
             arg_parser.formatted_help(),
-            "optional arguments:\n  \
-             --config-file <config-file>         'config-file' info.\n  \
-             --id <id>                           'id' info.\n  \
-             --seccomp-filter <seccomp-filter>   'seccomp-filter' info."
+            "optional arguments:\n  --config-file <config-file>         'config-file' info.\n  \
+             --id <id>                           'id' info.\n  --seccomp-filter <seccomp-filter>   \
+             'seccomp-filter' info."
         );
     }
 
     #[test]
     fn test_value() {
-        //Test `as_string()` and `as_flag()` functions behaviour.
+        // Test `as_string()` and `as_flag()` functions behaviour.
         let mut value = Value::Flag;
         assert!(Value::as_single_value(&value).is_none());
         value = Value::Single("arg".to_string());

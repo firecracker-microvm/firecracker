@@ -22,19 +22,21 @@ class Iperf3DataParser(DataParser):
     # pylint: disable=W0102
     def __init__(self, data_provider: Iterator):
         """Initialize the data parser."""
-        super().__init__(data_provider, [
-            "throughput/total",
-            "cpu_utilization_vcpus_total/Avg",
-            "cpu_utilization_vmm/Avg",
-        ])
+        super().__init__(
+            data_provider,
+            [
+                "throughput/total",
+                "cpu_utilization_vcpus_total/Avg",
+                "cpu_utilization_vmm/Avg",
+            ],
+        )
 
-    # pylint: disable=R0201
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
         stddev = statistics.stdev(data)
         return {
-            'target': math.ceil(round(avg, 2)),
-            'delta_percentage':
-                math.ceil(round(3 * stddev/avg * 100, 2)) + DELTA_EXTRA_MARGIN
+            "target": math.ceil(round(avg, 2)),
+            "delta_percentage": math.ceil(round(3 * stddev / avg * 100, 2))
+            + DELTA_EXTRA_MARGIN,
         }

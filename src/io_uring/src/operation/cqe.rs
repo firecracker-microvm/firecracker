@@ -1,9 +1,11 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::bindings::io_uring_cqe;
 use std::result::Result;
+
 use vm_memory::ByteValued;
+
+use crate::bindings::io_uring_cqe;
 
 unsafe impl ByteValued for io_uring_cqe {}
 

@@ -20,8 +20,9 @@
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! use logger::{error, warn, LOGGER};
 //! use std::ops::Deref;
+//!
+//! use logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
 //! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
@@ -34,9 +35,10 @@
 //! ## Example for logging to a `File`:
 //!
 //! ```
+//! use std::io::Cursor;
+//!
 //! use libc::c_char;
 //! use logger::{error, warn, LOGGER};
-//! use std::io::Cursor;
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -74,14 +76,11 @@
 //! Logs can be flushed either to stdout/stderr or to a byte-oriented sink (File, FIFO, Ring Buffer
 //! etc).
 
-use std::fmt;
 use std::io::{sink, stderr, stdout, Write};
-use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
-use std::thread;
+use std::{fmt, result, thread};
 
-use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;
@@ -89,6 +88,7 @@ use utils::time::LocalTime;
 use super::extract_guard;
 use crate::init;
 use crate::init::Init;
+use crate::metrics::{IncMetric, METRICS};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -153,8 +153,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -183,8 +184,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -222,8 +224,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{info, warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -292,14 +295,15 @@ impl Logger {
     ///
     /// # Arguments
     ///
-    /// * `instance_id` - Unique string identifying this logger session.
-    ///                   This id is temporary and will be overwritten upon initialization.
+    /// * `instance_id` - Unique string identifying this logger session. This id is temporary and
+    ///   will be overwritten upon initialization.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
     /// use std::ops::Deref;
+    ///
+    /// use logger::LOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -332,9 +336,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
-    ///
     /// use std::io::Cursor;
+    ///
+    /// use logger::LOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///
@@ -431,8 +435,9 @@ mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::sync::Arc;
 
-    use super::*;
     use log::info;
+
+    use super::*;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";

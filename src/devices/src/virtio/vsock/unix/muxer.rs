@@ -45,11 +45,9 @@ use super::super::packet::VsockPacket;
 use super::super::{
     Result as VsockResult, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
-use super::defs;
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
-use super::MuxerConnection;
-use super::{Error, Result};
+use super::{defs, Error, MuxerConnection, Result};
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -91,10 +89,8 @@ pub struct VsockMuxer {
     listener_map: HashMap<RawFd, EpollListener>,
     /// The RX queue. Items in this queue are consumed by `VsockMuxer::recv_pkt()`, and
     /// produced
-    /// - by `VsockMuxer::send_pkt()` (e.g. RST in response to a connection request packet);
-    ///   and
-    /// - in response to EPOLLIN events (e.g. data available to be read from an AF_UNIX
-    ///   socket).
+    /// - by `VsockMuxer::send_pkt()` (e.g. RST in response to a connection request packet); and
+    /// - in response to EPOLLIN events (e.g. data available to be read from an AF_UNIX socket).
     rxq: MuxerRxQ,
     /// A queue used for terminating connections that are taking too long to shut down.
     killq: MuxerKillQ,
@@ -117,8 +113,7 @@ impl VsockChannel for VsockMuxer {
     ///
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
-    /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the
-    ///   packet.
+    /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
@@ -472,8 +467,7 @@ impl VsockMuxer {
         // We might need to make room for this new connection, so let's sweep the kill queue
         // first.  It's fine to do this here because:
         // - unless the kill queue is out of sync, this is a pretty inexpensive operation; and
-        // - we are under no pressure to respect any accurate timing for connection
-        //   termination.
+        // - we are under no pressure to respect any accurate timing for connection termination.
         self.sweep_killq();
 
         if self.conn_map.len() >= defs::MAX_CONNECTIONS {
@@ -777,13 +771,13 @@ mod tests {
     use std::ops::Drop;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
+
     use utils::tempfile::TempFile;
 
     use super::super::super::csm::defs as csm_defs;
     use super::*;
-    use crate::virtio::vsock::test_utils::TestContext as VsockTestContext;
-
     use crate::virtio::vsock::device::RXQ_INDEX;
+    use crate::virtio::vsock::test_utils::TestContext as VsockTestContext;
 
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;

@@ -7,13 +7,13 @@ from framework import utils
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # The iperf version to run this tests with
-IPERF_BINARY = 'iperf3'
+IPERF_BINARY = "iperf3"
 
 # Interval used by iperf to get maximum bandwidth
 IPERF_TRANSMIT_TIME = 4
 
 # Use a fixed-size TCP window so we get constant flow
-IPERF_TCP_WINDOW = '1000K'
+IPERF_TCP_WINDOW = "1000K"
 
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
@@ -45,45 +45,35 @@ def test_tx_rate_limiting(test_microvm_with_api, network_config):
     # 1. No rate limiting
     # 2. Rate limiting without burst
     # 3. Rate limiting with burst
-    host_ips = ['', '', '']
-    guest_ips = ['', '', '']
+    host_ips = ["", "", ""]
+    guest_ips = ["", "", ""]
 
-    iface_id = '1'
+    iface_id = "1"
     # Create tap before configuring interface.
-    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id
-    )
+    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(network_config, iface_id)
     guest_ips[0] = guest_ip
     host_ips[0] = host_ip
 
-    iface_id = '2'
+    iface_id = "2"
     tx_rate_limiter_no_burst = {
-        'bandwidth': {
-            'size': RATE_LIMIT_BYTES,
-            'refill_time': REFILL_TIME_MS
-        }
+        "bandwidth": {"size": RATE_LIMIT_BYTES, "refill_time": REFILL_TIME_MS}
     }
     _tap2, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id,
-        tx_rate_limiter=tx_rate_limiter_no_burst
+        network_config, iface_id, tx_rate_limiter=tx_rate_limiter_no_burst
     )
     guest_ips[1] = guest_ip
     host_ips[1] = host_ip
 
-    iface_id = '3'
+    iface_id = "3"
     tx_rate_limiter_with_burst = {
-        'bandwidth': {
-            'size': RATE_LIMIT_BYTES,
-            'one_time_burst': BURST_SIZE,
-            'refill_time': REFILL_TIME_MS
+        "bandwidth": {
+            "size": RATE_LIMIT_BYTES,
+            "one_time_burst": BURST_SIZE,
+            "refill_time": REFILL_TIME_MS,
         }
     }
     _tap3, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id,
-        tx_rate_limiter=tx_rate_limiter_with_burst
+        network_config, iface_id, tx_rate_limiter=tx_rate_limiter_with_burst
     )
     guest_ips[2] = guest_ip
     host_ips[2] = host_ip
@@ -109,45 +99,35 @@ def test_rx_rate_limiting(test_microvm_with_api, network_config):
     # 1. No rate limiting
     # 2. Rate limiting without burst
     # 3. Rate limiting with burst
-    host_ips = ['', '', '']
-    guest_ips = ['', '', '']
+    host_ips = ["", "", ""]
+    guest_ips = ["", "", ""]
 
-    iface_id = '1'
+    iface_id = "1"
     # Create tap before configuring interface.
-    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id
-    )
+    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(network_config, iface_id)
     guest_ips[0] = guest_ip
     host_ips[0] = host_ip
 
-    iface_id = '2'
+    iface_id = "2"
     rx_rate_limiter_no_burst = {
-        'bandwidth': {
-            'size': RATE_LIMIT_BYTES,
-            'refill_time': REFILL_TIME_MS
-        }
+        "bandwidth": {"size": RATE_LIMIT_BYTES, "refill_time": REFILL_TIME_MS}
     }
     _tap2, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id,
-        rx_rate_limiter=rx_rate_limiter_no_burst
+        network_config, iface_id, rx_rate_limiter=rx_rate_limiter_no_burst
     )
     guest_ips[1] = guest_ip
     host_ips[1] = host_ip
 
-    iface_id = '3'
+    iface_id = "3"
     rx_rate_limiter_no_burst = {
-        'bandwidth': {
-            'size': RATE_LIMIT_BYTES,
-            'one_time_burst': BURST_SIZE,
-            'refill_time': REFILL_TIME_MS
+        "bandwidth": {
+            "size": RATE_LIMIT_BYTES,
+            "one_time_burst": BURST_SIZE,
+            "refill_time": REFILL_TIME_MS,
         }
     }
     _tap3, host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        iface_id,
-        rx_rate_limiter=rx_rate_limiter_no_burst
+        network_config, iface_id, rx_rate_limiter=rx_rate_limiter_no_burst
     )
     guest_ips[2] = guest_ip
     host_ips[2] = host_ip
@@ -179,15 +159,10 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
 
     # Create interface with aggressive rate limiting enabled.
     rx_rate_limiter_no_burst = {
-        'bandwidth': {
-            'size': 65536,  # 64KBytes
-            'refill_time': 1000  # 1s
-        }
+        "bandwidth": {"size": 65536, "refill_time": 1000}  # 64KBytes  # 1s
     }
     _tap, _host_ip, guest_ip = test_microvm.ssh_network_config(
-        network_config,
-        '1',
-        rx_rate_limiter=rx_rate_limiter_no_burst
+        network_config, "1", rx_rate_limiter=rx_rate_limiter_no_burst
     )
 
     test_microvm.start()
@@ -196,11 +171,11 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
     _start_iperf_on_guest(test_microvm, guest_ip)
 
     # Run iperf client sending UDP traffic.
-    iperf_cmd = '{} {} -u -c {} -b 1000000000 -t{} -f KBytes'.format(
+    iperf_cmd = "{} {} -u -c {} -b 1000000000 -t{} -f KBytes".format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
-        IPERF_TRANSMIT_TIME * 5
+        IPERF_TRANSMIT_TIME * 5,
     )
     _iperf_out = _run_local_iperf(iperf_cmd)
 
@@ -214,10 +189,7 @@ def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
     # We are receiving the result in KBytes from iperf.
     print("Run guest TX iperf with no rate-limit")
     rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm,
-        guest_ips[0],
-        host_ips[0],
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ips[0], host_ips[0], IPERF_TRANSMIT_TIME
     )
     print("TX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
@@ -238,11 +210,8 @@ def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
     print("Run guest TX iperf with exact burst size")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
-    iperf_cmd = '{} -c {} -n {} -f KBytes -w {} -N'.format(
-        IPERF_BINARY,
-        host_ips[2],
-        BURST_SIZE,
-        IPERF_TCP_WINDOW
+    iperf_cmd = "{} -c {} -n {} -f KBytes -w {} -N".format(
+        IPERF_BINARY, host_ips[2], BURST_SIZE, IPERF_TCP_WINDOW
     )
     iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[2])
     print(iperf_out)
@@ -264,9 +233,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     # We are receiving the result in KBytes from iperf.
     print("Run guest RX iperf with no rate-limit")
     rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm,
-        guest_ips[0],
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ips[0], IPERF_TRANSMIT_TIME
     )
     print("RX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
@@ -287,12 +254,12 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     print("Run guest TX iperf with exact burst size")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
-    iperf_cmd = '{} {} -c {} -n {} -f KBytes -w {} -N'.format(
+    iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N".format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[2],
         BURST_SIZE,
-        IPERF_TCP_WINDOW
+        IPERF_TCP_WINDOW,
     )
     iperf_out = _run_local_iperf(iperf_cmd)
     print(iperf_out)
@@ -322,10 +289,7 @@ def _check_tx_rate_limit_patch(test_microvm, guest_ips, host_ips):
     # Check that a TX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "1", "TX", 0, 0)
     rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm,
-        guest_ips[0],
-        host_ips[0],
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ips[0], host_ips[0], IPERF_TRANSMIT_TIME
     )
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
@@ -349,21 +313,14 @@ def _check_rx_rate_limit_patch(test_microvm, guest_ips):
     # Check that an RX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "1", "RX", 0, 0)
     rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm,
-        guest_ips[0],
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ips[0], IPERF_TRANSMIT_TIME
     )
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
     assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 50
 
 
-def _check_tx_bandwidth(
-        test_microvm,
-        guest_ip,
-        host_ip,
-        expected_kbps
-):
+def _check_tx_bandwidth(test_microvm, guest_ip, host_ip, expected_kbps):
     """Check that the rate-limited TX bandwidth is close to what we expect.
 
     At this point, a daemonized iperf3 server is expected to be running on
@@ -371,10 +328,7 @@ def _check_tx_bandwidth(
     """
     print("Check guest TX rate-limit; expected kbps {}".format(expected_kbps))
     observed_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm,
-        guest_ip,
-        host_ip,
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ip, host_ip, IPERF_TRANSMIT_TIME
     )
 
     diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
@@ -384,10 +338,7 @@ def _check_tx_bandwidth(
         print("Short duration test failed. Try another run with 10x duration.")
 
         observed_kbps = _get_tx_bandwidth_with_duration(
-            test_microvm,
-            guest_ip,
-            host_ip,
-            10 * IPERF_TRANSMIT_TIME
+            test_microvm, guest_ip, host_ip, 10 * IPERF_TRANSMIT_TIME
         )
         diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
         print("TX calculated diff percentage: {}\n".format(diff_pc))
@@ -395,18 +346,10 @@ def _check_tx_bandwidth(
         assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
-def _get_tx_bandwidth_with_duration(
-        test_microvm,
-        guest_ip,
-        host_ip,
-        duration
-):
+def _get_tx_bandwidth_with_duration(test_microvm, guest_ip, host_ip, duration):
     """Check that the rate-limited TX bandwidth is close to what we expect."""
-    iperf_cmd = '{} -c {} -t {} -f KBytes -w {} -N'.format(
-        IPERF_BINARY,
-        host_ip,
-        duration,
-        IPERF_TCP_WINDOW
+    iperf_cmd = "{} -c {} -t {} -f KBytes -w {} -N".format(
+        IPERF_BINARY, host_ip, duration, IPERF_TCP_WINDOW
     )
 
     iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ip)
@@ -417,11 +360,7 @@ def _get_tx_bandwidth_with_duration(
     return observed_kbps
 
 
-def _check_rx_bandwidth(
-        test_microvm,
-        guest_ip,
-        expected_kbps
-):
+def _check_rx_bandwidth(test_microvm, guest_ip, expected_kbps):
     """Check that the rate-limited RX bandwidth is close to what we expect.
 
     At this point, a daemonized iperf3 server is expected to be running on
@@ -429,9 +368,7 @@ def _check_rx_bandwidth(
     """
     print("Check guest RX rate-limit; expected kbps {}".format(expected_kbps))
     observed_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm,
-        guest_ip,
-        IPERF_TRANSMIT_TIME
+        test_microvm, guest_ip, IPERF_TRANSMIT_TIME
     )
 
     diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
@@ -441,9 +378,7 @@ def _check_rx_bandwidth(
         print("Short duration test failed. Try another run with 10x duration.")
 
         observed_kbps = _get_rx_bandwidth_with_duration(
-            test_microvm,
-            guest_ip,
-            10 * IPERF_TRANSMIT_TIME
+            test_microvm, guest_ip, 10 * IPERF_TRANSMIT_TIME
         )
         diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
         print("TX calculated diff percentage: {}\n".format(diff_pc))
@@ -451,18 +386,14 @@ def _check_rx_bandwidth(
         assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
-def _get_rx_bandwidth_with_duration(
-        test_microvm,
-        guest_ip,
-        duration
-):
+def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
     """Check that the rate-limited RX bandwidth is close to what we expect."""
     iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N".format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
         duration,
-        IPERF_TCP_WINDOW
+        IPERF_TCP_WINDOW,
     )
     iperf_out = _run_local_iperf(iperf_cmd)
     print(iperf_out)
@@ -472,27 +403,18 @@ def _get_rx_bandwidth_with_duration(
     return observed_kbps
 
 
-def _patch_iface_bw(
-        test_microvm,
-        iface_id,
-        rx_or_tx,
-        new_bucket_size,
-        new_refill_time
-):
+def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refill_time):
     """Update the bandwidth rate limiter for a given interface.
 
     Update the `rx_or_tx` rate limiter, on interface `iface_id` to the
     new `bucket_size`.
     """
-    assert rx_or_tx in ['RX', 'TX']
+    assert rx_or_tx in ["RX", "TX"]
     args = {
-        'iface_id': iface_id,
+        "iface_id": iface_id,
         "{}_rate_limiter".format(rx_or_tx.lower()): {
-            'bandwidth': {
-                'size': new_bucket_size,
-                'refill_time': new_refill_time
-            }
-        }
+            "bandwidth": {"size": new_bucket_size, "refill_time": new_refill_time}
+        },
     }
     resp = test_microvm.network.patch(**args)
     assert test_microvm.api_session.is_status_no_content(resp.status_code)
@@ -500,10 +422,10 @@ def _patch_iface_bw(
 
 def _start_iperf_on_guest(test_microvm, hostname):
     """Start iperf in server mode through an SSH connection."""
-    test_microvm.ssh_config['hostname'] = hostname
+    test_microvm.ssh_config["hostname"] = hostname
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    iperf_cmd = '{} -sD -f KBytes\n'.format(IPERF_BINARY)
+    iperf_cmd = "{} -sD -f KBytes\n".format(IPERF_BINARY)
     ssh_connection.execute_command(iperf_cmd)
 
     # Wait for the iperf daemon to start.
@@ -512,10 +434,10 @@ def _start_iperf_on_guest(test_microvm, hostname):
 
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     """Run a client related iperf command through an SSH connection."""
-    test_microvm.ssh_config['hostname'] = hostname
+    test_microvm.ssh_config["hostname"] = hostname
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     _, stdout, stderr = ssh_connection.execute_command(iperf_cmd)
-    assert stderr.read() == ''
+    assert stderr.read() == ""
 
     out = stdout.read()
     return out
@@ -523,13 +445,13 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
 
 def _start_local_iperf(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
-    iperf_cmd = 'pkill {}\n'.format(IPERF_BINARY)
+    iperf_cmd = "pkill {}\n".format(IPERF_BINARY)
 
     # Don't check the result of this command because it can fail if no iperf
     # is running.
     utils.run_cmd(iperf_cmd, ignore_return_code=True)
 
-    iperf_cmd = '{} {} -sD -f KBytes\n'.format(netns_cmd_prefix, IPERF_BINARY)
+    iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
 
     utils.run_cmd(iperf_cmd)
 
@@ -556,8 +478,8 @@ def _get_percentage_difference(measured, base):
 
 def _process_iperf_line(line):
     """Parse iperf3 summary line and return test time and bandwidth."""
-    test_time = line.split('  ')[2].split('-')[1].strip().split(" ")[0]
-    test_bw = line.split('  ')[5].split(' ')[0].strip()
+    test_time = line.split("  ")[2].split("-")[1].strip().split(" ")[0]
+    test_bw = line.split("  ")[5].split(" ")[0].strip()
     return float(test_time), float(test_bw)
 
 
@@ -565,9 +487,9 @@ def _process_iperf_output(iperf_out):
     """Parse iperf3 output and return average test time and bandwidth."""
     iperf_out_lines = iperf_out.splitlines()
     for line in iperf_out_lines:
-        if line.find('sender') != -1:
+        if line.find("sender") != -1:
             send_time, send_bw = _process_iperf_line(line)
-        if line.find('receiver') != -1:
+        if line.find("receiver") != -1:
             rcv_time, rcv_bw = _process_iperf_line(line)
     iperf_out_time = (send_time + rcv_time) / 2.0
     iperf_out_bw = (send_bw + rcv_bw) / 2.0

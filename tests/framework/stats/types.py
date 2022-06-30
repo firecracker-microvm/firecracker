@@ -15,14 +15,16 @@ class MeasurementDef:
 
     name: str
     unit: str
-    statistics: List['StatisticDef']
+    statistics: List["StatisticDef"]
 
     @classmethod
-    def create_measurement(cls,
-                           measurement_name: str,
-                           unit: str,
-                           st_functions: List[Function],
-                           pass_criteria: dict = None) -> 'MeasurementDef':
+    def create_measurement(
+        cls,
+        measurement_name: str,
+        unit: str,
+        st_functions: List[Function],
+        pass_criteria: dict = None,
+    ) -> "MeasurementDef":
         """
         Create a measurement based on the given params.
 
@@ -44,10 +46,8 @@ class MeasurementDef:
         stats = []
         for func in st_functions:
             stats.append(
-                StatisticDef(
-                    func=func,
-                    pass_criteria=pass_criteria.get(func.name)
-                ))
+                StatisticDef(func=func, pass_criteria=pass_criteria.get(func.name))
+            )
 
         return cls(measurement_name, unit, stats)
 

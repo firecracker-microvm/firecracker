@@ -40,17 +40,6 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::memory_snapshot::SnapshotMemory;
-use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
-use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::vcpu::VcpuState;
-use crate::vstate::{
-    vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse},
-    vm::Vm,
-};
 use arch::DeviceType;
 use devices::legacy::serial::{IER_RDA_BIT, IER_RDA_OFFSET};
 use devices::virtio::balloon::Error as BalloonError;
@@ -69,6 +58,15 @@ use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+use crate::memory_snapshot::SnapshotMemory;
+use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
+use crate::vstate::vm::Vm;
+
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
@@ -82,7 +80,8 @@ pub enum FcExitCode {
     Ok = 0,
     /// Generic error exit code.
     GenericError = 1,
-    /// Generic exit code for an error considered not possible to occur if the program logic is sound.
+    /// Generic exit code for an error considered not possible to occur if the program logic is
+    /// sound.
     UnexpectedError = 2,
     /// Firecracker was shut down after intercepting a restricted system call.
     BadSyscall = 148,
@@ -729,25 +728,23 @@ impl Vmm {
 
     /// Signals Vmm to stop and exit.
     pub fn stop(&mut self, exit_code: FcExitCode) {
-        /*
-           To avoid cycles, all teardown paths take the following route:
-           +------------------------+----------------------------+------------------------+
-           |        Vmm             |           Action           |           Vcpu         |
-           +------------------------+----------------------------+------------------------+
-         1 |                        |                            | vcpu.exit(exit_code)   |
-         2 |                        |                            | vcpu.exit_evt.write(1) |
-         3 |                        | <--- EventFd::exit_evt --- |                        |
-         4 | vmm.stop()             |                            |                        |
-         5 |                        | --- VcpuEvent::Finish ---> |                        |
-         6 |                        |                            | StateMachine::finish() |
-         7 | VcpuHandle::join()     |                            |                        |
-         8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-           +------------------------+----------------------------+------------------------+
-            Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
-            Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-            Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
-            responsibility to break main event loop and propagate the exit code value.
-        */
+        // To avoid cycles, all teardown paths take the following route:
+        // +------------------------+----------------------------+------------------------+
+        // |        Vmm             |           Action           |           Vcpu         |
+        // +------------------------+----------------------------+------------------------+
+        // 1 |                        |                            | vcpu.exit(exit_code)   |
+        // 2 |                        |                            | vcpu.exit_evt.write(1) |
+        // 3 |                        | <--- EventFd::exit_evt --- |                        |
+        // 4 | vmm.stop()             |                            |                        |
+        // 5 |                        | --- VcpuEvent::Finish ---> |                        |
+        // 6 |                        |                            | StateMachine::finish() |
+        // 7 | VcpuHandle::join()     |                            |                        |
+        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+        // +------------------------+----------------------------+------------------------+
+        // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
+        // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
+        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+        // responsibility to break main event loop and propagate the exit code value.
         info!("Vmm is stopping.");
 
         // We send a "Finish" event.  If a VCPU has already exited, this is the only
@@ -831,10 +828,7 @@ impl Drop for Vmm {
         }
 
         if !self.vcpus_handles.is_empty() {
-            error!(
-                "Failed to tear down Vmm: the vcpu threads \
-                have not finished execution."
-            );
+            error!("Failed to tear down Vmm: the vcpu threads have not finished execution.");
         }
     }
 }

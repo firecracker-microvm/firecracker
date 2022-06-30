@@ -1,6 +1,16 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::From;
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use logger::info;
+use mmds::data_store::{Mmds, MmdsVersion};
+use mmds::ns::MmdsNetworkStack;
+use serde::{Deserialize, Serialize};
+use utils::net::ipv4addr::is_link_local_valid;
+
+use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::*;
@@ -12,15 +22,6 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::vcpu::VcpuConfig;
-use logger::info;
-use mmds::ns::MmdsNetworkStack;
-use utils::net::ipv4addr::is_link_local_valid;
-
-use crate::device_manager::persist::SharedDeviceType;
-use mmds::data_store::{Mmds, MmdsVersion};
-use serde::{Deserialize, Serialize};
-use std::convert::From;
-use std::sync::{Arc, Mutex, MutexGuard};
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -505,6 +506,12 @@ mod tests {
     use std::fs::File;
     use std::os::linux::fs::MetadataExt;
 
+    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
+    use logger::{LevelFilter, LOGGER};
+    use serde_json::{Map, Value};
+    use utils::net::mac::MacAddr;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
@@ -515,16 +522,12 @@ mod tests {
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
-    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
-    use logger::{LevelFilter, LOGGER};
-    use serde_json::{Map, Value};
-    use utils::net::mac::MacAddr;
-    use utils::tempfile::TempFile;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: "net_if1".to_string(),
-            // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
+            // TempFile::new_with_prefix("") generates a random file name used as random net_if
+            // name.
             host_dev_name: TempFile::new_with_prefix("")
                 .unwrap()
                 .as_path()

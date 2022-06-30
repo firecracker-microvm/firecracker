@@ -22,22 +22,23 @@ class BlockDataParser(DataParser):
     # pylint: disable=W0102
     def __init__(self, data_provider: Iterator):
         """Initialize the data parser."""
-        super().__init__(data_provider, [
-            "iops_read/Avg",
-            "iops_write/Avg",
-            "bw_read/Avg",
-            "bw_write/Avg",
-            "cpu_utilization_vcpus_total/Avg",
-            "cpu_utilization_vmm/Avg",
-        ])
+        super().__init__(
+            data_provider,
+            [
+                "iops_read/Avg",
+                "iops_write/Avg",
+                "bw_read/Avg",
+                "bw_write/Avg",
+                "cpu_utilization_vcpus_total/Avg",
+                "cpu_utilization_vmm/Avg",
+            ],
+        )
 
-    # pylint: disable=R0201
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
         stddev = statistics.stdev(data)
         return {
-            'target': math.ceil(round(avg, 2)),
-            'delta_percentage':
-                math.ceil(3 * stddev/avg * 100) + DELTA_EXTRA_MARGIN
+            "target": math.ceil(round(avg, 2)),
+            "delta_percentage": math.ceil(3 * stddev / avg * 100) + DELTA_EXTRA_MARGIN,
         }

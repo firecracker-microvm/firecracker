@@ -8,15 +8,16 @@ use std::thread;
 #[cfg(test)]
 use std::time::Duration;
 
+use rate_limiter::RateLimiter;
+use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
+use utils::tempfile::TempFile;
+
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
 #[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
-use rate_limiter::RateLimiter;
-use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use utils::tempfile::TempFile;
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> Block {

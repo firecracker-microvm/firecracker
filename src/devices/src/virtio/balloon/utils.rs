@@ -3,9 +3,10 @@
 
 use std::io;
 
-use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use logger::error;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+
+use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -118,8 +119,9 @@ pub(crate) fn remove_range(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_memory::Bytes;
+
+    use super::*;
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {
@@ -277,12 +279,14 @@ mod tests {
     use proptest::prelude::*;
 
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
-        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32 elements.
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32
+        // elements.
         prop::collection::vec(0..std::u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
     }
 
     fn random_pfn_100() -> impl Strategy<Value = Vec<u32>> {
-        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32 elements (0 - 100).
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32
+        // elements (0 - 100).
         prop::collection::vec(0..100u32, 0..MAX_PAGE_COMPACT_BUFFER / 8)
     }
 

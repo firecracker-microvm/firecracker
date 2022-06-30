@@ -17,9 +17,17 @@ In order to test the vsock device connection state machine, these tests will:
 import os.path
 
 from socket import timeout as SocketTimeout
-from framework.utils_vsock import make_blob, check_host_connections, \
-    check_guest_connections, check_vsock_device, _copy_vsock_data_to_guest, \
-    make_host_port_path, HostEchoWorker, ECHO_SERVER_PORT, VSOCK_UDS_PATH
+from framework.utils_vsock import (
+    make_blob,
+    check_host_connections,
+    check_guest_connections,
+    check_vsock_device,
+    _copy_vsock_data_to_guest,
+    make_host_port_path,
+    HostEchoWorker,
+    ECHO_SERVER_PORT,
+    VSOCK_UDS_PATH,
+)
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
 from host_tools.network import SSHConnection
@@ -30,10 +38,7 @@ TEST_WORKER_COUNT = 10
 
 
 def test_vsock(
-        test_microvm_with_api,
-        network_config,
-        bin_vsock_path,
-        test_fc_session_root_path
+    test_microvm_with_api, network_config, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Test guest and host vsock initiated connections.
@@ -46,20 +51,14 @@ def test_vsock(
     vm.spawn()
 
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, '1')
-    vm.vsock.put(
-        vsock_id="vsock0",
-        guest_cid=3,
-        uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
+    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
 
     vm.start()
 
     conn = SSHConnection(vm.ssh_config)
 
-    check_vsock_device(vm, bin_vsock_path,
-                       test_fc_session_root_path,
-                       conn)
+    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, conn)
 
 
 def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
@@ -70,7 +69,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     Closes the UDS sockets while data is in flight.
     """
     conn = SSHConnection(vm.ssh_config)
-    cmd = "vsock_helper echosrv -d {}". format(ECHO_SERVER_PORT)
+    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
     ecode, _, _ = conn.execute_command(cmd)
     assert ecode == 0
 
@@ -95,10 +94,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
 
 
 def test_vsock_epipe(
-        test_microvm_with_api,
-        network_config,
-        bin_vsock_path,
-        test_fc_session_root_path
+    test_microvm_with_api, network_config, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
@@ -109,19 +105,13 @@ def test_vsock_epipe(
     vm.spawn()
 
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, '1')
-    vm.vsock.put(
-        vsock_id="vsock0",
-        guest_cid=3,
-        uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
+    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
 
     # Configure metrics to assert against `sigpipe` count.
-    metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(
-        metrics_path=vm.create_jailed_resource(metrics_fifo.path)
-    )
+    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
     assert vm.api_session.is_status_no_content(response.status_code)
 
     vm.start()
@@ -150,13 +140,11 @@ def test_vsock_epipe(
     #
     # If this ever fails due to 100 closes before read() we must
     # add extra tooling that will trigger only writes().
-    assert metrics['signals']['sigpipe'] > 0
+    assert metrics["signals"]["sigpipe"] > 0
 
 
 def test_vsock_transport_reset(
-        bin_cloner_path,
-        bin_vsock_path,
-        test_fc_session_root_path
+    bin_cloner_path, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Vsock transport reset test.
@@ -182,9 +170,7 @@ def test_vsock_transport_reset(
     ssh_key = vm_instance.ssh_key
 
     test_vm.vsock.put(
-        vsock_id="vsock0",
-        guest_cid=3,
-        uds_path="/{}".format(VSOCK_UDS_PATH)
+        vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH)
     )
 
     test_vm.start()
@@ -204,7 +190,7 @@ def test_vsock_transport_reset(
     # Start guest echo server.
     path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
     conn = SSHConnection(test_vm.ssh_config)
-    cmd = "vsock_helper echosrv -d {}". format(ECHO_SERVER_PORT)
+    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
     ecode, _, _ = conn.execute_command(cmd)
     assert ecode == 0
 
@@ -219,17 +205,15 @@ def test_vsock_transport_reset(
         wrk.join()
 
     # Create snapshot.
-    snapshot = snapshot_builder.create(disks,
-                                       ssh_key,
-                                       SnapshotType.FULL)
-    response = test_vm.vm.patch(state='Resumed')
+    snapshot = snapshot_builder.create(disks, ssh_key, SnapshotType.FULL)
+    response = test_vm.vm.patch(state="Resumed")
     assert test_vm.api_session.is_status_no_content(response.status_code)
 
     # Check that sockets are no longer working on workers.
     for worker in workers:
         # Whatever we send to the server, it should return the same
         # value.
-        buf = bytearray("TEST\n".encode('utf-8'))
+        buf = bytearray("TEST\n".encode("utf-8"))
         worker.sock.send(buf)
         try:
             # Arbitrary timeout, we set this so the socket won't block as
@@ -237,8 +221,7 @@ def test_vsock_transport_reset(
             worker.sock.settimeout(0.25)
             response = worker.sock.recv(32)
             # If we reach here, it means the connection did not close.
-            assert False, "Connection not closed: {}" \
-                          .format(response.decode('utf-8'))
+            assert False, "Connection not closed: {}".format(response.decode("utf-8"))
         except SocketTimeout as exc:
             assert True, exc
 
@@ -247,16 +230,13 @@ def test_vsock_transport_reset(
 
     # Load snapshot.
     test_vm, _ = vm_builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        diff_snapshots=False
+        snapshot, resume=True, diff_snapshots=False
     )
 
     # Check that vsock device still works.
     # Test guest-initiated connections.
     path = os.path.join(
-        test_vm.path,
-        make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+        test_vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
     )
     check_guest_connections(test_vm, path, vm_blob_path, blob_hash)
 

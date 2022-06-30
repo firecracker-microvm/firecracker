@@ -46,8 +46,7 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
 fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
     arg_parser.parse_from_cmdline().unwrap_or_else(|e| {
         panic!(
-            "Arguments parsing error: {} \n\n\
-             For more information try --help.",
+            "Arguments parsing error: {} \n\nFor more information try --help.",
             e
         );
     });
@@ -129,11 +128,12 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::FileExt;
 
     use utils::{rand, tempfile};
+
+    use super::*;
 
     macro_rules! assert_err {
         ($expression:expr, $($pattern:tt)+) => {

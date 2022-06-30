@@ -1,11 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{Display, Formatter, Result};
+use std::net::Ipv4Addr;
+
 use mmds::data_store;
 use mmds::data_store::MmdsVersion;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result};
-use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -58,8 +59,8 @@ impl Display for MmdsConfigError {
             MmdsConfigError::EmptyNetworkIfaceList => {
                 write!(
                     f,
-                    "The list of network interface IDs that allow \
-                    forwarding MMDS requests is empty."
+                    "The list of network interface IDs that allow forwarding MMDS requests is \
+                     empty."
                 )
             }
             MmdsConfigError::InvalidIpv4Addr => {
@@ -68,8 +69,8 @@ impl Display for MmdsConfigError {
             MmdsConfigError::InvalidNetworkInterfaceId => {
                 write!(
                     f,
-                    "The list of network interface IDs provided contains at least one ID \
-                    that does not correspond to any existing network interface."
+                    "The list of network interface IDs provided contains at least one ID that \
+                     does not correspond to any existing network interface."
                 )
             }
             MmdsConfigError::MmdsVersion(version, err) => {

@@ -28,13 +28,30 @@ import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
 from framework import utils
-from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH, \
-    FC_PID_FILE_NAME
+from framework.defs import (
+    MICROVM_KERNEL_RELPATH,
+    MICROVM_FSFILES_RELPATH,
+    FC_PID_FILE_NAME,
+)
 from framework.http import Session
 from framework.jailer import JailerContext
-from framework.resources import Actions, Balloon, BootSource, Drive, \
-    DescribeInstance, FullConfig, InstanceVersion, Logger, MMDS, \
-    MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotHelper
+from framework.resources import (
+    Actions,
+    Balloon,
+    BootSource,
+    Drive,
+    DescribeInstance,
+    FullConfig,
+    InstanceVersion,
+    Logger,
+    MMDS,
+    MachineConfigure,
+    Metrics,
+    Network,
+    Vm,
+    Vsock,
+    SnapshotHelper,
+)
 
 LOG = logging.getLogger("microvm")
 data_lock = Lock()
@@ -71,9 +88,9 @@ class Microvm:
         self._path = os.path.join(resource_path, microvm_id)
         self._kernel_path = os.path.join(self._path, MICROVM_KERNEL_RELPATH)
         self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
-        self._kernel_file = ''
-        self._rootfs_file = ''
-        self._initrd_file = ''
+        self._kernel_file = ""
+        self._rootfs_file = ""
+        self._initrd_file = ""
 
         # The binaries this microvm will use to start.
         self._fc_binary_path = fc_binary_path
@@ -90,8 +107,7 @@ class Microvm:
         self._screen_log = None
 
         # Copy the /etc/localtime file in the jailer root
-        self.jailer.copy_into_root(
-            "/etc/localtime", create_jail=True)
+        self.jailer.copy_into_root("/etc/localtime", create_jail=True)
 
         # Now deal with the things specific to the api session used to
         # communicate with this machine.
@@ -101,9 +117,9 @@ class Microvm:
         # Session name is composed of the last part of the temporary path
         # allocated by the current test session and the unique id of this
         # microVM. It should be unique.
-        self._session_name = os.path.basename(os.path.normpath(
-            resource_path
-        )) + self._microvm_id
+        self._session_name = (
+            os.path.basename(os.path.normpath(resource_path)) + self._microvm_id
+        )
 
         # nice-to-have: Put these in a dictionary.
         self.actions = None
@@ -131,8 +147,8 @@ class Microvm:
         # private key is populated by microvms with ssh capabilities and the
         # hostname is set from the MAC address used to configure the microVM.
         self._ssh_config = {
-            'username': 'root',
-            'netns_file_path': self._jailer.netns_file_path()
+            "username": "root",
+            "netns_file_path": self._jailer.netns_file_path(),
         }
 
         # Deal with memory monitoring.
@@ -161,8 +177,10 @@ class Microvm:
         if self.logging_thread is not None:
             self.logging_thread.stop()
 
-        if self.expect_kill_by_signal is False and \
-                "Shutting down VM after intercepting signal" in self.log_data:
+        if (
+            self.expect_kill_by_signal is False
+            and "Shutting down VM after intercepting signal" in self.log_data
+        ):
             # Too late to assert at this point, pytest will still report the
             # test as passed. BUT we can dump full logs for debugging,
             # as well as an intentional eye-sore in the test report.
@@ -171,14 +189,13 @@ class Microvm:
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
                 utils.run_cmd(
-                    'kill -9 {}'.format(self.jailer_clone_pid),
-                    ignore_return_code=True)
+                    "kill -9 {}".format(self.jailer_clone_pid), ignore_return_code=True
+                )
         else:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
-            utils.run_cmd(
-                'kill -9 {} || true'.format(self.screen_pid))
+            utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
 
         # Check if Firecracker was launched by the jailer in a new pid ns.
         fc_pid_in_new_ns = self.pid_in_new_ns
@@ -186,8 +203,7 @@ class Microvm:
         if fc_pid_in_new_ns:
             # We need to explicitly kill the Firecracker pid, since it's
             # different from the jailer pid that was previously killed.
-            utils.run_cmd(f'kill -9 {fc_pid_in_new_ns}',
-                          ignore_return_code=True)
+            utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
 
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
@@ -290,7 +306,7 @@ class Microvm:
     @ssh_config.setter
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
-        self._ssh_config.__setattr__(key, value)
+        setattr(self._ssh_config, key, value)
 
     @property
     def metadata_file(self):
@@ -336,7 +352,7 @@ class Microvm:
         pid_file_path = f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}"
         if os.path.exists(pid_file_path):
             # Read the PID stored inside the file.
-            with open(pid_file_path, encoding='utf-8') as file:
+            with open(pid_file_path, encoding="utf-8") as file:
                 fc_pid = int(file.readline())
 
         return fc_pid
@@ -349,7 +365,7 @@ class Microvm:
         # Empty the metrics pipe.
         _ = metrics_fifo.sequential_reader(100)
 
-        response = self.actions.put(action_type='FlushMetrics')
+        response = self.actions.put(action_type="FlushMetrics")
         assert self.api_session.is_status_no_content(response.status_code)
 
         lines = metrics_fifo.sequential_reader(100)
@@ -363,7 +379,7 @@ class Microvm:
         Requires specifying the configured metrics file.
         """
         # Empty the metrics pipe.
-        response = self.actions.put(action_type='FlushMetrics')
+        response = self.actions.put(action_type="FlushMetrics")
         assert self.api_session.is_status_no_content(response.status_code)
 
         return metrics_fifo.sequential_reader(1000)
@@ -381,9 +397,7 @@ class Microvm:
         # A possible improvement is to find it by name.
         thread_pid = self.jailer_clone_pid
         self._cpu_load_monitor = cpu_tools.CpuLoadMonitor(
-            process_pid,
-            thread_pid,
-            threshold
+            process_pid, thread_pid, threshold
         )
         self._cpu_load_monitor.start()
 
@@ -391,22 +405,15 @@ class Microvm:
         """Copy a file to a jail ramfs."""
         filename = os.path.basename(src)
         dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
-        jailed_path = os.path.join(
-            '/', self.jailer.ramfs_subdir_name, filename
-        )
+        jailed_path = os.path.join("/", self.jailer.ramfs_subdir_name, filename)
         shutil.copy(src, dest_path)
-        cmd = 'chown {}:{} {}'.format(
-            self.jailer.uid,
-            self.jailer.gid,
-            dest_path
-        )
+        cmd = "chown {}:{} {}".format(self.jailer.uid, self.jailer.gid, dest_path)
         utils.run_cmd(cmd)
         return jailed_path
 
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
-        return self.jailer.jailed_path(path, create=True,
-                                       create_jail=create_jail)
+        return self.jailer.jailed_path(path, create=True, create_jail=create_jail)
 
     def get_jailed_resource(self, path):
         """Get the relative jailed path to a resource."""
@@ -468,8 +475,9 @@ class Microvm:
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
         if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(
-                    self.jailer_clone_pid)["firecracker"]:
+            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
+                "firecracker"
+            ]:
                 utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
                 return True
         return False
@@ -477,8 +485,9 @@ class Microvm:
     def pin_vcpu(self, vcpu_id: int, cpu_id: int):
         """Pin the firecracker vcpu thread to a cpu list."""
         if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(
-                    self.jailer_clone_pid)[f"fc_vcpu {vcpu_id}"]:
+            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
+                f"fc_vcpu {vcpu_id}"
+            ]:
                 utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
             return True
         return False
@@ -486,14 +495,20 @@ class Microvm:
     def pin_api(self, cpu_id: int):
         """Pin the firecracker process API server thread to a cpu list."""
         if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(
-                    self.jailer_clone_pid)["fc_api"]:
+            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
+                "fc_api"
+            ]:
                 utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
             return True
         return False
 
-    def spawn(self, create_logger=True,
-              log_file='log_fifo', log_level='Info', use_ramdisk=False):
+    def spawn(
+        self,
+        create_logger=True,
+        log_file="log_fifo",
+        log_level="Info",
+        use_ramdisk=False,
+    ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
         self._jailer.setup(use_ramdisk=use_ramdisk)
@@ -507,18 +522,18 @@ class Microvm:
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
         self.version = InstanceVersion(
-            self._api_socket, self._fc_binary_path, self._api_session)
+            self._api_socket, self._fc_binary_path, self._api_session
+        )
         self.machine_cfg = MachineConfigure(
-            self._api_socket,
-            self._api_session,
-            self.firecracker_version
+            self._api_socket, self._api_session, self.firecracker_version
         )
         self.metrics = Metrics(self._api_socket, self._api_session)
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.drive = Drive(self._api_socket, self._api_session,
-                           self.firecracker_version)
+        self.drive = Drive(
+            self._api_socket, self._api_session, self.firecracker_version
+        )
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
@@ -529,17 +544,15 @@ class Microvm:
             # The default value for `level`, when configuring the
             # logger via cmd line, is `Warning`. We set the level
             # to `Info` to also have the boot time printed in fifo.
-            self.jailer.extra_args.update({'log-path': log_file,
-                                           'level': log_level})
+            self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
             self.start_console_logger(log_fifo)
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
                 LOG.debug("metadata file exists, adding as a jailed resource")
-                self.create_jailed_resource(self.metadata_file,
-                                            create_jail=True)
+                self.create_jailed_resource(self.metadata_file, create_jail=True)
             self.jailer.extra_args.update(
-                {'metadata': os.path.basename(self.metadata_file)}
+                {"metadata": os.path.basename(self.metadata_file)}
             )
 
         jailer_param_list = self._jailer.construct_param_list()
@@ -560,9 +573,10 @@ class Microvm:
             # This file will collect any output from 'screen'ed Firecracker.
             self._screen_log = self.SCREEN_LOGFILE.format(self._session_name)
             screen_pid, binary_pid = utils.start_screen_process(
-                self._screen_log, self._session_name,
+                self._screen_log,
+                self._session_name,
                 self._jailer_binary_path,
-                jailer_param_list
+                jailer_param_list,
             )
             self._screen_pid = screen_pid
             self.jailer_clone_pid = binary_pid
@@ -572,7 +586,7 @@ class Microvm:
         # We expect the jailer to start within 80 ms. However, we wait for
         # 1 sec since we are rechecking the existence of the socket 5 times
         # and leave 0.2 delay between them.
-        if 'no-api' not in self._jailer.extra_args:
+        if "no-api" not in self._jailer.extra_args:
             self._wait_create()
         if create_logger:
             self.check_log_message("Running Firecracker")
@@ -607,8 +621,9 @@ class Microvm:
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}"'
-        utils.run_cmd(input_cmd.format(session=self._session_name,
-                                       input_string=input_string))
+        utils.run_cmd(
+            input_cmd.format(session=self._session_name, input_string=input_string)
+        )
 
     def basic_config(
         self,
@@ -619,7 +634,7 @@ class Microvm:
         boot_args: str = None,
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
-        rootfs_io_engine=None
+        rootfs_io_engine=None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -636,10 +651,11 @@ class Microvm:
             vcpu_count=vcpu_count,
             smt=smt,
             mem_size_mib=mem_size_mib,
-            track_dirty_pages=track_dirty_pages
+            track_dirty_pages=track_dirty_pages,
         )
-        assert self._api_session.is_status_no_content(response.status_code), \
-            response.text
+        assert self._api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
         if self.memory_monitor:
             self.memory_monitor.guest_mem_mib = mem_size_mib
@@ -647,40 +663,39 @@ class Microvm:
             self.memory_monitor.start()
 
         boot_source_args = {
-            'kernel_image_path': self.create_jailed_resource(self.kernel_file),
-            'boot_args': boot_args
+            "kernel_image_path": self.create_jailed_resource(self.kernel_file),
+            "boot_args": boot_args,
         }
 
-        if use_initrd and self.initrd_file != '':
+        if use_initrd and self.initrd_file != "":
             boot_source_args.update(
-                initrd_path=self.create_jailed_resource(self.initrd_file))
+                initrd_path=self.create_jailed_resource(self.initrd_file)
+            )
 
         response = self.boot.put(**boot_source_args)
-        assert self._api_session.is_status_no_content(response.status_code), \
-            response.text
+        assert self._api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
-        if add_root_device and self.rootfs_file != '':
+        if add_root_device and self.rootfs_file != "":
             # Add the root file system with rw permissions.
             response = self.drive.put(
-                drive_id='rootfs',
+                drive_id="rootfs",
                 path_on_host=self.create_jailed_resource(self.rootfs_file),
                 is_root_device=True,
                 is_read_only=False,
-                io_engine=rootfs_io_engine
+                io_engine=rootfs_io_engine,
             )
-            assert self._api_session \
-                       .is_status_no_content(response.status_code), \
-                response.text
+            assert self._api_session.is_status_no_content(
+                response.status_code
+            ), response.text
 
-    def daemonize_jailer(
-            self,
-            jailer_param_list
-    ):
+    def daemonize_jailer(self, jailer_param_list):
         """Daemonize the jailer."""
         if self.bin_cloner_path and self.jailer.new_pid_ns is not True:
-            cmd = [self.bin_cloner_path] + \
-                [self._jailer_binary_path] + \
-                jailer_param_list
+            cmd = (
+                [self.bin_cloner_path] + [self._jailer_binary_path] + jailer_param_list
+            )
             _p = utils.run_cmd(cmd)
             # Terrible hack to make the tests fail when starting the
             # jailer fails with a panic. This is needed because we can't
@@ -699,33 +714,34 @@ class Microvm:
             if _pid == 0:
                 os.execv(
                     self._jailer_binary_path,
-                    [self._jailer_binary_path] + jailer_param_list
+                    [self._jailer_binary_path] + jailer_param_list,
                 )
             self.jailer_clone_pid = _pid
 
     def add_drive(
-            self,
-            drive_id,
-            file_path,
-            root_device=False,
-            is_read_only=False,
-            partuuid=None,
-            cache_type=None,
-            io_engine=None,
-            use_ramdisk=False,
+        self,
+        drive_id,
+        file_path,
+        root_device=False,
+        is_read_only=False,
+        partuuid=None,
+        cache_type=None,
+        io_engine=None,
+        use_ramdisk=False,
     ):
         """Add a block device."""
         response = self.drive.put(
             drive_id=drive_id,
             path_on_host=(
-                self.copy_to_jail_ramfs(file_path) if
-                use_ramdisk else self.create_jailed_resource(file_path)
+                self.copy_to_jail_ramfs(file_path)
+                if use_ramdisk
+                else self.create_jailed_resource(file_path)
             ),
             is_root_device=root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
             cache_type=cache_type,
-            io_engine=io_engine
+            io_engine=io_engine,
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
@@ -738,12 +754,12 @@ class Microvm:
         assert self.api_session.is_status_no_content(response.status_code)
 
     def ssh_network_config(
-            self,
-            network_config,
-            iface_id,
-            tx_rate_limiter=None,
-            rx_rate_limiter=None,
-            tapname=None
+        self,
+        network_config,
+        iface_id,
+        tx_rate_limiter=None,
+        rx_rate_limiter=None,
+        tapname=None,
     ):
         """Create a host tap device and a guest network interface.
 
@@ -760,12 +776,11 @@ class Microvm:
         cleanup is desired, the configured guest and host ips, respectively.
         """
         # Create tap before configuring interface.
-        tapname = tapname or (self.id[:8] + 'tap' + iface_id)
+        tapname = tapname or (self.id[:8] + "tap" + iface_id)
         (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-        tap = self.create_tap_and_ssh_config(host_ip,
-                                             guest_ip,
-                                             network_config.get_netmask_len(),
-                                             tapname)
+        tap = self.create_tap_and_ssh_config(
+            host_ip, guest_ip, network_config.get_netmask_len(), tapname
+        )
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
         response = self.network.put(
@@ -773,35 +788,24 @@ class Microvm:
             host_dev_name=tapname,
             guest_mac=guest_mac,
             tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter
+            rx_rate_limiter=rx_rate_limiter,
         )
         assert self._api_session.is_status_no_content(response.status_code)
 
         return tap, host_ip, guest_ip
 
-    def create_tap_and_ssh_config(
-            self,
-            host_ip,
-            guest_ip,
-            netmask_len,
-            tapname=None
-    ):
+    def create_tap_and_ssh_config(self, host_ip, guest_ip, netmask_len, tapname=None):
         """Create tap device and configure ssh."""
         assert tapname is not None
         tap = net_tools.Tap(
-            tapname,
-            self._jailer.netns,
-            ip="{}/{}".format(
-                host_ip,
-                netmask_len
-            )
+            tapname, self._jailer.netns, ip="{}/{}".format(host_ip, netmask_len)
         )
         self.config_ssh(guest_ip)
         return tap
 
     def config_ssh(self, guest_ip):
         """Configure ssh."""
-        self.ssh_config['hostname'] = guest_ip
+        self.ssh_config["hostname"] = guest_ip
 
     def start(self, check=True):
         """Start the microvm.
@@ -814,12 +818,12 @@ class Microvm:
         except KeyError:
             assert self.started is False
 
-        response = self.actions.put(action_type='InstanceStart')
+        response = self.actions.put(action_type="InstanceStart")
 
         if check:
-            assert \
-                self._api_session.is_status_no_content(response.status_code), \
-                response.text
+            assert self._api_session.is_status_no_content(
+                response.status_code
+            ), response.text
 
             # Check that the VM has started
             try:
@@ -827,11 +831,9 @@ class Microvm:
             except KeyError:
                 assert self.started is True
 
-    def pause_to_snapshot(self,
-                          mem_file_path=None,
-                          snapshot_path=None,
-                          diff=False,
-                          version=None):
+    def pause_to_snapshot(
+        self, mem_file_path=None, snapshot_path=None, diff=False, version=None
+    ):
         """Pauses the microVM, and creates snapshot.
 
         This function validates that the microVM pauses successfully and
@@ -840,16 +842,19 @@ class Microvm:
         assert mem_file_path is not None, "Please specify mem_file_path."
         assert snapshot_path is not None, "Please specify snapshot_path."
 
-        response = self.vm.patch(state='Paused')
+        response = self.vm.patch(state="Paused")
         assert self.api_session.is_status_no_content(response.status_code)
 
         self.api_session.untime()
-        response = self.snapshot.create(mem_file_path=mem_file_path,
-                                        snapshot_path=snapshot_path,
-                                        diff=diff,
-                                        version=version)
-        assert self.api_session.is_status_no_content(response.status_code), \
-            response.text
+        response = self.snapshot.create(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            version=version,
+        )
+        assert self.api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
     def start_console_logger(self, log_fifo):
         """
@@ -857,9 +862,10 @@ class Microvm:
 
         The console output will be redirected to the log file.
         """
+
         def monitor_fd(microvm, path):
             try:
-                fd = open(path, "r", encoding='utf-8')
+                fd = open(path, "r", encoding="utf-8")
                 while True:
                     try:
                         if microvm().logging_thread.stopped():
@@ -874,8 +880,9 @@ class Microvm:
             except IOError as error:
                 # pylint: disable=W0150
                 try:
-                    LOG.error("[%s] IOError while monitoring fd:"
-                              " %s", microvm().id, error)
+                    LOG.error(
+                        "[%s] IOError while monitoring fd:" " %s", microvm().id, error
+                    )
                     microvm().append_to_log_data(str(error))
                 except AttributeError as _:
                     # This means that the microvm object was destroyed and
@@ -885,9 +892,8 @@ class Microvm:
                     return
 
         self.logging_thread = utils.StoppableThread(
-            target=monitor_fd,
-            args=(weakref.ref(self), log_fifo.path),
-            daemon=True)
+            target=monitor_fd, args=(weakref.ref(self), log_fifo.path), daemon=True
+        )
         self.logging_thread.start()
 
     def __del__(self):
@@ -912,13 +918,11 @@ class Serial:
             # serial already opened
             return
 
-        screen_log_fd = os.open(self._vm.screen_log,
-                                os.O_RDONLY)
+        screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
-        self._poller.register(screen_log_fd,
-                              select.POLLIN | select.POLLHUP)
+        self._poller.register(screen_log_fd, select.POLLIN | select.POLLHUP)
 
-    def tx(self, input_string, end='\n'):
+    def tx(self, input_string, end="\n"):
         # pylint: disable=invalid-name
         # No need to have a snake_case naming style for a single word.
         r"""Send a string terminated by an end token (defaulting to "\n")."""
@@ -933,18 +937,16 @@ class Serial:
                 assert False, "Oh! The console vanished before test completed."
 
             if flag & select.POLLIN:
-                output_char = str(os.read(fd, 1),
-                                  encoding='utf-8',
-                                  errors='ignore')
+                output_char = str(os.read(fd, 1), encoding="utf-8", errors="ignore")
                 return output_char
 
-        return ''
+        return ""
 
     def rx(self, token="\n"):
         # pylint: disable=invalid-name
         # No need to have a snake_case naming style for a single word.
         r"""Read a string delimited by an end token (defaults to "\n")."""
-        rx_str = ''
+        rx_str = ""
         start = time.time()
         while True:
             rx_str += self.rx_char()

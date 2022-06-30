@@ -22,8 +22,9 @@ pub fn is_link_local_valid(ipv4_addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::net::ipv4addr::is_link_local_valid;
     use std::net::Ipv4Addr;
+
+    use crate::net::ipv4addr::is_link_local_valid;
 
     #[test]
     fn test_is_link_local_valid() {

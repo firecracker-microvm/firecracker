@@ -17,7 +17,7 @@ def test_max_vcpus(test_microvm_with_api, network_config):
 
     # Configure a microVM with 32 vCPUs.
     microvm.basic_config(vcpu_count=MAX_VCPUS)
-    _tap, _, _ = microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = microvm.ssh_network_config(network_config, "1")
 
     microvm.start()
 

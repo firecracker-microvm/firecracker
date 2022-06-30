@@ -31,9 +31,9 @@ class SSHConnection:
 
     def __init__(self, ssh_config):
         """Instantiate a SSH client and connect to a microVM."""
-        self.netns_file_path = ssh_config['netns_file_path']
+        self.netns_file_path = ssh_config["netns_file_path"]
         self.ssh_config = ssh_config
-        assert os.path.exists(ssh_config['ssh_key_path'])
+        assert os.path.exists(ssh_config["ssh_key_path"])
 
         self._init_connection()
 
@@ -44,34 +44,38 @@ class SSHConnection:
 
     def scp_file(self, local_path, remote_path):
         """Copy a files to the VM using scp."""
-        cmd = ('scp -o StrictHostKeyChecking=no'
-               ' -o UserKnownHostsFile=/dev/null'
-               ' -i {} {} {}@{}:{}').format(
-            self.ssh_config['ssh_key_path'],
+        cmd = (
+            "scp -o StrictHostKeyChecking=no"
+            " -o UserKnownHostsFile=/dev/null"
+            " -i {} {} {}@{}:{}"
+        ).format(
+            self.ssh_config["ssh_key_path"],
             local_path,
-            self.ssh_config['username'],
-            self.ssh_config['hostname'],
-            remote_path
+            self.ssh_config["username"],
+            self.ssh_config["hostname"],
+            remote_path,
         )
         if self.netns_file_path:
-            with Namespace(self.netns_file_path, 'net'):
+            with Namespace(self.netns_file_path, "net"):
                 utils.run_cmd(cmd)
         else:
             utils.run_cmd(cmd)
 
     def scp_get_file(self, remote_path, local_path):
         """Copy files from the VM using scp."""
-        cmd = ('scp -o StrictHostKeyChecking=no'
-               ' -o UserKnownHostsFile=/dev/null'
-               ' -i {} {}@{}:{} {}').format(
-            self.ssh_config['ssh_key_path'],
-            self.ssh_config['username'],
-            self.ssh_config['hostname'],
+        cmd = (
+            "scp -o StrictHostKeyChecking=no"
+            " -o UserKnownHostsFile=/dev/null"
+            " -i {} {}@{}:{} {}"
+        ).format(
+            self.ssh_config["ssh_key_path"],
+            self.ssh_config["username"],
+            self.ssh_config["hostname"],
             remote_path,
-            local_path
+            local_path,
         )
         if self.netns_file_path:
-            with Namespace(self.netns_file_path, 'net'):
+            with Namespace(self.netns_file_path, "net"):
                 utils.run_cmd(cmd)
         else:
             utils.run_cmd(cmd)
@@ -91,27 +95,30 @@ class SSHConnection:
 
     def _exec(self, cmd):
         """Private function that handles the ssh client invocation."""
+
         def _exec_raw(_cmd):
             # pylint: disable=subprocess-run-check
-            cp = utils.run_cmd([
-                "ssh",
-                "-q",
-                "-o", "ConnectTimeout=1",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-i", self.ssh_config["ssh_key_path"],
-                "{}@{}".format(
-                    self.ssh_config["username"],
-                    self.ssh_config["hostname"]
-                ),
-                _cmd],
-                ignore_return_code=True)
-
-            _res = (
-                cp.returncode,
-                cp.stdout,
-                cp.stderr
+            cp = utils.run_cmd(
+                [
+                    "ssh",
+                    "-q",
+                    "-o",
+                    "ConnectTimeout=1",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-i",
+                    self.ssh_config["ssh_key_path"],
+                    "{}@{}".format(
+                        self.ssh_config["username"], self.ssh_config["hostname"]
+                    ),
+                    _cmd,
+                ],
+                ignore_return_code=True,
             )
+
+            _res = (cp.returncode, cp.stdout, cp.stderr)
             return _res
 
         # TODO: If a microvm runs in a particular network namespace, we have to
@@ -119,7 +126,7 @@ class SSHConnection:
         # packets over the network, otherwise the destination will not be
         # reachable. Use a better setup/solution at some point!
         if self.netns_file_path:
-            with Namespace(self.netns_file_path, 'net'):
+            with Namespace(self.netns_file_path, "net"):
                 res = _exec_raw(cmd)
         else:
             res = _exec_raw(cmd)
@@ -155,7 +162,7 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
 
     @staticmethod
     def __ip_to_int(ip: str):
-        return int.from_bytes(socket.inet_aton(ip), 'big')
+        return int.from_bytes(socket.inet_aton(ip), "big")
 
     def __init__(self):
         """Don't call directly. Use cls.instance() instead."""
@@ -167,8 +174,8 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
         # the default mask length = 30.
         self.netmask_len = 30
         self.ip_range = [
-            ('192.168.0.0', '192.168.255.255'),
-            ('172.16.0.0', '172.31.255.255')
+            ("192.168.0.0", "192.168.255.255"),
+            ("172.16.0.0", "172.31.255.255"),
         ]
         # We start by consuming IPs from the first defined range.
         self.ip_range_index = 0
@@ -186,7 +193,7 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
         # The subnet_len contains the number of valid IPs in a subnet and it is
         # used to increment the next_valid_subnet_id once a request for a
         # subnet is issued.
-        self.subnet_max_ip_count = (1 << 32 - self.netmask_len)
+        self.subnet_max_ip_count = 1 << 32 - self.netmask_len
 
     def __ensure_next_subnet(self):
         """Raise an exception if there are no subnets available."""
@@ -195,10 +202,7 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
         )
 
         # Check if there are any IPs left to use from the current range.
-        if (
-            self.next_valid_subnet_id + self.subnet_max_ip_count
-            > max_ip_as_int
-        ):
+        if self.next_valid_subnet_id + self.subnet_max_ip_count > max_ip_as_int:
             # Check if there are any other IP ranges.
             if self.ip_range_index < len(self.ip_range) - 1:
                 # Move to the next IP range.
@@ -224,16 +228,12 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
         """
         self.__ensure_next_subnet()
         next_available_subnet = (
-            socket.inet_ntoa(
-                struct.pack('!L', self.next_valid_subnet_id)
-            ),
+            socket.inet_ntoa(struct.pack("!L", self.next_valid_subnet_id)),
             socket.inet_ntoa(
                 struct.pack(
-                    '!L',
-                    self.next_valid_subnet_id +
-                    (self.subnet_max_ip_count - 1)
+                    "!L", self.next_valid_subnet_id + (self.subnet_max_ip_count - 1)
                 )
-            )
+            ),
         )
 
         self.next_valid_subnet_id += self.subnet_max_ip_count
@@ -259,9 +259,7 @@ class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
         next_available_ip = self.next_valid_subnet_id + 1
         ip_list = []
         for _ in range(count):
-            ip_as_string = socket.inet_ntoa(
-                struct.pack('!L', next_available_ip)
-            )
+            ip_as_string = socket.inet_ntoa(struct.pack("!L", next_available_ip))
             ip_list.append(ip_as_string)
             next_available_ip += 1
         self.next_valid_subnet_id += self.subnet_max_ip_count
@@ -281,14 +279,9 @@ def mac_from_ip(ip_address):
     :param ip_address: IP address as string
     :return: MAC address from IP
     """
-    mac_as_list = ['06', '00']
+    mac_as_list = ["06", "00"]
     mac_as_list.extend(
-        list(
-            map(
-                lambda val: '{0:02x}'.format(int(val)),
-                ip_address.split('.')
-            )
-        )
+        list(map(lambda val: "{0:02x}".format(int(val)), ip_address.split(".")))
     )
 
     return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
@@ -299,7 +292,7 @@ def get_guest_net_if_name(ssh_connection, guest_ip):
     cmd = "ip a s | grep '{}' | tr -s ' ' | cut -d' ' -f6".format(guest_ip)
     _, guest_if_name, _ = ssh_connection.execute_command(cmd)
     if_name = guest_if_name.read().strip()
-    return if_name if if_name != '' else None
+    return if_name if if_name != "" else None
 
 
 class Tap:
@@ -315,14 +308,10 @@ class Tap:
         The function also moves the interface to the specified
         namespace.
         """
-        utils.run_cmd('ip tuntap add mode tap name ' + name)
-        utils.run_cmd('ip link set {} netns {}'.format(name, netns))
+        utils.run_cmd("ip tuntap add mode tap name " + name)
+        utils.run_cmd("ip link set {} netns {}".format(name, netns))
         if ip:
-            utils.run_cmd('ip netns exec {} ifconfig {} {} up'.format(
-                netns,
-                name,
-                ip
-            ))
+            utils.run_cmd("ip netns exec {} ifconfig {} {} up".format(netns, name, ip))
         self._name = name
         self._netns = netns
 
@@ -339,9 +328,7 @@ class Tap:
     def set_tx_queue_len(self, tx_queue_len):
         """Set the length of the tap's TX queue."""
         utils.run_cmd(
-            'ip netns exec {} ip link set {} txqueuelen {}'.format(
-                self.netns,
-                self.name,
-                tx_queue_len
+            "ip netns exec {} ip link set {} txqueuelen {}".format(
+                self.netns, self.name, tx_queue_len
             )
         )

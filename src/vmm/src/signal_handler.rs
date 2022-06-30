@@ -4,10 +4,10 @@
 use libc::{
     c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
-
-use crate::FcExitCode;
 use logger::{error, IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
+
+use crate::FcExitCode;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.
@@ -170,13 +170,12 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use std::env;
-    use std::{process, thread};
+    use std::{env, process, thread};
 
     use libc::syscall;
     use seccompiler::sock_filter;
+
+    use super::*;
 
     #[test]
     fn test_signal_handler() {
@@ -237,11 +236,11 @@ mod tests {
         });
         assert!(child.join().is_ok());
 
-        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on x86_64
-        // and thus not reach Firecracker:
+        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on
+        // x86_64 and thus not reach Firecracker:
         // https://github.com/SimonKagstrom/kcov/blob/a8b60c43fb33f56553a2bb20633e3b59a08abae1/src/engines/ptrace.cc#L187
-        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad syscall
-        // if we run with kcov and we are on x86_64.
+        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad
+        // syscall if we run with kcov and we are on x86_64.
         if !(cfg!(target_arch = "x86_64") && run_with_kcov) {
             assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         }

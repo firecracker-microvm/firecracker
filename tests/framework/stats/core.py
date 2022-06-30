@@ -45,22 +45,20 @@ class Core:
     def __init__(self, name, iterations, custom={}):
         """Core constructor."""
         self._pipes = defaultdict(Pipe)
-        self._result = Result(name=name,
-                              iterations=iterations,
-                              results={},
-                              custom=custom)
+        self._result = Result(
+            name=name, iterations=iterations, results={}, custom=custom
+        )
         self._failure_aggregator = CoreException()
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
         if tag is None:
-            tag = self._result['name'] + "_" + \
-                  str(datetime.timestamp(datetime.now()))
+            tag = self._result["name"] + "_" + str(datetime.timestamp(datetime.now()))
         self._pipes[tag] = Pipe(producer, consumer)
 
     def run_exercise(self, fail_fast=False) -> Result:
         """Drive the statistics producers until completion."""
-        iterations = self._result['iterations']
+        iterations = self._result["iterations"]
 
         for tag, pipe in self._pipes.items():
             for iteration in range(iterations):
@@ -80,11 +78,11 @@ class Core:
                 if fail_fast:
                     raise self._failure_aggregator
 
-            self._result['results'][tag] = stats
+            self._result["results"][tag] = stats
 
             # Custom information extracted from all the iterations.
             if len(custom) > 0:
-                self._result['custom'][tag] = custom
+                self._result["custom"][tag] = custom
 
         if self._failure_aggregator.has_any():
             self._failure_aggregator.result = self._result

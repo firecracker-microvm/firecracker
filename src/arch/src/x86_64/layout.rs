@@ -16,7 +16,7 @@ pub const CMDLINE_START: u64 = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 
 /// Start of the high memory.
-pub const HIMEM_START: u64 = 0x0010_0000; //1 MB.
+pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 
 // Typically, on x86 systems 24 IRQs are used (0-23).
 /// First usable IRQ ID for virtio device interrupts on x86_64.

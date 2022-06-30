@@ -8,11 +8,11 @@ pub mod persist;
 pub mod request;
 pub mod test_utils;
 
+use vm_memory::GuestMemoryError;
+
 pub use self::device::{Block, CacheType};
 pub use self::event_handler::*;
 pub use self::request::*;
-
-use vm_memory::GuestMemoryError;
 
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const SECTOR_SHIFT: u8 = 9;

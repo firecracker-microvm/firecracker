@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryInto;
-use std::fmt;
-use std::result;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::{fmt, result};
+
+use devices::virtio::net::TapError;
+use devices::virtio::Net;
+use serde::{Deserialize, Serialize};
+use utils::net::mac::MacAddr;
 
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
-use devices::virtio::net::TapError;
-use devices::virtio::Net;
-use utils::net::mac::MacAddr;
-
-use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -208,8 +207,9 @@ impl NetBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
     use std::str;
+
+    use rate_limiter::RateLimiter;
 
     use super::*;
 

@@ -165,8 +165,8 @@ impl Display for CreateSnapshotError {
             DirtyBitmap(err) => write!(f, "Cannot get dirty bitmap: {}", err),
             IncompatibleVirtioFeature(feature) => write!(
                 f,
-                "The virtio devices use a features that is incompatible \
-                with older versions of Firecracker: {}",
+                "The virtio devices use a features that is incompatible with older versions of \
+                 Firecracker: {}",
                 feature
             ),
             InvalidVersionFormat => write!(f, "Invalid microVM version format"),
@@ -192,8 +192,8 @@ impl Display for CreateSnapshotError {
             #[cfg(target_arch = "x86_64")]
             TooManyDevices(val) => write!(
                 f,
-                "Too many devices attached: {}. The maximum number allowed \
-                 for the snapshot data version requested is {}.",
+                "Too many devices attached: {}. The maximum number allowed for the snapshot data \
+                 version requested is {}.",
                 val, FC_V0_23_MAX_DEVICES
             ),
         }
@@ -257,8 +257,8 @@ impl Display for LoadSnapshotError {
             ),
             UdsConnection(err) => write!(
                 f,
-                "Cannot connect to UDS in order to send information on \
-                handling guest memory page-faults due to: {}",
+                "Cannot connect to UDS in order to send information on handling guest memory \
+                 page-faults due to: {}",
                 err
             ),
             UffdMemoryRegionsRegister(err) => {

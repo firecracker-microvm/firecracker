@@ -5,13 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::path::PathBuf;
 use std::{fmt, fs, mem, result, u32};
 
-use super::get_fdt_addr;
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
-use std::path::PathBuf;
 use vm_memory::GuestMemoryMmap;
+
+use super::get_fdt_addr;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]
@@ -113,7 +114,8 @@ macro_rules! arm64_core_reg_id {
         // };
         // The id of a core register can be obtained like this:
         // offset = id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE). Thus,
-        // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 | KVM_REG_ARM_CORE | offset
+        // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 |
+        // KVM_REG_ARM_CORE | offset
         KVM_REG_ARM64 as u64
             | u64::from(KVM_REG_ARM_CORE)
             | $size
@@ -153,8 +155,7 @@ arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
 ///
 /// # Arguments
 ///
-/// * `state` - Array slice of kvm_one_reg structures, representing
-///             the registers of a VCPU state.
+/// * `state` - Array slice of kvm_one_reg structures, representing the registers of a VCPU state.
 pub fn get_manufacturer_id_from_state(state: &[kvm_one_reg]) -> Result<u32> {
     let midr_el1 = state.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
@@ -269,7 +270,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
     // There are 31 user_pt_regs:
     // https://elixir.free-electrons.com/linux/v4.14.174/source/arch/arm64/include/uapi/asm/ptrace.h#L72
     // These actually are the general-purpose registers of the Armv8-a
-    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit register).
+    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit
+    // register).
     for i in 0..NR_GP_REGS {
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
         state.push(kvm_one_reg {
@@ -346,8 +348,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
         off += std::mem::size_of::<u64>();
     }
 
-    // Now moving on to floating point registers which are stored in the user_fpsimd_state in the kernel:
-    // https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
+    // Now moving on to floating point registers which are stored in the user_fpsimd_state in the
+    // kernel: https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
     let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
     for i in 0..NR_FP_VREGS {
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U128, off);
@@ -451,9 +453,10 @@ pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::{arch_memory_regions, layout};
-    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_setup_regs() {

@@ -29,6 +29,7 @@ from random import random
 from select import select
 from time import sleep
 import pytest
+
 # Needed to force deselect nonci tests.
 from _pytest.mark import Expression, MarkMatcher
 from _pytest.main import ExitCode
@@ -76,7 +77,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             action="store",
             type=int,
             default=default,
-            help="Concurrency level (max number of worker processes to spawn)."
+            help="Concurrency level (max number of worker processes to spawn).",
         )
 
     def pytest_sessionstart(self, session):
@@ -107,12 +108,13 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         """Deselect marked tests which are not explicitly selected."""
         deselected = []
         expr = Expression.compile(config.option.markexpr)
-        for item in batch['items'][:]:
+        for item in batch["items"][:]:
             for key in item.keywords:
-                if key is marker_name and \
-                        not expr.evaluate(MarkMatcher.from_item(item)):
+                if key is marker_name and not expr.evaluate(
+                    MarkMatcher.from_item(item)
+                ):
                     deselected.append(item)
-                    batch['items'].remove(item)
+                    batch["items"].remove(item)
                     break
 
         config.hook.pytest_deselected(items=deselected)
@@ -128,8 +130,8 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             # set_return is an IPC method and we can't use any params here
             # so we just pass things that are picklable
             self._report.set_return(
-                pyfuncitem.nodeid,
-                original_function(*args, **kwargs))
+                pyfuncitem.nodeid, original_function(*args, **kwargs)
+            )
 
         pyfuncitem.obj = call_wrapper
 
@@ -147,51 +149,47 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             {
                 # Performance batch: tests that measure performance, and need
                 # to be run in a non-cuncurrent environment.
-                'name': 'performance',
-                'concurrency': 1,
-                'patterns': [
+                "name": "performance",
+                "concurrency": 1,
+                "patterns": [
                     "/performance/.+",
                 ],
-                'items': []
+                "items": [],
             },
             {
                 # Unsafe batch: tests that, for any reason, are not
                 # concurrency-safe, and therefore need to be run sequentially.
-                'name': 'unsafe',
-                'concurrency': 1,
-                'patterns': [
+                "name": "unsafe",
+                "concurrency": 1,
+                "patterns": [
                     "/functional/test_initrd.py",
                     "/functional/test_max_vcpus.py",
                     "/functional/test_rate_limiter.py",
                     "/functional/test_signals.py",
-                    "/build/test_coverage.py"
+                    "/build/test_coverage.py",
                 ],
-                'items': []
+                "items": [],
             },
             {
                 # Safe batch: tests that can be run safely in a concurrent
                 # environment.
-                'name': 'safe',
+                "name": "safe",
                 # FIXME: we still have some framework concurrency issues
                 # which prevent us from successfully using `max_concurrency`.
                 # 'concurrency': max_concurrency,
-                'concurrency': 1,
-                'patterns': [
-                    "/functional/.+",
-                    "/build/.+",
-                    "/security/.+"
-                ],
-                'items': []
+                "concurrency": 1,
+                "patterns": ["/functional/.+", "/build/.+", "/security/.+"],
+                "items": [],
             },
             {
                 # Unknown batch: a catch-all batch, scheduling any tests that
                 # haven't been categorized to run sequentially (since we don't
                 # know if they are concurrency-safe).
-                'name': 'unknown',
-                'concurrency': 1,
-                'patterns': [".+"],
-                'items': []
-            }
+                "name": "unknown",
+                "concurrency": 1,
+                "patterns": [".+"],
+                "items": [],
+            },
         ]
 
         # Go through the list of tests and assign each of them to its
@@ -201,34 +199,35 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             # in order to get assigned to it.
             for batch in schedule:
                 # Found a matching batch. No need to look any further.
-                if re.search(
-                    "|".join(["({})".format(x) for x in batch['patterns']]),
-                    "/".join(item.listnames()),
-                ) is not None:
-                    batch['items'].append(item)
+                if (
+                    re.search(
+                        "|".join(["({})".format(x) for x in batch["patterns"]]),
+                        "/".join(item.listnames()),
+                    )
+                    is not None
+                ):
+                    batch["items"].append(item)
                     break
 
         # Filter out empty batches.
-        schedule = [batch for batch in schedule if batch['items']]
+        schedule = [batch for batch in schedule if batch["items"]]
 
         # Evaluate marker expression only for the marked batch items.
         # If pytest runs with a marker expression which does not include
         # `nonci` marked tests (e.g `-m "not nonci" or non-existent marker
         # expression), the tests marked with `nonci` marker will be skipped.
         for batch in schedule:
-            PytestScheduler.filter_batch(session.config,
-                                         batch,
-                                         marker_name="nonci")
+            PytestScheduler.filter_batch(session.config, batch, marker_name="nonci")
 
         for batch in schedule:
             self._raw_stdout(
                 "\n[ ",
-                self._colorize('yellow', batch['name']),
+                self._colorize("yellow", batch["name"]),
                 " | ",
-                "{} tests".format(len(batch['items'])),
+                "{} tests".format(len(batch["items"])),
                 " | ",
-                "{} worker(s)".format(batch['concurrency']),
-                " ]\n"
+                "{} worker(s)".format(batch["concurrency"]),
+                " ]\n",
             )
             self._run_batch(batch)
 
@@ -236,7 +235,6 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
 
     @pytest.mark.tryfirst
     # pylint: disable=unused-argument
-    # pylint: disable=no-self-use
     def pytest_sessionfinish(self, session, exitstatus):
         """Pytest hook. Wrap up the whole testing session.
 
@@ -256,23 +254,20 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
 
         Called in the server process context.
         """
-        max_workers = batch['concurrency']
-        items_per_worker = max(1, int(len(batch['items']) / max_workers))
+        max_workers = batch["concurrency"]
+        items_per_worker = max(1, int(len(batch["items"]) / max_workers))
         workers = []
-        while batch['items']:
+        while batch["items"]:
             # Pop `items_per_worker` out from this batch and send them to
             # a new worker.
-            worker_items = batch['items'][-items_per_worker:]
-            del batch['items'][-items_per_worker:]
+            worker_items = batch["items"][-items_per_worker:]
+            del batch["items"][-items_per_worker:]
 
             # Avoid storming the host with too many workers started at once.
             _delay = random() + len(workers) / 5.0 if max_workers > 1 else 0
 
             # Create the worker process and start it up.
-            worker = mp.Process(
-                target=self._worker_main,
-                args=(worker_items, _delay)
-            )
+            worker = mp.Process(target=self._worker_main, args=(worker_items, _delay))
             workers.append(worker)
             worker.start()
 
@@ -312,10 +307,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         trep = self.session.config.pluginmanager.get_plugin("terminalreporter")
         self.session.config.pluginmanager.unregister(trep)
 
-        for item, nextitem in zip(
-                self.session.items,
-                self.session.items[1:] + [None]
-        ):
+        for item, nextitem in zip(self.session.items, self.session.items[1:] + [None]):
             item.ihook.pytest_runtest_protocol(item=item, nextitem=nextitem)
 
     @mpsing.ipcmethod
@@ -336,7 +328,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             "call.skipped": "skipped",
             "teardown.passed": "",
             "teardown.failed": "error",
-            "teardown.skipped": ""
+            "teardown.skipped": "",
         }
         stats_key = key_xlat["{}.{}".format(report.when, report.outcome)]
 
@@ -355,7 +347,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             "passed": "green",
             "failed": "red",
             "error": "red",
-            "skipped": "yellow"
+            "skipped": "yellow",
         }
         if outcome not in outcome_cols:
             return
@@ -364,10 +356,8 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         self._raw_stdout(
             "  ",
             self._colorize(color, "{:10}".format(outcome.upper())),
-            self._colorize(color, nodeid)
-            if outcome in ["error", "failed"]
-            else nodeid,
-            "\n"
+            self._colorize(color, nodeid) if outcome in ["error", "failed"] else nodeid,
+            "\n",
         )
 
     @staticmethod
@@ -385,12 +375,12 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         if not sys.stdout.isatty():
             return msg
         term_codes = {
-            'red': b"\x1b[31m",
-            'yellow': b"\x1b[33m",
-            'green': b"\x1b[32m",
-            'reset': b"\x1b(B\x1b[m"
+            "red": b"\x1b[31m",
+            "yellow": b"\x1b[33m",
+            "green": b"\x1b[32m",
+            "reset": b"\x1b(B\x1b[m",
         }
-        return term_codes[color] + msg + term_codes['reset']
+        return term_codes[color] + msg + term_codes["reset"]
 
     @staticmethod
     def _raw_stdout(*words):
@@ -400,8 +390,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         byte streams, before being written to stdout.
         """
         byte_words = [
-            w if isinstance(w, bytes) else str(w).encode("utf-8")
-            for w in words
+            w if isinstance(w, bytes) else str(w).encode("utf-8") for w in words
         ]
         buf = b"".join(byte_words)
         os.write(sys.stdout.fileno(), buf)

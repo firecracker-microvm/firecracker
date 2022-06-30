@@ -10,7 +10,6 @@ use std::num::NonZeroUsize;
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
-use crate::Mmds;
 use dumbo::pdu::arp::{
     test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
 };
@@ -27,6 +26,8 @@ use dumbo::tcp::NextSegmentStatus;
 use logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
+
+use crate::Mmds;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -317,8 +318,9 @@ impl MmdsNetworkStack {
 mod tests {
     use std::str::FromStr;
 
-    use super::*;
     use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
+
+    use super::*;
 
     // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since
     // all we're interested in is having some address different from the MMDS one.

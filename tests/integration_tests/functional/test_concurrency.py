@@ -9,7 +9,7 @@ import host_tools.network as net_tools
 NO_OF_MICROVMS = 20
 
 
-@decorators.test_context('api', NO_OF_MICROVMS)
+@decorators.test_context("api", NO_OF_MICROVMS)
 def test_run_concurrency(test_multiple_microvms, network_config):
     """
     Check we can spawn multiple microvms.
@@ -20,9 +20,7 @@ def test_run_concurrency(test_multiple_microvms, network_config):
 
     for i in range(NO_OF_MICROVMS):
         microvm = microvms[i]
-        _ = _configure_and_run(microvm, {
-            "config": network_config, "iface_id": str(i)
-        })
+        _ = _configure_and_run(microvm, {"config": network_config, "iface_id": str(i)})
         # We check that the vm is running by testing that the ssh does
         # not time out.
         _ = net_tools.SSHConnection(microvm.ssh_config)
@@ -33,16 +31,12 @@ def _configure_and_run(microvm, network_info):
     microvm.spawn()
 
     # Machine configuration specified in the SLA.
-    config = {
-        'vcpu_count': 1,
-        'mem_size_mib': 128
-    }
+    config = {"vcpu_count": 1, "mem_size_mib": 128}
 
     microvm.basic_config(**config)
 
     _tap, _, _ = microvm.ssh_network_config(
-        network_info["config"],
-        network_info["iface_id"]
+        network_info["config"], network_info["iface_id"]
     )
 
     microvm.start()

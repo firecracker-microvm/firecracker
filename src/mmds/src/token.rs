@@ -1,17 +1,18 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use aes_gcm::aead::NewAead;
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
-use bincode::{DefaultOptions, Error as BincodeError, Options};
-use logger::warn;
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
 use std::{fmt, io};
+
+use aes_gcm::aead::NewAead;
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
+use bincode::{DefaultOptions, Error as BincodeError, Options};
+use logger::warn;
+use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
 
 /// Length of initialization vector.
@@ -75,8 +76,8 @@ impl fmt::Display for Error {
             Error::InvalidState => write!(f, "Invalid token authority state."),
             Error::InvalidTtlValue(value) => write!(
                 f,
-                "Invalid time to live value provided for token: {}. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: {}. Please provide a value \
+                 between {} and {}.",
                 value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS,
             ),
             Error::Serialization(err) => write!(f, "Bincode serialization failed: {}.", err),
@@ -326,9 +327,10 @@ impl Token {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::thread::sleep;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_check_tll() {
@@ -359,8 +361,8 @@ mod tests {
         assert_eq!(
             token_authority.create_token(0).unwrap_err().to_string(),
             format!(
-                "Invalid time to live value provided for token: 0. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: 0. Please provide a value between \
+                 {} and {}.",
                 MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
             )
         );
@@ -460,8 +462,8 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             format!(
-                "Invalid time to live value provided for token: {}. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: {}. Please provide a value \
+                 between {} and {}.",
                 MIN_TOKEN_TTL_SECONDS - 1,
                 MIN_TOKEN_TTL_SECONDS,
                 MAX_TOKEN_TTL_SECONDS
@@ -475,8 +477,8 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             format!(
-                "Invalid time to live value provided for token: {}. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: {}. Please provide a value \
+                 between {} and {}.",
                 MAX_TOKEN_TTL_SECONDS + 1,
                 MIN_TOKEN_TTL_SECONDS,
                 MAX_TOKEN_TTL_SECONDS
@@ -552,8 +554,8 @@ mod tests {
         assert_eq!(
             Error::InvalidTtlValue(0).to_string(),
             format!(
-                "Invalid time to live value provided for token: 0. \
-                Please provide a value between {} and {}.",
+                "Invalid time to live value provided for token: 0. Please provide a value between \
+                 {} and {}.",
                 MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
             )
         );

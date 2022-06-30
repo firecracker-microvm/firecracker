@@ -39,12 +39,14 @@ class Artifact:
 
     LOCAL_ARTIFACT_DIR = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/local-artifacts"
 
-    def __init__(self,
-                 bucket,
-                 key,
-                 artifact_type=ArtifactType.MISC,
-                 local_folder=None,
-                 is_copy=False):
+    def __init__(
+        self,
+        bucket,
+        key,
+        artifact_type=ArtifactType.MISC,
+        local_folder=None,
+        is_copy=False,
+    ):
         """Initialize bucket, key and type."""
         self._bucket = bucket
         self._key = key
@@ -97,21 +99,20 @@ class Artifact:
     def local_path(self):
         """Return the local path where the file was downloaded."""
         # The file path format: <target_folder>/<type>/<platform>/<name>
-        return "{}/{}".format(
-            self.local_dir(),
-            self.name()
-        )
+        return "{}/{}".format(self.local_dir(), self.name())
 
     def copy(self, file_name=None):
         """Create a writeable copy of the artifact."""
-        assert os.path.exists(self.local_path()), """File {} not found.
-        call download() first.""".format(self.local_path())
+        assert os.path.exists(
+            self.local_path()
+        ), """File {} not found.
+        call download() first.""".format(
+            self.local_path()
+        )
 
         # The file path for this artifact copy.
         new_dir = "{}/{}/{}".format(
-            Artifact.LOCAL_ARTIFACT_DIR,
-            self.type.value,
-            platform.machine()
+            Artifact.LOCAL_ARTIFACT_DIR, self.type.value, platform.machine()
         )
 
         if file_name is None:
@@ -133,9 +134,13 @@ class Artifact:
         local_folder = Artifact.LOCAL_ARTIFACT_DIR
         # Calls to download() on the new Artifact are guarded by a
         # bucket assert.
-        return Artifact(None, new_key,
-                        artifact_type=self.type,
-                        local_folder=local_folder, is_copy=True)
+        return Artifact(
+            None,
+            new_key,
+            artifact_type=self.type,
+            local_folder=local_folder,
+            is_copy=True,
+        )
 
     def cleanup(self):
         """Delete the backing files from disk."""
@@ -151,36 +156,35 @@ class Artifact:
 class SnapshotArtifact:
     """Manages snapshot S3 artifact objects."""
 
-    def __init__(self,
-                 bucket,
-                 key,
-                 artifact_type=ArtifactType.SNAPSHOT):
+    def __init__(self, bucket, key, artifact_type=ArtifactType.SNAPSHOT):
         """Initialize bucket, key and type."""
         self._bucket = bucket
         self._type = artifact_type
         self._key = key
 
-        self._mem = Artifact(self._bucket, "{}vm.mem".format(key),
-                             artifact_type=ArtifactType.MISC)
-        self._vmstate = Artifact(self._bucket, "{}vm.vmstate".format(key),
-                                 artifact_type=ArtifactType.MISC)
-        self._ssh_key = Artifact(self._bucket, "{}ssh_key".format(key),
-                                 artifact_type=ArtifactType.SSH_KEY)
+        self._mem = Artifact(
+            self._bucket, "{}vm.mem".format(key), artifact_type=ArtifactType.MISC
+        )
+        self._vmstate = Artifact(
+            self._bucket, "{}vm.vmstate".format(key), artifact_type=ArtifactType.MISC
+        )
+        self._ssh_key = Artifact(
+            self._bucket, "{}ssh_key".format(key), artifact_type=ArtifactType.SSH_KEY
+        )
         self._disks = []
 
         disk_prefix = "{}disk".format(key)
         snaphot_disks = self._bucket.objects.filter(Prefix=disk_prefix)
 
         for disk in snaphot_disks:
-            artifact = Artifact(self._bucket, disk.key,
-                                artifact_type=ArtifactType.DISK)
+            artifact = Artifact(self._bucket, disk.key, artifact_type=ArtifactType.DISK)
             self._disks.append(artifact)
 
         # Get the name of the snapshot folder.
         snapshot_name = self.name
-        self._local_folder = os.path.join(ARTIFACTS_LOCAL_ROOT,
-                                          self.type.value,
-                                          snapshot_name)
+        self._local_folder = os.path.join(
+            ARTIFACTS_LOCAL_ROOT, self.type.value, snapshot_name
+        )
 
     @property
     def type(self):
@@ -215,7 +219,7 @@ class SnapshotArtifact:
     @property
     def name(self):
         """Return the name of the artifact."""
-        return self._key.strip('/').split('/')[-1]
+        return self._key.strip("/").split("/")[-1]
 
     def download(self):
         """Download artifacts and return a Snapshot object."""
@@ -250,11 +254,13 @@ class SnapshotArtifact:
             copyfile(disk.local_path(), dst_disk_path)
             disk_paths.append(dst_disk_path)
 
-        return Snapshot(dst_mem_path,
-                        dst_state_file,
-                        disks=disk_paths,
-                        net_ifaces=None,
-                        ssh_key=dst_ssh_key)
+        return Snapshot(
+            dst_mem_path,
+            dst_state_file,
+            disks=disk_paths,
+            net_ifaces=None,
+            ssh_key=dst_ssh_key,
+        )
 
 
 class DiskArtifact(Artifact):
@@ -263,10 +269,8 @@ class DiskArtifact(Artifact):
     def ssh_key(self):
         """Return a ssh key artifact."""
         # Replace extension.
-        key_file_path = str(Path(self.key).with_suffix('.id_rsa'))
-        return Artifact(self.bucket,
-                        key_file_path,
-                        artifact_type=ArtifactType.SSH_KEY)
+        key_file_path = str(Path(self.key).with_suffix(".id_rsa"))
+        return Artifact(self.bucket, key_file_path, artifact_type=ArtifactType.SSH_KEY)
 
 
 class FirecrackerArtifact(Artifact):
@@ -278,10 +282,8 @@ class FirecrackerArtifact(Artifact):
         # file name when stored in S3:
         # Firecracker binary: v0.22.firecrcker
         # Jailer binary: v0.23.0.jailer
-        jailer_path = str(Path(self.key).with_suffix('.jailer'))
-        return Artifact(self.bucket,
-                        jailer_path,
-                        artifact_type=ArtifactType.JAILER)
+        jailer_path = str(Path(self.key).with_suffix(".jailer"))
+        return Artifact(self.bucket, jailer_path, artifact_type=ArtifactType.JAILER)
 
     @property
     def version(self):
@@ -304,29 +306,23 @@ class ArtifactCollection:
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
-    ARTIFACTS_ROOT = 'ci-artifacts'
-    ARTIFACTS_DISKS = '/disks/' + PLATFORM + "/"
-    ARTIFACTS_KERNELS = '/kernels/' + PLATFORM + "/"
-    ARTIFACTS_MICROVMS = '/microvms/'
-    ARTIFACTS_SNAPSHOTS = '/snapshots/' + PLATFORM + "/"
-    ARTIFACTS_BINARIES = '/binaries/' + PLATFORM + "/"
+    ARTIFACTS_ROOT = "ci-artifacts"
+    ARTIFACTS_DISKS = "/disks/" + PLATFORM + "/"
+    ARTIFACTS_KERNELS = "/kernels/" + PLATFORM + "/"
+    ARTIFACTS_MICROVMS = "/microvms/"
+    ARTIFACTS_SNAPSHOTS = "/snapshots/" + PLATFORM + "/"
+    ARTIFACTS_BINARIES = "/binaries/" + PLATFORM + "/"
 
-    def __init__(
-        self,
-        bucket
-    ):
+    def __init__(self, bucket):
         """Initialize S3 client."""
         config = botocore.client.Config(signature_version=botocore.UNSIGNED)
         # pylint: disable=E1101
         # fixes "E1101: Instance of '' has no 'Bucket' member (no-member)""
-        self.bucket = boto3.resource('s3', config=config).Bucket(bucket)
+        self.bucket = boto3.resource("s3", config=config).Bucket(bucket)
 
-    def _fetch_artifacts(self,
-                         artifact_dir,
-                         artifact_ext,
-                         artifact_type,
-                         artifact_class,
-                         keyword=None):
+    def _fetch_artifacts(
+        self, artifact_dir, artifact_ext, artifact_type, artifact_class, keyword=None
+    ):
         artifacts = []
         prefix = ArtifactCollection.ARTIFACTS_ROOT + artifact_dir
         files = self.bucket.objects.filter(Prefix=prefix)
@@ -337,9 +333,9 @@ class ArtifactCollection:
                 # Filter by userprovided keyword if any.
                 and (keyword is None or keyword in file.key)
             ):
-                artifacts.append(artifact_class(self.bucket,
-                                                file.key,
-                                                artifact_type=artifact_type))
+                artifacts.append(
+                    artifact_class(self.bucket, file.key, artifact_type=artifact_type)
+                )
         return artifacts
 
     def snapshots(self, keyword=None):
@@ -367,12 +363,15 @@ class ArtifactCollection:
             key = snapshot_dir.key
             # Filter out the snapshot artifacts root folder.
             # Select only files with specified keyword.
-            if (key[-1] == "/" and key != prefix and
-                    (keyword is None or keyword in snapshot_dir.key)):
+            if (
+                key[-1] == "/"
+                and key != prefix
+                and (keyword is None or keyword in snapshot_dir.key)
+            ):
                 artifact_type = ArtifactType.SNAPSHOT
-                artifacts.append(SnapshotArtifact(self.bucket,
-                                                  key,
-                                                  artifact_type=artifact_type))
+                artifacts.append(
+                    SnapshotArtifact(self.bucket, key, artifact_type=artifact_type)
+                )
 
         return artifacts
 
@@ -383,7 +382,7 @@ class ArtifactCollection:
             ArtifactCollection.MICROVM_CONFIG_EXTENSION,
             ArtifactType.MICROVM,
             Artifact,
-            keyword=keyword
+            keyword=keyword,
         )
 
     def firecrackers(self, keyword=None, min_version=None, max_version=None):
@@ -393,30 +392,37 @@ class ArtifactCollection:
             ArtifactCollection.FC_EXTENSION,
             ArtifactType.FC,
             FirecrackerArtifact,
-            keyword=keyword
+            keyword=keyword,
         )
 
         # Filter out binaries with versions older than the `min_version` arg.
         if min_version is not None:
-            return list(filter(
-                lambda fc: compare_versions(fc.version, min_version) >= 0,
-                firecrackers
-            ))
+            return list(
+                filter(
+                    lambda fc: compare_versions(fc.version, min_version) >= 0,
+                    firecrackers,
+                )
+            )
 
         # Filter out binaries with versions newer than the `max_version` arg.
         if max_version is not None:
-            return list(filter(
-                lambda fc: compare_versions(fc.version, max_version) <= 0,
-                firecrackers
-            ))
+            return list(
+                filter(
+                    lambda fc: compare_versions(fc.version, max_version) <= 0,
+                    firecrackers,
+                )
+            )
 
         return firecrackers
 
     def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
-        return [fc.base_name()[1:]
-                for fc in self.firecrackers(min_version=min_version,
-                                            max_version=max_version)]
+        return [
+            fc.base_name()[1:]
+            for fc in self.firecrackers(
+                min_version=min_version, max_version=max_version
+            )
+        ]
 
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
@@ -425,13 +431,14 @@ class ArtifactCollection:
             ArtifactCollection.MICROVM_KERNEL_EXTENSION,
             ArtifactType.KERNEL,
             Artifact,
-            keyword=keyword
+            keyword=keyword,
         )
 
-        valid_kernels = list(filter(
-            lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS),
-            kernels
-        ))
+        valid_kernels = list(
+            filter(
+                lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS), kernels
+            )
+        )
         return valid_kernels
 
     def disks(self, keyword=None):
@@ -441,7 +448,7 @@ class ArtifactCollection:
             ArtifactCollection.MICROVM_DISK_EXTENSION,
             ArtifactType.DISK,
             DiskArtifact,
-            keyword=keyword
+            keyword=keyword,
         )
 
 
@@ -488,8 +495,8 @@ class SnapshotMemBackendType(Enum):
               a dedicated UFFD page-fault handler process.
     """
 
-    FILE = 'File'
-    UFFD = 'Uffd'
+    FILE = "File"
+    UFFD = "Uffd"
 
 
 class Snapshot:
@@ -560,10 +567,12 @@ def create_net_devices_configuration(num):
 
     net_ifaces = []
     for i in range(num):
-        net_iface = NetIfaceConfig(host_ip=host_ip.format(i),
-                                   guest_ip=guest_ip.format(i),
-                                   tap_name=tap_name.format(i),
-                                   dev_name=dev_name.format(i))
+        net_iface = NetIfaceConfig(
+            host_ip=host_ip.format(i),
+            guest_ip=guest_ip.format(i),
+            tap_name=tap_name.format(i),
+            dev_name=dev_name.format(i),
+        )
         net_ifaces.append(net_iface)
 
     return net_ifaces
@@ -572,12 +581,14 @@ def create_net_devices_configuration(num):
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
-    def __init__(self,
-                 host_ip=DEFAULT_HOST_IP,
-                 guest_ip=DEFAULT_GUEST_IP,
-                 tap_name=DEFAULT_TAP_NAME,
-                 dev_name=DEFAULT_DEV_NAME,
-                 netmask=DEFAULT_NETMASK):
+    def __init__(
+        self,
+        host_ip=DEFAULT_HOST_IP,
+        guest_ip=DEFAULT_GUEST_IP,
+        tap_name=DEFAULT_TAP_NAME,
+        dev_name=DEFAULT_DEV_NAME,
+        netmask=DEFAULT_NETMASK,
+    ):
         """Initialize object."""
         self._host_ip = host_ip
         self._guest_ip = guest_ip

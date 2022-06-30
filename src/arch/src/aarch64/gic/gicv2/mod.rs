@@ -3,7 +3,8 @@
 
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
 use kvm_ioctls::DeviceFd;
 
@@ -100,8 +101,8 @@ impl GICDevice for GICv2 {
     }
 
     fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
-        /* Setting up the distributor attribute.
-        We are placing the GIC below 1GB so we need to substract the size of the distributor. */
+        // Setting up the distributor attribute.
+        // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
             &gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -110,7 +111,7 @@ impl GICDevice for GICv2 {
             0,
         )?;
 
-        /* Setting up the CPU attribute. */
+        // Setting up the CPU attribute.
         Self::set_device_attribute(
             &gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,

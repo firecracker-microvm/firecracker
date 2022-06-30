@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use logger::error;
 use std::cmp::min;
 use std::fmt;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
+
+use logger::error;
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
@@ -339,9 +340,9 @@ impl Queue {
         // In a naive notation, that would be:
         // `descriptor_table[avail_ring[next_avail]]`.
         //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next available
-        // descriptor. `self.avail_ring` stores the address of a `struct virtq_avail`, as defined by
-        // the VirtIO spec:
+        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next
+        // available descriptor. `self.avail_ring` stores the address of a `struct
+        // virtq_avail`, as defined by the VirtIO spec:
         //
         // ```C
         // struct virtq_avail {
@@ -424,9 +425,9 @@ impl Queue {
     fn avail_idx(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
         // Bound checks for queue inner data have already been performed, at device activation time,
         // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
-        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the guest
-        //       after device activation, so we can be certain that no change has occured since
-        //       the last `self.is_valid()` check.
+        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
+        // guest       after device activation, so we can be certain that no change has
+        // occured since       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
@@ -511,11 +512,12 @@ impl Queue {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    pub use super::*;
+    use vm_memory::test_utils::create_anon_guest_memory;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+    pub use super::*;
     use crate::virtio::test_utils::VirtQueue;
     use crate::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
-    use vm_memory::{test_utils::create_anon_guest_memory, GuestAddress, GuestMemoryMmap};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
@@ -749,15 +751,15 @@ pub(crate) mod tests {
         let mut q = vq.create_queue();
         assert_eq!(vq.used.idx.get(), 0);
 
-        //Valid queue addresses configuration
+        // Valid queue addresses configuration
         {
-            //index too large
+            // index too large
             match q.add_used(m, 16, 0x1000) {
                 Err(DescIndexOutOfBounds(16)) => (),
                 _ => unreachable!(),
             }
 
-            //should be ok
+            // should be ok
             q.add_used(m, 1, 0x1000).unwrap();
             assert_eq!(vq.used.idx.get(), 1);
             let x = vq.used.ring[0].get();
@@ -765,10 +767,10 @@ pub(crate) mod tests {
             assert_eq!(x.len, 0x1000);
         }
 
-        //Invalid queue addresses configuration
+        // Invalid queue addresses configuration
         {
             q.used_ring = GuestAddress(0xffff_ffff);
-            //writing descriptor index to this ring address should fail
+            // writing descriptor index to this ring address should fail
             match q.add_used(m, 1, 0x1000) {
                 Err(UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(
                     0x0001_0000_000B,
@@ -777,7 +779,7 @@ pub(crate) mod tests {
             }
 
             q.used_ring = GuestAddress(0xfff0);
-            //writing len to this ring address should fail
+            // writing len to this ring address should fail
             match q.add_used(m, 1, 0x1000) {
                 Err(UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(0x1_0000)))) => {}
                 _ => unreachable!(),

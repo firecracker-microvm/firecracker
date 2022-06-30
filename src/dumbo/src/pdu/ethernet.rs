@@ -183,9 +183,9 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::fmt;
+
+    use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

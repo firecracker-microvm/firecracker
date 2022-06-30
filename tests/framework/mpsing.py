@@ -36,9 +36,11 @@ def ipcmethod(fn):
     methods that should be executed in the server context, under the
     singleton lock.
     """
+
     def proxy_fn(inst, *args, **kwargs):
         # pylint: disable=protected-access
         return inst._ipc_call(fn.__name__, *args, **kwargs)
+
     proxy_fn.orig_fn = fn
     return proxy_fn
 

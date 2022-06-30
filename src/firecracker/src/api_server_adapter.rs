@@ -13,13 +13,12 @@ use api_server::{ApiRequest, ApiResponse, ApiServer};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
-use utils::{epoll::EventSet, eventfd::EventFd};
-use vmm::{
-    resources::VmResources,
-    rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
-    vmm_config::instance_info::InstanceInfo,
-    EventManager, FcExitCode, Vmm,
-};
+use utils::epoll::EventSet;
+use utils::eventfd::EventFd;
+use vmm::resources::VmResources;
+use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
+use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::{EventManager, FcExitCode, Vmm};
 
 struct ApiServerAdapter {
     api_event_fd: EventFd,

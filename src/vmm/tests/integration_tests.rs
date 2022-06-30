@@ -1,9 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::io;
 use std::io::{Seek, SeekFrom};
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
@@ -11,16 +10,15 @@ use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_se
 use vmm::persist::{self, snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
-use vmm::version_map::VERSION_MAP;
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{EventManager, FcExitCode};
-
 use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm};
+use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::{EventManager, FcExitCode};
 
 #[test]
 fn test_setup_serial_device() {

@@ -1,0 +1,7 @@
+# To set up git hooks run
+# ```
+# cargo install rusty-hooks
+# rusty-hook init
+# ```
+[hooks]
+pre-commit = "sh pre-commit"

@@ -8,6 +8,9 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
+use bitflags::bitflags;
+use utils::rand::xor_psuedo_rng_u32;
+
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use crate::pdu::Incomplete;
@@ -15,9 +18,6 @@ use crate::tcp::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
 };
 use crate::ByteBuffer;
-use utils::rand::xor_psuedo_rng_u32;
-
-use bitflags::bitflags;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
@@ -127,22 +127,22 @@ pub enum WriteNextError {
 /// options except `MSS` during the handshake. The associated state machine is similar to how
 /// TCP normally functions, but there are some differences:
 ///
-/// * Since only passive opens are supported, a `Connection` can only be instantiated in response
-///   to an incoming `SYN` segment. If the segment is valid, it will start directly in a state
-///   called `SYN_RECEIVED`. The valid events at this point are receiving a retransmission of the
-///   previous `SYN` (which does nothing), and getting the chance to write a `SYNACK`, which also
-///   moves the connection to the `SYNACK_SENT` state. Any incoming segment which is not a copy of
-///   the previous `SYN` will reset the connection.
-/// * In the `SYNACK_SENT` state, the connection awaits an `ACK` for the `SYNACK`. A
-///   retransmission of the original `SYN` moves the state back to `SYN_RECEIVED`. A valid `ACK`
-///   advances the state to `ESTABLISHED`. Any unexpected/invalid segment resets the connection.
-/// * While `ESTABLISHED`, the connection will only reset if it receives a `RST` or a `SYN`.
-///   Invalid segments are simply ignored. `FIN` handling is simplifed: when [`close`] is invoked
-///   the connection records the `FIN` sequence number, and starts setting the `FIN` flag (when
+/// * Since only passive opens are supported, a `Connection` can only be instantiated in response to
+///   an incoming `SYN` segment. If the segment is valid, it will start directly in a state called
+///   `SYN_RECEIVED`. The valid events at this point are receiving a retransmission of the previous
+///   `SYN` (which does nothing), and getting the chance to write a `SYNACK`, which also moves the
+///   connection to the `SYNACK_SENT` state. Any incoming segment which is not a copy of the
+///   previous `SYN` will reset the connection.
+/// * In the `SYNACK_SENT` state, the connection awaits an `ACK` for the `SYNACK`. A retransmission
+///   of the original `SYN` moves the state back to `SYN_RECEIVED`. A valid `ACK` advances the state
+///   to `ESTABLISHED`. Any unexpected/invalid segment resets the connection.
+/// * While `ESTABLISHED`, the connection will only reset if it receives a `RST` or a `SYN`. Invalid
+///   segments are simply ignored. `FIN` handling is simplifed: when [`close`] is invoked the
+///   connection records the `FIN` sequence number, and starts setting the `FIN` flag (when
 ///   possible) on outgoing segments. A `FIN` from the other endpoint is only taken into
 ///   consideration if it has the next expected sequence number. When the connection has both sent
-///   and received a `FIN`, it marks itself as being done. There's no equivalent for the
-///   `TIME_WAIT` TCP state.
+///   and received a `FIN`, it marks itself as being done. There's no equivalent for the `TIME_WAIT`
+///   TCP state.
 ///
 /// The current implementation does not do any kind of congestion control, expects segments to
 /// arrive in order, triggers a retransmission after the first duplicate `ACK`, and relies on the
@@ -214,10 +214,10 @@ impl Connection {
     ///
     /// * `segment` - The incoming `SYN`.
     /// * `local_rwnd_size` - Initial size of the local receive window.
-    /// * `rto_period` - How long the connection waits before a retransmission timeout fires for
-    ///   the first segment which has not been acknowledged yet. This uses an opaque time unit.
-    /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before
-    ///   the connection resets itself.
+    /// * `rto_period` - How long the connection waits before a retransmission timeout fires for the
+    ///   first segment which has not been acknowledged yet. This uses an opaque time unit.
+    /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before the
+    ///   connection resets itself.
     pub fn passive_open<T: NetworkBytes>(
         segment: &TcpSegment<T>,
         local_rwnd_size: u32,
@@ -811,8 +811,8 @@ impl Connection {
     /// * `buf` - The buffer where the segment is written.
     /// * `mss_reserved` - How much (if anything) of the MSS value has been already used at the
     ///   lower layers (by IP options, for example). This will be zero most of the time.
-    /// * `payload_src` - References a buffer which contains data to send, and also specifies
-    ///   the sequence number associated with the first byte from that that buffer.
+    /// * `payload_src` - References a buffer which contains data to send, and also specifies the
+    ///   sequence number associated with the first byte from that that buffer.
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
@@ -1132,9 +1132,10 @@ pub(crate) mod tests {
                 .map(|o| o.map(|incomplete| incomplete.finalize(src_port, dst_port, None)))
         }
 
-        // Checks if the specified connection will reset after receiving the provided segment, and that
-        // the receive_segment() method also returns the specified RecvStatusFlags. We also make
-        // sure the outgoing RST segment has additional_segment_flags set besides TcpFlags::RST.
+        // Checks if the specified connection will reset after receiving the provided segment, and
+        // that the receive_segment() method also returns the specified RecvStatusFlags. We
+        // also make sure the outgoing RST segment has additional_segment_flags set besides
+        // TcpFlags::RST.
         fn should_reset_after<T: NetworkBytes>(
             &mut self,
             c: &mut Connection,
@@ -1740,7 +1741,7 @@ pub(crate) mod tests {
 
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
-        //c = c_clone.clone();
+        // c = c_clone.clone();
 
         // We change payload_src to only include those parts of send_buf that were already sent,
         // so it makes sense to close the connection as if we're done transmitting data.

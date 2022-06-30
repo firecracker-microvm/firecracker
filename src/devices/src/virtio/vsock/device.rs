@@ -12,8 +12,8 @@ use std::result;
 /// We aim to conform to the VirtIO v1.1 spec:
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
 ///
-/// The vsock device has two input parameters: a CID to identify the device, and a `VsockBackend`
-/// to use for offloading vsock traffic.
+/// The vsock device has two input parameters: a CID to identify the device, and a
+/// `VsockBackend` to use for offloading vsock traffic.
 ///
 /// Upon its activation, the vsock device registers handlers for the following events/FDs:
 /// - an RX queue FD;
@@ -29,10 +29,9 @@ use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
+use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use super::VsockBackend;
-use super::{defs, defs::uapi};
-
+use super::{defs, VsockBackend};
 use crate::virtio::{
     ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
     VirtioDevice, VsockError,
@@ -147,16 +146,17 @@ where
                             Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
                             Err(e) => {
                                 warn!(
-                                    "vsock: Error writing packet header to guest memory: {:?}.\
-                                     Discarding the package.",
+                                    "vsock: Error writing packet header to guest memory: \
+                                     {:?}.Discarding the package.",
                                     e
                                 );
                                 0
                             }
                         }
                     } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we can't
-                        // fill in this buffer, we'll need to undo the last iterator step.
+                        // We are using a consuming iterator over the virtio buffers, so, if we
+                        // can't fill in this buffer, we'll need to undo the
+                        // last iterator step.
                         self.queues[RXQ_INDEX].undo_pop();
                         break;
                     }
@@ -220,8 +220,8 @@ where
     }
 
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
-    // connections and the guest_cid configuration field is fetched again. Existing listen sockets remain
-    // but their CID is updated to reflect the current guest_cid.
+    // connections and the guest_cid configuration field is fetched again. Existing listen sockets
+    // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();

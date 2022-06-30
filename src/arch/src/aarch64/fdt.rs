@@ -9,14 +9,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::result;
 
-use super::super::DeviceType;
-use super::super::InitrdConfig;
+use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
+
+use super::super::{DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
-
-use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
@@ -25,8 +24,8 @@ const CLOCK_PHANDLE: u32 = 2;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
-// So, we start the indexing of the phandles used from a really big number and then substract from it
-// as we need more and more phandle for each cache representation.
+// So, we start the indexing of the phandles used from a really big number and then substract from
+// it as we need more and more phandle for each cache representation.
 const LAST_CACHE_PHANDLE: u32 = 4000;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
@@ -161,8 +160,8 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
             }
         }
 
-        // Some of the non-l1 caches can be shared amongst CPUs. You can see an example of a shared scenario
-        // in https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
+        // Some of the non-l1 caches can be shared amongst CPUs. You can see an example of a shared
+        // scenario in https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
         // 3.8.1 Example.
         let mut prev_level = 1;
         let mut cache_node: Option<FdtWriterNode> = None;
@@ -266,8 +265,8 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()
     fdt.property_string("compatible", gic_device.fdt_compatibility())?;
     fdt.property_null("interrupt-controller")?;
     // "interrupt-cells" field specifies the number of cells needed to encode an
-    // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity description
-    // is required.
+    // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity
+    // description is required.
     fdt.property_u32("#interrupt-cells", 3)?;
     fdt.property_array_u64("reg", &gic_device.device_properties())?;
     fdt.property_u32("phandle", GIC_PHANDLE)?;
@@ -330,8 +329,8 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<()> {
     let psci = fdt.begin_node("psci")?;
     fdt.property_string("compatible", compatible)?;
     // Two methods available: hvc and smc.
-    // As per documentation, PSCI calls between a guest and hypervisor may use the HVC conduit instead of SMC.
-    // So, since we are using kvm, we need to use hvc.
+    // As per documentation, PSCI calls between a guest and hypervisor may use the HVC conduit
+    // instead of SMC. So, since we are using kvm, we need to use hvc.
     fdt.property_string("method", "hvc")?;
     fdt.end_node(psci)?;
 
@@ -424,10 +423,11 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::create_gic;
     use crate::aarch64::{arch_memory_regions, layout};
-    use kvm_ioctls::Kvm;
 
     const LEN: u64 = 4096;
 
@@ -522,25 +522,24 @@ mod tests {
         )
         .unwrap();
 
-        /* Use this code when wanting to generate a new DTB sample.
-        {
-            use std::fs;
-            use std::io::Write;
-            use std::path::PathBuf;
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let dtb_path = match gic.fdt_compatibility() {
-                "arm,gic-v3" => "output_GICv3.dtb",
-                "arm,gic-400" => ("output_GICv2.dtb"),
-                _ => panic!("Unexpected gic version!"),
-            };
-            let mut output = fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(path.join(format!("src/aarch64/{}", dtb_path)))
-                .unwrap();
-            output.write_all(&current_dtb_bytes).unwrap();
-        }
-        */
+        // Use this code when wanting to generate a new DTB sample.
+        // {
+        // use std::fs;
+        // use std::io::Write;
+        // use std::path::PathBuf;
+        // let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // let dtb_path = match gic.fdt_compatibility() {
+        // "arm,gic-v3" => "output_GICv3.dtb",
+        // "arm,gic-400" => ("output_GICv2.dtb"),
+        // _ => panic!("Unexpected gic version!"),
+        // };
+        // let mut output = fs::OpenOptions::new()
+        // .write(true)
+        // .create(true)
+        // .open(path.join(format!("src/aarch64/{}", dtb_path)))
+        // .unwrap();
+        // output.write_all(&current_dtb_bytes).unwrap();
+        // }
 
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;
@@ -586,25 +585,24 @@ mod tests {
         )
         .unwrap();
 
-        /* Use this code when wanting to generate a new DTB sample.
-        {
-            use std::fs;
-            use std::io::Write;
-            use std::path::PathBuf;
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let dtb_path = match gic.fdt_compatibility() {
-                "arm,gic-v3" => "output_initrd_GICv3.dtb",
-                "arm,gic-400" => ("output_initrd_GICv2.dtb"),
-                _ => panic!("Unexpected gic version!"),
-            };
-            let mut output = fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(path.join(format!("src/aarch64/{}", dtb_path)))
-                .unwrap();
-            output.write_all(&current_dtb_bytes).unwrap();
-        }
-        */
+        // Use this code when wanting to generate a new DTB sample.
+        // {
+        // use std::fs;
+        // use std::io::Write;
+        // use std::path::PathBuf;
+        // let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // let dtb_path = match gic.fdt_compatibility() {
+        // "arm,gic-v3" => "output_initrd_GICv3.dtb",
+        // "arm,gic-400" => ("output_initrd_GICv2.dtb"),
+        // _ => panic!("Unexpected gic version!"),
+        // };
+        // let mut output = fs::OpenOptions::new()
+        // .write(true)
+        // .create(true)
+        // .open(path.join(format!("src/aarch64/{}", dtb_path)))
+        // .unwrap();
+        // output.write_all(&current_dtb_bytes).unwrap();
+        // }
 
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;

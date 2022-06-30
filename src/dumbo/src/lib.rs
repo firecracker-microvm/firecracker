@@ -7,16 +7,16 @@
 pub mod pdu;
 pub mod tcp;
 
+use std::ops::Index;
+
+use utils::net::mac::MacAddr;
+
 pub use crate::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 pub use crate::pdu::ethernet::{
     EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
 };
 pub use crate::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
 pub use crate::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
-
-use utils::net::mac::MacAddr;
-
-use std::ops::Index;
 
 /// Represents a generalization of a borrowed `[u8]` slice.
 #[allow(clippy::len_without_is_empty)]

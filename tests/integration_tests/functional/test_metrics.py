@@ -20,7 +20,7 @@ def test_flush_metrics(test_microvm_with_api):
     microvm.basic_config()
 
     # Configure metrics system.
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.metrics.put(
@@ -33,25 +33,25 @@ def test_flush_metrics(test_microvm_with_api):
     metrics = microvm.flush_metrics(metrics_fifo)
 
     exp_keys = [
-        'utc_timestamp_ms',
-        'api_server',
-        'balloon',
-        'block',
-        'deprecated_api',
-        'get_api_requests',
-        'i8042',
-        'latencies_us',
-        'logger',
-        'mmds',
-        'net',
-        'patch_api_requests',
-        'put_api_requests',
-        'seccomp',
-        'vcpu',
-        'vmm',
-        'uart',
-        'signals',
-        'vsock'
+        "utc_timestamp_ms",
+        "api_server",
+        "balloon",
+        "block",
+        "deprecated_api",
+        "get_api_requests",
+        "i8042",
+        "latencies_us",
+        "logger",
+        "mmds",
+        "net",
+        "patch_api_requests",
+        "put_api_requests",
+        "seccomp",
+        "vcpu",
+        "vmm",
+        "uart",
+        "signals",
+        "vsock",
     ]
 
     if platform.machine() == "aarch64":
@@ -66,4 +66,4 @@ def test_flush_metrics(test_microvm_with_api):
     # the reported utc_timestamp_ms is actually a UTC timestamp from the Unix
     # Epoch.Regression test for:
     # https://github.com/firecracker-microvm/firecracker/issues/2639
-    assert abs(utc_timestamp_ms - metrics['utc_timestamp_ms']) < 1000
+    assert abs(utc_timestamp_ms - metrics["utc_timestamp_ms"]) < 1000

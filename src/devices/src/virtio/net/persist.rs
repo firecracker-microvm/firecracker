@@ -7,8 +7,11 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use mmds::{data_store::Mmds, ns::MmdsNetworkStack, persist::MmdsNetworkStackState};
-use rate_limiter::{persist::RateLimiterState, RateLimiter};
+use mmds::data_store::Mmds;
+use mmds::ns::MmdsNetworkStack;
+use mmds::persist::MmdsNetworkStackState;
+use rate_limiter::persist::RateLimiterState;
+use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -17,7 +20,6 @@ use vm_memory::GuestMemoryMmap;
 
 use super::device::{ConfigSpace, Net};
 use super::{NUM_QUEUES, QUEUE_SIZE};
-
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
@@ -93,8 +95,8 @@ impl Persist<'_> for Net {
         // there is at least one net device having the MMDS NS present and/or the mmds version was
         // persisted in the snapshot.
         if let Some(mmds_ns) = &state.mmds_ns {
-            // We're safe calling unwrap() to discard the error, as MmdsNetworkStack::restore() always
-            // returns Ok.
+            // We're safe calling unwrap() to discard the error, as MmdsNetworkStack::restore()
+            // always returns Ok.
             net.mmds_ns = Some(
                 MmdsNetworkStack::restore(
                     constructor_args
@@ -132,11 +134,11 @@ impl Persist<'_> for Net {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::*;
     use crate::virtio::device::VirtioDevice;
-
     use crate::virtio::net::test_utils::{default_guest_memory, default_net, default_net_no_mmds};
-    use std::sync::atomic::Ordering;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_guest_memory();

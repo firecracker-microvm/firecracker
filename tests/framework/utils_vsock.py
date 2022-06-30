@@ -129,7 +129,7 @@ class HostEchoWorker(Thread):
         self.sock.close()
 
     def _run(self):
-        with open(self.blob_path, 'rb') as blob_file:
+        with open(self.blob_path, "rb") as blob_file:
 
             hash_obj = hashlib.md5()
 
@@ -156,7 +156,7 @@ def make_blob(dst_dir):
     """Generate a random data file."""
     blob_path = os.path.join(dst_dir, "vsock-test.blob")
 
-    with open(blob_path, 'wb') as blob_file:
+    with open(blob_path, "wb") as blob_file:
         left = BLOB_SIZE
         blob_hash = hashlib.md5()
         while left > 0:
@@ -179,7 +179,7 @@ def check_host_connections(vm, uds_path, blob_path, blob_hash):
     checked against `blob_hash`.
     """
     conn = SSHConnection(vm.ssh_config)
-    cmd = "vsock_helper echosrv -d {}". format(ECHO_SERVER_PORT)
+    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
     ecode, _, _ = conn.execute_command(cmd)
     assert ecode == 0
 
@@ -211,8 +211,10 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     # Avoids: "bash: fork: retry: Resource temporarily unavailable"
     # Needed to execute the bash script that tests for concurrent
     # vsock guest initiated connections.
-    ecode, _, _ = conn.execute_command("echo 1024 > \
-        /sys/fs/cgroup/pids/system.slice/ssh.service/pids.max")
+    ecode, _, _ = conn.execute_command(
+        "echo 1024 > \
+        /sys/fs/cgroup/pids/system.slice/ssh.service/pids.max"
+    )
     assert ecode == 0, "Unable to set max process count for guest ssh service."
 
     # Build the guest worker sub-command.
@@ -225,16 +227,16 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     worker_cmd += " | vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
     worker_cmd += " | md5sum | cut -f1 -d\\ "
     worker_cmd += ")"
-    worker_cmd += " && [[ \"$hash\" = \"{}\" ]]".format(blob_hash)
+    worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
 
     # Run `TEST_CONNECTION_COUNT` concurrent workers, using the above
     # worker sub-command.
     # If any worker fails, this command will fail. If all worker sub-commands
     # succeed, this will also succeed.
-    cmd = "workers=\"\";"
+    cmd = 'workers="";'
     cmd += "for i in $(seq 1 {}); do".format(TEST_CONNECTION_COUNT)
     cmd += "  ({})& ".format(worker_cmd)
-    cmd += "  workers=\"$workers $!\";"
+    cmd += '  workers="$workers $!";'
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
@@ -260,30 +262,25 @@ def _vsock_connect_to_guest(uds_path, port):
     sock.send(buf)
 
     ack_buf = sock.recv(32)
-    assert re.match("^OK [0-9]+\n$", ack_buf.decode('utf-8')) is not None
+    assert re.match("^OK [0-9]+\n$", ack_buf.decode("utf-8")) is not None
 
     return sock
 
 
-def _copy_vsock_data_to_guest(ssh_connection,
-                              blob_path,
-                              vm_blob_path,
-                              vsock_helper):
+def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_helper):
     # Copy the data file and a vsock helper to the guest.
     cmd = "mkdir -p /tmp/vsock"
     cmd += " && mount -t tmpfs tmpfs -o size={} /tmp/vsock".format(
-        BLOB_SIZE + 1024*1024
+        BLOB_SIZE + 1024 * 1024
     )
     ecode, _, _ = ssh_connection.execute_command(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
-    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
+    ssh_connection.scp_file(vsock_helper, "/bin/vsock_helper")
     ssh_connection.scp_file(blob_path, vm_blob_path)
 
 
-def check_vsock_device(vm, bin_vsock_path,
-                       test_fc_session_root_path,
-                       ssh_connection):
+def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connection):
     """Create a blob and test guest and host initiated connections on vsock."""
     vm_blob_path = "/tmp/vsock/test.blob"
 
@@ -291,16 +288,10 @@ def check_vsock_device(vm, bin_vsock_path,
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
 
     # Copy the data file and a vsock helper to the guest.
-    _copy_vsock_data_to_guest(ssh_connection,
-                              blob_path,
-                              vm_blob_path,
-                              bin_vsock_path)
+    _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, bin_vsock_path)
 
     # Test vsock guest-initiated connections.
-    path = os.path.join(
-        vm.path,
-        make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-    )
+    path = os.path.join(vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT))
     check_guest_connections(vm, path, vm_blob_path, blob_hash)
 
     # Test vsock host-initiated connections.

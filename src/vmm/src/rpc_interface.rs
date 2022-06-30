@@ -1,10 +1,19 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde_json::Value;
 use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
+
+use logger::*;
+use mmds::data_store::{self, Mmds};
+use seccompiler::BpfThreadMap;
+use serde_json::Value;
+#[cfg(test)]
+use tests::{
+    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    MockVmm as Vmm,
+};
 
 use super::Error as VmmError;
 #[cfg(not(test))]
@@ -12,6 +21,7 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
+use crate::builder::StartMicrovmError;
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -32,16 +42,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::FcExitCode;
-use crate::{builder::StartMicrovmError, EventManager};
-use logger::*;
-use mmds::data_store::{self, Mmds};
-use seccompiler::BpfThreadMap;
-#[cfg(test)]
-use tests::{
-    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
-    MockVmm as Vmm,
-};
+use crate::{EventManager, FcExitCode};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -144,7 +145,8 @@ pub enum VmmActionError {
     LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad input.
+    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
+    /// input.
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
@@ -183,7 +185,8 @@ impl Display for VmmActionError {
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
                 LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
                 LoadSnapshotNotAllowed => {
-                    "Loading a microVM snapshot not allowed after configuring boot-specific resources."
+                    "Loading a microVM snapshot not allowed after configuring boot-specific \
+                     resources."
                         .to_string()
                 }
                 Logger(err) => err.to_string(),
@@ -397,7 +400,10 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
             GetFullVmConfig => {
-                warn!("If the VM was restored from snapshot, boot-source, machine-config.smt, and machine-config.cpu_template will all be empty.");
+                warn!(
+                    "If the VM was restored from snapshot, boot-source, machine-config.smt, and \
+                     machine-config.cpu_template will all be empty."
+                );
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
             GetMMDS => self.get_mmds(),
@@ -695,7 +701,8 @@ impl RuntimeApiController {
     /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
     /// that the metrics will be written immediately.
     /// Defer to inner Vmm. We'll move to a variant where the Vmm simply exposes functionality like
-    /// getting the dirty pages, and then we'll have the metrics flushing logic entirely on the outside.
+    /// getting the dirty pages, and then we'll have the metrics flushing logic entirely on the
+    /// outside.
     fn flush_metrics(&mut self) -> ActionResult {
         // FIXME: we're losing the bool saying whether metrics were actually written.
         METRICS
@@ -760,8 +767,8 @@ impl RuntimeApiController {
     }
 
     /// Updates block device properties:
-    ///  - path of the host file backing the emulated block device,
-    ///    update the disk image on the device and its virtio configuration
+    ///  - path of the host file backing the emulated block device, update the disk image on the
+    ///    device and its virtio configuration
     ///  - rate limiter configuration.
     fn update_block_device(&mut self, new_cfg: BlockDeviceUpdateConfig) -> ActionResult {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
@@ -804,19 +811,20 @@ impl RuntimeApiController {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use devices::virtio::VsockError;
+    use mmds::data_store::MmdsVersion;
+    use seccompiler::BpfThreadMap;
+
     use super::*;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
-    use seccompiler::BpfThreadMap;
-
-    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-    use mmds::data_store::MmdsVersion;
-    use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {

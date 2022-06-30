@@ -12,8 +12,7 @@ MAX_DEVICES_ATTACHED = 19
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports 24 IRQs on x86_64."
+    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
 def test_attach_maximum_devices(test_microvm_with_api, network_config):
     """
@@ -33,8 +32,7 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
     for i in range(MAX_DEVICES_ATTACHED - 1):
         # Create tap before configuring interface.
         _tap, _host_ip, guest_ip = test_microvm.ssh_network_config(
-            network_config,
-            str(i)
+            network_config, str(i)
         )
         guest_ips.append(guest_ip)
 
@@ -42,7 +40,7 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
 
     # Test that network devices attached are operational.
     for i in range(MAX_DEVICES_ATTACHED - 1):
-        test_microvm.ssh_config['hostname'] = guest_ips[i]
+        test_microvm.ssh_config["hostname"] = guest_ips[i]
         ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
         # Verify if guest can run commands.
         exit_code, _, _ = ssh_connection.execute_command("sync")
@@ -50,8 +48,7 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports 24 IRQs on x86_64."
+    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
 def test_attach_too_many_devices(test_microvm_with_api, network_config):
     """
@@ -70,13 +67,12 @@ def test_attach_too_many_devices(test_microvm_with_api, network_config):
     for i in range(MAX_DEVICES_ATTACHED):
         # Create tap before configuring interface.
         _tap, _host_ip, _guest_ip = test_microvm.ssh_network_config(
-            network_config,
-            str(i)
+            network_config, str(i)
         )
 
     # Attempting to start a microVM with more than
     # `MAX_DEVICES_ATTACHED` devices should fail.
-    response = test_microvm.actions.put(action_type='InstanceStart')
+    response = test_microvm.actions.put(action_type="InstanceStart")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     error_str = (
         "failed to allocate requested resource: The requested resource"
