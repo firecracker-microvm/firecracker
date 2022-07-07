@@ -61,7 +61,7 @@ testing. For ease of use you can setup a git pre-commit hook by running the
 following in the Firecracker root directory:
 
 ```
-cargo install rusty-hooks
+cargo install rusty-hook
 rusty-hook init
 ```
 
