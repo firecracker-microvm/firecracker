@@ -110,6 +110,9 @@ def get_snap_restore_latency(
 ):
     """Restore snapshots with various configs to measure latency."""
     vm_builder = context.custom["builder"]
+    logger = context.custom["logger"]
+    balloon = vsock = 1 if all_devices else 0
+    microvm_spec = f"{vcpus}vcpu_{mem_size}mb_{nets}net_{blocks}block_{vsock}vsock_{balloon}balloon"
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -128,6 +131,7 @@ def get_snap_restore_latency(
         config=context.microvm,
         net_ifaces=ifaces,
         use_ramdisk=True,
+        io_engine="Sync",
     )
     basevm = vm_instance.vm
     response = basevm.machine_cfg.put(
@@ -139,7 +143,7 @@ def get_snap_restore_latency(
     extra_disk_paths = []
     if blocks > 1:
         for (name, diskfile) in scratch_drives[: (blocks - 1)]:
-            basevm.add_drive(name, diskfile.path, use_ramdisk=True)
+            basevm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0
 
@@ -154,6 +158,11 @@ def get_snap_restore_latency(
 
     basevm.start()
 
+    logger.info(
+        'Testing with microvm: "{}", kernel {}, disk {}'.format(
+            microvm_spec, context.kernel.name(), context.disk.name()
+        )
+    )
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
     full_snapshot = snapshot_builder.create(
