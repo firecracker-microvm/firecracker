@@ -9,14 +9,8 @@ definition, a call to one of the [API Endpoints](#api-endpoints) will succeed.
 
 **R** - Required: The device (column) **is required** for a Firecracker microVM
 API call to succeed. If the device (column) is omitted from a uVM definition,
-a call to one of the [API Endpoints](#api-endpoints) will return a result that
-depends on the device (see [issue #2173](https://github.com/firecracker-microvm/firecracker/issues/2173)).
-
-- API calls related to `drives/{id}` result in 400 - BadRequest - HTTP response
-  if the block device identified by `id` was not previously configured.
-- API calls related to `network-interfaces/{id}` result in 400 - BadRequest -
-  HTTP response if the network device identified by `id` was not previously
-  configured.
+a call to one of the [API Endpoints](#api-endpoints) will fail with a
+400 - BadRequest - HTTP response.
 
 ## API Endpoints
 
