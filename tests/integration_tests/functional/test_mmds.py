@@ -693,8 +693,9 @@ def test_mmds_snapshot(bin_cloner_path, version):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        # v1.1.0 breaks snapshot compatibility with older versions.
-        min_version="1.1.0",
+        # current snapshot (i.e a machine snapshotted with current build)
+        # is incompatible with any past release due to notification suppression.
+        min_version="1.2.0",
         max_version=get_firecracker_version_from_toml(),
     )
     for firecracker in firecracker_artifacts:
