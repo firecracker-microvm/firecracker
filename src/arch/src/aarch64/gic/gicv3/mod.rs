@@ -3,7 +3,8 @@
 
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
 use kvm_ioctls::DeviceFd;
 
@@ -100,9 +101,8 @@ impl GICDevice for GICv3 {
     }
 
     fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
-        /* Setting up the distributor attribute.
-         We are placing the GIC below 1GB so we need to substract the size of the distributor.
-        */
+        // Setting up the distributor attribute.
+        // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
             &gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -111,9 +111,8 @@ impl GICDevice for GICv3 {
             0,
         )?;
 
-        /* Setting up the redistributors' attribute.
-        We are calculating here the start of the redistributors address. We have one per CPU.
-        */
+        // Setting up the redistributors' attribute.
+        // We are calculating here the start of the redistributors address. We have one per CPU.
         Self::set_device_attribute(
             &gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -138,14 +137,15 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
         flags: 0,
     };
     fd.set_device_attr(&init_gic_attr)
-        .map_err(|e| Error::DeviceAttribute(e, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
+        .map_err(|err| Error::DeviceAttribute(err, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
 }
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_save_pending_tables() {

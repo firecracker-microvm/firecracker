@@ -1,7 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
+use std::sync::Arc;
 
 use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
@@ -43,11 +44,12 @@ impl BusDevice for RTCDevice {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use logger::IncMetric;
     use vm_superio::Rtc;
 
     use super::*;
-    use std::sync::Arc;
 
     #[test]
     fn test_rtc_device() {

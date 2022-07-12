@@ -5,14 +5,13 @@ description = "Firecracker python dependencies"
 authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
-python = "3.6.9"
+python = "3.10.4"
 boto3 = "*"
 botocore = "*"
 dataclasses = "*"
 nsenter = "*"
 psutil = "5.7.0"
-pycodestyle = "*"
-pydocstyle = "*"
+black = "*"
 pylint = "*"
 pytest = "*"
 pytest-timeout = "*"

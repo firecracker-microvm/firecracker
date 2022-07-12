@@ -8,8 +8,7 @@ import tempfile
 import pytest
 from test_balloon import _test_rss_memory_lower
 from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, \
-    create_net_devices_configuration
+from framework.artifacts import ArtifactCollection, create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -37,15 +36,15 @@ def test_restore_old_snapshot(bin_cloner_path):
     # With each binary create a snapshot and try to restore in current
     # version.
     firecracker_artifacts = artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml()
+    )
 
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
         jailer.download()
 
-        logger.info("Creating snapshot with Firecracker: %s",
-                    firecracker.local_path())
+        logger.info("Creating snapshot with Firecracker: %s", firecracker.local_path())
         logger.info("Using Jailer: %s", jailer.local_path())
 
         target_version = firecracker.base_name()[1:]
@@ -55,21 +54,24 @@ def test_restore_old_snapshot(bin_cloner_path):
         diff_snapshots = "0.23" not in target_version
 
         # Create a snapshot.
-        snapshot = create_snapshot_helper(builder,
-                                          logger,
-                                          drives=scratch_drives,
-                                          ifaces=net_ifaces,
-                                          fc_binary=firecracker.local_path(),
-                                          jailer_binary=jailer.local_path(),
-                                          diff_snapshots=diff_snapshots,
-                                          balloon=diff_snapshots)
+        snapshot = create_snapshot_helper(
+            builder,
+            logger,
+            drives=scratch_drives,
+            ifaces=net_ifaces,
+            fc_binary=firecracker.local_path(),
+            jailer_binary=jailer.local_path(),
+            diff_snapshots=diff_snapshots,
+            balloon=diff_snapshots,
+        )
 
         # Resume microvm using current build of FC/Jailer.
-        microvm, _ = builder.build_from_snapshot(snapshot,
-                                                 resume=True,
-                                                 diff_snapshots=False)
-        validate_all_devices(logger, microvm, net_ifaces, scratch_drives,
-                             diff_snapshots)
+        microvm, _ = builder.build_from_snapshot(
+            snapshot, resume=True, diff_snapshots=False
+        )
+        validate_all_devices(
+            logger, microvm, net_ifaces, scratch_drives, diff_snapshots
+        )
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(microvm.log_data)
 
@@ -89,9 +91,11 @@ def test_restore_old_version(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        # v1.0.0 breaks snapshot compatibility with older versions.
-        min_version="1.0.0",
-        max_version=get_firecracker_version_from_toml())
+        # current snapshot (i.e a machine snapshotted with current build)
+        # is incompatible with any past release due to notification suppression.
+        min_version="1.2.0",
+        max_version=get_firecracker_version_from_toml(),
+    )
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -103,89 +107,33 @@ def test_restore_old_version(bin_cloner_path):
         target_version = firecracker.base_name()[1:]
 
         # Create a snapshot with current FC version targeting the old version.
-        snapshot = create_snapshot_helper(builder,
-                                          logger,
-                                          target_version=target_version,
-                                          drives=scratch_drives,
-                                          ifaces=net_ifaces,
-                                          balloon=True,
-                                          diff_snapshots=True)
+        snapshot = create_snapshot_helper(
+            builder,
+            logger,
+            target_version=target_version,
+            drives=scratch_drives,
+            ifaces=net_ifaces,
+            balloon=True,
+            diff_snapshots=True,
+        )
 
-        logger.info("Restoring snapshot with Firecracker: %s",
-                    firecracker.local_path())
+        logger.info("Restoring snapshot with Firecracker: %s", firecracker.local_path())
         logger.info("Using Jailer: %s", jailer.local_path())
 
         # Resume microvm using FC/Jailer binary artifacts.
-        vm, _ = builder.build_from_snapshot(snapshot,
-                                            resume=True,
-                                            diff_snapshots=False,
-                                            fc_binary=firecracker.local_path(),
-                                            jailer_binary=jailer.local_path())
+        vm, _ = builder.build_from_snapshot(
+            snapshot,
+            resume=True,
+            diff_snapshots=False,
+            fc_binary=firecracker.local_path(),
+            jailer_binary=jailer.local_path(),
+        )
         validate_all_devices(logger, vm, net_ifaces, scratch_drives, True)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(vm.log_data)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="TSC is x86_64 specific."
-)
-def test_restore_no_tsc(bin_cloner_path):
-    """
-    Test scenario: restore a snapshot without TSC in current version.
-
-    @type: functional
-    """
-    logger = logging.getLogger("no_tsc_snapshot")
-    builder = MicrovmBuilder(bin_cloner_path)
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch the v0.24.0 firecracker binary as that one does not have
-    # the TSC frequency in the snapshot file.
-    firecracker_artifacts = artifacts.firecrackers(
-        keyword="v0.24.0"
-    )
-    firecracker = firecracker_artifacts[0]
-    firecracker.download()
-    jailer = firecracker.jailer()
-    jailer.download()
-    diff_snapshots = True
-
-    # Create a snapshot.
-    snapshot = create_snapshot_helper(
-        builder,
-        logger,
-        drives=scratch_drives,
-        ifaces=net_ifaces,
-        fc_binary=firecracker.local_path(),
-        jailer_binary=jailer.local_path(),
-        diff_snapshots=diff_snapshots,
-        balloon=True
-    )
-
-    # Resume microvm using current build of FC/Jailer.
-    # The resume should be successful because the CPU model
-    # in the snapshot state is the same as this host's.
-    microvm, _ = builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        diff_snapshots=False
-    )
-    validate_all_devices(
-        logger,
-        microvm,
-        net_ifaces,
-        scratch_drives,
-        diff_snapshots
-    )
-    logger.debug("========== Firecracker restore snapshot log ==========")
-    logger.debug(microvm.log_data)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="TSC is x86_64 specific."
-)
+@pytest.mark.skipif(platform.machine() != "x86_64", reason="TSC is x86_64 specific.")
 def test_save_tsc_old_version(bin_cloner_path):
     """
     Test TSC warning message when saving old snapshot.
@@ -199,28 +147,19 @@ def test_save_tsc_old_version(bin_cloner_path):
     vm.start()
 
     vm.pause_to_snapshot(
-        mem_file_path='memfile',
-        snapshot_path='statefile',
-        diff=False,
-        version='0.24.0'
+        mem_file_path="memfile", snapshot_path="statefile", diff=False, version="0.24.0"
     )
 
     vm.check_log_message("Saving to older snapshot version, TSC freq")
     vm.kill()
 
 
-def validate_all_devices(
-    logger,
-    microvm,
-    ifaces,
-    drives,
-    balloon
-):
+def validate_all_devices(logger, microvm, ifaces, drives, balloon):
     """Perform a basic validation for all devices of a microvm."""
     # Test that net devices have connectivity after restore.
     for iface in ifaces:
         logger.info("Testing net device %s", iface.dev_name)
-        microvm.ssh_config['hostname'] = iface.guest_ip
+        microvm.ssh_config["hostname"] = iface.guest_ip
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
         exit_code, _, _ = ssh_connection.execute_command("sync")
 
@@ -253,15 +192,24 @@ def validate_all_devices(
         _test_rss_memory_lower(microvm)
 
 
-def create_snapshot_helper(builder, logger, target_version=None,
-                           drives=None, ifaces=None,
-                           balloon=False, diff_snapshots=False,
-                           fc_binary=None, jailer_binary=None):
+def create_snapshot_helper(
+    builder,
+    logger,
+    target_version=None,
+    drives=None,
+    ifaces=None,
+    balloon=False,
+    diff_snapshots=False,
+    fc_binary=None,
+    jailer_binary=None,
+):
     """Create a snapshot with many devices."""
-    vm_instance = builder.build_vm_nano(net_ifaces=ifaces,
-                                        diff_snapshots=diff_snapshots,
-                                        fc_binary=fc_binary,
-                                        jailer_binary=jailer_binary)
+    vm_instance = builder.build_vm_nano(
+        net_ifaces=ifaces,
+        diff_snapshots=diff_snapshots,
+        fc_binary=fc_binary,
+        jailer_binary=jailer_binary,
+    )
     vm = vm_instance.vm
 
     if diff_snapshots is False:
@@ -273,9 +221,7 @@ def create_snapshot_helper(builder, logger, target_version=None,
     if balloon:
         # Add a memory balloon with stats enabled.
         response = vm.balloon.put(
-            amount_mib=0,
-            deflate_on_oom=True,
-            stats_polling_interval_s=1
+            amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
         )
         assert vm.api_session.is_status_no_content(response.status_code)
 
@@ -297,7 +243,7 @@ def create_snapshot_helper(builder, logger, target_version=None,
 
     # Iterate and validate connectivity on all ifaces after boot.
     for iface in ifaces:
-        vm.ssh_config['hostname'] = iface.guest_ip
+        vm.ssh_config["hostname"] = iface.guest_ip
         ssh_connection = net_tools.SSHConnection(vm.ssh_config)
         exit_code, _, _ = ssh_connection.execute_command("sync")
         assert exit_code == 0
@@ -305,9 +251,7 @@ def create_snapshot_helper(builder, logger, target_version=None,
     # Mount scratch drives in guest.
     for blk in test_drives:
         # Create mount point and mount each device.
-        cmd = "mkdir -p /mnt/{blk} && mount /dev/{blk} /mnt/{blk}".format(
-            blk=blk
-        )
+        cmd = "mkdir -p /mnt/{blk} && mount /dev/{blk} /mnt/{blk}".format(blk=blk)
         exit_code, _, _ = ssh_connection.execute_command(cmd)
         assert exit_code == 0
 
@@ -325,11 +269,13 @@ def create_snapshot_helper(builder, logger, target_version=None,
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
 
-    snapshot = snapshot_builder.create(disks,
-                                       vm_instance.ssh_key,
-                                       target_version=target_version,
-                                       snapshot_type=snapshot_type,
-                                       net_ifaces=ifaces)
+    snapshot = snapshot_builder.create(
+        disks,
+        vm_instance.ssh_key,
+        target_version=target_version,
+        snapshot_type=snapshot_type,
+        net_ifaces=ifaces,
+    )
     logger.debug("========== Firecracker create snapshot log ==========")
     logger.debug(vm.log_data)
     vm.kill()

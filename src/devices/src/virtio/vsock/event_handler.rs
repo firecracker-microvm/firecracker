@@ -6,8 +6,8 @@
 // found in the THIRD-PARTY file.
 
 /// The vsock object implements the runtime logic of our vsock device:
-/// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending those
-///    packets to the `VsockBackend`;
+/// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
+/// those    packets to the `VsockBackend`;
 /// 2. Forward backend FD event notifications to the `VsockBackend`;
 /// 3. Fetch incoming packets from the `VsockBackend` and place them into the virtio RX queue;
 /// 4. Whenever we have processed some virtio buffers (either TX or RX), let the driver know by
@@ -16,12 +16,14 @@
 /// In a nutshell, the logic looks like this:
 /// - on TX queue event:
 ///   - fetch all packets from the TX queue and send them to the backend; then
-///   - if the backend has queued up any incoming packets, fetch them into any available RX buffers.
+///   - if the backend has queued up any incoming packets, fetch them into any available RX
+///     buffers.
 /// - on RX queue event:
 ///   - fetch any incoming packets, queued up by the backend, into newly available RX buffers.
 /// - on backend event:
 ///   - forward the event to the backend; then
-///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
+///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX
+///     buffers.
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
@@ -46,8 +48,8 @@ where
         }
 
         let mut raise_irq = false;
-        if let Err(e) = self.queue_events[RXQ_INDEX].read() {
-            error!("Failed to get vsock rx queue event: {:?}", e);
+        if let Err(err) = self.queue_events[RXQ_INDEX].read() {
+            error!("Failed to get vsock rx queue event: {:?}", err);
             METRICS.vsock.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
@@ -66,8 +68,8 @@ where
         }
 
         let mut raise_irq = false;
-        if let Err(e) = self.queue_events[TXQ_INDEX].read() {
-            error!("Failed to get vsock tx queue event: {:?}", e);
+        if let Err(err) = self.queue_events[TXQ_INDEX].read() {
+            error!("Failed to get vsock tx queue event: {:?}", err);
             METRICS.vsock.tx_queue_event_fails.inc();
         } else {
             raise_irq |= self.process_tx();
@@ -91,8 +93,8 @@ where
             return false;
         }
 
-        if let Err(e) = self.queue_events[EVQ_INDEX].read() {
-            error!("Failed to consume vsock evq event: {:?}", e);
+        if let Err(err) = self.queue_events[EVQ_INDEX].read() {
+            error!("Failed to consume vsock evq event: {:?}", err);
             METRICS.vsock.ev_queue_event_fails.inc();
         }
         false
@@ -115,34 +117,34 @@ where
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register rx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
+            error!("Failed to register rx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register tx queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
+            error!("Failed to register tx queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
-            error!("Failed to register ev queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
+            error!("Failed to register ev queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
-            error!("Failed to register vsock backend event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
+            error!("Failed to register vsock backend event: {}", err);
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 
     fn handle_activate_event(&self, ops: &mut EventOps) {
         debug!("vsock: activate event");
-        if let Err(e) = self.activate_evt.read() {
-            error!("Failed to consume net activate event: {:?}", e);
+        if let Err(err) = self.activate_evt.read() {
+            error!("Failed to consume net activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(e) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to un-register activate event: {}", e);
+        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to un-register activate event: {}", err);
         }
     }
 }
@@ -202,13 +204,13 @@ where
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::super::*;
-    use super::*;
-
-    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
-    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
     use event_manager::{EventManager, SubscriberOps};
     use vm_memory::Bytes;
+
+    use super::super::*;
+    use super::*;
+    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
 
     #[test]
     fn test_txq_event() {

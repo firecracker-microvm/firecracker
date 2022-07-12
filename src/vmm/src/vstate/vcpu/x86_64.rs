@@ -5,16 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
-use crate::vstate::{
-    vcpu::{VcpuConfig, VcpuEmulation},
-    vm::Vm,
-};
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -25,6 +18,10 @@ use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
+use crate::vstate::vm::Vm;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -104,49 +101,51 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            CpuId(e) => write!(f, "Cpuid error: {:?}", e),
-            LocalIntConfiguration(e) => write!(
+            CpuId(err) => write!(f, "Cpuid error: {:?}", err),
+            LocalIntConfiguration(err) => write!(
                 f,
                 "Cannot set the local interruption due to bad configuration: {:?}",
-                e
+                err
             ),
-            VcpuFd(e) => write!(f, "Cannot open the VCPU file descriptor: {}", e),
-            MSRSConfiguration(e) => write!(f, "Error configuring the MSR registers: {:?}", e),
-            REGSConfiguration(e) => write!(
+            VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
+            MSRSConfiguration(err) => write!(f, "Error configuring the MSR registers: {:?}", err),
+            REGSConfiguration(err) => write!(
                 f,
                 "Error configuring the general purpose registers: {:?}",
-                e
+                err
             ),
-            SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
-            FamError(e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
-            FPUConfiguration(e) => write!(
+            SREGSConfiguration(err) => {
+                write!(f, "Error configuring the special registers: {:?}", err)
+            }
+            FamError(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
+            FPUConfiguration(err) => write!(
                 f,
                 "Error configuring the floating point related registers: {:?}",
-                e
+                err
             ),
-            VcpuGetDebugRegs(e) => write!(f, "Failed to get KVM vcpu debug regs: {}", e),
-            VcpuGetLapic(e) => write!(f, "Failed to get KVM vcpu lapic: {}", e),
-            VcpuGetMpState(e) => write!(f, "Failed to get KVM vcpu mp state: {}", e),
-            VcpuGetMsrs(e) => write!(f, "Failed to get KVM vcpu msrs: {}", e),
+            VcpuGetDebugRegs(err) => write!(f, "Failed to get KVM vcpu debug regs: {}", err),
+            VcpuGetLapic(err) => write!(f, "Failed to get KVM vcpu lapic: {}", err),
+            VcpuGetMpState(err) => write!(f, "Failed to get KVM vcpu mp state: {}", err),
+            VcpuGetMsrs(err) => write!(f, "Failed to get KVM vcpu msrs: {}", err),
             VcpuGetMSRSIncomplete => write!(f, "Unexpected number of MSRS reported by the kernel"),
-            VcpuGetRegs(e) => write!(f, "Failed to get KVM vcpu regs: {}", e),
-            VcpuGetSregs(e) => write!(f, "Failed to get KVM vcpu sregs: {}", e),
-            VcpuGetVcpuEvents(e) => write!(f, "Failed to get KVM vcpu event: {}", e),
-            VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
-            VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
-            VcpuGetCpuid(e) => write!(f, "Failed to get KVM vcpu cpuid: {}", e),
-            VcpuGetTSC(e) => write!(f, "Failed to get KVM TSC frequency: {}", e),
-            VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
-            VcpuSetDebugRegs(e) => write!(f, "Failed to set KVM vcpu debug regs: {}", e),
-            VcpuSetLapic(e) => write!(f, "Failed to set KVM vcpu lapic: {}", e),
-            VcpuSetMpState(e) => write!(f, "Failed to set KVM vcpu mp state: {}", e),
-            VcpuSetMsrs(e) => write!(f, "Failed to set KVM vcpu msrs: {}", e),
-            VcpuSetRegs(e) => write!(f, "Failed to set KVM vcpu regs: {}", e),
-            VcpuSetSregs(e) => write!(f, "Failed to set KVM vcpu sregs: {}", e),
-            VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
-            VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
-            VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
-            VcpuSetTSC(e) => write!(f, "Failed to set KVM TSC frequency: {}", e),
+            VcpuGetRegs(err) => write!(f, "Failed to get KVM vcpu regs: {}", err),
+            VcpuGetSregs(err) => write!(f, "Failed to get KVM vcpu sregs: {}", err),
+            VcpuGetVcpuEvents(err) => write!(f, "Failed to get KVM vcpu event: {}", err),
+            VcpuGetXcrs(err) => write!(f, "Failed to get KVM vcpu xcrs: {}", err),
+            VcpuGetXsave(err) => write!(f, "Failed to get KVM vcpu xsave: {}", err),
+            VcpuGetCpuid(err) => write!(f, "Failed to get KVM vcpu cpuid: {}", err),
+            VcpuGetTSC(err) => write!(f, "Failed to get KVM TSC frequency: {}", err),
+            VcpuSetCpuid(err) => write!(f, "Failed to set KVM vcpu cpuid: {}", err),
+            VcpuSetDebugRegs(err) => write!(f, "Failed to set KVM vcpu debug regs: {}", err),
+            VcpuSetLapic(err) => write!(f, "Failed to set KVM vcpu lapic: {}", err),
+            VcpuSetMpState(err) => write!(f, "Failed to set KVM vcpu mp state: {}", err),
+            VcpuSetMsrs(err) => write!(f, "Failed to set KVM vcpu msrs: {}", err),
+            VcpuSetRegs(err) => write!(f, "Failed to set KVM vcpu regs: {}", err),
+            VcpuSetSregs(err) => write!(f, "Failed to set KVM vcpu sregs: {}", err),
+            VcpuSetVcpuEvents(err) => write!(f, "Failed to set KVM vcpu event: {}", err),
+            VcpuSetXcrs(err) => write!(f, "Failed to set KVM vcpu xcrs: {}", err),
+            VcpuSetXsave(err) => write!(f, "Failed to set KVM vcpu xsave: {}", err),
+            VcpuSetTSC(err) => write!(f, "Failed to set KVM TSC frequency: {}", err),
         }
     }
 }
@@ -201,13 +200,13 @@ impl KvmVcpu {
         let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.smt)
             .map_err(Error::CpuId)?;
 
-        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|e| {
+        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|err| {
             METRICS.vcpu.filter_cpuid.inc();
             error!(
                 "Failure in configuring CPUID for vcpu {}: {:?}",
-                self.index, e
+                self.index, err
             );
-            Error::CpuId(e)
+            Error::CpuId(err)
         })?;
 
         match vcpu_config.cpu_template {
@@ -243,28 +242,26 @@ impl KvmVcpu {
 
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
-        /*
-         * Ordering requirements:
-         *
-         * KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
-         * vCPU/LAPIC state. As such, it must be done before most everything
-         * else, otherwise we cannot restore everything and expect it to work.
-         *
-         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
-         * still running.
-         *
-         * KVM_GET_LAPIC may change state of LAPIC before returning it.
-         *
-         * GET_VCPU_EVENTS should probably be last to save. The code looks as
-         * it might as well be affected by internal state modifications of the
-         * GET ioctls.
-         *
-         * SREGS saves/restores a pending interrupt, similar to what
-         * VCPU_EVENTS also does.
-         *
-         * GET_MSRS requires a pre-populated data structure to do something
-         * meaningful. For SET_MSRS it will then contain good data.
-         */
+        // Ordering requirements:
+        //
+        // KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
+        // vCPU/LAPIC state. As such, it must be done before most everything
+        // else, otherwise we cannot restore everything and expect it to work.
+        //
+        // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+        // still running.
+        //
+        // KVM_GET_LAPIC may change state of LAPIC before returning it.
+        //
+        // GET_VCPU_EVENTS should probably be last to save. The code looks as
+        // it might as well be affected by internal state modifications of the
+        // GET ioctls.
+        //
+        // SREGS saves/restores a pending interrupt, similar to what
+        // VCPU_EVENTS also does.
+        //
+        // GET_MSRS requires a pre-populated data structure to do something
+        // meaningful. For SET_MSRS it will then contain good data.
 
         // Build the list of MSRs we want to save.
         let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
@@ -288,10 +285,7 @@ impl KvmVcpu {
             // v0.25 and newer snapshots without TSC will only work on
             // the same CPU model as the host on which they were taken.
             // TODO: Add negative test for this warning failure.
-            warn!(
-                "TSC freq not available. Snapshot cannot be loaded on a \
-                different CPU model."
-            );
+            warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
         let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
@@ -340,28 +334,26 @@ impl KvmVcpu {
 
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
-        /*
-         * Ordering requirements:
-         *
-         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
-         * still running.
-         *
-         * Some SET ioctls (like set_mp_state) depend on kvm_vcpu_is_bsp(), so
-         * if we ever change the BSP, we have to do that before restoring anything.
-         * The same seems to be true for CPUID stuff.
-         *
-         * SREGS saves/restores a pending interrupt, similar to what
-         * VCPU_EVENTS also does.
-         *
-         * SET_REGS clears pending exceptions unconditionally, thus, it must be
-         * done before SET_VCPU_EVENTS, which restores it.
-         *
-         * SET_LAPIC must come after SET_SREGS, because the latter restores
-         * the apic base msr.
-         *
-         * SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
-         * only restores successfully, when the LAPIC is correctly configured.
-         */
+        // Ordering requirements:
+        //
+        // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+        // still running.
+        //
+        // Some SET ioctls (like set_mp_state) depend on kvm_vcpu_is_bsp(), so
+        // if we ever change the BSP, we have to do that before restoring anything.
+        // The same seems to be true for CPUID stuff.
+        //
+        // SREGS saves/restores a pending interrupt, similar to what
+        // VCPU_EVENTS also does.
+        //
+        // SET_REGS clears pending exceptions unconditionally, thus, it must be
+        // done before SET_VCPU_EVENTS, which restores it.
+        //
+        // SET_LAPIC must come after SET_SREGS, because the latter restores
+        // the apic base msr.
+        //
+        // SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
+        // only restores successfully, when the LAPIC is correctly configured.
 
         self.fd
             .set_cpuid2(&state.cpuid)
@@ -467,10 +459,12 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
-    use super::*;
-    use crate::vstate::vm::{tests::setup_vm, Vm};
     use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
+
+    use super::*;
+    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
         fn default() -> Self {

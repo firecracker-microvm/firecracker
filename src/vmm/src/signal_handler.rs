@@ -4,10 +4,10 @@
 use libc::{
     c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
-
-use crate::{ExitCode, FC_EXIT_CODE_UNEXPECTED_ERROR};
 use logger::{error, IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
+
+use crate::FcExitCode;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.
@@ -19,13 +19,13 @@ const SI_OFF_SYSCALL: isize = 6;
 const SYS_SECCOMP_CODE: i32 = 1;
 
 #[inline]
-fn exit_with_code(exit_code: ExitCode) {
+fn exit_with_code(exit_code: FcExitCode) {
     // Write the metrics before exiting.
-    if let Err(e) = METRICS.write() {
-        error!("Failed to write metrics while stopping: {}", e);
+    if let Err(err) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", err);
     }
     // Safe because we're terminating the process anyway.
-    unsafe { libc::_exit(exit_code) };
+    unsafe { libc::_exit(exit_code as i32) };
 }
 
 macro_rules! generate_handler {
@@ -37,7 +37,7 @@ macro_rules! generate_handler {
             let si_code = unsafe { (*info).si_code };
 
             if num != si_signo || num != $signal_name {
-                exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR);
+                exit_with_code(FcExitCode::UnexpectedError);
             }
             $signal_metric.store(1);
 
@@ -50,8 +50,8 @@ macro_rules! generate_handler {
 
             #[cfg(not(test))]
             match si_signo {
-                $signal_name => exit_with_code(crate::$exit_code),
-                _ => exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR),
+                $signal_name => exit_with_code(crate::FcExitCode::$exit_code),
+                _ => exit_with_code(FcExitCode::UnexpectedError),
             };
         }
     };
@@ -60,7 +60,7 @@ macro_rules! generate_handler {
 fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     if si_code != SYS_SECCOMP_CODE as i32 {
         // We received a SIGSYS for a reason other than `bad syscall`.
-        exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR);
+        exit_with_code(FcExitCode::UnexpectedError);
     }
 
     // Other signals which might do async unsafe things incompatible with the rest of this
@@ -77,7 +77,7 @@ fn empty_fn(_si_code: c_int, _info: *mut siginfo_t) {}
 generate_handler!(
     sigxfsz_handler,
     SIGXFSZ,
-    FC_EXIT_CODE_SIGXFSZ,
+    SIGXFSZ,
     METRICS.signals.sigxfsz,
     empty_fn
 );
@@ -85,7 +85,7 @@ generate_handler!(
 generate_handler!(
     sigxcpu_handler,
     SIGXCPU,
-    FC_EXIT_CODE_SIGXCPU,
+    SIGXCPU,
     METRICS.signals.sigxcpu,
     empty_fn
 );
@@ -93,7 +93,7 @@ generate_handler!(
 generate_handler!(
     sigbus_handler,
     SIGBUS,
-    FC_EXIT_CODE_SIGBUS,
+    SIGBUS,
     METRICS.signals.sigbus,
     empty_fn
 );
@@ -101,7 +101,7 @@ generate_handler!(
 generate_handler!(
     sigsegv_handler,
     SIGSEGV,
-    FC_EXIT_CODE_SIGSEGV,
+    SIGSEGV,
     METRICS.signals.sigsegv,
     empty_fn
 );
@@ -109,7 +109,7 @@ generate_handler!(
 generate_handler!(
     sigsys_handler,
     SIGSYS,
-    FC_EXIT_CODE_BAD_SYSCALL,
+    BadSyscall,
     METRICS.seccomp.num_faults,
     log_sigsys_err
 );
@@ -117,14 +117,14 @@ generate_handler!(
 generate_handler!(
     sighup_handler,
     SIGHUP,
-    FC_EXIT_CODE_SIGHUP,
+    SIGHUP,
     METRICS.signals.sighup,
     empty_fn
 );
 generate_handler!(
     sigill_handler,
     SIGILL,
-    FC_EXIT_CODE_SIGILL,
+    SIGILL,
     METRICS.signals.sigill,
     empty_fn
 );
@@ -170,39 +170,17 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{env, process, thread};
 
-    use libc::{cpu_set_t, syscall};
-    use std::{mem, process, thread};
-
+    use libc::syscall;
     use seccompiler::sock_filter;
 
-    // This function is used when running unit tests, so all the unsafes are safe.
-    fn cpu_count() -> usize {
-        let mut cpuset: cpu_set_t = unsafe { mem::zeroed() };
-        unsafe {
-            libc::CPU_ZERO(&mut cpuset);
-        }
-        let ret = unsafe {
-            libc::sched_getaffinity(
-                0,
-                mem::size_of::<cpu_set_t>(),
-                &mut cpuset as *mut cpu_set_t,
-            )
-        };
-        assert_eq!(ret, 0);
-
-        let mut num = 0;
-        for i in 0..libc::CPU_SETSIZE as usize {
-            if unsafe { libc::CPU_ISSET(i, &cpuset) } {
-                num += 1;
-            }
-        }
-        num
-    }
+    use super::*;
 
     #[test]
     fn test_signal_handler() {
+        let run_with_kcov = env::var("CARGO_WRAPPER").unwrap_or_else(|_| "".to_string()) == *"kcov";
+
         let child = thread::spawn(move || {
             assert!(register_signal_handlers().is_ok());
 
@@ -258,16 +236,12 @@ mod tests {
         });
         assert!(child.join().is_ok());
 
-        // Sanity check.
-        assert!(cpu_count() > 0);
-        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
-        // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
-        // way of either preventing this behaviour, or detecting for certain whether this test is
-        // run by kcov or not. The best we could do so far is to look at the perceived number of
-        // available CPUs. Kcov seems to make a single CPU available to the process running the
-        // tests, so we use this as an heuristic to decide if we check the assertion.
-        if cpu_count() > 1 {
-            // The signal handler should let the program continue during unit tests.
+        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on
+        // x86_64 and thus not reach Firecracker:
+        // https://github.com/SimonKagstrom/kcov/blob/a8b60c43fb33f56553a2bb20633e3b59a08abae1/src/engines/ptrace.cc#L187
+        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad
+        // syscall if we run with kcov and we are on x86_64.
+        if !(cfg!(target_arch = "x86_64") && run_with_kcov) {
             assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         }
         assert!(METRICS.signals.sigbus.fetch() >= 1);
@@ -276,9 +250,9 @@ mod tests {
         assert!(METRICS.signals.sigxcpu.fetch() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.fetch() >= 1);
-        // Workaround to GitHub issue 2216.
-        #[cfg(not(target_arch = "aarch64"))]
-        assert!(METRICS.signals.sigill.fetch() >= 1);
+        if !(cfg!(target_arch = "aarch64") && run_with_kcov) {
+            assert!(METRICS.signals.sigill.fetch() >= 1);
+        }
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {

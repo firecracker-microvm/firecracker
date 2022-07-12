@@ -5,12 +5,10 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use io_uring::{
-    operation::{Cqe, OpCode, Operation},
-    restriction::Restriction,
-    Error as IoUringError, IoUring,
-};
-
+use io_uring::operation::{Cqe, OpCode, Operation};
+use io_uring::restriction::Restriction;
+use io_uring::{Error as IoUringError, IoUring};
+use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
 use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
@@ -65,6 +63,8 @@ impl<T> WrappedUserData<T> {
 
 impl<T> AsyncFileEngine<T> {
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
+        log_dev_preview_warning("Async file IO", Option::None);
+
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let ring = IoUring::new(
             IO_URING_NUM_ENTRIES as u32,
@@ -108,10 +108,10 @@ impl<T> AsyncFileEngine<T> {
     ) -> Result<(), UserDataError<T, Error>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
-            Err(e) => {
+            Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(e),
+                    error: Error::GuestMemory(err),
                 });
             }
         };
@@ -145,10 +145,10 @@ impl<T> AsyncFileEngine<T> {
     ) -> Result<(), UserDataError<T, Error>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
-            Err(e) => {
+            Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(e),
+                    error: Error::GuestMemory(err),
                 });
             }
         };

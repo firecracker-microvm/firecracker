@@ -60,7 +60,7 @@
 //    packet header members with each packet they send:
 //    - `hdr.buf_alloc`: the total buffer space the peer has allocated for receiving data; and
 //    - `hdr.fwd_cnt`: the total number of bytes the peer has successfully flushed out of its
-//       buffer.
+//      buffer.
 //    One can figure out how much space its peer has available in its buffer by inspecting the
 //    difference between how much it has sent to the peer and how much the peer has flushed out
 //    (i.e.  "forwarded", in the vsock spec terminology):
@@ -85,14 +85,13 @@ use std::time::{Duration, Instant};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, VsockError};
-use super::defs;
 use super::txbuf::TxBuf;
-use super::{ConnState, Error, PendingRx, PendingRxSet, Result};
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use super::{defs, ConnState, Error, PendingRx, PendingRxSet, Result};
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `Read + Write + AsRawFd` stream.
@@ -147,10 +146,9 @@ where
     ///
     /// Returns:
     /// - `Ok(())`: the packet has been successfully filled in and is ready for delivery;
-    /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the
-    ///    packet;
-    /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but
-    ///    it is missing the data buffer.
+    /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
+    /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
+    ///   missing the data buffer.
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
@@ -239,8 +237,8 @@ where
                     // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
                     // apparently it does, so we need to handle it gracefully.
                     warn!(
-                        "vsock: unexpected EWOULDBLOCK while reading from backing stream: \
-                         lp={}, pp={}, err={:?}",
+                        "vsock: unexpected EWOULDBLOCK while reading from backing stream: lp={}, \
+                         pp={}, err={:?}",
                         self.local_port, self.peer_port, err
                     );
                 }
@@ -414,8 +412,8 @@ where
     /// Get the event set that this connection is interested in.
     ///
     /// A connection will want to be notified when:
-    /// - data is available to be read from the host stream, so that it can store an RW pending
-    ///   RX indication; and
+    /// - data is available to be read from the host stream, so that it can store an RW pending RX
+    ///   indication; and
     /// - data can be written to the host stream, and the TX buffer needs to be flushed.
     fn get_polled_evset(&self) -> EventSet {
         let mut evset = EventSet::empty();
@@ -610,17 +608,17 @@ where
         // The TX buffer is empty, so we can try to write straight to the host stream.
         let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
             Ok(cnt) => cnt,
-            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(e)))
-                if e.kind() == ErrorKind::WouldBlock =>
+            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
+                if err.kind() == ErrorKind::WouldBlock =>
             {
                 // Absorb any would-block errors, since we can always try again later.
                 0
             }
-            Err(e) => {
+            Err(err) => {
                 // We don't know how to handle any other write error, so we'll send it up
                 // the call chain.
                 METRICS.vsock.tx_write_fails.inc();
-                return Err(e);
+                return Err(err);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
@@ -672,12 +670,12 @@ mod tests {
     use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
+
     use utils::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
     use super::*;
-
     use crate::virtio::vsock::device::RXQ_INDEX;
     use crate::virtio::vsock::test_utils::TestContext;
 
@@ -791,11 +789,11 @@ mod tests {
     // primitives. A single `VsockPacket` object will be enough for our testing needs. We'll be
     // using it for simulating both packet sends and packet receives. We need to keep the vsock
     // testing context alive, since `VsockPacket` is just a pointer-wrapper over some data that
-    // resides in guest memory. The vsock test context owns the `GuestMemoryMmap` object, so we'll make
-    // it a member here, in order to make sure that guest memory outlives our testing packet.  A
-    // single `VsockConnection` object will also suffice for our testing needs. We'll be using a
-    // specially crafted `Read + Write + AsRawFd` object as a backing stream, so that we can
-    // control the various error conditions that might arise.
+    // resides in guest memory. The vsock test context owns the `GuestMemoryMmap` object, so we'll
+    // make it a member here, in order to make sure that guest memory outlives our testing
+    // packet.  A single `VsockConnection` object will also suffice for our testing needs. We'll
+    // be using a specially crafted `Read + Write + AsRawFd` object as a backing stream, so that
+    // we can control the various error conditions that might arise.
     struct CsmTestContext {
         _vsock_test_ctx: TestContext,
         pkt: VsockPacket,
@@ -1166,8 +1164,8 @@ mod tests {
     fn test_tx_buffering() {
         // Test case:
         // - when writing to the backing stream would block, TX data should end up in the TX buf
-        // - when the CSM is notified that it can write to the backing stream, it should flush
-        //   the TX buf.
+        // - when the CSM is notified that it can write to the backing stream, it should flush the
+        //   TX buf.
         {
             let mut ctx = CsmTestContext::new_established();
 

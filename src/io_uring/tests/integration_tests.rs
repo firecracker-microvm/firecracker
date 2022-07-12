@@ -1,23 +1,24 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::{fs::FileExt, io::AsRawFd};
+use std::os::unix::fs::FileExt;
+use std::os::unix::io::AsRawFd;
 use std::thread;
 use std::time::Duration;
-use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
+use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 mod test_utils;
-use crate::test_utils::drive_submission_and_completion;
+use io_uring::operation::{OpCode, Operation};
+use io_uring::restriction::Restriction;
+use io_uring::{Error, IoUring, SQueueError};
 
-use io_uring::{
-    operation::OpCode, operation::Operation, restriction::Restriction, Error, IoUring, SQueueError,
-};
+use crate::test_utils::drive_submission_and_completion;
 
 const NUM_ENTRIES: u32 = 128;
 
@@ -28,7 +29,7 @@ fn test_ring_new() {
     // Invalid entries count: 0.
     assert!(matches!(
         IoUring::new(0, vec![], vec![], None),
-        Err(Error::Setup(e)) if e.kind() == std::io::ErrorKind::InvalidInput
+        Err(Error::Setup(err)) if err.kind() == std::io::ErrorKind::InvalidInput
     ));
     // Try to register too many files.
     let dummy_file = TempFile::new().unwrap().into_file();
@@ -105,7 +106,7 @@ fn test_restrictions() {
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
         assert!(
             matches!(unsafe{ring.pop::<u8>().unwrap().unwrap().result()},
-            Err(e) if e.kind() == std::io::ErrorKind::Other)
+            Err(err) if err.kind() == std::io::ErrorKind::Other)
         );
     }
 }

@@ -6,11 +6,11 @@ pub mod sync_io;
 
 use std::fs::File;
 
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
 pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
 use crate::virtio::block::device::FileEngineType;
-
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct UserDataOk<T> {
@@ -34,10 +34,10 @@ pub enum Error {
 
 impl Error {
     pub fn is_throttling_err(&self) -> bool {
-        if let Error::Async(async_io::Error::IoUring(e)) = self {
-            return e.is_throttling_err();
+        match self {
+            Error::Async(async_io::Error::IoUring(err)) => err.is_throttling_err(),
+            _ => false,
         }
-        false
     }
 }
 
@@ -89,17 +89,17 @@ impl<T> FileEngine<T> {
             FileEngine::Async(engine) => {
                 match engine.push_read(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(e) => Err(UserDataError {
-                        user_data: e.user_data,
-                        error: Error::Async(e.error),
+                    Err(err) => Err(UserDataError {
+                        user_data: err.user_data,
+                        error: Error::Async(err.error),
                     }),
                 }
             }
             FileEngine::Sync(engine) => match engine.read(offset, mem, addr, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -117,17 +117,17 @@ impl<T> FileEngine<T> {
             FileEngine::Async(engine) => {
                 match engine.push_write(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(e) => Err(UserDataError {
-                        user_data: e.user_data,
-                        error: Error::Async(e.error),
+                    Err(err) => Err(UserDataError {
+                        user_data: err.user_data,
+                        error: Error::Async(err.error),
                     }),
                 }
             }
             FileEngine::Sync(engine) => match engine.write(offset, mem, addr, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -137,9 +137,9 @@ impl<T> FileEngine<T> {
         match self {
             FileEngine::Async(engine) => match engine.push_flush(user_data) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
-                Err(e) => Err(UserDataError {
-                    user_data: e.user_data,
-                    error: Error::Async(e.error),
+                Err(err) => Err(UserDataError {
+                    user_data: err.user_data,
+                    error: Error::Async(err.error),
                 }),
             },
             FileEngine::Sync(engine) => match engine.flush() {
@@ -147,9 +147,9 @@ impl<T> FileEngine<T> {
                     user_data,
                     count: 0,
                 })),
-                Err(e) => Err(UserDataError {
+                Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(e),
+                    error: Error::Sync(err),
                 }),
             },
         }
@@ -175,13 +175,14 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 
-    use super::*;
-    use crate::virtio::block::device::FileEngineType;
-    use crate::virtio::block::request::PendingRequest;
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
     use vm_memory::{Bitmap, Bytes, GuestMemory};
+
+    use super::*;
+    use crate::virtio::block::device::FileEngineType;
+    use crate::virtio::block::request::PendingRequest;
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -194,8 +195,8 @@ pub mod tests {
                     user_data: _,
                     error: $($pattern)+,
                 }) => (),
-                ref e => {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e);
+                ref err => {
+                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
                     assert!(false)
                 }
             }

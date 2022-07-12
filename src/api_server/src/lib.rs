@@ -9,12 +9,10 @@
 mod parsed_request;
 mod request;
 
-use serde_json::json;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::{fmt, io};
 
-use crate::parsed_request::{ParsedRequest, RequestAction};
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
@@ -23,9 +21,12 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use seccompiler::BpfProgramRef;
+use serde_json::json;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
+
+use crate::parsed_request::{ParsedRequest, RequestAction};
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -103,18 +104,24 @@ impl ApiServer {
     /// # Example
     ///
     /// ```
+    /// use std::convert::TryInto;
+    /// use std::env::consts::ARCH;
+    /// use std::io::{Read, Write};
+    /// use std::os::unix::net::UnixStream;
+    /// use std::path::PathBuf;
+    /// use std::sync::mpsc::{channel, Receiver, Sender};
+    /// use std::sync::{Arc, Barrier};
+    /// use std::thread;
+    /// use std::time::Duration;
+    ///
     /// use api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
-    /// use mmds::MAX_DATA_STORE_SIZE;
-    /// use std::env::consts::ARCH;
-    /// use std::{
-    ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
-    ///     sync::mpsc::channel, thread, time::Duration,
-    /// };
-    /// use utils::{eventfd::EventFd, tempfile::TempFile};
+    /// use utils::eventfd::EventFd;
+    /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
+    /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -125,7 +132,8 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
-    /// let payload_limit = Some(MAX_DATA_STORE_SIZE);
+    /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
+    /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -136,12 +144,13 @@ impl ApiServer {
     ///                 time_reporter,
     ///                 seccomp_filters.get("api").unwrap(),
     ///                 payload_limit,
+    ///                 socket_ready_sender,
     ///             )
     ///             .unwrap();
     ///     })
     ///     .unwrap();
     ///
-    /// thread::sleep(Duration::from_millis(10));
+    /// socket_ready_receiver.recv().unwrap();
     /// to_api
     ///     .send(Box::new(Ok(VmmData::InstanceInformation(
     ///         InstanceInfo::default(),
@@ -158,15 +167,21 @@ impl ApiServer {
         path: PathBuf,
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
-        maybe_request_size: Option<usize>,
+        api_payload_limit: usize,
+        socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).unwrap_or_else(|e| {
-            error!("Error creating the HTTP server: {}", e);
-            std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
+        let mut server = HttpServer::new(path).unwrap_or_else(|err| {
+            error!("Error creating the HTTP server: {}", err);
+            std::process::exit(vmm::FcExitCode::GenericError as i32);
         });
-        if let Some(request_size) = maybe_request_size {
-            server.set_payload_max_size(request_size);
-        }
+        // Announce main thread that the socket path was created.
+        // As per the doc, "A send operation can only fail if the receiving end of a channel is
+        // disconnected". so this means that the main thread has exited.
+        socket_ready
+            .send(true)
+            .expect("No one to signal that the socket path is ready!");
+        // Set the api payload size limit.
+        server.set_payload_max_size(api_payload_limit);
 
         // Store process start time metric.
         process_time_reporter.report_start_time();
@@ -176,10 +191,10 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccompiler::apply_filter(seccomp_filter) {
+        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: {}",
-                e
+                err
             );
         }
 
@@ -188,9 +203,9 @@ impl ApiServer {
         loop {
             let request_vec = match server.requests() {
                 Ok(vec) => vec,
-                Err(e) => {
+                Err(err) => {
                     // print request error, but keep server running
-                    error!("API Server error on retrieving incoming request: {}", e);
+                    error!("API Server error on retrieving incoming request: {}", err);
                     continue;
                 }
             };
@@ -204,8 +219,8 @@ impl ApiServer {
                             self.handle_request(request, request_processing_start_us)
                         }),
                     )
-                    .or_else(|e| {
-                        error!("API Server encountered an error on response: {}", e);
+                    .or_else(|err| {
+                        error!("API Server encountered an error on response: {}", err);
                         Ok(())
                     })?;
 
@@ -247,9 +262,9 @@ impl ApiServer {
                 }
                 response
             }
-            Err(e) => {
-                error!("{}", e);
-                e.into()
+            Err(err) => {
+                error!("{}", err);
+                err.into()
             }
         }
     }
@@ -313,9 +328,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
     use std::thread;
-    use std::time::Duration;
 
-    use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
@@ -326,30 +339,32 @@ mod tests {
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
+    use super::*;
+
     #[test]
     fn test_error_messages() {
-        let e = Error::Io(io::Error::from_raw_os_error(0));
+        let err = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", err),
             format!("IO error: {}", io::Error::from_raw_os_error(0))
         );
-        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", err),
             format!("EventFd error: {}", io::Error::from_raw_os_error(0))
         );
     }
 
     #[test]
     fn test_error_debug() {
-        let e = Error::Io(io::Error::from_raw_os_error(0));
+        let err = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{:?}", e),
+            format!("{:?}", err),
             format!("IO error: {}", io::Error::from_raw_os_error(0))
         );
-        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{:?}", e),
+            format!("{:?}", err),
             format!("EventFd error: {}", io::Error::from_raw_os_error(0))
         );
     }
@@ -472,6 +487,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -481,14 +497,15 @@ mod tests {
                         PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
-                        None,
+                        vmm::HTTP_MAX_PAYLOAD_SIZE,
+                        socket_ready_sender,
                     )
                     .unwrap();
             })
             .unwrap();
 
         // Wait for the server to set itself up.
-        thread::sleep(Duration::from_millis(10));
+        socket_ready_receiver.recv().unwrap();
         to_api
             .send(Box::new(Ok(VmmData::InstanceInformation(
                 InstanceInfo::default(),
@@ -518,6 +535,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -527,14 +545,15 @@ mod tests {
                         PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
-                        Some(50),
+                        50,
+                        socket_ready_sender,
                     )
                     .unwrap();
             })
             .unwrap();
 
         // Wait for the server to set itself up.
-        thread::sleep(Duration::from_millis(10));
+        socket_ready_receiver.recv().unwrap();
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
         // Send a GET mmds request.

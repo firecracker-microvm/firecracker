@@ -83,13 +83,13 @@ ip route add ${MMDS_IPV4_ADDR} dev ${MMDS_NET_IF}
 ```
 
 MMDS supports two methods to access the contents of the metadata store from the
-guest operating system: `V1` and `V2` (in [developer preview](../RELEASE_POLICY.md)).
+guest operating system: `V1` and `V2`.
 More about the particularities of the two mechanisms can be found in the
 [Retrieving metadata in the guest operating system](#retrieving-metadata-in-the-guest-operating-system)
 section. The MMDS version used can be specified when configuring MMDS, through
 the `version` field of the HTTP `PUT` request to `/mmds/config` resource.
-Accepted values are `V1` and `V2` and the default MMDS version used in case the
-`version` field is missing is [Version 1](#version-1).
+Accepted values are `V1`(deprecated) and `V2` and the default MMDS version used
+in case the `version` field is missing is [Version 1](#version-1-deprecated).
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -216,10 +216,13 @@ Output:
 Accessing the contents of the metadata store from the guest operating system
 can be done using one of the following methods:
 
-- `V1`: simple request/response method
-- `V2`: session-oriented method (in [developer preview](../RELEASE_POLICY.md))
+- `V1`: simple request/response method (deprecated)
+- `V2`: session-oriented method
 
-#### Version 1
+#### Version 1 (Deprecated)
+
+**Version 1 is deprecated and will be removed in the next major version change.
+Version 2 should be used instead.**
 
 To retrieve existing MMDS metadata using MMDS version 1, an HTTP `GET`
 request must be issued. The requested resource can be referenced by its
@@ -271,24 +274,19 @@ curl -s "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINTER_OBJ}" \
 
 After the token expires, it becomes unusable and a new session token must be issued.
 
-##### Developer preview status
+##### Snapshotting considerations
 
-View the [release policy](../RELEASE_POLICY.md) for information about developer
-preview terminology.
+The data store is **not** persisted across snapshots, in order to avoid leaking
+vm-specific information that may need to be reseeded into the data store for
+a new clone.
 
-MMDS `version 2` is not yet suitable for production use. Currently, there is no
-way to configure `V2` after loading a microVM snapshot from file. Even if the
-base microVM snapshotted was customized to use MMDS `V2`, the snapshot clone
-defaults to MMDS `V1`.
+The MMDS version, network stack configuration and IP address used for accessing the
+service are persisted across snapshot-restore.
 
-It is important to note that the network interfaces configured to allow
-forwarding requests to MMDS and the custom IPv4 address are preserved between
-snapshots.
-
-We plan to make MMDS version 2 production ready once we will fully integrate it
-with snapshotting workflows and we will have a mechanism to preserve MMDS version
-configured between snapshots (the same we do for the IPv4 address or network
-interfaces that allow MMDS requests).
+If the targeted snapshot version does not support Mmds Version 2, it will not be
+persisted in the snapshot (the clone will use the default, V1). Similarly, if a
+snapshotted Vm state contains the Mmds version but the Firecracker version used
+for restoring does not support persisting the version, the default will be used.
 
 ### MMDS formats
 

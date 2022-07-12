@@ -5,6 +5,10 @@
 
 use std::os::unix::io::{AsRawFd, RawFd};
 
+use utils::epoll::EventSet;
+use utils::eventfd::EventFd;
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
 use crate::virtio::test_utils::VirtQueue as GuestQ;
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
@@ -12,9 +16,6 @@ use crate::virtio::{
     VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
-use utils::epoll::EventSet;
-use utils::eventfd::EventFd;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 type Result<T> = std::result::Result<T, VsockError>;
 
@@ -74,7 +75,7 @@ impl VsockChannel for TestBackend {
                 self.rx_ok_cnt += 1;
                 Ok(())
             }
-            Some(e) => Err(e),
+            Some(err) => Err(err),
         }
     }
 
@@ -84,7 +85,7 @@ impl VsockChannel for TestBackend {
                 self.tx_ok_cnt += 1;
                 Ok(())
             }
-            Some(e) => Err(e),
+            Some(err) => Err(err),
         }
     }
 

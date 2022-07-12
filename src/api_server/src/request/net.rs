@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub(crate) fn parse_put_net(
     body: &Body,
@@ -19,15 +20,19 @@ pub(crate) fn parse_put_net(
         return Err(Error::EmptyID);
     };
 
-    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|e| {
+    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.network_fails.inc();
-        Error::SerdeJson(e)
+        err
     })?;
     if id != netif.iface_id.as_str() {
         METRICS.put_api_requests.network_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "The id from the path does not match the id from the body!".to_string(),
+            format!(
+                "The id from the path [{}] does not match the id from the body [{}]!",
+                id,
+                netif.iface_id.as_str()
+            ),
         ));
     }
     Ok(ParsedRequest::new_sync(VmmAction::InsertNetworkDevice(
@@ -48,15 +53,19 @@ pub(crate) fn parse_patch_net(
     };
 
     let netif =
-        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|e| {
+        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|err| {
             METRICS.patch_api_requests.network_fails.inc();
-            Error::SerdeJson(e)
+            err
         })?;
     if id != netif.iface_id {
         METRICS.patch_api_requests.network_count.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            "The id from the path does not match the id from the body!".to_string(),
+            format!(
+                "The id from the path [{}] does not match the id from the body [{}]!",
+                id,
+                netif.iface_id.as_str()
+            ),
         ));
     }
     Ok(ParsedRequest::new_sync(VmmAction::UpdateNetworkInterface(

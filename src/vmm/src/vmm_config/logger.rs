@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
+use logger::{LevelFilter, LOGGER};
+use serde::{de, Deserialize, Deserializer, Serialize};
+
 use super::{open_file_nonblock, FcLineWriter};
 use crate::vmm_config::instance_info::InstanceInfo;
-use logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -137,7 +138,7 @@ pub fn init_logger(
 
     let writer = FcLineWriter::new(
         open_file_nonblock(&logger_cfg.log_path)
-            .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+            .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))?,
     );
     LOGGER
         .init(
@@ -147,19 +148,20 @@ pub fn init_logger(
             ),
             Box::new(writer),
         )
-        .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
+        .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use super::*;
     use devices::pseudo::BootTimer;
     use devices::BusDevice;
     use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
+
+    use super::*;
 
     #[test]
     fn test_init_logger() {

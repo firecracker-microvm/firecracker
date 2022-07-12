@@ -26,7 +26,19 @@ ENV LC_ALL=C.UTF-8
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         binutils-dev \
+        # Needed in order to be able to compile `userfaultfd-sys`.
+        clang \
         cmake \
+        build-essential \
+        zlib1g-dev \
+        libncurses5-dev \
+        libgdbm-dev  \
+        libnss3-dev \
+        libreadline-dev \
+        libffi-dev \
+        libsqlite3-dev \
+        wget \
+        libbz2-dev \
         curl \
         file \
         g++ \
@@ -42,6 +54,7 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         make \
+        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
@@ -64,6 +77,16 @@ RUN apt-get update \
     && python3 -m pip install --upgrade pip \ 
     && gem install chef-utils:16.6.14 mdl
 
+# Update Python to 3.10
+# This method isn't ideal, compiling from source can be dropped
+# once the container definition is based on ubuntu:22.04
+RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
+    && tar -xf Python-3.10.4.tgz \
+    && cd ./Python-3.10.4 \
+    && ./configure --enable-optimizations \
+    && make -j 8 \
+    && make install
+
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
 COPY tools/devctr/pyproject.toml $POETRY_LOCK_PATH "$TMP_POETRY_DIR/"
@@ -82,16 +105,15 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add x86_64-unknown-linux-musl \
-        && rustup component add rustfmt \
-        && rustup component add clippy-preview \
-        && rustup install "stable" \
+        && rustup component add rustfmt clippy clippy-preview \
+        && rustup install --profile minimal "stable" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
             # Fix a version that does not require cargo edition 2021.
-            && cargo install cargo-deny --version '^0.9.1' \
+            && cargo install --locked cargo-deny --version '^0.9.1' \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
@@ -99,6 +121,12 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
+
+# help musl-gcc find linux headers
+RUN cd /usr/include/x86_64-linux-musl \
+    && ln -s ../x86_64-linux-gnu/asm asm \
+    && ln -s ../linux linux \
+    && ln -s ../asm-generic asm-generic
 
 # Build iperf3-vsock
 RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \

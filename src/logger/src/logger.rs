@@ -20,12 +20,13 @@
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! use logger::{error, warn, LOGGER};
 //! use std::ops::Deref;
 //!
+//! use logger::{error, warn, LOGGER};
+//!
 //! // Optionally do an initial configuration for the logger.
-//! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
-//!     println!("Could not configure the log subsystem: {}", e);
+//! if let Err(err) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
+//!     println!("Could not configure the log subsystem: {}", err);
 //!     return;
 //! }
 //! warn!("this is a warning");
@@ -34,9 +35,10 @@
 //! ## Example for logging to a `File`:
 //!
 //! ```
+//! use std::io::Cursor;
+//!
 //! use libc::c_char;
 //! use logger::{error, warn, LOGGER};
-//! use std::io::Cursor;
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -74,14 +76,11 @@
 //! Logs can be flushed either to stdout/stderr or to a byte-oriented sink (File, FIFO, Ring Buffer
 //! etc).
 
-use std::fmt;
 use std::io::{sink, stderr, stdout, Write};
-use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
-use std::thread;
+use std::{fmt, result, thread};
 
-use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;
@@ -89,6 +88,7 @@ use utils::time::LocalTime;
 use super::extract_guard;
 use crate::init;
 use crate::init::Init;
+use crate::metrics::{IncMetric, METRICS};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -153,8 +153,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -183,8 +184,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -222,8 +224,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::{info, warn, LOGGER};
     /// use std::ops::Deref;
+    ///
+    /// use logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -292,14 +295,15 @@ impl Logger {
     ///
     /// # Arguments
     ///
-    /// * `instance_id` - Unique string identifying this logger session.
-    ///                   This id is temporary and will be overwritten upon initialization.
+    /// * `instance_id` - Unique string identifying this logger session. This id is temporary and
+    ///   will be overwritten upon initialization.
     ///
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
     /// use std::ops::Deref;
+    ///
+    /// use logger::LOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -332,9 +336,9 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// use logger::LOGGER;
-    ///
     /// use std::io::Cursor;
+    ///
+    /// use logger::LOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///
@@ -358,11 +362,12 @@ impl Logger {
         Ok(())
     }
 
-    /// The `write_log` method takes care of the common logic involved in writing
-    /// regular log messages.
-    fn write_log(&self, mut msg: String, msg_level: Level) {
+    /// Handles the common logic of writing regular log messages.
+    ///
+    /// Writes `msg` followed by a newline to the destination, flushing afterwards.
+    fn write_log(&self, msg: String, msg_level: Level) {
         let mut guard;
-        let mut dest: Box<dyn Write + Send> = if self.init.is_initialized() {
+        let mut writer: Box<dyn Write> = if self.init.is_initialized() {
             guard = extract_guard(self.log_buf.lock());
             Box::new(guard.as_mut())
         } else {
@@ -371,12 +376,14 @@ impl Logger {
                 _ => Box::new(stdout()),
             }
         };
-
-        // No need to explicitly call flush because the underlying LineWriter flushes
-        // automatically whenever a newline is detected (and we always end with a
-        // newline the current write).
-        msg.push('\n');
-        if dest.write_all(msg.as_bytes()).is_err() {
+        // Writes `msg` followed by newline and flushes, if either operation returns an error,
+        // increment missed log count.
+        // This approach is preferable over `Result::and` as if `write!` returns  an error it then
+        // does not attempt to flush.
+        if writeln!(writer, "{}", msg)
+            .and_then(|_| writer.flush())
+            .is_err()
+        {
             // No reason to log the error to stderr here, just increment the metric.
             METRICS.logger.missed_log_count.inc();
         }
@@ -393,7 +400,7 @@ pub enum LoggerError {
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::Init(ref e) => format!("Logger initialization failure: {}", e),
+            LoggerError::Init(ref err) => format!("Logger initialization failure: {}", err),
         };
         write!(f, "{}", printable)
     }
@@ -424,11 +431,13 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
+    use std::fs::{create_dir, read_to_string, remove_dir, remove_file, OpenOptions};
+    use std::io::{BufWriter, Read, Write};
     use std::sync::Arc;
 
-    use super::*;
     use log::info;
+
+    use super::*;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";
@@ -524,6 +533,48 @@ mod tests {
         let l = Logger::new();
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_level(), true);
+    }
+
+    #[test]
+    fn test_write_log() {
+        // Data to log to file for test.
+        const TEST_HEADER: &str = "test_log";
+        const TEST_STR: &str = "testing flushing";
+        // File to use for test.
+        const TEST_DIR: &str = "./tmp";
+        const TEST_FILE: &str = "test.txt";
+        let test_path = format!("{}/{}", TEST_DIR, TEST_FILE);
+
+        // Creates ./tmp directory
+        create_dir(TEST_DIR).unwrap();
+        // A buffered writer to a file
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&test_path)
+            .unwrap();
+        let writer = Box::new(BufWriter::new(file));
+        // Create a logger with this buffered writer as the `dest`.
+        let logger = Logger::new();
+        logger.init(String::from(TEST_HEADER), writer).unwrap();
+        // Log some generic data
+        logger.write_log(String::from(TEST_STR), Level::Info);
+        // To drop the logger without calling its destructor, or to `forget` it
+        // (https://doc.rust-lang.org/stable/std/mem/fn.forget.html) will lead
+        // to a memory leak, so for this test I do not do this.
+        // As such this test simply illustrates the `write_log` function will
+        // always flush such that in the occurrence of the crash the expected
+        // behavior that all temporally distant logs from a crash are flushed.
+
+        // Read from the log file.
+        let file_contents = read_to_string(&test_path).unwrap();
+        // Asserts the contents of the log file are as expected.
+        assert_eq!(file_contents, format!("{}\n{}\n", TEST_HEADER, TEST_STR));
+        // Removes the log file.
+        remove_file(&test_path).unwrap();
+        // Removes /tmp directory
+        remove_dir(TEST_DIR).unwrap();
     }
 
     #[test]

@@ -1,9 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
+
+use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -118,14 +119,7 @@ impl BrandString {
             this.set_reg_for_leaf(leaf, Reg::Edx, cpuid_regs.edx);
         }
 
-        let mut len = Self::MAX_LEN;
-        {
-            let this_bytes = this.as_bytes();
-            while this_bytes[len - 1] == 0 && len > 0 {
-                len -= 1;
-            }
-        }
-        this.len = len;
+        this.len = null_terminator_index(this.as_bytes());
 
         Ok(this)
     }
@@ -300,6 +294,16 @@ impl BrandString {
     }
 }
 
+/// Find the position of the first null-terminator (\b'0') in a u8 slice,
+/// or return 0 if they're all null-terminators.
+/// This function is roughly equivalent to libc strlen.
+fn null_terminator_index(slice: &[u8]) -> usize {
+    slice
+        .iter()
+        .rposition(|&b| b != b'\0')
+        .map_or(0, |idx| idx + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::repeat;
@@ -410,6 +414,19 @@ mod tests {
         assert!(bstr.as_bytes().starts_with(BRAND_STRING_AMD));
         let bstr = BrandString::from_vendor_id(b"............");
         assert!(bstr.as_bytes() == vec![b'\0'; 48].as_slice());
+    }
+
+    #[test]
+    /// Prevent against https://github.com/firecracker-microvm/firecracker/issues/2914
+    fn test_null_terminator_index() {
+        let bytes = vec![b'\0'; 48];
+        assert_eq!(null_terminator_index(bytes.as_slice()), 0);
+
+        let bytes = vec![b'h', b'i', b'\0'];
+        assert_eq!(null_terminator_index(bytes.as_slice()), 2);
+
+        let bytes = vec![b'h', b'i', b'\0', b'\0'];
+        assert_eq!(null_terminator_index(bytes.as_slice()), 2);
     }
 
     #[test]

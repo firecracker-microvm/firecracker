@@ -7,10 +7,10 @@ pub mod connection;
 mod endpoint;
 pub mod handler;
 
+use std::num::Wrapping;
+
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
-
-use std::num::Wrapping;
 
 /// The largest possible window size (requires the window scaling option).
 pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
@@ -91,8 +91,9 @@ pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use micro_http::{Request, Response, StatusCode, Version};
+
+    use super::*;
 
     // In tcp tests, some of the functions require a callback parameter. Since we do not care,
     // for the purpose of those tests, what that callback does, we need to provide a dummy one.

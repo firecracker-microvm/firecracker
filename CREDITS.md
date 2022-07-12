@@ -48,7 +48,6 @@ Contributors to the Firecracker repository:
 * Begley Brothers Inc <begleybrothers@gmail.com>
 * Ben Holmes <bencwholmes@gmail.com>
 * Benjamin Fry <benjaminfry@me.com>
-* Liviu Berciu <lberciu@amazon.com>
 * bin liu <bin@hyper.sh>
 * binoychitale <binoychitale@gmail.com>
 * Bob Potter <bobby.potter@gmail.com>
@@ -98,6 +97,7 @@ Contributors to the Firecracker repository:
 * Jerome Gravel-Niquet <jeromegn@gmail.com>
 * Joel Winarske <joel.winarske@linux.com>
 * jonas serrano <jonas.corp@gmail.com>
+* Jonathan Woollett-Light <jonathanwoollettlight@gmail.com>
 * Josh Abraham <sinisterpatrician@gmail.com>
 * Josh McConnell <jmcconnell26@qub.ac.uk>
 * Joshua Abraham <sinisterpatrician@gmail.com>
@@ -107,11 +107,14 @@ Contributors to the Firecracker repository:
 * Kazuyoshi Kato <katokazu@amazon.com>
 * keyangxie <keyang.xie@gmail.com>
 * Krishna Kumar T <krishna.thokala2010@gmail.com>
+* kumargu <kumargu@amazon.com>
 * Laura Loghin <lauralg@amazon.com>
 * lifupan <lifupan@gmail.com>
 * Liu Jiang <gerry@linux.alibaba.com>
+* Liviu Berciu <lberciu@amazon.com>
 * Lloyd <lloydmeta@gmail.com>
 * lloydmeta <lloydmeta@gmail.com>
+* Lorenzo Fontana <fontanalorenz@gmail.com>
 * LOU Xun <aquarhead@ela.build>
 * Lucas Zanela <me@lucaszanella.com>
 * Luminita Voicu <lumivo@amazon.com>
@@ -123,6 +126,8 @@ Contributors to the Firecracker repository:
 * Masatoshi Higuchi <matt9ucci@gmail.com>
 * Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 * Matt Wilson <msw@amazon.com>
+* Matthew Schlebusch <schlebus@amazon.com>
+* Max Wittek <wimax@graplsecurity.com>
 * Mehrdad Arshad Rad <arshad.rad@gmail.com>
 * Michael Jarrett <1077485+EmeraldShift@users.noreply.github.com>
 * Michael Saah <msaah@linode.com>
@@ -152,6 +157,7 @@ Contributors to the Firecracker repository:
 * Robert Grimes <rmzgrimes@gmail.com>
 * Rodrigue Chakode <rodrigue.chakode@continental-corporation.com>
 * Rolf Neugebauer <neugebar@amazon.com>
+* Ryan Summerlin <summerlinryan@gmail.com>
 * Sam Jackson <sam@clique.app>
 * Samuel Ortiz <sameo@linux.intel.com>
 * Sean Lavine <freewil@users.noreply.github.com>
@@ -177,13 +183,16 @@ Contributors to the Firecracker repository:
 * Weixiao Huang <hwx.simle@gmail.com>
 * Wesley Norris <repnop@outlook.com>
 * William Hammond <william.t.hammond@gmail.com>
+* wllenyj <wllenyj@linux.alibaba.com>
 * wt-l00 <ei13suke@gmail.com>
 * xibz <impactbchang@gmail.com>
 * xiekeyang <keyang.xie@gmail.com>
+* Ye Sijun <junnplus@gmail.com>
 * Yichen Zhang <jakezhang2020@gmail.com>
-* YLyu <lyuyuan92@gmail.com>
-* Yuval Kohavi <yuval.kohavi@gmail.com>
 * Yılmaz ŞEN <yilmazsen94@gmail.com>
+* YLyu <lyuyuan92@gmail.com>
+* YUAN LYU <lyuyuan92@gmail.com>
+* Yuval Kohavi <yuval.kohavi@gmail.com>
 * Zi Shen Lim <zlim.lnx@gmail.com>
 * Zicklag <zicklag@katharostech.com>
 * Дамјан Георгиевски <gdamjan@gmail.com>

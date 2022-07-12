@@ -15,10 +15,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
             Error::AlreadyInitialized => "The component is already initialized.".to_string(),
-            Error::InitializationInProgress => {
-                "The component is initializing. Can't perform the requested action right now."
-                    .to_string()
-            }
+            Error::InitializationInProgress => "The component is initializing. Can't perform the \
+                                                requested action right now."
+                .to_string(),
         };
         f.write_str(&msg)
     }

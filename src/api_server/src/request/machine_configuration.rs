@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
+
 use super::super::VmmAction;
 use crate::parsed_request::{method_to_error, Error, ParsedRequest};
 use crate::request::{Body, Method};
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
@@ -14,9 +15,9 @@ pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
 
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
+    let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
-        Error::SerdeJson(e)
+        err
     })?;
 
     let vm_config = VmUpdateConfig::from(vm_config);
@@ -28,9 +29,9 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
 
 pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmUpdateConfig>(body.raw()).map_err(|e| {
+    let vm_config = serde_json::from_slice::<VmUpdateConfig>(body.raw()).map_err(|err| {
         METRICS.patch_api_requests.machine_cfg_fails.inc();
-        Error::SerdeJson(e)
+        err
     })?;
 
     if vm_config.is_empty() {
@@ -44,9 +45,10 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
     fn test_parse_get_machine_config_request() {

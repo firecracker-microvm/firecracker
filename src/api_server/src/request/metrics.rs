@@ -1,18 +1,19 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{IncMetric, METRICS};
+use vmm::vmm_config::metrics::MetricsConfig;
+
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::metrics::MetricsConfig;
 
 pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.metrics_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureMetrics(
-        serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|e| {
+        serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|err| {
             METRICS.put_api_requests.metrics_fails.inc();
-            Error::SerdeJson(e)
+            err
         })?,
     )))
 }

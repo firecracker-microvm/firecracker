@@ -7,10 +7,8 @@ mod redist_regs;
 
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::{
-    regs::{GicState, GicVcpuState},
-    Error, Result,
-};
+use crate::aarch64::gic::regs::{GicState, GicVcpuState};
+use crate::aarch64::gic::{Error, Result};
 
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
@@ -48,9 +46,10 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_vm_save_restore_state() {
@@ -85,9 +84,9 @@ mod tests {
         };
         gic_fd.get_device_attr(&mut gic_dist_attr).unwrap();
 
-        // The second value from the list of distributor registers is the value of the GICD_STATUSR register.
-        // We assert that the one saved in the bitmap is the same with the one we obtain
-        // with KVM_GET_DEVICE_ATTR.
+        // The second value from the list of distributor registers is the value of the GICD_STATUSR
+        // register. We assert that the one saved in the bitmap is the same with the one we
+        // obtain with KVM_GET_DEVICE_ATTR.
         let gicd_statusr = &vm_state.dist[1];
 
         assert_eq!(gicd_statusr.chunks[0], val);

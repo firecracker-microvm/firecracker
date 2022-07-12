@@ -1,8 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{de, Deserialize, Serialize};
 use std::fmt;
+
+use serde::{de, Deserialize, Serialize};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -31,19 +32,19 @@ impl fmt::Display for VmConfigError {
         match *self {
             IncompatibleBalloonSize => write!(
                 f,
-                "The memory size (MiB) is smaller than the previously \
-                 set balloon device target size.",
+                "The memory size (MiB) is smaller than the previously set balloon device target \
+                 size.",
             ),
             InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
             InvalidVcpuCount => write!(
                 f,
-                "The vCPU number is invalid! The vCPU number can only \
-                 be 1 or an even number when SMT is enabled.",
+                "The vCPU number is invalid! The vCPU number can only be 1 or an even number when \
+                 SMT is enabled.",
             ),
             InvalidVmState => write!(
                 f,
-                "Could not get the configuration of the previously \
-                 installed balloon device to validate the memory size.",
+                "Could not get the configuration of the previously installed balloon device to \
+                 validate the memory size.",
             ),
         }
     }
@@ -90,8 +91,8 @@ impl fmt::Display for VmConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"smt\": {:?}, \
-             \"cpu_template\": {:?}, \"track_dirty_pages\": {:?} }}",
+            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"smt\": {:?}, \"cpu_template\": \
+             {:?}, \"track_dirty_pages\": {:?} }}",
             self.vcpu_count, self.mem_size_mib, self.smt, self.cpu_template, self.track_dirty_pages
         )
     }
@@ -280,8 +281,8 @@ mod tests {
 
     #[test]
     fn test_display_vm_config_error() {
-        let expected_str = "The vCPU number is invalid! The vCPU number can only \
-                            be 1 or an even number when SMT is enabled.";
+        let expected_str = "The vCPU number is invalid! The vCPU number can only be 1 or an even \
+                            number when SMT is enabled.";
         assert_eq!(VmConfigError::InvalidVcpuCount.to_string(), expected_str);
 
         let expected_str = "The memory size (MiB) is invalid.";

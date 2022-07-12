@@ -5,15 +5,15 @@ mod gicv2;
 mod gicv3;
 mod regs;
 
-use std::{boxed::Box, result};
+use std::boxed::Box;
+use std::result;
 
-use kvm_ioctls::{DeviceFd, VmFd};
-
-use super::layout;
 use gicv2::GICv2;
 use gicv3::GICv3;
-
+use kvm_ioctls::{DeviceFd, VmFd};
 pub use regs::GicState;
+
+use super::layout;
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
@@ -101,7 +101,7 @@ pub trait GICDevice {
             addr,
         };
         fd.set_device_attr(&attr)
-            .map_err(|e| Error::DeviceAttribute(e, true, group))?;
+            .map_err(|err| Error::DeviceAttribute(err, true, group))?;
 
         Ok(())
     }
@@ -111,12 +111,11 @@ pub trait GICDevice {
     where
         Self: Sized,
     {
-        /* On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
-         * SPIs are used to signal interrupts from various peripherals accessible across
-         * the whole system so these are the ones that we increment when adding a new virtio device.
-         * KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a total
-         * of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
-         */
+        // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
+        // SPIs are used to signal interrupts from various peripherals accessible across
+        // the whole system so these are the ones that we increment when adding a new virtio device.
+        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a
+        // total of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
         let nr_irqs: u32 = super::layout::IRQ_MAX;
         let nr_irqs_ptr = &nr_irqs as *const u32;
         Self::set_device_attribute(
@@ -127,9 +126,8 @@ pub trait GICDevice {
             0,
         )?;
 
-        /* Finalize the GIC.
-         * See https://code.woboq.org/linux/linux/virt/kvm/arm/vgic/vgic-kvm-device.c.html#211.
-         */
+        // Finalize the GIC.
+        // See https://code.woboq.org/linux/linux/virt/kvm/arm/vgic/vgic-kvm-device.c.html#211.
         Self::set_device_attribute(
             gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
@@ -184,8 +182,9 @@ pub fn create_gic(
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     #[test]
     fn test_create_gic() {

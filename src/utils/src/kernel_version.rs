@@ -6,7 +6,7 @@ use std::result::Result;
 
 use libc::{uname, utsname};
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     Uname(IoError),
     InvalidUtf8(std::string::FromUtf8Error),
@@ -46,10 +46,9 @@ impl KernelVersion {
             return Err(Error::Uname(IoError::last_os_error()));
         }
 
-        Self::parse(
-            String::from_utf8(name.release.iter().map(|c| *c as u8).collect())
-                .map_err(Error::InvalidUtf8)?,
-        )
+        Self::parse(String::from_utf8(
+            name.release.iter().map(|c| *c as u8).collect(),
+        )?)
     }
 
     fn parse(release: String) -> Result<Self, Error> {
@@ -65,9 +64,9 @@ impl KernelVersion {
         }
 
         Ok(Self {
-            major: major.parse().map_err(Error::InvalidInt)?,
-            minor: minor.parse().map_err(Error::InvalidInt)?,
-            patch: patch.parse().map_err(Error::InvalidInt)?,
+            major: major.parse()?,
+            minor: minor.parse()?,
+            patch: patch.parse()?,
         })
     }
 }

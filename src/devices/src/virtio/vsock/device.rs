@@ -12,8 +12,8 @@ use std::result;
 /// We aim to conform to the VirtIO v1.1 spec:
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
 ///
-/// The vsock device has two input parameters: a CID to identify the device, and a `VsockBackend`
-/// to use for offloading vsock traffic.
+/// The vsock device has two input parameters: a CID to identify the device, and a
+/// `VsockBackend` to use for offloading vsock traffic.
 ///
 /// Upon its activation, the vsock device registers handlers for the following events/FDs:
 /// - an RX queue FD;
@@ -29,10 +29,9 @@ use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
+use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use super::VsockBackend;
-use super::{defs, defs::uapi};
-
+use super::{defs, VsockBackend};
 use crate::virtio::{
     ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
     VirtioDevice, VsockError,
@@ -145,24 +144,25 @@ where
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
                             Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
-                            Err(e) => {
+                            Err(err) => {
                                 warn!(
-                                    "vsock: Error writing packet header to guest memory: {:?}.\
-                                     Discarding the package.",
-                                    e
+                                    "vsock: Error writing packet header to guest memory: \
+                                     {:?}.Discarding the package.",
+                                    err
                                 );
                                 0
                             }
                         }
                     } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we can't
-                        // fill in this buffer, we'll need to undo the last iterator step.
+                        // We are using a consuming iterator over the virtio buffers, so, if we
+                        // can't fill in this buffer, we'll need to undo the
+                        // last iterator step.
                         self.queues[RXQ_INDEX].undo_pop();
                         break;
                     }
                 }
-                Err(e) => {
-                    warn!("vsock: RX queue error: {:?}. Discarding the package.", e);
+                Err(err) => {
+                    warn!("vsock: RX queue error: {:?}. Discarding the package.", err);
                     0
                 }
             };
@@ -170,8 +170,8 @@ where
             have_used = true;
             self.queues[RXQ_INDEX]
                 .add_used(mem, head.index, used_len)
-                .unwrap_or_else(|e| {
-                    error!("Failed to add available descriptor {}: {}", head.index, e)
+                .unwrap_or_else(|err| {
+                    error!("Failed to add available descriptor {}: {}", head.index, err)
                 });
         }
 
@@ -191,13 +191,13 @@ where
         while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
             let pkt = match VsockPacket::from_tx_virtq_head(&head) {
                 Ok(pkt) => pkt,
-                Err(e) => {
-                    error!("vsock: error reading TX packet: {:?}", e);
+                Err(err) => {
+                    error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
                     self.queues[TXQ_INDEX]
                         .add_used(mem, head.index, 0)
-                        .unwrap_or_else(|e| {
-                            error!("Failed to add available descriptor {}: {}", head.index, e);
+                        .unwrap_or_else(|err| {
+                            error!("Failed to add available descriptor {}: {}", head.index, err);
                         });
                     continue;
                 }
@@ -211,8 +211,8 @@ where
             have_used = true;
             self.queues[TXQ_INDEX]
                 .add_used(mem, head.index, 0)
-                .unwrap_or_else(|e| {
-                    error!("Failed to add available descriptor {}: {}", head.index, e);
+                .unwrap_or_else(|err| {
+                    error!("Failed to add available descriptor {}: {}", head.index, err);
                 });
         }
 
@@ -220,8 +220,8 @@ where
     }
 
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
-    // connections and the guest_cid configuration field is fetched again. Existing listen sockets remain
-    // but their CID is updated to reflect the current guest_cid.
+    // connections and the guest_cid configuration field is fetched again. Existing listen sockets
+    // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -232,12 +232,12 @@ where
         })?;
 
         mem.write_obj::<u32>(VIRTIO_VSOCK_EVENT_TRANSPORT_RESET, head.addr)
-            .unwrap_or_else(|e| error!("Failed to write virtio vsock reset event: {:?}", e));
+            .unwrap_or_else(|err| error!("Failed to write virtio vsock reset event: {:?}", err));
 
         self.queues[EVQ_INDEX]
             .add_used(mem, head.index, head.len)
-            .unwrap_or_else(|e| {
-                error!("Failed to add used descriptor {}: {}", head.index, e);
+            .unwrap_or_else(|err| {
+                error!("Failed to add used descriptor {}: {}", head.index, err);
             });
 
         self.signal_used_queue()?;

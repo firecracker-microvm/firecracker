@@ -154,16 +154,16 @@ The Firecracker snapshotting implementation offers support for snapshot versioni
   Firecracker release `v` might drop the possibility to save snapshots at any
   versions older than `v`.
 
-  For example Firecracker v1.0 adds support for some additional virtio features
-  (e.g. notification suppression). These features lead the guest drivers to
-  behave in a very specific way and as a consequence the Firecracker devices
-  have to respond accordingly. As a result, the snapshots that are created
-  while these features are in use will not be backwards compatible with
+  For example Firecracker v1.0 and v1.1 adds support for some additional virtio
+  features (e.g. notification suppression). These features lead the guest
+  drivers to behave in a very specific way and as a consequence the Firecracker
+  devices have to respond accordingly. As a result, the snapshots that are
+  created while these features are in use will not be backwards compatible with
   previous versions of Firecracker since the devices that come with these older
   versions do not behave in a way that’s compatible with the snapshotted guest
   drivers.
 
-  The list of versions that break snapshot backwards compatibility: `1.0`
+  The list of versions that break snapshot backwards compatibility: `1.0`, `1.1`
 - Loading snapshots from older versions (being able to load a snapshot created
   by any Firecracker version in the `[N, N + o]` interval, in a Firecracker
   version `N+o`).
@@ -244,7 +244,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
             "snapshot_type": "Full",
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "version": "0.23.0"
+            "version": "1.0.0"
     }'
 ```
 
@@ -299,7 +299,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
             "snapshot_type": "Diff",
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "version": "0.23.0"
+            "version": "1.0.0"
     }'
 ```
 
@@ -383,6 +383,44 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -H  'Content-Type: application/json' \
     -d '{
             "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File",
+            },
+            "enable_diff_snapshots": true,
+            "resume_vm": false
+    }'
+```
+
+The `backend_type` field represents the memory backend type used for loading the
+snapshot. Accepted values are:
+
+- `File` - rely on the kernel to handle page faults when loading the contents of
+  the guest memory file into memory.
+- `Uffd` - use a dedicated user space process to handle page faults that occur
+  for the guest memory range. Please refer to [this](handling-page-faults-on-snapshot-resume.md)
+  for more details on handling page faults in the user space.
+
+The meaning of `backend_path` depends on the `backend_type` chosen:
+
+- if using `File`, then `backend_path` should contain the path to the snapshot's
+  memory file to be loaded.
+- when using `Uffd`, `backend_path` refers to the path of the unix domain socket
+  used for communication between Firecracker and the user space process that handles
+  page faults.
+
+When relying on the OS to handle page faults, the command below is also accepted.
+Note that `mem_file_path` field is currently under the deprecation policy.
+`mem_file_path` and `mem_backend` are mutually exclusive, therefore specifying them
+both at the same time will return an error.
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
             "enable_diff_snapshots": true,
             "resume_vm": false
@@ -409,10 +447,11 @@ as they were to the original one.
     diff snapshot point of view).
   - The loaded microVM is now in the `Paused` state, so it needs to be resumed
     for it to run.
-  - The memory file pointed by `mem_file_path` **must** be considered immutable
-    from Firecracker and host point of view. It backs the guest OS memory for
-    read access through the page cache. External modification to this file
-    corrupts the guest memory and leads to undefined behavior.
+  - The memory file (pointed by `backend_path` when using `File` backend type,
+    or pointed by `mem_file_path`) **must** be considered immutable from Firecracker
+    and host point of view. It backs the guest OS memory for read access through
+    the page cache. External modification to this file corrupts the guest memory
+    and leads to undefined behavior.
   - The file indicated by `snapshot_path`, that is used to load from, is
     released and no longer used by this process.
   - If `enable_diff_snapshots` is set, then diff snapshots can be taken
@@ -463,7 +502,7 @@ function abnormally.
 
 ## Ensure continued network connectivity for clones
 
-For recomandations related to continued network connectivity for multiple
+For recommendations related to continued network connectivity for multiple
 clones created from a single Firecracker microVM snapshot please see [this doc](network-for-clones.md).
 
 ## Snapshot security and uniqueness

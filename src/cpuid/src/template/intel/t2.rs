@@ -1,11 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use kvm_bindings::{kvm_cpuid_entry2, CpuId};
+
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
 use crate::template::intel::validate_vendor_id;
 use crate::transformer::*;
-use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
 fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0x1::*;

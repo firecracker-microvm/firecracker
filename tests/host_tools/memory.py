@@ -3,7 +3,7 @@
 """Utilities for measuring memory utilization for a process."""
 from queue import Queue
 import time
-from threading import Thread
+from threading import Thread, Lock
 
 from framework import utils
 
@@ -14,8 +14,9 @@ class MemoryUsageExceededException(Exception):
     def __init__(self, usage, threshold):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            'Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n'
-            .format(usage, threshold)
+            "Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n".format(
+                usage, threshold
+            )
         )
 
 
@@ -38,6 +39,8 @@ class MemoryMonitor(Thread):
         self._exceeded_queue = Queue()
         self._threshold = self.MEMORY_THRESHOLD
         self._should_stop = False
+        self._current_rss = 0
+        self._lock = Lock()
 
     @property
     def pid(self):
@@ -85,13 +88,14 @@ class MemoryMonitor(Thread):
         the maximum value, it is pushed in a thread safe queue and memory
         monitoring ceases. It is up to the caller to check the queue.
         """
-        pmap_cmd = 'pmap -xq {}'.format(self.pid)
+        pmap_cmd = "pmap -xq {}".format(self.pid)
 
         while not self._should_stop:
             mem_total = 0
             try:
                 _, stdout, _ = utils.run_cmd(pmap_cmd)
                 pmap_out = stdout.split("\n")
+
             except ChildProcessError:
                 return
             for line in pmap_out:
@@ -99,26 +103,26 @@ class MemoryMonitor(Thread):
                 if not tokens:
                     break
                 try:
-                    address = int(tokens[0])
+                    address = int(tokens[0].lstrip("0"), 16)
                     total_size = int(tokens[1])
                     rss = int(tokens[2])
                 except ValueError:
                     # This line doesn't contain memory related information.
                     continue
-                if self._guest_mem_start is None and \
-                   total_size == self.guest_mem_mib * 1024:
+                if (
+                    self._guest_mem_start is None
+                    and total_size == self.guest_mem_mib * 1024
+                ):
                     # This is the start of the guest's memory region.
                     self._guest_mem_start = address
                     continue
                 if self.is_in_guest_mem_region(address):
                     continue
                 mem_total += rss
-
+            with self._lock:
+                self._current_rss = mem_total
             if mem_total > self.threshold:
                 self.exceeded_queue.put(mem_total)
-                return
-
-            if not mem_total:
                 return
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
@@ -134,4 +138,13 @@ class MemoryMonitor(Thread):
         """Check that there are no samples over the threshold."""
         if not self.exceeded_queue.empty():
             raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold)
+                self.exceeded_queue.get(), self.threshold
+            )
+
+    @property
+    def current_rss(self):
+        """Obtain current RSS for Firecracker's overhead."""
+        # This is to ensure that the monitor has updated itself.
+        time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S + 0.5)
+        with self._lock:
+            return self._current_rss

@@ -30,14 +30,12 @@ def test_reboot(test_microvm_with_api, network_config):
     # a root file system with the rw permission. The network interfaces is
     # added after we get a unique MAC and IP.
     vm.basic_config(vcpu_count=4)
-    _tap, _, _ = vm.ssh_network_config(network_config, '1')
+    _tap, _, _ = vm.ssh_network_config(network_config, "1")
 
     # Configure metrics system.
-    metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(
-        metrics_path=vm.create_jailed_resource(metrics_fifo.path)
-    )
+    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
     assert vm.api_session.is_status_no_content(response.status_code)
 
     vm.start()
@@ -46,9 +44,7 @@ def test_reboot(test_microvm_with_api, network_config):
     firecracker_pid = vm.jailer_clone_pid
 
     # Get number of threads in Firecracker
-    cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(
-        firecracker_pid
-    )
+    cmd = "ps -o nlwp {} | tail -1 | awk '{{print $1}}'".format(firecracker_pid)
     _, stdout, _ = utils.run_cmd(cmd)
     nr_of_threads = stdout.rstrip()
     assert int(nr_of_threads) == 6

@@ -55,7 +55,7 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 enum Error {
     Bincode(BincodeError),
     FileOpen(PathBuf, io::Error),
@@ -115,14 +115,15 @@ fn build_arg_parser() -> ArgParser<'static> {
             Argument::new("target-arch")
                 .required(true)
                 .takes_value(true)
-                .help("The computer architecture where the BPF program runs. Supported architectures: x86_64, aarch64."),
+                .help(
+                    "The computer architecture where the BPF program runs. Supported \
+                     architectures: x86_64, aarch64.",
+                ),
         )
-        .arg(
-            Argument::new("basic")
-                .takes_value(false)
-                .help("Deprecated! Transforms the filters into basic filters. Drops all argument checks \
-                and rule-level actions. Not recommended."),
-        )
+        .arg(Argument::new("basic").takes_value(false).help(
+            "Deprecated! Transforms the filters into basic filters. Drops all argument checks and \
+             rule-level actions. Not recommended.",
+        ))
 }
 
 fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
@@ -130,11 +131,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     if arch_string.is_none() {
         return Err(Error::MissingTargetArch);
     }
-    let target_arch: TargetArch = arch_string
-        .unwrap()
-        .as_str()
-        .try_into()
-        .map_err(Error::Arch)?;
+    let target_arch: TargetArch = arch_string.unwrap().as_str().try_into()?;
 
     let input_file = arguments.single_value("input-file");
     if input_file.is_none() {
@@ -145,7 +142,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     if is_basic {
         println!(
             "Warning! You are using a deprecated parameter: --basic, that will be removed in a \
-            future version.\n"
+             future version.\n"
         );
     }
 
@@ -170,9 +167,7 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: HashMap<String, BpfProgram> = compiler
-        .compile_blob(filters.0, args.is_basic)
-        .map_err(Error::FileFormat)?;
+    let bpf_data: HashMap<String, BpfProgram> = compiler.compile_blob(filters.0, args.is_basic)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)
@@ -187,8 +182,7 @@ fn main() {
 
     if let Err(err) = arg_parser.parse_from_cmdline() {
         eprintln!(
-            "Arguments parsing error: {} \n\n\
-             For more information try --help.",
+            "Arguments parsing error: {} \n\nFor more information try --help.",
             err
         );
         process::exit(EXIT_CODE_ERROR);
@@ -205,11 +199,7 @@ fn main() {
     }
 
     let args = get_argument_values(arg_parser.arguments()).unwrap_or_else(|err| {
-        eprintln!(
-            "{} \n\n\
-            For more information try --help.",
-            err
-        );
+        eprintln!("{} \n\nFor more information try --help.", err);
         process::exit(EXIT_CODE_ERROR);
     });
 
@@ -223,22 +213,22 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::io;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    use bincode::Error as BincodeError;
+    use utils::tempfile::TempFile;
+
     use super::compiler::{Error as FilterFormatError, Filter, SyscallRule};
     use super::{
         build_arg_parser, compile, get_argument_values, parse_json, Arguments, Error,
         DEFAULT_OUTPUT_FILENAME,
     };
-    use crate::backend::SeccompCmpOp::Le;
-    use crate::backend::{
-        SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*, SeccompCondition as Cond, TargetArch,
-        TargetArchError,
-    };
-    use bincode::Error as BincodeError;
-    use std::collections::HashMap;
-    use std::io;
-    use std::io::Write;
-    use std::path::PathBuf;
-    use utils::tempfile::TempFile;
+    use crate::backend::SeccompCmpArgLen::*;
+    use crate::backend::SeccompCmpOp::{Le, *};
+    use crate::backend::{SeccompAction, SeccompCondition as Cond, TargetArch, TargetArchError};
 
     // test helper for generating correct JSON input data
     fn get_correct_json_input() -> String {

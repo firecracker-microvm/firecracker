@@ -23,12 +23,12 @@ def test_init_params(test_microvm_with_api):
     # Ubuntu version from the /etc/issue file.
     vm.basic_config(
         vcpu_count=1,
-        boot_args='console=ttyS0 reboot=k panic=1 pci=off'
-                  ' init=/bin/cat -- /etc/issue',
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off"
+        " init=/bin/cat -- /etc/issue",
     )
 
     vm.start()
     serial = Serial(vm)
     serial.open()
     # If the string does not show up, the test will fail.
-    serial.rx(token='Ubuntu 18.04.5 LTS')
+    serial.rx(token="Ubuntu 18.04.5 LTS")

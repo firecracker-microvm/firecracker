@@ -1,11 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
-
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
+
+use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -148,9 +148,10 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use seccompiler::BpfThreadMap;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     #[test]
     fn test_get_filters() {

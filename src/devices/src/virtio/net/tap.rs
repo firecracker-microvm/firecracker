@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use net_gen::ifreq;
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+
+use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
@@ -191,9 +192,10 @@ impl AsRawFd for Tap {
 pub mod tests {
     use std::os::unix::ffi::OsStrExt;
 
+    use net_gen::ETH_HLEN;
+
     use super::*;
     use crate::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
-    use net_gen::ETH_HLEN;
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;

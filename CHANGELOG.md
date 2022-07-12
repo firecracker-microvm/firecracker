@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.1.0]
 
 ### Added
 
@@ -9,11 +9,37 @@
   reset the `cpu_template` once it was set.
 - Added a `rebase-snap` tool for rebasing a diff snapshot over a base
   snapshot.
+- Mmds version is persisted across snapshot-restore. Snapshot compatibility is
+  preserved bidirectionally, to and from a Firecracker version that does not
+  support persisting the Mmds version. In such cases, the default V1 option is
+  used.
+- Added `--mmds-size-limit` for limiting the mmds data store size instead of
+  piggy-backing on `--http-api-max-payload-size`. If left unconfigured it
+  defaults to the value of `--http-api-max-payload-size`, to provide backwards
+  compatibility.
+- Added optional `mem_backend` body field in `PUT` requests on `/snapshot/load`.
+  This new parameter is an object that defines the configuration of the backend
+  responsible for handling memory loading during snapshot restore. The
+  `mem_backend` parameter contains `backend_type` and `backend_path` required
+  fields. `backend_type` is an enum that can take either `File` or `Uffd` as
+  value. Interpretation of `backend_path` field depends on the value of
+  `backend_type`. If `File`, then the user must provide the path to file that
+  contains the guest memory to be loaded. Otherwise, if `backend_type` is `Uffd`,
+  then `backend_path` is the path to a unix domain socket where a custom page
+  fault handler process is listening and expecting a UFFD to be sent by
+  Firecracker. The UFFD is used to handle the guest memory page faults in the
+  separate process.
+- Added logging for the snapshot/restore and async block device IO engine
+  features to indicate they are in development preview.
 
 ### Changed
 
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
+- MmdsV2 is now Generally Available.
+- MmdsV1 is now deprecated and will be removed in Firecracker v2.0.0.
+  Use MmdsV2 instead.
+- Deprecated `mem_file_path` body field in `PUT` on `/snapshot/load` request.
 
 ### Fixed
 
@@ -34,6 +60,8 @@
   for `/machine-config` will reset all optional parameters (`smt`,
   `cpu_template`, `track_dirty_pages`) to their default values if they are
   not specified in the `PUT` request.
+- Fixed incosistency in the swagger definition with the current state of the
+  `/vm/config` endpoint.
 
 ## [1.0.0]
 

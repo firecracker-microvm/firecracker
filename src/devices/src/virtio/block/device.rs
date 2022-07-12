@@ -5,34 +5,32 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
-use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::{cmp, result};
 
+use block_io::FileEngine;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
+use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use virtio_gen::virtio_blk::*;
+use virtio_gen::virtio_blk::{
+    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
+};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
-use super::io as block_io;
+use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
-use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
-    request::*,
-    Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
-};
+use super::request::*;
+use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
 use crate::virtio::{IrqTrigger, IrqType};
-use block_io::FileEngine;
-use serde::{Deserialize, Serialize};
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -104,8 +102,8 @@ impl DiskProperties {
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
         if disk_size % SECTOR_SIZE != 0 {
             warn!(
-                "Disk size {} is not a multiple of sector size {}; \
-                 the remainder will not be visible to the guest.",
+                "Disk size {} is not a multiple of sector size {}; the remainder will not be \
+                 visible to the guest.",
                 disk_size, SECTOR_SIZE
             );
         }
@@ -225,7 +223,7 @@ macro_rules! unwrap_async_file_engine_or_return {
                 error!("The block device doesn't use an async IO engine");
                 return;
             }
-        };
+        }
     };
 }
 
@@ -285,8 +283,8 @@ impl Block {
 
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
-        if let Err(e) = self.queue_evts[0].read() {
-            error!("Failed to get queue event: {:?}", e);
+        if let Err(err) = self.queue_evts[0].read() {
+            error!("Failed to get queue event: {:?}", err);
             METRICS.block.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
             METRICS.block.rate_limiter_throttled_events.inc();
@@ -318,9 +316,9 @@ impl Block {
         mem: &GuestMemoryMmap,
         irq_trigger: &IrqTrigger,
     ) {
-        queue
-            .add_used(mem, index, len)
-            .unwrap_or_else(|e| error!("Failed to add available descriptor head {}: {}", index, e));
+        queue.add_used(mem, index, len).unwrap_or_else(|err| {
+            error!("Failed to add available descriptor head {}: {}", index, err)
+        });
 
         if queue.prepare_kick(mem) {
             irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
@@ -350,8 +348,8 @@ impl Block {
                     used_any = true;
                     request.process(&mut self.disk, head.index, mem)
                 }
-                Err(e) => {
-                    error!("Failed to parse available descriptor chain: {:?}", e);
+                Err(err) => {
+                    error!("Failed to parse available descriptor chain: {:?}", err);
                     METRICS.block.execute_fails.inc();
                     ProcessingResult::Executed(FinishedRequest {
                         num_bytes_to_mem: 0,
@@ -380,8 +378,8 @@ impl Block {
         }
 
         if let FileEngine::Async(engine) = self.disk.file_engine_mut() {
-            if let Err(e) = engine.kick_submission_queue() {
-                error!("Error submitting pending block requests: {:?}", e);
+            if let Err(err) = engine.kick_submission_queue() {
+                error!("Error submitting pending block requests: {:?}", err);
             }
         }
 
@@ -434,16 +432,15 @@ impl Block {
     pub fn process_async_completion_event(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
-        if let Err(e) = engine.completion_evt().read() {
-            error!("Failed to get async completion event: {:?}", e);
-            return;
-        }
+        if let Err(err) = engine.completion_evt().read() {
+            error!("Failed to get async completion event: {:?}", err);
+        } else {
+            self.process_async_completion_queue();
 
-        self.process_async_completion_queue();
-
-        if self.is_io_engine_throttled {
-            self.is_io_engine_throttled = false;
-            self.process_queue(0);
+            if self.is_io_engine_throttled {
+                self.is_io_engine_throttled = false;
+                self.process_queue(0);
+            }
         }
     }
 
@@ -513,8 +510,8 @@ impl Block {
     }
 
     fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(e) = self.disk.file_engine_mut().drain_and_flush(discard) {
-            error!("Failed to drain ops and flush block data: {:?}", e);
+        if let Err(err) = self.disk.file_engine_mut().drain_and_flush(discard) {
+            error!("Failed to drain ops and flush block data: {:?}", err);
         }
     }
 
@@ -619,8 +616,8 @@ impl Drop for Block {
     fn drop(&mut self) {
         match self.disk.cache_type {
             CacheType::Unsafe => {
-                if let Err(e) = self.disk.file_engine_mut().drain(true) {
-                    error!("Failed to drain ops on drop: {:?}", e);
+                if let Err(err) = self.disk.file_engine_mut().drain(true) {
+                    error!("Failed to drain ops on drop: {:?}", err);
                 }
             }
             CacheType::Writeback => {
@@ -635,23 +632,22 @@ pub(crate) mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
-    use std::thread;
     use std::time::Duration;
-    use std::u32;
+    use std::{thread, u32};
 
-    use super::*;
-    use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};
 
+    use super::*;
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
         default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
         simulate_queue_event,
     };
+    use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use crate::virtio::IO_URING_NUM_ENTRIES;
 
@@ -1346,7 +1342,8 @@ pub(crate) mod tests {
             assert_eq!(received_device_id, expected_device_id);
         }
 
-        // Test that a device ID request will be discarded, if it fails to provide enough buffer space.
+        // Test that a device ID request will be discarded, if it fails to provide enough buffer
+        // space.
         {
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());

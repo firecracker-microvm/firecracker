@@ -9,12 +9,13 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
+use micro_http::{Request, Response};
+
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use crate::tcp::endpoint::Endpoint;
 use crate::tcp::{NextSegmentStatus, RstConfig};
-use micro_http::{Request, Response};
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
@@ -55,6 +56,7 @@ pub enum WriteEvent {
 ///
 /// [`receive_packet`]: struct.TcpIPv4Handler.html#method.receive_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
+#[derive(derive_more::From)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RecvError {
     /// The inner segment has an invalid destination port.
@@ -68,7 +70,7 @@ pub enum RecvError {
 ///
 /// [`write_next_packet`]: struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, PartialEq, derive_more::From)]
 pub enum WriteNextError {
     /// There was an error while writing the contents of the IPv4 packet.
     IPv4Packet(IPv4PacketError),
@@ -101,20 +103,19 @@ impl ConnectionTuple {
 /// tuple, or attempts to establish new connections (when receiving `SYN` segments). Aside from
 /// constructors, the handler operation is based on three methods:
 ///
-/// * [`receive_packet`] examines an incoming IPv4 packet. It checks whether the destination
-///   address is correct, the attempts examine the inner TCP segment, making sure the destination
-///   port number is also correct. Then, it steers valid segments towards exiting connections,
-///   creates new connections for incoming `SYN` segments, and enqueues `RST` replies in response
-///   to any segments which cannot be associated with a connection (except other `RST` segments).
-///   On success, also describes any internal status changes triggered by the reception of the
-///   packet.
+/// * [`receive_packet`] examines an incoming IPv4 packet. It checks whether the destination address
+///   is correct, the attempts examine the inner TCP segment, making sure the destination port
+///   number is also correct. Then, it steers valid segments towards exiting connections, creates
+///   new connections for incoming `SYN` segments, and enqueues `RST` replies in response to any
+///   segments which cannot be associated with a connection (except other `RST` segments). On
+///   success, also describes any internal status changes triggered by the reception of the packet.
 /// * [`write_next_packet`] writes the next IPv4 packet (if available) that would be sent by the
 ///   handler itself (right now it can only mean an enqueued `RST`), or one of the existing
 ///   connections. On success, also describes any internal status changes triggered as the packet
 ///   gets transmitted.
-/// * [`next_segment_status`] describes whether the handler can send a packet immediately, or
-///   after some retransmission timeout associated with a connection fires, or if there's nothing
-///   to send for the moment. This is used to determine whether it's appropriate to call
+/// * [`next_segment_status`] describes whether the handler can send a packet immediately, or after
+///   some retransmission timeout associated with a connection fires, or if there's nothing to send
+///   for the moment. This is used to determine whether it's appropriate to call
 ///   [`write_next_packet`].
 ///
 /// [`receive_packet`]: ../handler/struct.TcpIPv4Handler.html#method.receive_packet
@@ -212,8 +213,7 @@ impl TcpIPv4Handler {
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest to some other entity. Clear this up at some point!
         // (Issue #520)
-        let segment =
-            TcpSegment::from_bytes(packet.payload(), None).map_err(RecvError::TcpSegment)?;
+        let segment = TcpSegment::from_bytes(packet.payload(), None)?;
 
         if segment.destination_port() != self.local_port {
             return Err(RecvError::InvalidPort);
@@ -388,8 +388,7 @@ impl TcpIPv4Handler {
 
         // Write an incomplete Ipv4 packet and complete it afterwards with missing information.
         let mut packet =
-            IPv4Packet::write_header(buf, PROTOCOL_TCP, Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST)
-                .map_err(WriteNextError::IPv4Packet)?;
+            IPv4Packet::write_header(buf, PROTOCOL_TCP, Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST)?;
 
         // We set mss_used to 0, because we don't add any IP options.
         // TODO: Maybe get this nicely from packet at some point.
@@ -409,8 +408,7 @@ impl TcpIPv4Handler {
                 None,
                 0,
                 None,
-            )
-            .map_err(WriteNextError::TcpSegment)?
+            )?
             .finalize(
                 self.local_port,
                 tuple.remote_port,
@@ -520,13 +518,13 @@ mod tests {
         h: &mut TcpIPv4Handler,
         buf: &'a mut [u8],
     ) -> Result<(Option<IPv4Packet<'a, &'a mut [u8]>>, WriteEvent), WriteNextError> {
-        h.write_next_packet(buf).map(|(o, e)| {
+        h.write_next_packet(buf).map(|(o, err)| {
             (
                 o.map(move |len| {
                     let len = len.get();
                     IPv4Packet::from_bytes(buf.split_at_mut(len).0, true).unwrap()
                 }),
-                e,
+                err,
             )
         })
     }
@@ -537,8 +535,8 @@ mod tests {
         expected_event: WriteEvent,
     ) -> TcpSegment<'a, &'a mut [u8]> {
         let (segment_start, segment_end) = {
-            let (o, e) = write_next(h, buf).unwrap();
-            assert_eq!(e, expected_event);
+            let (o, event) = write_next(h, buf).unwrap();
+            assert_eq!(event, expected_event);
             let p = o.unwrap();
             (p.header_len(), p.len())
         };

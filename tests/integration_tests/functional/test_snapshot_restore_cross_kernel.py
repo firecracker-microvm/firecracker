@@ -4,20 +4,29 @@
 import json
 import logging
 import os
+import re
 import pathlib
 import shutil
 import pytest
 
-from framework.artifacts import Snapshot, Artifact, ArtifactType, \
-    create_net_devices_configuration
+from framework.artifacts import (
+    Snapshot,
+    Artifact,
+    ArtifactType,
+    create_net_devices_configuration,
+)
 from framework.builder import MicrovmBuilder
 from framework.defs import FC_WORKSPACE_DIR, DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.utils_vsock import check_vsock_device
+from framework.utils import generate_mmds_session_token, generate_mmds_get_request
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_mmds import _populate_data_store
-from integration_tests.functional.test_snapshot_basic import \
-    _guest_run_fio_iteration
-from integration_tests.functional.test_balloon import \
-    get_stable_rss_mem_by_pid, make_guest_dirty_memory, MB_TO_PAGES
+from integration_tests.functional.test_snapshot_basic import _guest_run_fio_iteration
+from integration_tests.functional.test_balloon import (
+    get_stable_rss_mem_by_pid,
+    make_guest_dirty_memory,
+    MB_TO_PAGES,
+)
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
@@ -31,14 +40,14 @@ def _test_balloon(microvm, ssh_connection):
 
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
-    # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+    # Dirty 300MB of pages.
+    make_guest_dirty_memory(ssh_connection, amount=(300 * MB_TO_PAGES))
     # Check memory usage again.
     second_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     assert second_reading > first_reading
 
-    # Inflate the balloon.
-    response = microvm.balloon.patch(amount_mib=40)
+    # Inflate the balloon. Get back 200MB.
+    response = microvm.balloon.patch(amount_mib=200)
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -57,12 +66,14 @@ def _get_snapshot_files_paths(snapshot_dir):
         elif file.endswith(".vmstate"):
             vmstate = file_path
         elif file.endswith(".id_rsa"):
-            ssh_key = Artifact(None, os.path.basename(file),
-                               ArtifactType.SSH_KEY,
-                               DEFAULT_TEST_SESSION_ROOT_PATH)
+            ssh_key = Artifact(
+                None,
+                os.path.basename(file),
+                ArtifactType.SSH_KEY,
+                DEFAULT_TEST_SESSION_ROOT_PATH,
+            )
             file_path = ssh_key.local_path()
-            pathlib.Path(os.path.dirname(file_path)).mkdir(parents=True,
-                                                           exist_ok=True)
+            pathlib.Path(os.path.dirname(file_path)).mkdir(parents=True, exist_ok=True)
         elif file.endswith(".ext4"):
             disk = file_path
 
@@ -81,40 +92,37 @@ def _get_snapshot_files_paths(snapshot_dir):
 
 def _test_mmds(vm, mmds_net_iface):
     # Populate MMDS.
-    data_store = {
-        'latest': {
-            'meta-data': {
-                'ami-id': 'ami-12345678'
-            }
-        }
-    }
+    data_store = {"latest": {"meta-data": {"ami-id": "ami-12345678"}}}
     _populate_data_store(vm, data_store)
 
-    mmds_ipv4_address = '169.254.169.254'
-    vm.ssh_config['hostname'] = mmds_net_iface.guest_ip
+    mmds_ipv4_address = "169.254.169.254"
+    vm.ssh_config["hostname"] = mmds_net_iface.guest_ip
     ssh_connection = net_tools.SSHConnection(vm.ssh_config)
 
     # Insert new rule into the routing table of the guest.
-    cmd = 'ip route add {} dev {}'.format(
-        mmds_net_iface.guest_ip,
-        mmds_net_iface.dev_name
+    cmd = "ip route add {} dev {}".format(
+        mmds_net_iface.guest_ip, mmds_net_iface.dev_name
     )
     code, _, _ = ssh_connection.execute_command(cmd)
     assert code == 0
 
-    # Ensure MMDS default version 1 works as expected.
-    # The base microVM had MMDS version 2 configured, but this
-    # information is not persistent inside the snapshot yet,
-    # so the cloned VM starts with default MMDS V1.
-    cmd = 'curl -s -H "Accept: application/json" ' \
-          'http://{}/'.format(mmds_ipv4_address)
+    # The base microVM had MMDS version 2 configured, which was persisted
+    # across the snapshot-restore.
+    token = generate_mmds_session_token(ssh_connection, mmds_ipv4_address, token_ttl=60)
+
+    cmd = generate_mmds_get_request(mmds_ipv4_address, token=token)
     _, stdout, _ = ssh_connection.execute_command(cmd)
     assert json.load(stdout) == data_store
 
 
 @pytest.mark.nonci
-def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
-                                     test_fc_session_root_path):
+@pytest.mark.parametrize(
+    "cpu_template",
+    ["C3", "T2", "None"] if get_cpu_vendor() == CpuVendor.INTEL else ["None"],
+)
+def test_snap_restore_from_artifacts(
+    bin_cloner_path, bin_vsock_path, test_fc_session_root_path, cpu_template
+):
     """
     Restore from snapshots obtained with all supported guest kernel versions.
 
@@ -130,11 +138,15 @@ def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
 
     snapshot_root_name = "snapshot_artifacts"
     snapshot_root_dir = os.path.join(FC_WORKSPACE_DIR, snapshot_root_name)
-    pathlib.Path(Artifact.LOCAL_ARTIFACT_DIR).mkdir(parents=True,
-                                                    exist_ok=True)
+    pathlib.Path(Artifact.LOCAL_ARTIFACT_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Iterate through all subdirectories in the snapshot root dir.
-    for subdir_name in os.listdir(snapshot_root_dir):
+    # Iterate through all subdirectories based on CPU template
+    # in the snapshot root dir.
+    subdir_filter = r".*_" + re.escape(cpu_template) + r"_guest_snapshot"
+    snap_subdirs = [
+        d for d in os.listdir(snapshot_root_dir) if re.match(subdir_filter, d)
+    ]
+    for subdir_name in snap_subdirs:
         snapshot_dir = os.path.join(snapshot_root_dir, subdir_name)
         assert os.path.isdir(snapshot_dir)
 
@@ -145,9 +157,7 @@ def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
         snapshot = Snapshot(mem, vmstate, [disk], net_ifaces, ssh_key)
 
         logger.info("Loading microVM from snapshot...")
-        vm, _ = builder.build_from_snapshot(snapshot,
-                                            resume=True,
-                                            diff_snapshots=False)
+        vm, _ = builder.build_from_snapshot(snapshot, resume=True, diff_snapshots=False)
 
         # Ensure microVM is running.
         response = vm.machine_cfg.get()
@@ -157,7 +167,7 @@ def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
         # Test that net devices have connectivity after restore.
         for iface in snapshot.net_ifaces:
             logger.info("Testing net device %s...", iface.dev_name)
-            vm.ssh_config['hostname'] = iface.guest_ip
+            vm.ssh_config["hostname"] = iface.guest_ip
             ssh_connection = net_tools.SSHConnection(vm.ssh_config)
             exit_code, _, _ = ssh_connection.execute_command("sync")
             assert exit_code == 0
@@ -169,9 +179,9 @@ def test_snap_restore_from_artifacts(bin_cloner_path, bin_vsock_path,
         _test_balloon(vm, ssh_connection)
 
         logger.info("Testing vsock device...")
-        check_vsock_device(vm, bin_vsock_path,
-                           test_fc_session_root_path,
-                           ssh_connection)
+        check_vsock_device(
+            vm, bin_vsock_path, test_fc_session_root_path, ssh_connection
+        )
 
         # Run fio on the guest.
         _guest_run_fio_iteration(ssh_connection, 0)

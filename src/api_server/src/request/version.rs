@@ -1,9 +1,10 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::parsed_request::{Error, ParsedRequest};
 use logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
+
+use crate::parsed_request::{Error, ParsedRequest};
 
 pub(crate) fn parse_get_version() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.vmm_version_count.inc();

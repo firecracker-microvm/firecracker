@@ -57,7 +57,15 @@ If you just want to receive feedback for a contribution proposal, open an “RFC
 ## Contribution Quality Standards
 
 Most quality and style standards are enforced automatically during integration
-testing. Your contribution needs to meet the following standards:
+testing. For ease of use you can setup a git pre-commit hook by running the
+following in the Firecracker root directory:
+
+```
+cargo install rusty-hook
+rusty-hook init
+```
+
+Your contribution needs to meet the following standards:
 
 - Separate each **logical change** into its own commit.
 - Each commit must pass all unit & code style tests, and the full pull request
@@ -68,6 +76,17 @@ testing. Your contribution needs to meet the following standards:
 - Document all your public functions.
 - Add a descriptive message for each commit. Follow
   [commit message best practices](https://github.com/erlang/otp/wiki/writing-good-commit-messages).
+- A good commit message may look like
+
+  ```
+  A descriptive title of 50 characters or fewer
+
+  A concise description where each line is 72 characters or fewer.
+
+  Signed-Off-By <A full name> <A email>
+  Co-Authored-By: <B full name> <B email>
+  ```
+
 - Document your pull requests. Include the reasoning behind each change, and
   the testing done.
 - Acknowledge Firecracker's [Apache 2.0 license](LICENSE) and certify that no

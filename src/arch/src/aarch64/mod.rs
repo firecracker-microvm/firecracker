@@ -14,13 +14,14 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::DeviceType;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM.
     SetupFDT(fdt::Error),
@@ -30,6 +31,8 @@ pub enum Error {
 
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
+/// The size of the memory area reserved for MMIO devices.
+pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START; //>> 1GB
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
@@ -64,8 +67,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
         device_info,
         gic_device,
         initrd,
-    )
-    .map_err(Error::SetupFDT)?;
+    )?;
     Ok(())
 }
 

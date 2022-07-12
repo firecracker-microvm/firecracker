@@ -22,8 +22,7 @@ use vm_memory::{
 };
 
 use super::super::DescriptorChain;
-use super::defs;
-use super::{Result, VsockError};
+use super::{defs, Result, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -71,9 +70,9 @@ pub struct VsockPacketHeader {
     // Size (in bytes) of the packet sender receive buffer (for the connection to which this packet
     // belongs).
     buf_alloc: u32,
-    // Number of bytes the sender has received and consumed (for the connection to which this packet
-    // belongs). For instance, for our Unix backend, this counter would be the total number of bytes
-    // we have successfully written to a backing Unix socket.
+    // Number of bytes the sender has received and consumed (for the connection to which this
+    // packet belongs). For instance, for our Unix backend, this counter would be the total
+    // number of bytes we have successfully written to a backing Unix socket.
     fwd_cnt: u32,
 }
 
@@ -244,8 +243,8 @@ impl VsockPacket {
     /// As they are currently implemented, `GuestMemory::write_to()` and `GuestMemory::read_from()`
     /// have 2 significant disadvantages:
     /// 1. Performance: They process chunks of length 4K and they copy data to an auxiliary buffer.
-    /// 2. Error handling: They don't handle `EWOULDBLOCK` correctly. So for example if it manages to
-    ///    write 1K bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
+    /// 2. Error handling: They don't handle `EWOULDBLOCK` correctly. So for example if it manages
+    /// to    write 1K bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
     ///    `GuestMemory::IoError`. On the Rx path we read from a stream, but we don't know its
     ///    length. We just try to write as much as possible. This is guaranteed to lead to an
     ///    `EWOULDBLOCK` error eventually.

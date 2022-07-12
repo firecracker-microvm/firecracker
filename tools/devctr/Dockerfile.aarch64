@@ -26,6 +26,8 @@ ENV LC_ALL=C.UTF-8
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         binutils-dev \
+        # Needed in order to be able to compile `userfaultfd-sys`.
+        clang \
         cmake \
         curl \
         file \
@@ -43,6 +45,7 @@ RUN apt-get update \
         libssl-dev \
         lsof \
         make \
+        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
@@ -58,12 +61,31 @@ RUN apt-get update \
         bc \
         flex \
         bison \
+        build-essential \
+        zlib1g-dev \
+        libncurses5-dev \
+        libgdbm-dev \
+        libnss3-dev \
+        libssl-dev \
+        libreadline-dev \
+        libffi-dev \
+        wget \
     && python3 -m pip install \
         setuptools \
         setuptools_rust \
         wheel \
-    && python3 -m pip install --upgrade pip \ 
+    && python3 -m pip install --upgrade pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Update Python to 3.10
+# This method isn't ideal, compiling from source can be dropped
+# once the container definition is based on ubuntu:22.04
+RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
+    && tar -xf Python-3.10.4.tgz \
+    && cd ./Python-3.10.4 \
+    && ./configure --enable-optimizations \
+    && make -j 8 \
+    && make install
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
@@ -75,7 +97,7 @@ RUN cd "$TMP_POETRY_DIR" \
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
         && cd "$TMP_BUILD_DIR" \
                     && cargo install cargo-kcov \
@@ -86,6 +108,14 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
+
+RUN ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
+
+# help musl-gcc find linux headers
+RUN cd /usr/include/aarch64-linux-musl \
+    && ln -s ../aarch64-linux-gnu/asm asm \
+    && ln -s ../linux linux \
+    && ln -s ../asm-generic asm-generic
 
 # Build iperf3-vsock
 RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \

@@ -27,9 +27,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
-use super::defs;
 use super::muxer::ConnMapKey;
-use super::MuxerConnection;
+use super::{defs, MuxerConnection};
 
 /// A kill queue item, holding the connection key and the scheduled time for termination.
 #[derive(Clone, Copy)]

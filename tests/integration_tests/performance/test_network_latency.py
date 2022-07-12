@@ -11,8 +11,7 @@ from conftest import ARTIFACTS_COLLECTION
 from framework.artifacts import ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.stats import core, consumer, producer, types, criteria,\
-    function
+from framework.stats import core, consumer, producer, types, criteria, function
 from framework.utils import eager_map, get_kernel_version, CpuMap
 from framework.artifacts import DEFAULT_HOST_IP
 from framework.utils_cpuid import get_cpu_model_name
@@ -21,25 +20,13 @@ from integration_tests.performance.utils import handle_failure
 PING = "ping -c {} -i {} {}"
 LATENCY_AVG_BASELINES = {
     "x86_64": {
-        "4.14": {
-            "target": 0.240,  # milliseconds
-            "delta": 0.040  # milliseconds
-        },
-        "5.10": {
-            "target": 0.250,  # milliseconds
-            "delta": 0.020  # milliseconds
-        }
+        "4.14": {"target": 0.240, "delta": 0.040},  # milliseconds  # milliseconds
+        "5.10": {"target": 0.230, "delta": 0.020},  # milliseconds  # milliseconds
     },
     "aarch64": {
-        "4.14": {
-            "target": 0.039,  # milliseconds
-            "delta": 0.020  # milliseconds
-        },
-        "5.10": {
-            "target": 0.034,  # milliseconds
-            "delta": 0.020  # milliseconds
-        }
-    }
+        "4.14": {"target": 0.039, "delta": 0.020},  # milliseconds  # milliseconds
+        "5.10": {"target": 0.034, "delta": 0.020},  # milliseconds  # milliseconds
+    },
 }
 
 PKT_LOSS = "pkt_loss"
@@ -51,9 +38,7 @@ def pass_criteria():
     """Define pass criteria for the statistics."""
     arch = platform.machine()
     host_kernel = get_kernel_version(level=1)
-    return {
-        "Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[arch][host_kernel])
-    }
+    return {"Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[arch][host_kernel])}
 
 
 def measurements():
@@ -61,18 +46,20 @@ def measurements():
     latency = types.MeasurementDef.create_measurement(
         LATENCY,
         "ms",
-        [function.ValuePlaceholder("Avg"),
-         function.ValuePlaceholder("Min"),
-         function.ValuePlaceholder("Max"),
-         function.ValuePlaceholder("Stddev"),
-         function.ValuePlaceholder("Percentile99"),
-         function.ValuePlaceholder("Percentile90"),
-         function.ValuePlaceholder("Percentile50")],
-        pass_criteria())
+        [
+            function.ValuePlaceholder("Avg"),
+            function.ValuePlaceholder("Min"),
+            function.ValuePlaceholder("Max"),
+            function.ValuePlaceholder("Stddev"),
+            function.ValuePlaceholder("Percentile99"),
+            function.ValuePlaceholder("Percentile90"),
+            function.ValuePlaceholder("Percentile50"),
+        ],
+        pass_criteria(),
+    )
     pkt_loss = types.MeasurementDef.create_measurement(
-        PKT_LOSS,
-        "percentage",
-        [function.ValuePlaceholder(PKT_LOSS_STAT_KEY)])
+        PKT_LOSS, "percentage", [function.ValuePlaceholder(PKT_LOSS_STAT_KEY)]
+    )
 
     return [latency, pkt_loss]
 
@@ -93,12 +80,9 @@ def consume_ping_output(cons, raw_data, requests):
     """
     eager_map(cons.set_measurement_def, measurements())
 
-    st_keys = ["Min",
-               "Avg",
-               "Max",
-               "Stddev"]
+    st_keys = ["Min", "Avg", "Max", "Stddev"]
 
-    output = raw_data.strip().split('\n')
+    output = raw_data.strip().split("\n")
     assert len(output) > 2
 
     # E.g: round-trip min/avg/max/stddev = 17.478/17.705/17.808/0.210 ms
@@ -108,22 +92,19 @@ def consume_ping_output(cons, raw_data, requests):
     assert len(stat_values) == 4
 
     for index, stat_value in enumerate(stat_values[:4]):
-        cons.consume_stat(st_name=st_keys[index],
-                          ms_name=LATENCY,
-                          value=float(stat_value))
+        cons.consume_stat(
+            st_name=st_keys[index], ms_name=LATENCY, value=float(stat_value)
+        )
 
     # E.g: 4 packets transmitted, 4 received, 0% packet loss
     packet_stats = output[-2]
-    pattern_packet = ".+ packet.+transmitted, .+ received," \
-                     " (.+)% packet loss"
+    pattern_packet = ".+ packet.+transmitted, .+ received," " (.+)% packet loss"
     pkt_loss = re.findall(pattern_packet, packet_stats)[0]
     assert len(pkt_loss) == 1
-    cons.consume_stat(st_name=PKT_LOSS_STAT_KEY,
-                      ms_name=PKT_LOSS,
-                      value=pkt_loss[0])
+    cons.consume_stat(st_name=PKT_LOSS_STAT_KEY, ms_name=PKT_LOSS, value=pkt_loss[0])
 
     # Compute percentiles.
-    seqs = output[1:requests + 1]
+    seqs = output[1 : requests + 1]
     times = []
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for index, seq in enumerate(seqs):
@@ -132,15 +113,15 @@ def consume_ping_output(cons, raw_data, requests):
         times.append(time[0])
 
     times.sort()
-    cons.consume_stat(st_name="Percentile50",
-                      ms_name=LATENCY,
-                      value=times[int(requests * 0.5)])
-    cons.consume_stat(st_name="Percentile90",
-                      ms_name=LATENCY,
-                      value=times[int(requests * 0.9)])
-    cons.consume_stat(st_name="Percentile99",
-                      ms_name=LATENCY,
-                      value=times[int(requests * 0.99)])
+    cons.consume_stat(
+        st_name="Percentile50", ms_name=LATENCY, value=times[int(requests * 0.5)]
+    )
+    cons.consume_stat(
+        st_name="Percentile90", ms_name=LATENCY, value=times[int(requests * 0.9)]
+    )
+    cons.consume_stat(
+        st_name="Percentile99", ms_name=LATENCY, value=times[int(requests * 0.99)]
+    )
 
 
 @pytest.mark.nonci
@@ -161,48 +142,45 @@ def test_network_latency(bin_cloner_path, results_file_dumper):
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'logger': logger,
-        'requests': 1000,
-        'interval': 0.2,  # Seconds.
-        'name': 'network_latency',
-        'results_file_dumper': results_file_dumper
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "logger": logger,
+        "requests": 1000,
+        "interval": 0.2,  # Seconds.
+        "name": "network_latency",
+        "results_file_dumper": results_file_dumper,
     }
 
     # Create the test matrix.
-    test_matrix = TestMatrix(context=test_context,
-                             artifact_sets=[
-                                 microvm_artifacts,
-                                 kernel_artifacts,
-                                 disk_artifacts
-                             ])
+    test_matrix = TestMatrix(
+        context=test_context,
+        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    )
 
     test_matrix.run_test(_g2h_send_ping)
 
 
 def _g2h_send_ping(context):
     """Send ping from guest to host."""
-    logger = context.custom['logger']
-    vm_builder = context.custom['builder']
-    interval_between_req = context.custom['interval']
-    name = context.custom['name']
-    file_dumper = context.custom['results_file_dumper']
+    logger = context.custom["logger"]
+    vm_builder = context.custom["builder"]
+    interval_between_req = context.custom["interval"]
+    name = context.custom["name"]
+    file_dumper = context.custom["results_file_dumper"]
 
-    logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
-                .format(name,
-                        context.microvm.name(),
-                        context.kernel.name(),
-                        context.disk.name()))
+    logger.info(
+        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
+            name, context.microvm.name(), context.kernel.name(), context.disk.name()
+        )
+    )
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(kernel=context.kernel,
-                                   disks=[rw_disk],
-                                   ssh_key=ssh_key,
-                                   config=context.microvm)
+    vm_instance = vm_builder.build(
+        kernel=context.kernel, disks=[rw_disk], ssh_key=ssh_key, config=context.microvm
+    )
     basevm = vm_instance.vm
     basevm.start()
 
@@ -212,34 +190,32 @@ def _g2h_send_ping(context):
 
     # Pin uVM threads to physical cores.
     current_cpu_id = 0
-    assert basevm.pin_vmm(current_cpu_id), \
-        "Failed to pin firecracker thread."
+    assert basevm.pin_vmm(current_cpu_id), "Failed to pin firecracker thread."
     current_cpu_id += 1
-    assert basevm.pin_api(current_cpu_id), \
-        "Failed to pin fc_api thread."
+    assert basevm.pin_api(current_cpu_id), "Failed to pin fc_api thread."
     for i in range(basevm.vcpus_count):
         current_cpu_id += 1
-        assert basevm.pin_vcpu(i, current_cpu_id + i), \
-            f"Failed to pin fc_vcpu {i} thread."
+        assert basevm.pin_vcpu(
+            i, current_cpu_id + i
+        ), f"Failed to pin fc_vcpu {i} thread."
 
-    custom = {"microvm": context.microvm.name(),
-              "kernel": context.kernel.name(),
-              "disk": context.disk.name(),
-              "cpu_model_name": get_cpu_model_name()}
+    custom = {
+        "microvm": context.microvm.name(),
+        "kernel": context.kernel.name(),
+        "disk": context.disk.name(),
+        "cpu_model_name": get_cpu_model_name(),
+    }
 
     st_core = core.Core(name="network_latency", iterations=1, custom=custom)
-    env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{context.microvm.name()}"
+    env_id = (
+        f"{context.kernel.name()}/{context.disk.name()}/" f"{context.microvm.name()}"
+    )
 
     cons = consumer.LambdaConsumer(
-        func=consume_ping_output,
-        func_kwargs={"requests": context.custom['requests']}
+        func=consume_ping_output, func_kwargs={"requests": context.custom["requests"]}
     )
-    cmd = PING.format(context.custom['requests'],
-                      interval_between_req,
-                      DEFAULT_HOST_IP)
-    prod = producer.SSHCommand(cmd,
-                               net_tools.SSHConnection(basevm.ssh_config))
+    cmd = PING.format(context.custom["requests"], interval_between_req, DEFAULT_HOST_IP)
+    prod = producer.SSHCommand(cmd, net_tools.SSHConnection(basevm.ssh_config))
 
     st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")
 

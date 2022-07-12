@@ -1,9 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::io;
 use std::io::{Seek, SeekFrom};
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
@@ -11,16 +10,15 @@ use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_se
 use vmm::persist::{self, snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
-use vmm::version_map::VERSION_MAP;
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{EventManager, FC_EXIT_CODE_OK};
-
 use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm};
+use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::{EventManager, FcExitCode};
 
 #[test]
 fn test_setup_serial_device() {
@@ -61,11 +59,11 @@ fn test_build_microvm() {
     #[cfg(target_arch = "x86_64")]
     _evmgr.run_with_timeout(500).unwrap();
     #[cfg(target_arch = "aarch64")]
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
-        Some(FC_EXIT_CODE_OK)
+        Some(FcExitCode::Ok)
     );
 }
 
@@ -81,7 +79,7 @@ fn test_pause_resume_microvm() {
     // `Paused` state).
     assert!(vmm.lock().unwrap().pause_vm().is_ok());
     assert!(vmm.lock().unwrap().resume_vm().is_ok());
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 #[test]
@@ -97,7 +95,7 @@ fn test_dirty_bitmap_error() {
         format!("{:?}", vmm.lock().unwrap().get_dirty_bitmap().err()),
         "Some(DirtyBitmap(Error(2)))"
     );
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 #[test]
@@ -119,7 +117,7 @@ fn test_dirty_bitmap_success() {
         })
         .sum();
     assert!(num_dirty_pages > 0);
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 #[test]
@@ -129,7 +127,7 @@ fn test_disallow_snapshots_without_pausing() {
     // Verify saving state while running is not allowed.
     // Can't do unwrap_err() because MicrovmState doesn't impl Debug.
     match vmm.lock().unwrap().save_state() {
-        Err(e) => assert!(format!("{:?}", e).contains("NotAllowed")),
+        Err(err) => assert!(format!("{:?}", err).contains("NotAllowed")),
         Ok(_) => panic!("Should not be allowed."),
     };
 
@@ -138,7 +136,7 @@ fn test_disallow_snapshots_without_pausing() {
     // It is now allowed.
     vmm.lock().unwrap().save_state().unwrap();
     // Stop.
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
@@ -170,7 +168,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
     }
 
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     // Check that we can deserialize the microVM state from `snapshot_file`.
     let snapshot_path = snapshot_file.as_path().to_path_buf();
@@ -217,8 +215,12 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         VERSION_MAP.clone(),
     )
     .unwrap();
-    let mem = GuestMemoryMmap::restore(memory_file.as_file(), &microvm_state.memory_state, false)
-        .unwrap();
+    let mem = GuestMemoryMmap::restore(
+        Some(memory_file.as_file()),
+        &microvm_state.memory_state,
+        false,
+    )
+    .unwrap();
 
     let vm_resources = &mut VmResources::default();
 
@@ -228,13 +230,14 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         &mut event_manager,
         microvm_state,
         mem,
+        None,
         false,
         &mut empty_seccomp_filters,
         vm_resources,
     )
     .unwrap();
     // For now we're happy we got this far, we don't test what the guest is actually doing.
-    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 #[test]

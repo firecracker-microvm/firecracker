@@ -10,7 +10,7 @@ use crate::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
 use crate::transformer::Error;
 
 pub fn validate_vendor_id() -> Result<(), Error> {
-    let vendor_id = get_vendor_id_from_host().map_err(Error::InternalError)?;
+    let vendor_id = get_vendor_id_from_host()?;
     if &vendor_id != VENDOR_ID_INTEL {
         return Err(Error::InvalidVendor);
     }

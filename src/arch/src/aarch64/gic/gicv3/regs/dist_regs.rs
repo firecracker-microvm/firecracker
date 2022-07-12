@@ -1,12 +1,14 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::Range;
+
+use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
+use kvm_ioctls::DeviceFd;
+
 use crate::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
 use crate::aarch64::gic::Result;
 use crate::{IRQ_BASE, IRQ_MAX};
-use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
-use kvm_ioctls::DeviceFd;
-use std::ops::Range;
 
 // Distributor registers as detailed at page 456 from
 // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf.
@@ -27,10 +29,11 @@ const GICD_IROUTER: DistReg = DistReg::shared_irq(0x6000, 64);
 
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
-// Criteria for the present list of registers: only R/W registers, implementation specific registers are not saved.
-// GICD_CPENDSGIR and GICD_SPENDSGIR are not saved since these registers are not used when affinity routing is enabled.
-// Affinity routing GICv3 is enabled by default unless Firecracker clears the ICD_CTLR.ARE bit which it does not do.
-// NOTICE: Any changes to this structure require a snapshot version bump.
+// Criteria for the present list of registers: only R/W registers, implementation specific registers
+// are not saved. GICD_CPENDSGIR and GICD_SPENDSGIR are not saved since these registers are not used
+// when affinity routing is enabled. Affinity routing GICv3 is enabled by default unless Firecracker
+// clears the ICD_CTLR.ARE bit which it does not do. NOTICE: Any changes to this structure require a
+// snapshot version bump.
 static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_CTLR,
     GICD_STATUSR,
@@ -126,10 +129,12 @@ pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
+
+    use kvm_ioctls::Kvm;
+
     use super::*;
     use crate::aarch64::gic::{create_gic, GICVersion};
-    use kvm_ioctls::Kvm;
-    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_access_dist_regs() {

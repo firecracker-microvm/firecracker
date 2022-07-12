@@ -46,9 +46,9 @@ impl PeriodicMetrics {
     }
 
     fn write_metrics(&mut self) {
-        if let Err(e) = METRICS.write() {
+        if let Err(err) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
-            error!("Failed to write metrics: {}", e);
+            error!("Failed to write metrics: {}", err);
         }
 
         #[cfg(test)]
@@ -84,8 +84,8 @@ impl MutEventSubscriber for PeriodicMetrics {
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.write_metrics_event_fd, EventSet::IN)) {
-            error!("Failed to register metrics event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.write_metrics_event_fd, EventSet::IN)) {
+            error!("Failed to register metrics event: {}", err);
         }
     }
 }
@@ -94,8 +94,9 @@ impl MutEventSubscriber for PeriodicMetrics {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::*;
     use event_manager::{EventManager, SubscriberOps};
+
+    use super::*;
 
     #[test]
     fn test_periodic_metrics() {

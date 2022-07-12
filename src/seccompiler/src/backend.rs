@@ -4,12 +4,14 @@
 //! This module defines the data structures used for the intermmediate representation (IR),
 //! as well as the logic for compiling the filter into BPF code, the final form of the filter.
 
-use crate::common::{sock_filter, BpfProgram, BPF_MAX_LEN};
 use core::fmt::Formatter;
-use serde::{Deserialize, Deserializer};
 use std::collections::BTreeMap;
 use std::convert::{Into, TryFrom, TryInto};
 use std::fmt::Display;
+
+use serde::{Deserialize, Deserializer};
+
+use crate::common::{sock_filter, BpfProgram, BPF_MAX_LEN};
 
 // BPF Instruction classes.
 // See /usr/include/linux/bpf_common.h .
@@ -586,13 +588,13 @@ impl SeccompRule {
             // If that is the case, three additional helper jumps are prepended and the offset
             // is reset to 1.
             //
-            // - The first jump continues the evaluation of the condition chain by jumping to
-            //   the next condition or the action of the rule if the last condition was matched.
-            // - The second, jumps out of the rule, to the next rule or the default action of
-            //   the filter in case of the last rule in the rule chain of a syscall.
-            // - The third jumps out of the rule chain of the syscall, to the rule chain of the
-            //   next syscall number to be checked or the default action of the filter in the
-            //   case of the last rule chain.
+            // - The first jump continues the evaluation of the condition chain by jumping to the
+            //   next condition or the action of the rule if the last condition was matched.
+            // - The second, jumps out of the rule, to the next rule or the default action of the
+            //   filter in case of the last rule in the rule chain of a syscall.
+            // - The third jumps out of the rule chain of the syscall, to the rule chain of the next
+            //   syscall number to be checked or the default action of the filter in the case of the
+            //   last rule chain.
             let helper_jumps = vec![
                 BPF_STMT(BPF_JMP + BPF_JA, 2),
                 BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
@@ -718,8 +720,8 @@ impl SeccompFilter {
     /// * `chain` - The chain of rules for the specified syscall.
     /// * `default_action` - The action to be taken in none of the rules apply.
     /// * `accumulator` - The expanding BPF program.
-    /// * `filter_len` - The size (in number of BPF statements) of the BPF program. This is
-    ///                  limited to 4096. If the limit is exceeded, the filter is invalidated.
+    /// * `filter_len` - The size (in number of BPF statements) of the BPF program. This is limited
+    ///   to 4096. If the limit is exceeded, the filter is invalidated.
     fn append_syscall_chain(
         syscall_number: i64,
         chain: Vec<SeccompRule>,
@@ -874,12 +876,11 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 
 #[cfg(test)]
 mod tests {
-    use super::SeccompCmpArgLen as ArgLen;
-    use super::SeccompCmpOp::*;
-    use super::SeccompCondition as Cond;
-    use super::*;
     use std::env::consts::ARCH;
     use std::thread;
+
+    use super::SeccompCmpOp::*;
+    use super::{SeccompCmpArgLen as ArgLen, SeccompCondition as Cond, *};
 
     // BPF structure definition for filter array.
     // See /usr/include/linux/filter.h .

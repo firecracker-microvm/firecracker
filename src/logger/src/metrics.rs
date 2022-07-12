@@ -36,25 +36,26 @@
 //!
 //! # Design
 //! The main design goals of this system are:
-//! * Use lockless operations, preferably ones that don't require anything other than
-//!   simple reads/writes being atomic.
+//! * Use lockless operations, preferably ones that don't require anything other than simple
+//!   reads/writes being atomic.
 //! * Exploit interior mutability and atomics being Sync to allow all methods (including the ones
 //!   which are effectively mutable) to be callable on a global non-mut static.
 //! * Rely on `serde` to provide the actual serialization for writing the metrics.
-//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them,
-//!   to avoid having to initialize everything by hand.
+//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them, to
+//!   avoid having to initialize everything by hand.
 //!
 //! The system implements 2 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is not
+//! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is
+//!   not
 //! intended to act as a counter (i.e for measure the process start up time for example).
 //!
-//! The current approach for the `SharedIncMetrics` type is to store two values (current and previous)
-//! and compute the delta between them each time we do a flush (i.e by serialization). There are a number of advantages
-//! to this approach, including:
-//! * We don't have to introduce an additional write (to reset the value) from the thread which
-//!   does to actual writing, so less synchronization effort is required.
+//! The current approach for the `SharedIncMetrics` type is to store two values (current and
+//! previous) and compute the delta between them each time we do a flush (i.e by serialization).
+//! There are a number of advantages to this approach, including:
+//! * We don't have to introduce an additional write (to reset the value) from the thread which does
+//!   to actual writing, so less synchronization effort is required.
 //! * We don't have to worry at all that much about losing some data if writing fails for a while
 //!   (this could be a concern, I guess).
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
@@ -64,17 +65,16 @@ use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use crate::warn;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::extract_guard;
+#[cfg(target_arch = "aarch64")]
+use crate::warn;
 
 lazy_static! {
     /// Static instance used for handling metrics.
@@ -152,27 +152,30 @@ impl<T: Serialize> Metrics<T> {
             match serde_json::to_string(&self.app_metrics) {
                 Ok(msg) => {
                     if let Some(guard) = extract_guard(self.metrics_buf.lock()).as_mut() {
-                        // No need to explicitly call flush because the underlying LineWriter flushes
-                        // automatically whenever a newline is detected (and we always end with a
-                        // newline the current write).
-                        return guard
+                        // No need to explicitly call flush because the underlying LineWriter
+                        // flushes automatically whenever a newline is
+                        // detected (and we always end with a newline the
+                        // current write).
+                        guard
                             .write_all(&(format!("{}\n", msg)).as_bytes())
                             .map_err(MetricsError::Write)
-                            .map(|_| true);
+                            .map(|_| true)
                     } else {
-                        // We have not incremented `missed_metrics_count` as there is no way to push metrics
-                        // if destination lock got poisoned.
-                        panic!("Failed to write to the provided metrics destination due to poisoned lock");
+                        // We have not incremented `missed_metrics_count` as there is no way to push
+                        // metrics if destination lock got poisoned.
+                        panic!(
+                            "Failed to write to the provided metrics destination due to poisoned \
+                             lock"
+                        );
                     }
                 }
-                Err(e) => {
-                    return Err(MetricsError::Serde(e.to_string()));
-                }
+                Err(err) => Err(MetricsError::Serde(err.to_string())),
             }
+        } else {
+            // If the metrics are not initialized, no error is thrown but we do let the user know
+            // that metrics were not written.
+            Ok(false)
         }
-        // If the metrics are not initialized, no error is thrown but we do let the user know that
-        // metrics were not written.
-        Ok(false)
     }
 }
 
@@ -200,19 +203,19 @@ pub enum MetricsError {
 impl fmt::Display for MetricsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            MetricsError::NeverInitialized(ref e) => e.to_string(),
+            MetricsError::NeverInitialized(ref err) => err.to_string(),
             MetricsError::AlreadyInitialized => {
                 "Reinitialization of metrics not allowed.".to_string()
             }
-            MetricsError::Serde(ref e) => e.to_string(),
-            MetricsError::Write(ref e) => format!("Failed to write metrics: {}", e),
+            MetricsError::Serde(ref err) => err.to_string(),
+            MetricsError::Write(ref err) => format!("Failed to write metrics: {}", err),
         };
         write!(f, "{}", printable)
     }
 }
 
-/// Used for defining new types of metrics that act as a counter (i.e they are continuously updated by
-/// incrementing their value).
+/// Used for defining new types of metrics that act as a counter (i.e they are continuously updated
+/// by incrementing their value).
 pub trait IncMetric {
     /// Adds `value` to the current counter.
     fn add(&self, value: usize);
@@ -224,7 +227,8 @@ pub trait IncMetric {
     fn count(&self) -> usize;
 }
 
-/// Used for defining new types of metrics that do not need a counter and act as a persistent indicator.
+/// Used for defining new types of metrics that do not need a counter and act as a persistent
+/// indicator.
 pub trait StoreMetric {
     /// Returns current value of the counter.
     fn fetch(&self) -> usize;
@@ -855,14 +859,14 @@ pub struct FirecrackerMetrics {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::io::ErrorKind;
+    use std::sync::atomic::fence;
     use std::sync::Arc;
     use std::thread;
 
-    use std::sync::atomic::fence;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     #[test]
     fn test_init() {

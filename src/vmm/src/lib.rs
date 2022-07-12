@@ -40,17 +40,6 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::memory_snapshot::SnapshotMemory;
-use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
-use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::vcpu::VcpuState;
-use crate::vstate::{
-    vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse},
-    vm::Vm,
-};
 use arch::DeviceType;
 use devices::legacy::serial::{IER_RDA_BIT, IER_RDA_OFFSET};
 use devices::virtio::balloon::Error as BalloonError;
@@ -64,41 +53,65 @@ use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
+use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+use crate::memory_snapshot::SnapshotMemory;
+use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
+use crate::vstate::vm::Vm;
+
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
+// Since the exit code names e.g. `SIGBUS` are most appropriate yet trigger a test error with the
+// clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
-pub type ExitCode = i32;
-/// Success exit code.
-pub const FC_EXIT_CODE_OK: ExitCode = 0;
-/// Generic error exit code.
-pub const FC_EXIT_CODE_GENERIC_ERROR: ExitCode = 1;
-/// Generic exit code for an error considered not possible to occur if the program logic is sound.
-pub const FC_EXIT_CODE_UNEXPECTED_ERROR: ExitCode = 2;
-/// Firecracker was shut down after intercepting a restricted system call.
-pub const FC_EXIT_CODE_BAD_SYSCALL: ExitCode = 148;
-/// Firecracker was shut down after intercepting `SIGBUS`.
-pub const FC_EXIT_CODE_SIGBUS: ExitCode = 149;
-/// Firecracker was shut down after intercepting `SIGSEGV`.
-pub const FC_EXIT_CODE_SIGSEGV: ExitCode = 150;
-/// Firecracker was shut down after intercepting `SIGXFSZ`.
-pub const FC_EXIT_CODE_SIGXFSZ: ExitCode = 151;
-/// Firecracker was shut down after intercepting `SIGXCPU`.
-pub const FC_EXIT_CODE_SIGXCPU: ExitCode = 154;
-/// Firecracker was shut down after intercepting `SIGPIPE`.
-pub const FC_EXIT_CODE_SIGPIPE: ExitCode = 155;
-/// Firecracker was shut down after intercepting `SIGHUP`.
-pub const FC_EXIT_CODE_SIGHUP: ExitCode = 156;
-/// Firecracker was shut down after intercepting `SIGILL`.
-pub const FC_EXIT_CODE_SIGILL: ExitCode = 157;
-/// Bad configuration for microvm's resources, when using a single json.
-pub const FC_EXIT_CODE_BAD_CONFIGURATION: ExitCode = 152;
-/// Command line arguments parsing error.
-pub const FC_EXIT_CODE_ARG_PARSING: ExitCode = 153;
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FcExitCode {
+    /// Success exit code.
+    Ok = 0,
+    /// Generic error exit code.
+    GenericError = 1,
+    /// Generic exit code for an error considered not possible to occur if the program logic is
+    /// sound.
+    UnexpectedError = 2,
+    /// Firecracker was shut down after intercepting a restricted system call.
+    BadSyscall = 148,
+    /// Firecracker was shut down after intercepting `SIGBUS`.
+    SIGBUS = 149,
+    /// Firecracker was shut down after intercepting `SIGSEGV`.
+    SIGSEGV = 150,
+    /// Firecracker was shut down after intercepting `SIGXFSZ`.
+    SIGXFSZ = 151,
+    /// Firecracker was shut down after intercepting `SIGXCPU`.
+    SIGXCPU = 154,
+    /// Firecracker was shut down after intercepting `SIGPIPE`.
+    SIGPIPE = 155,
+    /// Firecracker was shut down after intercepting `SIGHUP`.
+    SIGHUP = 156,
+    /// Firecracker was shut down after intercepting `SIGILL`.
+    SIGILL = 157,
+    /// Bad configuration for microvm's resources, when using a single json.
+    BadConfiguration = 152,
+    /// Command line arguments parsing error.
+    ArgParsing = 153,
+}
+
+/// Timeout used in recv_timeout, when waiting for a vcpu response on
+/// Pause/Resume/Save/Restore. A high enough limit that should not be reached during normal usage,
+/// used to detect a potential vcpu deadlock.
+pub const RECV_TIMEOUT_SEC: Duration = Duration::from_secs(30);
+
+/// Default byte limit of accepted http requests on API and MMDS servers.
+pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 
 /// Errors associated with the VMM internal logic. These errors cannot be generated by direct user
 /// input, but can result from bad configuration of the host (for example if Firecracker doesn't
@@ -172,40 +185,44 @@ impl Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
-            DeviceManager(e) => write!(f, "{}", e),
-            DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
-            EventFd(e) => write!(f, "Event fd error: {}", e),
-            I8042Error(e) => write!(f, "I8042 error: {}", e),
-            KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
-            KvmContext(e) => write!(f, "Failed to validate KVM support: {}", e),
+            CreateLegacyDevice(err) => write!(f, "Error creating legacy device: {}", err),
+            DeviceManager(err) => write!(f, "{}", err),
+            DirtyBitmap(err) => write!(f, "Error getting the KVM dirty bitmap. {}", err),
+            EventFd(err) => write!(f, "Event fd error: {}", err),
+            I8042Error(err) => write!(f, "I8042 error: {}", err),
+            KernelFile(err) => write!(f, "Cannot access kernel file: {}", err),
+            KvmContext(err) => write!(f, "Failed to validate KVM support: {}", err),
             #[cfg(target_arch = "x86_64")]
-            LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
-            Logger(e) => write!(f, "Logger error: {}", e),
-            Metrics(e) => write!(f, "Metrics error: {}", e),
-            RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
-            SeccompFilters(e) => write!(f, "Cannot install seccomp filters: {}", e),
-            Serial(e) => write!(f, "Error writing to the serial console: {}", e),
-            TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
-            VcpuConfigure(e) => write!(f, "Error configuring the vcpu for boot: {}", e),
-            VcpuCreate(e) => write!(f, "Error creating the vcpu: {}", e),
-            VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
-            VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
+            LegacyIOBus(err) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", err),
+            Logger(err) => write!(f, "Logger error: {}", err),
+            Metrics(err) => write!(f, "Metrics error: {}", err),
+            RegisterMMIODevice(err) => write!(f, "Cannot add a device to the MMIO Bus. {}", err),
+            SeccompFilters(err) => write!(f, "Cannot install seccomp filters: {}", err),
+            Serial(err) => write!(f, "Error writing to the serial console: {}", err),
+            TimerFd(err) => write!(f, "Error creating timer fd: {}", err),
+            VcpuConfigure(err) => write!(f, "Error configuring the vcpu for boot: {}", err),
+            VcpuCreate(err) => write!(f, "Error creating the vcpu: {}", err),
+            VcpuEvent(err) => write!(f, "Cannot send event to vCPU. {}", err),
+            VcpuHandle(err) => write!(f, "Cannot create a vCPU handle. {}", err),
             #[cfg(target_arch = "aarch64")]
-            VcpuInit(e) => write!(f, "Error initializing the vcpu: {}", e),
+            VcpuInit(err) => write!(f, "Error initializing the vcpu: {}", err),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
             VcpuExit => write!(f, "Failed to exit the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),
             VcpuMessage => write!(f, "Failed to message the vCPUs."),
-            VcpuSpawn(e) => write!(f, "Cannot spawn Vcpu thread: {}", e),
-            Vm(e) => write!(f, "Vm error: {}", e),
-            VmmObserverInit(e) => write!(
+            VcpuSpawn(err) => write!(f, "Cannot spawn Vcpu thread: {}", err),
+            Vm(err) => write!(f, "Vm error: {}", err),
+            VmmObserverInit(err) => write!(
                 f,
                 "Error thrown by observer object on Vmm initialization: {}",
-                e
+                err
             ),
-            VmmObserverTeardown(e) => {
-                write!(f, "Error thrown by observer object on Vmm teardown: {}", e)
+            VmmObserverTeardown(err) => {
+                write!(
+                    f,
+                    "Error thrown by observer object on Vmm teardown: {}",
+                    err
+                )
             }
         }
     }
@@ -238,11 +255,15 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 pub struct Vmm {
     events_observer: Option<Box<dyn VmmEventsObserver>>,
     instance_info: InstanceInfo,
-    shutdown_exit_code: Option<ExitCode>,
+    shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
     vm: Vm,
     guest_memory: GuestMemoryMmap,
+    // Save UFFD in order to keep it open in the Firecracker process, as well.
+    // Since this field is never read again, we need to allow `dead_code`.
+    #[allow(dead_code)]
+    uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
@@ -265,7 +286,7 @@ impl Vmm {
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
-    pub fn shutdown_exit_code(&self) -> Option<ExitCode> {
+    pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
     }
 
@@ -313,41 +334,53 @@ impl Vmm {
         Ok(())
     }
 
-    // Checks that the vCPUs respond with the `_expected_response`.
-    fn check_vcpus_response(
-        &mut self,
-        _expected_response: VcpuResponse,
-    ) -> std::result::Result<(), ()> {
-        for handle in self.vcpus_handles.iter() {
-            match handle
-                .response_receiver()
-                .recv_timeout(Duration::from_millis(1000))
-            {
-                Ok(_expected_response) => (),
-                _ => return Err(()),
-            }
-        }
-        Ok(())
-    }
-
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<()> {
         self.mmio_device_manager.kick_devices();
-        self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
-            .map_err(|_| Error::VcpuResume)?;
+
+        // Send the events.
+        self.vcpus_handles
+            .iter()
+            .try_for_each(|handle| handle.send_event(VcpuEvent::Resume))
+            .map_err(|_| Error::VcpuMessage)?;
+
+        // Check the responses.
+        if self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .any(|response| !matches!(response, Ok(VcpuResponse::Resumed)))
+        {
+            return Err(Error::VcpuMessage);
+        }
+
         self.instance_info.state = VmState::Running;
         Ok(())
     }
 
     /// Sends a pause command to the vCPUs.
     pub fn pause_vm(&mut self) -> Result<()> {
-        self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
-            .map_err(|_| Error::VcpuPause)?;
+        // Send the events.
+        self.vcpus_handles
+            .iter()
+            .try_for_each(|handle| handle.send_event(VcpuEvent::Pause))
+            .map_err(|_| Error::VcpuMessage)?;
+
+        // Check the responses.
+        if self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .any(|response| !matches!(response, Ok(VcpuResponse::Paused)))
+        {
+            return Err(Error::VcpuMessage);
+        }
+
         self.instance_info.state = VmState::Paused;
         Ok(())
     }
 
-    /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
+    /// Returns a reference to the inner `GuestMemoryMmap` object.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
     }
@@ -443,11 +476,7 @@ impl Vmm {
             .vcpus_handles
             .iter()
             // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(Duration::from_millis(1000))
-            })
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
             .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
             .map_err(|_| UnexpectedVcpuResponse)?;
 
@@ -455,29 +484,13 @@ impl Vmm {
             .into_iter()
             .map(|response| match response {
                 VcpuResponse::SavedState(state) => Ok(*state),
-                VcpuResponse::Error(e) => Err(SaveVcpuState(e)),
+                VcpuResponse::Error(err) => Err(SaveVcpuState(err)),
                 VcpuResponse::NotAllowed(reason) => Err(MicrovmStateError::NotAllowed(reason)),
                 _ => Err(UnexpectedVcpuResponse),
             })
             .collect::<std::result::Result<Vec<VcpuState>, MicrovmStateError>>()?;
 
         Ok(vcpu_states)
-    }
-
-    // Sends an event to all vCPUs and waits for a response.
-    fn broadcast_vcpu_event(
-        &mut self,
-        event: VcpuEvent,
-        expected_response: VcpuResponse,
-    ) -> Result<()> {
-        for handle in self.vcpus_handles.iter() {
-            handle
-                .send_event(event.clone())
-                .map_err(|_| Error::VcpuMessage)?;
-        }
-
-        self.check_vcpus_response(expected_response)
-            .map_err(|_| Error::VcpuMessage)
     }
 
     /// Restores vcpus kvm states.
@@ -500,18 +513,14 @@ impl Vmm {
             .vcpus_handles
             .iter()
             // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(Duration::from_millis(1000))
-            })
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
             .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
             .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
 
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => return Err(MicrovmStateError::RestoreVcpuState(e)),
+                VcpuResponse::Error(err) => return Err(MicrovmStateError::RestoreVcpuState(err)),
                 VcpuResponse::NotAllowed(reason) => {
                     return Err(MicrovmStateError::NotAllowed(reason))
                 }
@@ -559,7 +568,7 @@ impl Vmm {
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
-                    .map_err(|e| format!("{:?}", e))
+                    .map_err(|err| format!("{:?}", err))
             })
             .map_err(Error::DeviceManager)
     }
@@ -722,34 +731,32 @@ impl Vmm {
     }
 
     /// Signals Vmm to stop and exit.
-    pub fn stop(&mut self, exit_code: ExitCode) {
-        /*
-           To avoid cycles, all teardown paths take the following route:
-           +------------------------+----------------------------+------------------------+
-           |        Vmm             |           Action           |           Vcpu         |
-           +------------------------+----------------------------+------------------------+
-         1 |                        |                            | vcpu.exit(exit_code)   |
-         2 |                        |                            | vcpu.exit_evt.write(1) |
-         3 |                        | <--- EventFd::exit_evt --- |                        |
-         4 | vmm.stop()             |                            |                        |
-         5 |                        | --- VcpuEvent::Finish ---> |                        |
-         6 |                        |                            | StateMachine::finish() |
-         7 | VcpuHandle::join()     |                            |                        |
-         8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-           +------------------------+----------------------------+------------------------+
-            Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
-            Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-            Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
-            responsibility to break main event loop and propagate the exit code value.
-        */
+    pub fn stop(&mut self, exit_code: FcExitCode) {
+        // To avoid cycles, all teardown paths take the following route:
+        // +------------------------+----------------------------+------------------------+
+        // |        Vmm             |           Action           |           Vcpu         |
+        // +------------------------+----------------------------+------------------------+
+        // 1 |                        |                            | vcpu.exit(exit_code)   |
+        // 2 |                        |                            | vcpu.exit_evt.write(1) |
+        // 3 |                        | <--- EventFd::exit_evt --- |                        |
+        // 4 | vmm.stop()             |                            |                        |
+        // 5 |                        | --- VcpuEvent::Finish ---> |                        |
+        // 6 |                        |                            | StateMachine::finish() |
+        // 7 | VcpuHandle::join()     |                            |                        |
+        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+        // +------------------------+----------------------------+------------------------+
+        // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
+        // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
+        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+        // responsibility to break main event loop and propagate the exit code value.
         info!("Vmm is stopping.");
 
         // We send a "Finish" event.  If a VCPU has already exited, this is the only
         // message it will accept... but running and paused will take it as well.
         // It breaks out of the state machine loop so that the thread can be joined.
         for (idx, handle) in self.vcpus_handles.iter().enumerate() {
-            if let Err(e) = handle.send_event(VcpuEvent::Finish) {
-                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, e);
+            if let Err(err) = handle.send_event(VcpuEvent::Finish) {
+                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
             }
         }
         // The actual thread::join() that runs to release the thread's resource is done in
@@ -811,24 +818,21 @@ impl Drop for Vmm {
         // and joins the vcpu threads. The Vmm is dropped after everything is
         // ready to be teared down. The line below is a no-op, because the Vmm
         // has already been stopped by the event manager at this point.
-        self.stop(self.shutdown_exit_code.unwrap_or(FC_EXIT_CODE_OK));
+        self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            if let Err(e) = observer.on_vmm_stop() {
-                warn!("{}", Error::VmmObserverTeardown(e));
+            if let Err(err) = observer.on_vmm_stop() {
+                warn!("{}", Error::VmmObserverTeardown(err));
             }
         }
 
         // Write the metrics before exiting.
-        if let Err(e) = METRICS.write() {
-            error!("Failed to write metrics while stopping: {}", e);
+        if let Err(err) = METRICS.write() {
+            error!("Failed to write metrics while stopping: {}", err);
         }
 
         if !self.vcpus_handles.is_empty() {
-            error!(
-                "Failed to tear down Vmm: the vcpu threads \
-                have not finished execution."
-            );
+            error!("Failed to tear down Vmm: the vcpu threads have not finished execution.");
         }
     }
 }
@@ -854,20 +858,20 @@ impl MutEventSubscriber for Vmm {
                     }
                     Ok(_response) => {} // Don't care about these, we are exiting.
                     Err(TryRecvError::Empty) => {} // Nothing pending in channel
-                    Err(e) => {
-                        panic!("Error while looking for VCPU exit status: {}", e);
+                    Err(err) => {
+                        panic!("Error while looking for VCPU exit status: {}", err);
                     }
                 }
             }
-            self.stop(exit_code.unwrap_or(FC_EXIT_CODE_OK));
+            self.stop(exit_code.unwrap_or(FcExitCode::Ok));
         } else {
             error!("Spurious EventManager event for handler: Vmm");
         }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
-            error!("Failed to register vmm exit event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
+            error!("Failed to register vmm exit event: {}", err);
         }
     }
 }

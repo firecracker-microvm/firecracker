@@ -53,7 +53,9 @@ specification: [firecracker.yaml](./../src/api_server/swagger/firecracker.yaml).
 | `InstanceActionInfo`       | action_type           |    O     |       O        |      O       |       O       |      O       |
 | `LoadSnapshotParams`       | enable_diff_snapshots |    O     |       O        |      O       |       O       |      O       |
 |                            | mem_file_path         |    O     |       O        |      O       |       O       |      O       |
+|                            | mem_backend           |    O     |       O        |      O       |       O       |      O       |
 |                            | snapshot_path         |    O     |       O        |      O       |       O       |      O       |
+|                            | resume_vm             |    O     |       O        |      O       |       O       |      O       |
 | `Logger`                   | level                 |    O     |       O        |      O       |       O       |      O       |
 |                            | log_path              |    O     |       O        |      O       |       O       |      O       |
 |                            | show_level            |    O     |       O        |      O       |       O       |      O       |

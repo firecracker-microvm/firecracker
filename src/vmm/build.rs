@@ -1,10 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
 const ADVANCED_BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
 
@@ -24,15 +23,15 @@ fn main() {
     json_path.push(format!("{}.json", target));
 
     // If the current target doesn't have a default filter, use a default, empty filter.
-    // This is to make sure that Firecracker builds even with libc toolchains for which we don't provide
-    // a default filter. For example, GNU libc.
+    // This is to make sure that Firecracker builds even with libc toolchains for which we don't
+    // provide a default filter. For example, GNU libc.
     if !json_path.exists() {
         json_path.pop();
         json_path.push("unimplemented.json");
 
         println!(
-            "cargo:warning=No default seccomp policy for target: {}. \
-            Defaulting to `resources/seccomp/unimplemented.json`.",
+            "cargo:warning=No default seccomp policy for target: {}. Defaulting to \
+             `resources/seccomp/unimplemented.json`.",
             target
         );
     }

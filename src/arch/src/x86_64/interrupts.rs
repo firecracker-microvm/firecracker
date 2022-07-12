@@ -65,8 +65,9 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kvm_ioctls::Kvm;
+
+    use super::*;
 
     const KVM_APIC_REG_SIZE: usize = 0x400;
 
@@ -102,7 +103,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         assert!(kvm.check_extension(kvm_ioctls::Cap::Irqchip));
         let vm = kvm.create_vm().unwrap();
-        //the get_lapic ioctl will fail if there is no irqchip created beforehand.
+        // the get_lapic ioctl will fail if there is no irqchip created beforehand.
         assert!(vm.create_irq_chip().is_ok());
         let vcpu = vm.create_vcpu(0).unwrap();
         let klapic_before: kvm_lapic_state = vcpu.get_lapic().unwrap();

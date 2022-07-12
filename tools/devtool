@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG="v34"
+DEVCTR_IMAGE_TAG="v37"
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -1083,6 +1083,8 @@ cmd_build_release_archive() {
         add_file_artifact "$release_dir" "$file"
     done
 
+    find $release_dir -type f |sort |xargs sha256sum > SHA256SUMS.$(uname -m)
+
     # Run tests to obtain test reports dir.
     cmd_test || cleanup_release_dir "$release_dir" "Tests failed."
     add_folder_artifact "$release_dir" "test_results" "$release_suffix"
@@ -1460,6 +1462,7 @@ cmd_prepare_release() {
     files_to_change=("$swagger"                                 \
                      "$FC_ROOT_DIR/src/firecracker/Cargo.toml"  \
                      "$FC_ROOT_DIR/src/jailer/Cargo.toml"       \
+                     "$FC_ROOT_DIR/src/rebase-snap/Cargo.toml"  \
                      "$FC_ROOT_DIR/src/seccompiler/Cargo.toml")
     say "Updating source files:"
     for file in "${files_to_change[@]}"; do

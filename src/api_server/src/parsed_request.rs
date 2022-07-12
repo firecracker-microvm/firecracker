@@ -1,8 +1,11 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::{error, info};
+use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;
 use crate::request::actions::parse_put_actions;
@@ -17,15 +20,10 @@ use crate::request::machine_configuration::{
 use crate::request::metrics::parse_put_metrics;
 use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use crate::request::net::{parse_patch_net, parse_put_net};
-use crate::request::snapshot::parse_patch_vm_state;
-use crate::request::snapshot::parse_put_snapshot;
+use crate::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
-use micro_http::{Body, Method, Request, Response, StatusCode, Version};
-
-use logger::{error, info};
-use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
@@ -257,7 +255,7 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub(crate) enum Error {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
@@ -286,10 +284,10 @@ impl std::fmt::Display for Error {
                 std::str::from_utf8(method.raw()).expect("Cannot convert from UTF-8"),
                 path
             ),
-            Error::SerdeJson(ref e) => write!(
+            Error::SerdeJson(ref err) => write!(
                 f,
                 "An error occurred when deserializing the json body of a request: {}.",
-                e
+                err
             ),
         }
     }
@@ -297,9 +295,9 @@ impl std::fmt::Display for Error {
 
 // It's convenient to turn errors into HTTP responses directly.
 impl From<Error> for Response {
-    fn from(e: Error) -> Self {
-        let msg = ApiServer::json_fault_message(format!("{}", e));
-        match e {
+    fn from(err: Error) -> Self {
+        let msg = ApiServer::json_fault_message(format!("{}", err));
+        match err {
             Error::Generic(status, _) => ApiServer::json_response(status, msg),
             Error::EmptyID
             | Error::InvalidID
@@ -326,8 +324,6 @@ pub(crate) fn checked_id(id: &str) -> Result<&str, Error> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
     use std::io::{Cursor, Write};
     use std::os::unix::net::UnixStream;
     use std::str::FromStr;
@@ -339,6 +335,8 @@ pub(crate) mod tests {
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::VmConfig;
+
+    use super::*;
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
@@ -377,9 +375,7 @@ pub(crate) mod tests {
 
     fn http_response(body: &str, status_code: i32) -> String {
         let header = format!(
-            "HTTP/1.1 {} \r\n\
-             Server: Firecracker API\r\n\
-             Connection: keep-alive\r\n",
+            "HTTP/1.1 {} \r\nServer: Firecracker API\r\nConnection: keep-alive\r\n",
             status_code
         );
         if status_code == 204 {
@@ -387,8 +383,7 @@ pub(crate) mod tests {
             return format!("{}{}", header, "\r\n");
         } else {
             let content = format!(
-                "Content-Type: application/json\r\n\
-                Content-Length: {}\r\n\r\n{}",
+                "Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body,
             );
@@ -399,15 +394,12 @@ pub(crate) mod tests {
 
     fn http_request(request_type: &str, endpoint: &str, body: Option<&str>) -> String {
         let req_no_body = format!(
-            "{} {} HTTP/1.1\r\n\
-            Content-Type: application/json\r\n",
+            "{} {} HTTP/1.1\r\nContent-Type: application/json\r\n",
             request_type, endpoint
         );
         if body.is_some() {
             return format!(
-                "{}\
-                Content-Length: {}\r\n\r\n\
-                {}",
+                "{}Content-Length: {}\r\n\r\n{}",
                 req_no_body,
                 body.unwrap().len(),
                 body.unwrap()
@@ -545,8 +537,8 @@ pub(crate) mod tests {
         let response: Response = Error::SerdeJson(serde_error).into();
         assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message(
-            "An error occurred when deserializing the json body of a request: \
-             EOF while parsing a value at line 1 column 0.",
+            "An error occurred when deserializing the json body of a request: EOF while parsing a \
+             value at line 1 column 0.",
         );
         let expected_response = http_response(&body, 400);
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
@@ -703,9 +695,7 @@ pub(crate) mod tests {
     fn test_try_from_put_actions() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"action_type\": \"FlushMetrics\" \
-            }";
+        let body = "{ \"action_type\": \"FlushMetrics\" }";
         sender
             .write_all(http_request("PUT", "/actions", Some(&body)).as_bytes())
             .unwrap();
@@ -718,11 +708,8 @@ pub(crate) mod tests {
     fn test_try_from_put_balloon() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"amount_mib\": 0, \
-            \"deflate_on_oom\": false, \
-            \"stats_polling_interval_s\": 0 \
-            }";
+        let body =
+            "{ \"amount_mib\": 0, \"deflate_on_oom\": false, \"stats_polling_interval_s\": 0 }";
         sender
             .write_all(http_request("PUT", "/balloon", Some(&body)).as_bytes())
             .unwrap();
@@ -735,10 +722,7 @@ pub(crate) mod tests {
     fn test_try_from_put_boot() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"kernel_image_path\": \"string\", \
-            \"boot_args\": \"string\" \
-            }";
+        let body = "{ \"kernel_image_path\": \"string\", \"boot_args\": \"string\" }";
         sender
             .write_all(http_request("PUT", "/boot-source", Some(&body)).as_bytes())
             .unwrap();
@@ -751,27 +735,11 @@ pub(crate) mod tests {
     fn test_try_from_put_drives() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"drive_id\": \"string\", \
-            \"path_on_host\": \"string\", \
-            \"is_root_device\": true, \
-            \"partuuid\": \"string\", \
-            \"is_read_only\": true, \
-            \"cache_type\": \"Unsafe\", \
-            \"io_engine\": \"Sync\", \
-            \"rate_limiter\": { \
-                \"bandwidth\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                }, \
-                \"ops\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                } \
-            } \
-        }";
+        let body = "{ \"drive_id\": \"string\", \"path_on_host\": \"string\", \"is_root_device\": \
+                    true, \"partuuid\": \"string\", \"is_read_only\": true, \"cache_type\": \
+                    \"Unsafe\", \"io_engine\": \"Sync\", \"rate_limiter\": { \"bandwidth\": { \
+                    \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 }, \"ops\": { \
+                    \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 } } }";
         sender
             .write_all(http_request("PUT", "/drives/string", Some(&body)).as_bytes())
             .unwrap();
@@ -784,12 +752,8 @@ pub(crate) mod tests {
     fn test_try_from_put_logger() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"log_path\": \"string\", \
-            \"level\": \"Warning\", \
-            \"show_level\": false, \
-            \"show_log_origin\": false \
-        }";
+        let body = "{ \"log_path\": \"string\", \"level\": \"Warning\", \"show_level\": false, \
+                    \"show_log_origin\": false }";
         sender
             .write_all(http_request("PUT", "/logger", Some(&body)).as_bytes())
             .unwrap();
@@ -802,10 +766,7 @@ pub(crate) mod tests {
     fn test_try_from_put_machine_config() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"vcpu_count\": 1, \
-            \"mem_size_mib\": 1 \
-        }";
+        let body = "{ \"vcpu_count\": 1, \"mem_size_mib\": 1 }";
         sender
             .write_all(http_request("PUT", "/machine-config", Some(&body)).as_bytes())
             .unwrap();
@@ -818,9 +779,7 @@ pub(crate) mod tests {
     fn test_try_from_put_metrics() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"metrics_path\": \"string\" \
-        }";
+        let body = "{ \"metrics_path\": \"string\" }";
         sender
             .write_all(http_request("PUT", "/metrics", Some(&body)).as_bytes())
             .unwrap();
@@ -851,10 +810,7 @@ pub(crate) mod tests {
         assert!(ParsedRequest::try_from_request(&req).is_ok());
 
         // `/mmds/config`
-        let body = "{ \
-            \"ipv4_address\": \"169.254.170.2\", \
-            \"network_interfaces\": [\"iface0\"] \
-        }";
+        let body = "{ \"ipv4_address\": \"169.254.170.2\", \"network_interfaces\": [\"iface0\"] }";
         sender
             .write_all(http_request("PUT", "/mmds/config", Some(&body)).as_bytes())
             .unwrap();
@@ -867,35 +823,13 @@ pub(crate) mod tests {
     fn test_try_from_put_netif() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"iface_id\": \"string\", \
-            \"guest_mac\": \"12:34:56:78:9a:BC\", \
-            \"host_dev_name\": \"string\", \
-            \"rx_rate_limiter\": { \
-                \"bandwidth\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                }, \
-                \"ops\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                } \
-            }, \
-            \"tx_rate_limiter\": { \
-                \"bandwidth\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                }, \
-                \"ops\": { \
-                    \"size\": 0, \
-                    \"one_time_burst\": 0, \
-                    \"refill_time\": 0 \
-                } \
-            } \
-        }";
+        let body = "{ \"iface_id\": \"string\", \"guest_mac\": \"12:34:56:78:9a:BC\", \
+                    \"host_dev_name\": \"string\", \"rx_rate_limiter\": { \"bandwidth\": { \
+                    \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 }, \"ops\": { \
+                    \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 } }, \
+                    \"tx_rate_limiter\": { \"bandwidth\": { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 }, \"ops\": { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 } } }";
         sender
             .write_all(http_request("PUT", "/network-interfaces/string", Some(&body)).as_bytes())
             .unwrap();
@@ -908,22 +842,27 @@ pub(crate) mod tests {
     fn test_try_from_put_snapshot() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"snapshot_path\": \"foo\", \
-            \"mem_file_path\": \"bar\", \
-            \"version\": \"0.23.0\" \
-        }";
+        let body =
+            "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"version\": \"0.23.0\" }";
         sender
             .write_all(http_request("PUT", "/snapshot/create", Some(&body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
-        let body = "{ \
-            \"snapshot_path\": \"foo\", \
-            \"mem_file_path\": \"bar\", \
-            \"enable_diff_snapshots\": true \
-        }";
+
+        let body = "{ \"snapshot_path\": \"foo\", \"mem_backend\": { \"backend_type\": \"File\", \
+                    \"backend_path\": \"bar\" }, \"enable_diff_snapshots\": true }";
+        sender
+            .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
+            .unwrap();
+
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        let body =
+            "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"resume_vm\": true }";
         sender
             .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
             .unwrap();
@@ -952,9 +891,7 @@ pub(crate) mod tests {
     fn test_try_from_patch_vm() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"state\": \"Paused\" \
-        }";
+        let body = "{ \"state\": \"Paused\" }";
         sender
             .write_all(http_request("PATCH", "/vm", Some(&body)).as_bytes())
             .unwrap();
@@ -967,11 +904,7 @@ pub(crate) mod tests {
     fn test_try_from_put_vsock() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"vsock_id\": \"string\", \
-            \"guest_cid\": 0, \
-            \"uds_path\": \"string\" \
-        }";
+        let body = "{ \"vsock_id\": \"string\", \"guest_cid\": 0, \"uds_path\": \"string\" }";
         sender
             .write_all(http_request("PUT", "/vsock", Some(&body)).as_bytes())
             .unwrap();
@@ -991,9 +924,7 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
-        let body = "{ \
-            \"stats_polling_interval_s\": 1 \
-        }";
+        let body = "{ \"stats_polling_interval_s\": 1 }";
         sender
             .write_all(http_request("PATCH", "/balloon/statistics", Some(&body)).as_bytes())
             .unwrap();
@@ -1006,10 +937,7 @@ pub(crate) mod tests {
     fn test_try_from_patch_drives() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"drive_id\": \"string\", \
-            \"path_on_host\": \"string\" \
-        }";
+        let body = "{ \"drive_id\": \"string\", \"path_on_host\": \"string\" }";
         sender
             .write_all(http_request("PATCH", "/drives/string", Some(&body)).as_bytes())
             .unwrap();
@@ -1022,22 +950,15 @@ pub(crate) mod tests {
     fn test_try_from_patch_machine_config() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"vcpu_count\": 1, \
-            \"mem_size_mib\": 1 \
-        }";
+        let body = "{ \"vcpu_count\": 1, \"mem_size_mib\": 1 }";
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
-        let body = "{ \
-            \"vcpu_count\": 1, \
-            \"mem_size_mib\": 1, \
-            \"smt\": false, \
-            \"cpu_template\": \"C3\" \
-        }";
+        let body =
+            "{ \"vcpu_count\": 1, \"mem_size_mib\": 1, \"smt\": false, \"cpu_template\": \"C3\" }";
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())
             .unwrap();
@@ -1065,9 +986,7 @@ pub(crate) mod tests {
     fn test_try_from_patch_netif() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \
-            \"iface_id\": \"string\" \
-        }";
+        let body = "{ \"iface_id\": \"string\" }";
         sender
             .write_all(http_request("PATCH", "/network-interfaces/string", Some(&body)).as_bytes())
             .unwrap();

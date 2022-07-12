@@ -1,6 +1,16 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::From;
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use logger::info;
+use mmds::data_store::{Mmds, MmdsVersion};
+use mmds::ns::MmdsNetworkStack;
+use serde::{Deserialize, Serialize};
+use utils::net::ipv4addr::is_link_local_valid;
+
+use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::*;
@@ -12,20 +22,11 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::vcpu::VcpuConfig;
-use logger::info;
-use mmds::ns::MmdsNetworkStack;
-use utils::net::ipv4addr::is_link_local_valid;
-
-use crate::device_manager::persist::SharedDeviceType;
-use mmds::data_store::{Mmds, MmdsVersion};
-use serde::{Deserialize, Serialize};
-use std::convert::From;
-use std::sync::{Arc, Mutex};
 
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Balloon device configuration error.
     BalloonDevice(BalloonConfigError),
@@ -39,6 +40,8 @@ pub enum Error {
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
     Metrics(MetricsConfigError),
+    /// MMDS error.
+    Mmds(mmds::data_store::Error),
     /// MMDS configuration error.
     MmdsConfig(MmdsConfigError),
     /// Net device configuration error.
@@ -52,16 +55,17 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::BalloonDevice(e) => write!(f, "Balloon device error: {}", e),
-            Error::BlockDevice(e) => write!(f, "Block device error: {}", e),
-            Error::BootSource(e) => write!(f, "Boot source error: {}", e),
-            Error::InvalidJson(e) => write!(f, "Invalid JSON: {}", e),
-            Error::Logger(e) => write!(f, "Logger error: {}", e),
-            Error::Metrics(e) => write!(f, "Metrics error: {}", e),
-            Error::MmdsConfig(e) => write!(f, "MMDS config error: {}", e),
-            Error::NetDevice(e) => write!(f, "Network device error: {}", e),
-            Error::VmConfig(e) => write!(f, "VM config error: {}", e),
-            Error::VsockDevice(e) => write!(f, "Vsock device error: {}", e),
+            Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
+            Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
+            Error::BootSource(err) => write!(f, "Boot source error: {}", err),
+            Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
+            Error::Logger(err) => write!(f, "Logger error: {}", err),
+            Error::Metrics(err) => write!(f, "Metrics error: {}", err),
+            Error::Mmds(err) => write!(f, "MMDS error: {}", err),
+            Error::MmdsConfig(err) => write!(f, "MMDS config error: {}", err),
+            Error::NetDevice(err) => write!(f, "Network device error: {}", err),
+            Error::VmConfig(err) => write!(f, "VM config error: {}", err),
+            Error::VsockDevice(err) => write!(f, "Vsock device error: {}", err),
         }
     }
 }
@@ -105,8 +109,12 @@ pub struct VmResources {
     pub balloon: BalloonBuilder,
     /// The network devices builder.
     pub net_builder: NetBuilder,
-    /// The Mmds data store.
-    pub mmds: Arc<Mutex<Mmds>>,
+    /// The optional Mmds data store.
+    // This is initialised on demand (if ever used), so that we don't allocate it unless it's
+    // actually used.
+    pub mmds: Option<Arc<Mutex<Mmds>>>,
+    /// Data store limit for the mmds.
+    pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
 }
@@ -116,76 +124,73 @@ impl VmResources {
     pub fn from_json(
         config_json: &str,
         instance_info: &InstanceInfo,
-        mmds_max_size: Option<usize>,
+        mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> std::result::Result<Self, Error> {
-        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
-            .map_err(Error::InvalidJson)?;
+        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, instance_info).map_err(Error::Logger)?;
+            init_logger(logger, instance_info)?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
-            init_metrics(metrics).map_err(Error::Metrics)?;
+            init_metrics(metrics)?;
         }
 
-        let mut resources: Self = Self::default();
+        let mut resources: Self = Self {
+            mmds_size_limit,
+            ..Default::default()
+        };
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = VmUpdateConfig::from(machine_config);
-            resources
-                .update_vm_config(&machine_config)
-                .map_err(Error::VmConfig)?;
+            resources.update_vm_config(&machine_config)?;
         }
 
-        resources
-            .set_boot_source(vmm_config.boot_source)
-            .map_err(Error::BootSource)?;
+        resources.set_boot_source(vmm_config.boot_source)?;
 
         for drive_config in vmm_config.block_devices.into_iter() {
-            resources
-                .set_block_device(drive_config)
-                .map_err(Error::BlockDevice)?;
+            resources.set_block_device(drive_config)?;
         }
 
         for net_config in vmm_config.net_devices.into_iter() {
-            resources
-                .build_net_device(net_config)
-                .map_err(Error::NetDevice)?;
+            resources.build_net_device(net_config)?;
         }
 
         if let Some(vsock_config) = vmm_config.vsock_device {
-            resources
-                .set_vsock_device(vsock_config)
-                .map_err(Error::VsockDevice)?;
+            resources.set_vsock_device(vsock_config)?;
         }
 
         if let Some(balloon_config) = vmm_config.balloon_device {
-            resources
-                .set_balloon_device(balloon_config)
-                .map_err(Error::BalloonDevice)?;
-        }
-
-        // Overwrite the data store limit.
-        if let Some(limit) = mmds_max_size {
-            resources.mmds.lock().unwrap().set_data_store_limit(limit);
+            resources.set_balloon_device(balloon_config)?;
         }
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            resources.mmds.lock().unwrap().put_data(
+            resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-            );
+            )?;
             info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
-            resources
-                .set_mmds_config(mmds_config, &instance_info.id)
-                .map_err(Error::MmdsConfig)?;
+            resources.set_mmds_config(mmds_config, &instance_info.id)?;
         }
 
         Ok(resources)
+    }
+
+    /// If not initialised, create the mmds data store with the default config.
+    pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
+        self.mmds
+            .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
+                self.mmds_size_limit,
+            ))))
+    }
+
+    /// If not initialised, create the mmds data store with the default config.
+    pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
+        let mmds = self.mmds_or_default();
+        mmds.lock().expect("Poisoned lock")
     }
 
     /// Updates the resources from a restored device (used for configuring resources when
@@ -293,9 +298,13 @@ impl VmResources {
         Ok(())
     }
 
+    // Repopulate the MmdsConfig based on information from the data store
+    // and the associated net devices.
     fn mmds_config(&self) -> Option<MmdsConfig> {
-        // Repopulate the MmdsConfig based on information from the data store
-        // and the associated net devices.
+        // If the data store is not initialised, we can be sure that the user did not configure
+        // mmds.
+        let mmds = self.mmds.as_ref()?;
+
         let mut mmds_config = None;
         let net_devs_with_mmds: Vec<_> = self
             .net_builder
@@ -305,7 +314,7 @@ impl VmResources {
 
         if !net_devs_with_mmds.is_empty() {
             let mut inner_mmds_config = MmdsConfig {
-                version: self.mmds.lock().expect("Poisoned lock").version(),
+                version: mmds.lock().expect("Poisoned lock").version(),
                 network_interfaces: vec![],
                 ipv4_address: None,
             };
@@ -391,16 +400,16 @@ impl VmResources {
         Ok(())
     }
 
-    // Updates MMDS version.
-    fn set_mmds_version(
+    /// Updates MMDS version.
+    pub fn set_mmds_version(
         &mut self,
         version: MmdsVersion,
         instance_id: &str,
     ) -> Result<MmdsConfigError> {
-        let mut mmds_guard = self.mmds.lock().expect("Poisoned lock");
+        let mut mmds_guard = self.locked_mmds_or_default();
         mmds_guard
             .set_version(version)
-            .map_err(|e| MmdsConfigError::MmdsVersion(version, e))?;
+            .map_err(|err| MmdsConfigError::MmdsVersion(version, err))?;
         mmds_guard.set_aad(instance_id);
 
         Ok(())
@@ -432,13 +441,16 @@ impl VmResources {
             return Err(MmdsConfigError::InvalidNetworkInterfaceId);
         }
 
+        // Safe to unwrap because we've just made sure that it's initialised.
+        let mmds = self.mmds_or_default().clone();
+
         // Create `MmdsNetworkStack` and configure the IPv4 address for
         // existing built network devices whose names are defined in the
         // network interface ID list.
         for net_device in self.net_builder.iter_mut() {
             let mut net_device_lock = net_device.lock().expect("Poisoned lock");
             if network_interfaces.contains(net_device_lock.id()) {
-                net_device_lock.configure_mmds_network_stack(ipv4_addr, self.mmds.clone());
+                net_device_lock.configure_mmds_network_stack(ipv4_addr, mmds.clone());
             } else {
                 net_device_lock.disable_mmds_network_stack();
             }
@@ -475,6 +487,12 @@ mod tests {
     use std::fs::File;
     use std::os::linux::fs::MetadataExt;
 
+    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
+    use logger::{LevelFilter, LOGGER};
+    use serde_json::{Map, Value};
+    use utils::net::mac::MacAddr;
+    use utils::tempfile::TempFile;
+
     use super::*;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
@@ -484,16 +502,13 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
-    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
-    use logger::{LevelFilter, LOGGER};
-    use serde_json::{Map, Value};
-    use utils::net::mac::MacAddr;
-    use utils::tempfile::TempFile;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: "net_if1".to_string(),
-            // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
+            // TempFile::new_with_prefix("") generates a random file name used as random net_if
+            // name.
             host_dev_name: TempFile::new_with_prefix("")
                 .unwrap()
                 .as_path()
@@ -557,8 +572,9 @@ mod tests {
             vsock: Default::default(),
             balloon: Default::default(),
             net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
+            mmds: None,
             boot_timer: false,
+            mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
         }
     }
 
@@ -596,14 +612,14 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        match VmResources::from_json(r#"}"#, &default_instance_info, None, None) {
+        match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        match VmResources::from_json(r#"{}"#, &default_instance_info, None, None) {
+        match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
@@ -627,7 +643,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
@@ -651,7 +672,12 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
             _ => unreachable!(),
         }
@@ -680,7 +706,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
@@ -711,9 +742,21 @@ mod tests {
         );
 
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_err());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_err());
 
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
@@ -740,9 +783,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_err());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_err());
 
         // Invalid memory size.
         json = format!(
@@ -768,7 +823,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
@@ -796,7 +856,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -827,7 +892,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -862,7 +932,12 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), &default_instance_info, None, None) {
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
                 devices::virtio::net::Error::TapOpen { .. },
             ))) => (),
@@ -906,7 +981,13 @@ mod tests {
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
-        assert!(VmResources::from_json(json.as_str(), &default_instance_info, None, None).is_ok());
+        assert!(VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None
+        )
+        .is_ok());
 
         // Test all configuration, this time trying to set default configuration
         // for version and IPv4 address.
@@ -952,14 +1033,14 @@ mod tests {
         let resources = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
-            Some(1200),
+            1200,
             Some(r#"{"key": "value"}"#),
         )
         .unwrap();
         let mut map = Map::new();
         map.insert("key".to_string(), Value::String("value".to_string()));
         assert_eq!(
-            resources.mmds.lock().unwrap().data_store_value(),
+            resources.mmds.unwrap().lock().unwrap().data_store_value(),
             Value::Object(map)
         );
     }
@@ -1008,13 +1089,37 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
 
-            let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
-            let vmm_config: VmmConfig = (&resources).into();
-            assert_eq!(initial_vmm_config, vmm_config);
+            {
+                let resources = VmResources::from_json(
+                    json.as_str(),
+                    &InstanceInfo::default(),
+                    HTTP_MAX_PAYLOAD_SIZE,
+                    None,
+                )
+                .unwrap();
+
+                let initial_vmm_config =
+                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let vmm_config: VmmConfig = (&resources).into();
+                assert_eq!(initial_vmm_config, vmm_config);
+            }
+
+            {
+                // In this case the mmds data store will be initialised but the config still None.
+                let resources = VmResources::from_json(
+                    json.as_str(),
+                    &InstanceInfo::default(),
+                    HTTP_MAX_PAYLOAD_SIZE,
+                    Some(r#"{"key": "value"}"#),
+                )
+                .unwrap();
+
+                let initial_vmm_config =
+                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let vmm_config: VmmConfig = (&resources).into();
+                assert_eq!(initial_vmm_config, vmm_config);
+            }
         }
 
         // Single interface for MMDS.
@@ -1063,9 +1168,13 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
+            let resources = VmResources::from_json(
+                json.as_str(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+            )
+            .unwrap();
 
             let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
@@ -1118,9 +1227,13 @@ mod tests {
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
             );
-            let resources =
-                VmResources::from_json(json.as_str(), &InstanceInfo::default(), None, None)
-                    .unwrap();
+            let resources = VmResources::from_json(
+                json.as_str(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+            )
+            .unwrap();
 
             let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
@@ -1212,16 +1325,8 @@ mod tests {
 
     #[test]
     fn test_set_balloon_device() {
-        let mut vm_resources = VmResources {
-            vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
-            block: default_blocks(),
-            vsock: Default::default(),
-            balloon: BalloonBuilder::new(),
-            net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
-            boot_timer: false,
-        };
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
         let mut new_balloon_cfg = BalloonDeviceConfig {
             amount_mib: 100,
             deflate_on_oom: false,
@@ -1243,16 +1348,8 @@ mod tests {
             new_balloon_cfg.stats_polling_interval_s
         );
 
-        vm_resources = VmResources {
-            vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
-            block: default_blocks(),
-            vsock: Default::default(),
-            balloon: BalloonBuilder::new(),
-            net_builder: default_net_builder(),
-            mmds: Arc::new(Mutex::new(Mmds::default())),
-            boot_timer: false,
-        };
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
         new_balloon_cfg.amount_mib = 256;
         assert!(vm_resources.set_balloon_device(new_balloon_cfg).is_err());
     }

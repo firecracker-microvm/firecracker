@@ -8,42 +8,41 @@ use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
 use crate::report_balloon_event_fail;
-use crate::virtio::{
-    balloon::device::Balloon, VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
-};
+use crate::virtio::balloon::device::Balloon;
+use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.queue_evts[INFLATE_INDEX], EventSet::IN)) {
-            error!("Failed to register inflate queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_evts[INFLATE_INDEX], EventSet::IN)) {
+            error!("Failed to register inflate queue event: {}", err);
         }
-        if let Err(e) = ops.add(Events::new(&self.queue_evts[DEFLATE_INDEX], EventSet::IN)) {
-            error!("Failed to register deflate queue event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.queue_evts[DEFLATE_INDEX], EventSet::IN)) {
+            error!("Failed to register deflate queue event: {}", err);
         }
         if self.stats_enabled() {
-            if let Err(e) = ops.add(Events::new(&self.queue_evts[STATS_INDEX], EventSet::IN)) {
-                error!("Failed to register stats queue event: {}", e);
+            if let Err(err) = ops.add(Events::new(&self.queue_evts[STATS_INDEX], EventSet::IN)) {
+                error!("Failed to register stats queue event: {}", err);
             }
-            if let Err(e) = ops.add(Events::new(&self.stats_timer, EventSet::IN)) {
-                error!("Failed to register stats timerfd event: {}", e);
+            if let Err(err) = ops.add(Events::new(&self.stats_timer, EventSet::IN)) {
+                error!("Failed to register stats timerfd event: {}", err);
             }
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(e) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to register activate event: {}", e);
+        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to register activate event: {}", err);
         }
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
         debug!("balloon: activate event");
-        if let Err(e) = self.activate_evt.read() {
-            error!("Failed to consume balloon activate event: {:?}", e);
+        if let Err(err) = self.activate_evt.read() {
+            error!("Failed to consume balloon activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(e) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
-            error!("Failed to un-register activate event: {}", e);
+        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+            error!("Failed to un-register activate event: {}", err);
         }
     }
 }
@@ -113,11 +112,12 @@ impl MutEventSubscriber for Balloon {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
+    use event_manager::{EventManager, SubscriberOps};
+    use vm_memory::GuestAddress;
+
     use super::*;
     use crate::virtio::balloon::test_utils::set_request;
     use crate::virtio::test_utils::{default_mem, VirtQueue};
-    use event_manager::{EventManager, SubscriberOps};
-    use vm_memory::GuestAddress;
 
     #[test]
     fn test_event_handler() {

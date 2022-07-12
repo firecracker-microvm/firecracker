@@ -1,17 +1,18 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 
+use super::super::VmmAction;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
+
 pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.vsock_count.inc();
-    let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|e| {
+    let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.vsock_fails.inc();
-        Error::SerdeJson(e)
+        err
     })?;
 
     // Check for the presence of deprecated `vsock_id` field.

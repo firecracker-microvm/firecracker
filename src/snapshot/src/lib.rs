@@ -25,14 +25,14 @@
 //! implementation does not have any logic dependent on it.
 //!  - **the data version** which refers to the state.
 mod persist;
-pub use crate::persist::Persist;
-
 use std::io::{Read, Write};
+
 use versionize::crc::{CRC64Reader, CRC64Writer};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-const SNAPSHOT_FORMAT_VERSION: u16 = 1;
+pub use crate::persist::Persist;
+
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
 #[cfg(target_arch = "x86_64")]
@@ -71,7 +71,6 @@ struct SnapshotHdr {
 #[derive(Debug)]
 pub struct Snapshot {
     hdr: SnapshotHdr,
-    format_version: u16,
     version_map: VersionMap,
     // Required for serialization.
     target_version: u16,
@@ -96,7 +95,6 @@ impl Snapshot {
         Snapshot {
             version_map,
             hdr: SnapshotHdr::default(),
-            format_version: SNAPSHOT_FORMAT_VERSION,
             target_version,
         }
     }
@@ -157,8 +155,9 @@ impl Snapshot {
             .read_exact(&mut snapshot)
             .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
 
-        // Since the reader updates the checksum as bytes ar being read from it, the order of these 2 statements is
-        // important, we first get the checksum computed on the read bytes then read the stored checksum.
+        // Since the reader updates the checksum as bytes ar being read from it, the order of these
+        // 2 statements is important, we first get the checksum computed on the read bytes
+        // then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
         let format_vm = Self::format_version_map();
         let stored_checksum: u64 =
@@ -388,8 +387,8 @@ mod tests {
         restored_state =
             Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
-        // We expect only the semantic serializer and deserializer for field4 to be called at version 3.
-        // The semantic serializer will set field0 to field4.iter().sum() == 10.
+        // We expect only the semantic serializer and deserializer for field4 to be called at
+        // version 3. The semantic serializer will set field0 to field4.iter().sum() == 10.
         assert_eq!(restored_state.field0, state.field4.iter().sum::<u64>());
         // The semantic deserializer will create a 4 elements vec with all values == field0.
         assert_eq!(restored_state.field4, vec![restored_state.field0; 4]);

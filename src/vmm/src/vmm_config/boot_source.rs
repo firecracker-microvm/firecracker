@@ -56,15 +56,14 @@ impl Display for BootSourceConfigError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::BootSourceConfigError::*;
         match *self {
-            InvalidKernelPath(ref e) => write!(f, "The kernel file cannot be opened: {}", e),
-            InvalidInitrdPath(ref e) => write!(
+            InvalidKernelPath(ref err) => write!(f, "The kernel file cannot be opened: {}", err),
+            InvalidInitrdPath(ref err) => write!(
                 f,
-                "The initrd file cannot be opened due to invalid path or \
-                 invalid permissions. {}",
-                e,
+                "The initrd file cannot be opened due to invalid path or invalid permissions. {}",
+                err,
             ),
-            InvalidKernelCommandLine(ref e) => {
-                write!(f, "The kernel command line is invalid: {}", e.as_str())
+            InvalidKernelCommandLine(ref err) => {
+                write!(f, "The kernel command line is invalid: {}", err.as_str())
             }
         }
     }
@@ -102,7 +101,7 @@ impl BootConfig {
         };
         cmdline
             .insert_str(boot_args)
-            .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
+            .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
             cmdline,
@@ -116,8 +115,9 @@ impl BootConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use utils::tempfile::TempFile;
+
+    use super::*;
 
     #[test]
     fn test_boot_config() {

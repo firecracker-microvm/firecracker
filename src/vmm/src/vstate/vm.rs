@@ -5,10 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{
-    fmt::{Display, Formatter},
-    result,
-};
+use std::fmt::{Display, Formatter};
+use std::result;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -73,32 +71,36 @@ impl Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            GuestMSRs(e) => write!(f, "Retrieving supported guest MSRs fails: {:?}", e),
+            GuestMSRs(err) => write!(f, "Retrieving supported guest MSRs fails: {:?}", err),
             #[cfg(target_arch = "aarch64")]
-            VmCreateGIC(e) => write!(f, "Error creating the global interrupt controller: {:?}", e),
-            VmFd(e) => write!(f, "Cannot open the VM file descriptor: {}", e),
-            VmSetup(e) => write!(f, "Cannot configure the microvm: {}", e),
+            VmCreateGIC(err) => write!(
+                f,
+                "Error creating the global interrupt controller: {:?}",
+                err
+            ),
+            VmFd(err) => write!(f, "Cannot open the VM file descriptor: {}", err),
+            VmSetup(err) => write!(f, "Cannot configure the microvm: {}", err),
             NotEnoughMemorySlots => write!(
                 f,
                 "The number of configured slots is bigger than the maximum reported by KVM"
             ),
-            SetUserMemoryRegion(e) => write!(f, "Cannot set the memory regions: {}", e),
+            SetUserMemoryRegion(err) => write!(f, "Cannot set the memory regions: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmGetPit2(e) => write!(f, "Failed to get KVM vm pit state: {}", e),
+            VmGetPit2(err) => write!(f, "Failed to get KVM vm pit state: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmGetClock(e) => write!(f, "Failed to get KVM vm clock: {}", e),
+            VmGetClock(err) => write!(f, "Failed to get KVM vm clock: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmGetIrqChip(e) => write!(f, "Failed to get KVM vm irqchip: {}", e),
+            VmGetIrqChip(err) => write!(f, "Failed to get KVM vm irqchip: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmSetPit2(e) => write!(f, "Failed to set KVM vm pit state: {}", e),
+            VmSetPit2(err) => write!(f, "Failed to set KVM vm pit state: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmSetClock(e) => write!(f, "Failed to set KVM vm clock: {}", e),
+            VmSetClock(err) => write!(f, "Failed to set KVM vm clock: {}", err),
             #[cfg(target_arch = "x86_64")]
-            VmSetIrqChip(e) => write!(f, "Failed to set KVM vm irqchip: {}", e),
+            VmSetIrqChip(err) => write!(f, "Failed to set KVM vm irqchip: {}", err),
             #[cfg(target_arch = "aarch64")]
-            SaveGic(e) => write!(f, "Failed to save the VM's GIC state: {:?}", e),
+            SaveGic(err) => write!(f, "Failed to save the VM's GIC state: {:?}", err),
             #[cfg(target_arch = "aarch64")]
-            RestoreGic(e) => write!(f, "Failed to restore the VM's GIC state: {:?}", e),
+            RestoreGic(err) => write!(f, "Failed to restore the VM's GIC state: {:?}", err),
         }
     }
 }
@@ -345,11 +347,12 @@ pub struct VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
-    use crate::vstate::system::KvmContext;
     use std::os::unix::io::FromRawFd;
+
     use vm_memory::GuestAddress;
+
+    use super::*;
+    use crate::vstate::system::KvmContext;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
@@ -367,6 +370,7 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         use std::os::unix::io::AsRawFd;
+
         use utils::tempfile::TempFile;
         // Testing an error case.
         let vm =

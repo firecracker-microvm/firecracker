@@ -19,10 +19,31 @@ class Session(requests.Session):
         """Create a Session object and set the is_good_response callback."""
         super().__init__()
 
+        # 'UnixAdapter` saves in the pool at most 'pool_connections'
+        # connections. When a new request is made, the adapter tries to match
+        # that request with an already existing connection from the pool, by
+        # comparing their url.
+        # If there's a match, then the adapter uses the connection from the
+        # pool to make the new request.
+        # Otherwise, a new connection is created and saved in the pool. If
+        # there is no space in the pool, the new connection will replace the
+        # least recently used one in the pool. The evicted connection will be
+        # closed.
+        #
         # The `pool_connections` argument indicates the maximum number of
-        # open connections allowed at a time. This value is set to 10 for
-        # consistency with the micro-http's `MAX_CONNECTIONS`.
-        self.mount(DEFAULT_SCHEME, UnixAdapter(pool_connections=10))
+        # connection saved in the pool, not the maximum number of open
+        # connections allowed at the same time
+        # (see https://urllib3.readthedocs.io/en/stable/advanced-usage.html).
+        #
+        # We set this value to be equal to micro-http's `MAX_CONNECTIONS` - 1.
+        # This is because when reaching the `pool_connection` limit, it is not
+        # guaranteed that the event to close the connection will be received
+        # before the event that results in creating a new connection (this
+        # depends on the kernel). In case the two events are not received in
+        # the same order, or are received together, the server might try to add
+        # a new connection before removing the old one, resulting in a
+        # `SERVER_FULL_ERROR`.
+        self.mount(DEFAULT_SCHEME, UnixAdapter(pool_connections=9))
 
         def is_good_response(response: int):
             """Return `True` for all HTTP 2xx response codes."""

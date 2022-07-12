@@ -12,19 +12,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, result};
 
+use mmds::data_store::Mmds;
+use mmds::ns::MmdsNetworkStack;
+use rate_limiter::RateLimiter;
+use utils::net::mac::MacAddr;
+use vm_memory::{GuestAddress, GuestMemoryMmap};
+
 #[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
 use crate::virtio::{Net, Queue, QueueError};
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-
-use rate_limiter::RateLimiter;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-use utils::net::mac::MacAddr;
-
 use crate::Error as DeviceError;
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -49,6 +47,25 @@ pub fn default_net() -> Net {
         MmdsNetworkStack::default_ipv4_addr(),
         Arc::new(Mutex::new(Mmds::default())),
     );
+    enable(&net.tap);
+
+    net
+}
+
+pub fn default_net_no_mmds() -> Net {
+    let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
+    let tap_dev_name = format!("net-device{}", next_tap);
+
+    let guest_mac = default_guest_mac();
+
+    let net = Net::new_with_tap(
+        format!("net-device{}", next_tap),
+        tap_dev_name,
+        Some(&guest_mac),
+        RateLimiter::default(),
+        RateLimiter::default(),
+    )
+    .unwrap();
     enable(&net.tap);
 
     net
@@ -294,6 +311,15 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 
 #[cfg(test)]
 pub mod test {
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::{cmp, mem};
+
+    use event_manager::{EventManager, SubscriberId, SubscriberOps};
+    use logger::{IncMetric, METRICS};
+    use net_gen::ETH_HLEN;
+    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+
     use crate::check_metric_after_block;
     use crate::virtio::net::device::vnet_hdr_len;
     use crate::virtio::net::test_utils::{
@@ -304,15 +330,6 @@ pub mod test {
         IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
-    use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
-    use net_gen::ETH_HLEN;
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-
-    use std::cmp;
-    use std::mem;
-    use std::os::unix::ffi::OsStrExt;
-    use std::sync::{Arc, Mutex, MutexGuard};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,

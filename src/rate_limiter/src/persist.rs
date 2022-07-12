@@ -3,10 +3,11 @@
 
 //! Defines the structures needed for saving/restoring a RateLimiter.
 
-use super::*;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+
+use super::*;
 
 /// State for saving a TokenBucket.
 #[derive(Clone, Versionize)]

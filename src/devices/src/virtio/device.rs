@@ -5,14 +5,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use logger::{error, warn};
+use utils::eventfd::EventFd;
+use vm_memory::GuestMemoryMmap;
 
 use super::{ActivateResult, Queue};
 use crate::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
-use logger::{error, warn};
-use std::sync::atomic::Ordering;
-use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
@@ -65,9 +66,9 @@ impl IrqTrigger {
         };
         self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
 
-        self.irq_evt.write(1).map_err(|e| {
-            error!("Failed to send irq to the guest: {:?}", e);
-            e
+        self.irq_evt.write(1).map_err(|err| {
+            error!("Failed to send irq to the guest: {:?}", err);
+            err
         })?;
 
         Ok(())
@@ -77,8 +78,9 @@ impl IrqTrigger {
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
-/// device. The virtio devices needs to create queues, events and event fds for interrupts and expose
-/// them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status fns.
+/// device. The virtio devices needs to create queues, events and event fds for interrupts and
+/// expose them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status
+/// fns.
 pub trait VirtioDevice: AsAny + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;

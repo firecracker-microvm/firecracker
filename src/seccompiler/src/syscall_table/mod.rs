@@ -4,8 +4,9 @@
 mod aarch64;
 mod x86_64;
 
-use crate::backend::TargetArch;
 use std::collections::HashMap;
+
+use crate::backend::TargetArch;
 
 /// Creates and owns a mapping from the arch-specific syscall name to the right number.
 #[derive(Debug)]
