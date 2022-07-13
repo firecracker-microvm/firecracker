@@ -290,7 +290,7 @@ for restoring does not support persisting the version, the default will be used.
 
 ### MMDS formats
 
-The response format can be JSON (experimental) or IMDS. The IMDS documentation
+The response format can be JSON or IMDS. The IMDS documentation
 can be found [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
 The output format can be selected by specifying the optional `Accept` header.
 Using `Accept: application/json` will format the output to JSON, while using
