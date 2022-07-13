@@ -1267,6 +1267,7 @@ cmd_test() {
         --workdir "$CTR_FC_ROOT_DIR/tests" \
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
+        -v /boot:/boot \
         ${ramdisk_args} \
         -- \
         pytest "$@"

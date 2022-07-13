@@ -82,6 +82,7 @@ import sys
 import tempfile
 import uuid
 import json
+import re
 
 import pytest
 
@@ -477,9 +478,30 @@ def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
 def test_spectre_mitigations():
     """Check the kernel is compiled with SPECTREv2 mitigations."""
 
+    def check_retpoline(body):
+        # We check for full retpoline support by checking if the kernel was:
+        # 1. compiled with CONFIG_RETPOLINE
+        # 2. built with a retpoline-capable compiler
+
+        _, stdout, _ = utils.run_cmd("uname -r")
+        opt_config = "/boot/config-{}".format(stdout.rstrip())
+        assert os.path.exists(opt_config)
+        code, _, _ = utils.run_cmd(
+            "grep -q '^CONFIG_RETPOLINE' {}".format(opt_config), ignore_return_code=True
+        )
+        if code != 0:
+            return False
+
+        # As per the spectre-meltdown-checker, if retpoline or retpolines exist as
+        # whole words and minimial is not found, then it's full retpoline.
+        words = re.split(" |; |, |: |\n", body)
+        if ("retpoline" in words or "retpolines" in words) and "minimal" not in words:
+            return True
+        return False
+
     def x86_64(body):
         return ("IBPB: conditional" in body or "IBPB: always-on" in body) and (
-            "Enhanced IBRS" in body or "Retpolines" in body
+            "Enhanced IBRS" in body or check_retpoline(body.lower())
         )
 
     def aarch64(body):
@@ -491,8 +513,9 @@ def test_spectre_mitigations():
     body = open(
         "/sys/devices/system/cpu/vulnerabilities/spectre_v2", encoding="utf-8"
     ).read()
+
     mitigated = x86_64(body) if arch == "x86_64" else aarch64(body)
-    assert mitigated, "SPECTREv2 not mitigated"
+    assert mitigated, "SPECTREv2 not mitigated {}".format(body)
 
 
 def pytest_generate_tests(metafunc):
