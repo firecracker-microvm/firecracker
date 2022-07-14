@@ -191,40 +191,34 @@ impl Compiler {
         is_basic: bool,
     ) -> Result<HashMap<String, BpfProgram>> {
         self.validate_filters(&filters)?;
-        let mut bpf_map: HashMap<String, BpfProgram> = HashMap::new();
 
-        for (thread_name, filter) in filters.into_iter() {
-            if is_basic {
-                bpf_map.insert(
-                    thread_name,
-                    self.make_basic_seccomp_filter(filter)?.try_into()?,
-                );
-            } else {
-                bpf_map.insert(thread_name, self.make_seccomp_filter(filter)?.try_into()?);
-            }
-        }
-        Ok(bpf_map)
+        filters
+            .into_iter()
+            .map(|(thread, filter)| {
+                let filter = if is_basic {
+                    self.make_basic_seccomp_filter(filter)?
+                } else {
+                    self.make_seccomp_filter(filter)?
+                };
+                Ok((thread, filter.try_into()?))
+            })
+            .collect()
     }
 
     /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR language).
     fn make_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
-        let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
-        let filter_action = &filter.filter_action;
-
-        for syscall_rule in filter.filter {
-            let syscall_name = syscall_rule.syscall;
-            let action = filter_action.clone();
-            let syscall_nr = self
-                .syscall_table
-                .get_syscall_nr(&syscall_name)
-                .ok_or_else(|| Error::SyscallName(syscall_name.clone(), self.arch))?;
-            let rule_accumulator = rule_map.entry(syscall_nr).or_insert_with(Vec::new);
-
-            match syscall_rule.conditions {
-                Some(conditions) => rule_accumulator.push(SeccompRule::new(conditions, action)),
-                None => rule_accumulator.push(SeccompRule::new(vec![], action)),
-            };
-        }
+        let action = &filter.filter_action;
+        let rule_map =
+            filter
+                .filter
+                .into_iter()
+                .try_fold(SeccompRuleMap::new(), |mut rule_map, rule| {
+                    let nr = self.syscall_nr(&rule.syscall)?;
+                    let conditions = rule.conditions.unwrap_or_default();
+                    let entry = rule_map.entry(nr).or_insert_with(Vec::new);
+                    entry.push(SeccompRule::new(conditions, action.clone()));
+                    Result::Ok(rule_map)
+                })?;
 
         SeccompFilter::new(rule_map, filter.default_action, self.arch.into())
             .map_err(Error::SeccompFilter)
@@ -234,27 +228,24 @@ impl Compiler {
     /// This filter will drop any argument checks and any rule-level action.
     /// All rules will trigger the filter-level `filter_action`.
     fn make_basic_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
-        let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
-        let filter_action = &filter.filter_action;
-
-        for syscall_rule in filter.filter {
-            let syscall_name = syscall_rule.syscall;
-            // Basic filters bypass the rule-level action and use the filter_action.
-            let action = filter_action.clone();
-            let syscall_nr = self
-                .syscall_table
-                .get_syscall_nr(&syscall_name)
-                .ok_or_else(|| Error::SyscallName(syscall_name.clone(), self.arch))?;
-
-            // If there is already an entry for this syscall, do nothing.
-            // Otherwise, insert an empty rule that triggers the filter_action.
-            rule_map
-                .entry(syscall_nr)
-                .or_insert_with(|| vec![SeccompRule::new(vec![], action)]);
-        }
-
+        let action = &filter.filter_action;
+        let rule_map = filter
+            .filter
+            .iter()
+            .map(|rule| {
+                let nr = self.syscall_nr(&rule.syscall)?;
+                Ok((nr, vec![SeccompRule::new(vec![], action.clone())]))
+            })
+            .collect::<Result<_>>()?;
         SeccompFilter::new(rule_map, filter.default_action, self.arch.into())
             .map_err(Error::SeccompFilter)
+    }
+
+    /// Maps a syscall name to its arch number
+    fn syscall_nr(&self, name: &str) -> Result<i64> {
+        self.syscall_table
+            .get_syscall_nr(name)
+            .ok_or_else(|| Error::SyscallName(name.to_owned(), self.arch))
     }
 }
 
