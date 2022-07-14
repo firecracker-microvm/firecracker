@@ -83,8 +83,8 @@ Your contribution needs to meet the following standards:
 
   A concise description where each line is 72 characters or fewer.
 
-  Signed-Off-By <A full name> <A email>
-  Co-Authored-By: <B full name> <B email>
+  Signed-off-by: <A full name> <A email>
+  Co-authored-by: <B full name> <B email>
   ```
 
 - Document your pull requests. Include the reasoning behind each change, and
