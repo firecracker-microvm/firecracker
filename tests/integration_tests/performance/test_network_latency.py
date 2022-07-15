@@ -139,6 +139,8 @@ def test_network_latency(bin_cloner_path, results_file_dumper):
     kernel_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.kernels())
     disk_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.disks(keyword="ubuntu"))
 
+    logger.info("Testing on processor %s", get_cpu_model_name())
+
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
