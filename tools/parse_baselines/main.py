@@ -17,6 +17,7 @@ from providers.types import FileDataProvider
 from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
 from providers.snapshot_restore import SnapshotRestoreDataParser
+from providers.latency import LatencyDataParser
 
 sys.path.append(os.path.join(os.getcwd(), "tests"))
 
@@ -30,6 +31,7 @@ OUTPUT_FILENAMES = {
         "test_block_performance_async",
     ],
     "snapshot_restore_performance": ["test_snap_restore_performance"],
+    "network_latency": ["test_network_latency"],
 }
 
 DATA_PARSERS = {
@@ -37,6 +39,7 @@ DATA_PARSERS = {
     "network_tcp_throughput": Iperf3DataParser,
     "block_performance": BlockDataParser,
     "snapshot_restore_performance": SnapshotRestoreDataParser,
+    "network_latency": LatencyDataParser,
 }
 
 
@@ -67,8 +70,9 @@ def concatenate_data_files(data_files: List[str]):
 
     for filename in data_files:
         with open(filename, encoding="utf-8") as infile:
-            outfile.write(str.encode(infile.read()))
-
+            contents = str.encode(infile.read())
+            outfile.write(contents)
+    outfile.flush()
     return outfile
 
 
@@ -98,6 +102,7 @@ def main():
         choices=[
             "vsock_throughput",
             "network_tcp_throughput",
+            "network_latency",
             "block_performance",
             "snapshot_restore_performance",
         ],
