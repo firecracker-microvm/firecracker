@@ -82,10 +82,10 @@ for Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
 ## Jailer Configuration
 
-For assuring secure isolation in production deployments, Firecracker should
-must be started using the `jailer` binary that's part of each Firecracker
-release, or executed under process constraints equal or more restrictive than
-those in the jailer. For more about Firecracker sandboxing please see
+For assuring secure isolation in production deployments, Firecracker should be
+started using the `jailer` binary that's part of each Firecracker release, or
+executed under process constraints equal or more restrictive than those in the jailer.
+For more about Firecracker sandboxing please see
 [Firecracker design](design.md)
 
 The Jailer process applies
@@ -127,7 +127,7 @@ Here are some recommendations on how to limit the process's resources:
 
 - Jailer's `resource-limit` provides control on the disk usage through:
   - `fsize` - limits the size in bytes for files created by the process
-  - `no-file` - specifies a value one greater than the maximum file
+  - `no-file` - specifies a value greater than the maximum file
     descriptor number that can be opened by the process. If not specified,
     it defaults to 4096.
 
