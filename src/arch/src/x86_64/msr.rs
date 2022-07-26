@@ -50,6 +50,8 @@ const MSR_KVM_SYSTEM_TIME_NEW: u32 = 0x4b56_4d01;
 const MSR_KVM_ASYNC_PF_EN: u32 = 0x4b56_4d02;
 const MSR_KVM_STEAL_TIME: u32 = 0x4b56_4d03;
 const MSR_KVM_PV_EOI_EN: u32 = 0x4b56_4d04;
+const MSR_KVM_POLL_CONTROL: u32 = 0x4b56_4d05;
+const MSR_KVM_ASYNC_PF_INT: u32 = 0x4b56_4d06;
 
 /// Taken from arch/x86/include/asm/msr-index.h
 const MSR_IA32_SPEC_CTRL: u32 = 0x0000_0048;
@@ -167,6 +169,10 @@ static ALLOWED_MSR_RANGES: &[MsrRange] = &[
     SINGLE_MSR!(MSR_GS_BASE),
     SINGLE_MSR!(MSR_KERNEL_GS_BASE),
     SINGLE_MSR!(MSR_TSC_AUX),
+    SINGLE_MSR!(MSR_MISC_FEATURE_ENABLES),
+    SINGLE_MSR!(MSR_K7_HWCR),
+    SINGLE_MSR!(MSR_KVM_POLL_CONTROL),
+    SINGLE_MSR!(MSR_KVM_ASYNC_PF_INT),
 ];
 
 /// Specifies whether a particular MSR should be included in vcpu serialization.
