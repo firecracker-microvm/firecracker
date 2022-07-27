@@ -15,7 +15,7 @@ use crate::vstate::{
     vcpu::{VcpuConfig, VcpuEmulation},
     vm::Vm,
 };
-use cpuid::{c3, filter_cpuid, t2, VmSpec};
+use cpuid::{c3, filter_cpuid, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, MsrList, Msrs,
@@ -97,6 +97,8 @@ pub enum Error {
     VcpuSetXsave(kvm_ioctls::Error),
     /// Failed to set KVM TSC freq.
     VcpuSetTSC(kvm_ioctls::Error),
+    /// Failed to apply CPU template.
+    VcpuTemplateError,
 }
 
 impl Display for Error {
@@ -147,6 +149,7 @@ impl Display for Error {
             VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
             VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
             VcpuSetTSC(e) => write!(f, "Failed to set KVM TSC frequency: {}", e),
+            VcpuTemplateError => write!(f, "Failed to apply CPU template"),
         }
     }
 }
@@ -214,6 +217,9 @@ impl KvmVcpu {
             CpuFeaturesTemplate::T2 => {
                 t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
             }
+            CpuFeaturesTemplate::T2S => {
+                t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
+            }
             CpuFeaturesTemplate::C3 => {
                 c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
             }
@@ -222,7 +228,19 @@ impl KvmVcpu {
 
         self.fd.set_cpuid2(&cpuid).map_err(Error::VcpuSetCpuid)?;
 
-        arch::x86_64::msr::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
+        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
+
+        if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
+            for msr in t2s::msr_entries_to_save() {
+                self.msr_list
+                    .push(*msr)
+                    .map_err(|_| Error::VcpuTemplateError)?;
+            }
+            t2s::update_msr_entries(&mut msr_boot_entries);
+        }
+
+        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)
+            .map_err(Error::MSRSConfiguration)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
@@ -534,14 +552,25 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
+        // Test configure while using the T2S template.
+        vcpu_config.cpu_template = CpuFeaturesTemplate::T2S;
+        let t2s_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
+
         match &get_vendor_id_from_host().unwrap() {
             VENDOR_ID_INTEL => {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
+                assert!(t2s_res.is_ok());
             }
             _ => {
                 assert!(t2_res.is_err());
                 assert!(c3_res.is_err());
+                assert!(t2s_res.is_err());
             }
         }
     }
