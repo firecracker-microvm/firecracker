@@ -7,7 +7,10 @@ use crate::template::intel::validate_vendor_id;
 use crate::transformer::*;
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
-fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {
+pub(crate) fn update_feature_info_entry(
+    entry: &mut kvm_cpuid_entry2,
+    _vm_spec: &VmSpec,
+) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0x1::*;
 
     entry
@@ -32,26 +35,31 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bit(ecx::MONITOR_BITINDEX, false)
         .write_bit(ecx::DS_CPL_SHIFT, false)
         .write_bit(ecx::VMX_BITINDEX, false)
+        .write_bit(ecx::SMX_BITINDEX, false)
+        .write_bit(ecx::EIST_BITINDEX, false)
         .write_bit(ecx::TM2_BITINDEX, false)
         .write_bit(ecx::CNXT_ID_BITINDEX, false)
         .write_bit(ecx::SDBG_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
+        .write_bit(ecx::DCA_BITINDEX, false)
         .write_bit(ecx::OSXSAVE_BITINDEX, false);
 
     entry
         .edx
         .write_bit(edx::PSN_BITINDEX, false)
+        .write_bit(edx::SSE42_BITINDEX, false)
         .write_bit(edx::DS_BITINDEX, false)
         .write_bit(edx::ACPI_BITINDEX, false)
         .write_bit(edx::SS_BITINDEX, false)
         .write_bit(edx::TM_BITINDEX, false)
+        .write_bit(edx::IA64_BITINDEX, false)
         .write_bit(edx::PBE_BITINDEX, false);
 
     Ok(())
 }
 
-fn update_structured_extended_entry(
+pub(crate) fn update_structured_extended_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
@@ -65,6 +73,7 @@ fn update_structured_extended_entry(
             .write_bit(ebx::FPDP_BITINDEX, false)
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
+            .write_bit(ebx::FPU_CS_DS_DEPRECATE_BITINDEX, false)
             .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::MPX_BITINDEX, false)
             .write_bit(ebx::AVX512F_BITINDEX, false)
@@ -72,6 +81,7 @@ fn update_structured_extended_entry(
             .write_bit(ebx::RDSEED_BITINDEX, false)
             .write_bit(ebx::ADX_BITINDEX, false)
             .write_bit(ebx::AVX512IFMA_BITINDEX, false)
+            .write_bit(ebx::PCOMMIT_BITINDEX, false)
             .write_bit(ebx::CLFLUSHOPT_BITINDEX, false)
             .write_bit(ebx::CLWB_BITINDEX, false)
             .write_bit(ebx::PT_BITINDEX, false)
@@ -103,7 +113,7 @@ fn update_structured_extended_entry(
     Ok(())
 }
 
-fn update_xsave_features_entry(
+pub(crate) fn update_xsave_features_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
@@ -138,7 +148,7 @@ fn update_xsave_features_entry(
     Ok(())
 }
 
-fn update_extended_feature_info_entry(
+pub(crate) fn update_extended_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
