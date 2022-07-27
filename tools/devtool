@@ -1807,7 +1807,7 @@ check_L1TF () {
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-    say_warn "WARNING: SWAP enabled"
+    say_warn "WARNING: SWAP ENABLED"
 }
 
 check_SSBD () {
@@ -1828,6 +1828,13 @@ check_SSBD () {
     else
         say_warn "WARNING: SSBD mitigation not supported on this kernel."\
             "View the prod-host-setup.md for more details."
+    fi
+}
+
+check_EPT() {
+    if [ "$arch" = "x86_64" ]; then
+        (grep -q "Y" /sys/module/kvm_intel/parameters/ept) || \
+        say_warn "WARNING: EPT DISABLED. Performance will be affected."
     fi
 }
 
@@ -1864,6 +1871,7 @@ cmd_checkenv() {
     check_SMT
     check_swap
     check_SSBD
+    check_EPT
 }
 
 generate_syscall_table_x86_64() {
