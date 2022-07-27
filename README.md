@@ -96,7 +96,7 @@ The **API endpoint** can be used to:
 - Configure the microvm by:
   - Setting the number of vCPUs (the default is 1).
   - Setting the memory size (the default is 128 MiB).
-  - [x86_64 only] Choosing a CPU template (currently, C3 and T2 are available).
+  - [x86_64 only] Choosing a CPU template (currently, C3, T2 and T2S are available).
 - Add one or more network interfaces to the microVM.
 - Add one or more read-write or read-only disks to the microVM, each represented
   by a file-backed block device.

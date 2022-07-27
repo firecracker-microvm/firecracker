@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add a new CPU template called `T2S`. This exposes the same CPUID as `T2`
+  to the Guest and also overwrites the `ARCH_CAPABILITIES` MSR to expose a
+  reduced set of capabilities. With regards to hardware vulnerabilities
+  and mitigations, the Guest vCPU will apear to look like a Skylake CPU,
+  making it safe to snapshot uVMs running on a newer host CPU (Cascade Lake)
+  and restore on a host that has a Skylake CPU.
+
+### Fixed
+
+- Make the `T2` template more robust by explicitly disabling additional
+  CPUID flags that should be off but were missed initially or that were
+  not available in the spec when the template was created.
+
 ## [1.1.0]
 
 ### Added

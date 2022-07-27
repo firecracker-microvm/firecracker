@@ -782,6 +782,7 @@ definitions:
     enum:
       - C3
       - T2
+      - T2S
       - None
     default: "None"
 
