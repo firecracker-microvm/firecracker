@@ -27,7 +27,6 @@ class SnapshotRestoreDataParser(DataParser):
             "restore_latency/P90",
         ])
 
-    # pylint: disable=R0201
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
