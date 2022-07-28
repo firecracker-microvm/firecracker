@@ -11,3 +11,4 @@ kvm-ioctls = ">=0.9.0"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 utils = { path = "../utils"}
+arch = { path = "../arch" }

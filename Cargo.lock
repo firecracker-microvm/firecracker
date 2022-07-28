@@ -59,6 +59,7 @@ name = "arch"
 version = "0.1.0"
 dependencies = [
  "arch_gen",
+ "bitflags",
  "derive_more",
  "device_tree",
  "kvm-bindings",
@@ -238,6 +239,7 @@ dependencies = [
 name = "cpuid"
 version = "0.1.0"
 dependencies = [
+ "arch",
  "derive_more",
  "kvm-bindings",
  "kvm-ioctls",

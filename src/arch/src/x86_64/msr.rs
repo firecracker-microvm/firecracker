@@ -5,6 +5,7 @@
 use std::result;
 
 use arch_gen::x86::msr_index::*;
+use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
 
@@ -54,8 +55,73 @@ const MSR_KVM_POLL_CONTROL: u32 = 0x4b56_4d05;
 const MSR_KVM_ASYNC_PF_INT: u32 = 0x4b56_4d06;
 
 /// Taken from arch/x86/include/asm/msr-index.h
-const MSR_IA32_SPEC_CTRL: u32 = 0x0000_0048;
+/// Spectre mitigations control MSR
+pub const MSR_IA32_SPEC_CTRL: u32 = 0x0000_0048;
+/// Architecture capabilities MSR
+pub const MSR_IA32_ARCH_CAPABILITIES: u32 = 0x0000_010a;
+
 const MSR_IA32_PRED_CMD: u32 = 0x0000_0049;
+
+bitflags! {
+    /// Feature flags enumerated in the IA32_ARCH_CAPABILITIES MSR.
+    /// See https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/cpuid-enumeration-and-architectural-msrs.html
+    #[derive(Default)]
+    #[repr(C)]
+    pub struct ArchCapaMSRFlags: u64 {
+        /// The processor is not susceptible to Rogue Data Cache Load (RDCL).
+        const RDCL_NO               = 1 << 0;
+        /// The processor supports enhanced Indirect Branch Restriction Speculation (IBRS)
+        const IBRS_ALL              = 1 << 1;
+        /// The processor supports RSB Alternate. Alternative branch predictors may be used by RET instructions
+        /// when the RSB is empty. Software using retpoline may be affected by this behavior.
+        const RSBA                  = 1 << 2;
+        /// A value of 1 indicates the hypervisor need not flush the L1D on VM entry.
+        const SKIP_L1DFL_VMENTRY    = 1 << 3;
+        /// Processor is not susceptible to Speculative Store Bypass (SSB).
+        const SSB_NO                = 1 << 4;
+        /// Processor is not susceptible to Microarchitectural Data Sampling (MDS).
+        const MDS_NO                = 1 << 5;
+        /// The processor is not susceptible to a machine check error due to modifying the size of a code page
+        /// without TLB invalidation.
+        const IF_PSCHANGE_MC_NO     = 1 << 6;
+        /// The processor supports RTM_DISABLE and TSX_CPUID_CLEAR.
+        const TSX_CTRL              = 1 << 7;
+        /// Processor is not susceptible to Intel® Transactional Synchronization Extensions
+        /// (Intel® TSX) Asynchronous Abort (TAA).
+        const TAA_NO                = 1 << 8;
+        // Bit 9 is reserved
+        /// Processor supports IA32_MISC_PACKAGE_CTRLS MSR.
+        const MISC_PACKAGE_CTRLS    = 1 << 10;
+        /// Processor supports setting and reading IA32_MISC_PACKAGE_CTLS[0] (ENERGY_FILTERING_ENABLE) bit.
+        const ENERGY_FILTERING_CTL  = 1 << 11;
+        /// The processor supports data operand independent timing mode.
+        const DOITM                 = 1 << 12;
+        /// The processor is not affected by either the Shared Buffers Data Read (SBDR) vulnerability or the
+        /// Sideband Stale Data Propagator (SSDP).
+        const SBDR_SSDP_NO          = 1 << 13;
+        /// The processor is not affected by the Fill Buffer Stale Data Propagator (FBSDP).
+        const FBSDP_NO              = 1 << 14;
+        /// The processor is not affected by vulnerabilities involving the Primary Stale Data Propagator (PSDP).
+        const PSDP_NO               = 1 << 15;
+        // Bit 16 is reserved
+        /// The processor will overwrite fill buffer values as part of MD_CLEAR operations with the VERW instruction.
+        /// On these processors, L1D_FLUSH does not overwrite fill buffer values.
+        const FB_CLEAR              = 1 << 17;
+        /// The processor supports read and write to the IA32_MCU_OPT_CTRL MSR (MSR 123H) and to the FB_CLEAR_DIS bit
+        /// in that MSR (bit position 3).
+        const FB_CLEAR_CTRL         = 1 << 18;
+        /// A value of 1 indicates processor may have the RRSBA alternate prediction behavior,
+        /// if not disabled by RRSBA_DIS_U or RRSBA_DIS_S.
+        const RRSBA                 = 1 << 19;
+        /// A value of 1 indicates BHI_NO branch prediction behavior,
+        /// regardless of the value of IA32_SPEC_CTRL[BHI_DIS_S] MSR bit.
+        const BHI_NO                = 1 << 20;
+        // Bits 21:22 are reserved
+        /// If set, the IA32_OVERCLOCKING STATUS MSR exists.
+        const OVERCLOCKING_STATUS   = 1 << 23;
+        // Bits 24:63 are reserved
+    }
+}
 
 // Creates a MsrRange of one msr given as argument.
 macro_rules! SINGLE_MSR {
@@ -188,8 +254,8 @@ pub fn msr_should_serialize(index: u32) -> bool {
     ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
 }
 
-// Creates and populates required MSR entries for booting Linux on X86_64.
-fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
+/// Creates and populates required MSR entries for booting Linux on X86_64.
+pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     let msr_entry_default = |msr| kvm_msr_entry {
         index: msr,
         data: 0x0,
@@ -221,9 +287,8 @@ fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
-    let entry_vec = create_boot_msr_entries();
-    let msrs = Msrs::from_entries(&entry_vec).map_err(Error::FamError)?;
+pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
+    let msrs = Msrs::from_entries(&msr_entries).map_err(Error::FamError)?;
     vcpu.set_msrs(&msrs)
         .map_err(Error::SetModelSpecificRegisters)
         .and_then(|msrs_written| {
@@ -272,7 +337,8 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
-        setup_msrs(&vcpu).unwrap();
+        let msr_boot_entries = create_boot_msr_entries();
+        set_msrs(&vcpu, &msr_boot_entries).unwrap();
 
         // This test will check against the last MSR entry configured (the tenth one).
         // See create_msr_entries() for details.
