@@ -287,6 +287,7 @@ class Microvm:
         """Get the ssh configuration used to ssh into some microVMs."""
         return self._ssh_config
 
+    # pylint: disable=C2801
     @ssh_config.setter
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
