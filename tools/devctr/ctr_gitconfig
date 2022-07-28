@@ -1,0 +1,9 @@
+# Add the root firecracker git folder as a safe directory in .gitconfig.
+# Firecracker root git folder in the container is
+# bind-mounted to a folder on the host which is mapped to a
+# user that is different from the user which runs the integ tests.
+# This difference in ownership is validated against by git.
+# https://github.blog/2022-04-12-git-security-vulnerability-announced/
+
+[safe]
+ directory = /firecracker
