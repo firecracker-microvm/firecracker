@@ -18,7 +18,7 @@ def test_python_style():
         '--output-format=colorized --attr-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
         '--argument-rgx="[a-z_][a-z0-9_]{1,35}$" ' \
         '--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable=' \
-        'bad-continuation,fixme,too-many-instance-attributes,import-error,' \
+        'fixme,too-many-instance-attributes,import-error,' \
         'too-many-locals,too-many-arguments,consider-using-f-string,' \
         'consider-using-with',
 
