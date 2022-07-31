@@ -204,7 +204,7 @@ configuring rate limiters for the network interface as explained within
 [Network Interface documentation](api_requests/patch-network-interface.md),
 or by using one of the tools presented below:
 
-- `tc qdisk` - manipulate traffic control settings by configuring filters.
+- `tc qdisc` - manipulate traffic control settings by configuring filters.
 
 When traffic enters a classful qdisc, the filters are consulted and the
 packet is enqueued into one of the classes within. Besides
