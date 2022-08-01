@@ -14,11 +14,9 @@ import time
 import platform
 
 from collections import namedtuple, defaultdict
-from pathlib import Path
 import psutil
 from retry import retry
 from retry.api import retry_call
-from framework import utils
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
