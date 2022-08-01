@@ -1013,16 +1013,10 @@ def test_api_version(test_microvm_with_api):
 
     # Check that the version is the same as `git describe --dirty`.
     # Abbreviated to post-tag commit metadata
-    out = subprocess.check_output(["git", "describe", "--dirty", "--abbrev=0"]).decode()
+    out = subprocess.check_output(["git", "describe", "--dirty"]).decode()
 
     # Skip the "v" at the start
-    tag_version = out[1:]
-    # Strip the metadata appended to the tag
-    if out.find("-") > -1:
-        tag_version = tag_version[: tag_version.index("-")]
-    else:
-        # Just strip potential newlines
-        tag_version = tag_version.strip()
+    tag_version = out[1:].strip()
 
     # Git tag should match FC API version
     assert (
