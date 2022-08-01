@@ -18,7 +18,6 @@ import host_tools.network as net_tools
 
 from conftest import _test_images_s3_bucket, init_microvm
 
-from framework import utils as test_utils
 from framework.utils import is_io_uring_supported
 from framework.artifacts import (
     ArtifactCollection,
@@ -1012,19 +1011,12 @@ def test_api_version(test_microvm_with_api):
     # Validate VM version post-boot is the same as pre-boot.
     assert preboot_response.json() == postboot_response.json()
 
-    test_utils.configure_git_safe_directory()
     # Check that the version is the same as `git describe --dirty`.
     # Abbreviated to post-tag commit metadata
-    out = subprocess.check_output(["git", "describe", "--dirty", "--abbrev=0"]).decode()
+    out = subprocess.check_output(["git", "describe", "--dirty"]).decode()
 
     # Skip the "v" at the start
-    tag_version = out[1:]
-    # Strip the metadata appended to the tag
-    if out.find("-") > -1:
-        tag_version = tag_version[: tag_version.index("-")]
-    else:
-        # Just strip potential newlines
-        tag_version = tag_version.strip()
+    tag_version = out[1:].strip()
 
     # Git tag should match FC API version
     assert (

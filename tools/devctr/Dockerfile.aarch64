@@ -99,6 +99,7 @@ RUN cd "$TMP_POETRY_DIR" \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
+        && rustup component add clippy \
         && cd "$TMP_BUILD_DIR" \
                     && cargo install cargo-kcov \
                     && cargo kcov --print-install-kcov-sh | sh \
@@ -130,6 +131,8 @@ RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
 # Add the tini init binary.
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION_TAG}/tini-static-arm64 /sbin/tini
 RUN chmod +x /sbin/tini
+
+ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
 WORKDIR "$FIRECRACKER_SRC_DIR"
 ENTRYPOINT ["/sbin/tini", "--"]
