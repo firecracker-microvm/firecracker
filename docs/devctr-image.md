@@ -58,7 +58,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    packages. The container image will use the locked versions of python packages.
 
    ```bash
-    tools/devtool build_devctr --no-python-package-update
+    tools/devtool build_devctr --no-python-package-upgrade
    ```
 
 1. Verify that the new image exists.
