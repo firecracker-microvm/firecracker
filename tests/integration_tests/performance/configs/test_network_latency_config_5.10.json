@@ -58,41 +58,6 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.241,
-                                                    "delta_percentage": 0.03
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "target": 0.254,
-                                                    "delta_percentage": 0.03
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ]
-            },
-            "m6gd.metal": {
-                "cpus": [
-                    {
-                        "model": "ARM_NEOVERSE_N1",
-                        "baselines": {
-                            "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
                                                     "target": 0.034,
                                                     "delta_percentage": 0.01
                                                 }

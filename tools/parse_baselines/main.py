@@ -123,7 +123,7 @@ def main():
         help="Instance type on which the baselines \
                             were obtained.",
         action="store",
-        choices=["m5d.metal", "m6gd.metal"],
+        choices=["m5d.metal", "m6g.metal"],
         required=True,
     )
     args = parser.parse_args()
