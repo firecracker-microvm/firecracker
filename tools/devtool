@@ -2120,6 +2120,8 @@ cmd_build_rootfs() {
     SIZE="300MB"
     FROM_CTR=ubuntu:18.04
     flavour="bionic"
+    ROOTFS_DIR=/firecracker/build/rootfs
+    MNT_DIR=$ROOTFS_DIR/mnt
 
     # Parse the command line args.
     while [ $# -gt 0 ]; do
@@ -2132,6 +2134,10 @@ cmd_build_rootfs() {
             "-p"|"--partuuid")
                 shift
                 PARTUUID=1
+                ;;
+            "-m"|"--mount")
+                shift
+                MNT_DIR="$1"
                 ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -2166,11 +2172,10 @@ cmd_build_rootfs() {
 
     truncate -s "$SIZE" "$img_file"
     mkfs.ext4 -F "$img_file"
-    docker run --env ROOTFS_NAME=$ROOTFS_NAME --env PARTUUID=$PARTUUID --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker"  "$FROM_CTR" bash -s <<'EOF'
-rootfs_dir=/firecracker/build/rootfs
-img_file="$rootfs_dir/$ROOTFS_NAME"
+    docker run --env ROOTFS_DIR="$ROOTFS_DIR" --env MNT_DIR="$MNT_DIR" --env ROOTFS_NAME=$ROOTFS_NAME --env PARTUUID=$PARTUUID --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker"  "$FROM_CTR" bash -s <<'EOF'
+img_file="$ROOTFS_DIR/$ROOTFS_NAME"
 resource_dir="/firecracker/resources/tests"
-mnt_dir="$rootfs_dir/mnt"
+mnt_dir="$MNT_DIR"
 dirs="bin etc home lib lib64 opt root sbin usr"
 
 source $resource_dir/setup_rootfs.sh
@@ -2179,11 +2184,11 @@ mkdir -p $mnt_dir
 echo "Mounting $img_file on $mnt_dir ..."
 mount $img_file $mnt_dir
 
-prepare_fc_rootfs "$rootfs_dir" "$resource_dir"
+prepare_fc_rootfs "$ROOTFS_DIR" "$resource_dir"
 
 # If we want to create a PARTUUID no need to install all packages (i.e cpuid, iperf3).
 if [ -z "$PARTUUID" ]; then
-    setup_specialized_rootfs "$rootfs_dir" "$resource_dir"
+    setup_specialized_rootfs "$ROOTFS_DIR" "$resource_dir"
     dirs="$dirs dev"
 fi
 
