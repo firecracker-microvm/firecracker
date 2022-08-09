@@ -7,6 +7,7 @@ import subprocess
 from enum import Enum, auto
 
 from framework.utils import run_cmd
+from framework.utils_imdsv2 import imdsv2_get
 import host_tools.network as net_tools
 
 ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1"}
@@ -46,10 +47,8 @@ def get_cpu_model_name():
 
 
 def get_instance_type():
-    """Get the instance type through IMDS."""
-    imds_cmd = "curl http://169.254.169.254/latest/meta-data/instance-type"
-    _, stdout, _ = run_cmd(imds_cmd)
-    return stdout
+    """Get the instance type through IMDSv2"""
+    return imdsv2_get("/meta-data/instance-type")
 
 
 def check_guest_cpuid_output(
