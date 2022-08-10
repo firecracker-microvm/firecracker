@@ -8,6 +8,15 @@
                     "criteria": "EqualWith"
                 }
             ]
+        },
+        "pkt_loss": {
+            "unit": "percentage",
+            "statistics": [
+                {
+                    "function": "Avg",
+                    "criteria": "EqualWith"
+                }
+            ]
         }
     },
     "hosts": {
@@ -37,6 +46,32 @@
                                                 "ping": {
                                                     "target": 0.238,
                                                     "delta_percentage": 0.01
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "pkt_loss": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
                                                 }
                                             }
                                         }
@@ -72,6 +107,32 @@
                                                 "ping": {
                                                     "target": 0.036,
                                                     "delta_percentage": 0.01
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "pkt_loss": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
                                                 }
                                             }
                                         }
