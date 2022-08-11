@@ -40,7 +40,7 @@ BASE_BLOCK_COUNT = 1
 USEC_IN_MSEC = 1000
 
 # Measurements tags.
-RESTORE_LATENCY = "restore_latency"
+RESTORE_LATENCY = "latency"
 
 # Define 4 net device configurations.
 net_ifaces = create_net_devices_configuration(4)
@@ -55,7 +55,7 @@ scratch_drives = []
 class SnapRestoreBaselinesProvider(BaselineProvider):
     """Baselines provider for snapshot restore latency."""
 
-    def __init__(self, env_id):
+    def __init__(self, env_id, workload):
         """Snapshot baseline provider initialization."""
         cpu_model_name = get_cpu_model_name()
         baselines = list(
@@ -69,7 +69,7 @@ class SnapRestoreBaselinesProvider(BaselineProvider):
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
-        self._tag = "baselines/{}/" + env_id + "/{}"
+        self._tag = "baselines/{}/" + env_id + "/{}/" + workload
 
     def get(self, ms_name: str, st_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
@@ -94,11 +94,11 @@ def construct_scratch_drives():
     return list(zip(scratchdisks, disk_files))
 
 
-def default_lambda_consumer(env_id):
+def default_lambda_consumer(env_id, workload):
     """Create a default lambda consumer for the snapshot restore test."""
     return st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG_DICT["measurements"], SnapRestoreBaselinesProvider(env_id)
+            CONFIG_DICT["measurements"], SnapRestoreBaselinesProvider(env_id, workload)
         ),
         func=consume_output,
         func_kwargs={},
@@ -237,6 +237,7 @@ def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
         "logger": logger,
         "name": TEST_ID,
         "results_file_dumper": results_file_dumper,
+        "workload": "restore",
     }
 
     test_matrix = TestMatrix(
@@ -248,6 +249,7 @@ def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
 
 def snapshot_scaling_vcpus(context, st_core, vcpu_count=10):
     """Restore snapshots with variable vcpu count."""
+    workload = context.custom["workload"]
     for i in range(vcpu_count):
         env_id = (
             f"{context.kernel.name()}/{context.disk.name()}/"
@@ -262,12 +264,13 @@ def snapshot_scaling_vcpus(context, st_core, vcpu_count=10):
                 "mem_size": BASE_MEM_SIZE_MIB,
             },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_mem(context, st_core, mem_exponent=9):
     """Restore snapshots with variable memory size."""
+    workload = context.custom["workload"]
     for i in range(1, mem_exponent):
         env_id = (
             f"{context.kernel.name()}/{context.disk.name()}/"
@@ -282,12 +285,13 @@ def snapshot_scaling_mem(context, st_core, mem_exponent=9):
                 "mem_size": BASE_MEM_SIZE_MIB * (2**i),
             },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_net(context, st_core, net_count=4):
     """Restore snapshots with variable net device count."""
+    workload = context.custom["workload"]
     for i in range(1, net_count):
         env_id = (
             f"{context.kernel.name()}/{context.disk.name()}/"
@@ -303,13 +307,14 @@ def snapshot_scaling_net(context, st_core, net_count=4):
                 "nets": BASE_NET_COUNT + i,
             },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_block(context, st_core, block_count=4):
     """Restore snapshots with variable block device count."""
     # pylint: disable=W0603
+    workload = context.custom["workload"]
     global scratch_drives
     scratch_drives = construct_scratch_drives()
 
@@ -328,14 +333,14 @@ def snapshot_scaling_block(context, st_core, block_count=4):
                 "blocks": BASE_BLOCK_COUNT + i,
             },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_all_devices(context, st_core):
     """Restore snapshots with one of each devices."""
+    workload = context.custom["workload"]
     env_id = f"{context.kernel.name()}/{context.disk.name()}/" f"all_dev"
-
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
@@ -345,8 +350,8 @@ def snapshot_all_devices(context, st_core):
             "all_devices": True,
         },
     )
-    st_cons = default_lambda_consumer(env_id)
-    st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+    st_cons = default_lambda_consumer(env_id, workload)
+    st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_workload(context):
