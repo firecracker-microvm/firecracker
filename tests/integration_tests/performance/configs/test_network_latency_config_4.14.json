@@ -24,7 +24,7 @@
             "m5d.metal": {
                 "cpus": [
                     {
-                        "model": "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz",
+                        "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -32,8 +32,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.245,
-                                                    "delta_percentage": 0.02
+                                                    "target": 0.211,
+                                                    "delta_percentage": 33.1
                                                 }
                                             }
                                         }
@@ -44,8 +44,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.258,
-                                                    "delta_percentage": 0.02
+                                                    "target": 0.23,
+                                                    "delta_percentage": 32.1
                                                 }
                                             }
                                         }
@@ -59,7 +59,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
@@ -71,7 +71,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
@@ -81,7 +81,7 @@
                         }
                     },
                     {
-                        "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+                        "model": "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -89,8 +89,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.219,
-                                                    "delta_percentage": 0.01
+                                                    "target": 0.247,
+                                                    "delta_percentage": 3.1
                                                 }
                                             }
                                         }
@@ -101,8 +101,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.234,
-                                                    "delta_percentage": 0.01
+                                                    "target": 0.261,
+                                                    "delta_percentage": 3.1
                                                 }
                                             }
                                         }
@@ -116,7 +116,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
@@ -128,7 +128,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
@@ -151,7 +151,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.032,
-                                                    "delta_percentage": 0.01
+                                                    "delta_percentage": 15.1
                                                 }
                                             }
                                         }
@@ -163,7 +163,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.037,
-                                                    "delta_percentage": 0.01
+                                                    "delta_percentage": 12.1
                                                 }
                                             }
                                         }
@@ -177,7 +177,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
@@ -189,7 +189,7 @@
                                             "Avg": {
                                                 "ping": {
                                                     "target": 0.0,
-                                                    "delta_percentage": 0
+                                                    "delta_percentage": 0.1
                                                 }
                                             }
                                         }
