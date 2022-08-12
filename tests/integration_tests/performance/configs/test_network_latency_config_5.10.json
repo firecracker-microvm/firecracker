@@ -8,6 +8,15 @@
                     "criteria": "EqualWith"
                 }
             ]
+        },
+        "pkt_loss": {
+            "unit": "percentage",
+            "statistics": [
+                {
+                    "function": "Avg",
+                    "criteria": "EqualWith"
+                }
+            ]
         }
     },
     "hosts": {
@@ -42,24 +51,15 @@
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
-                ]
-            },
-            "m6g.metal": {
-                "cpus": [
-                    {
-                        "model": "ARM_NEOVERSE_N1",
-                        "baselines": {
-                            "latency": {
+                            },
+                            "pkt_loss": {
                                 "vmlinux-4.14.bin": {
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.241,
-                                                    "delta_percentage": 0.03
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
                                                 }
                                             }
                                         }
@@ -70,8 +70,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.254,
-                                                    "delta_percentage": 0.03
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
                                                 }
                                             }
                                         }
@@ -82,7 +82,7 @@
                     }
                 ]
             },
-            "m6gd.metal": {
+            "m6g.metal": {
                 "cpus": [
                     {
                         "model": "ARM_NEOVERSE_N1",
@@ -107,6 +107,32 @@
                                                 "ping": {
                                                     "target": 0.036,
                                                     "delta_percentage": 0.01
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "pkt_loss": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "target": 0.0,
+                                                    "delta_percentage": 0
                                                 }
                                             }
                                         }

@@ -55,7 +55,7 @@ class ComparisonCriteria(ABC):
     def target(self):
         """Return criteria target."""
         target = self._baseline.get("target")
-        if not target:
+        if target is None:
             raise CriteriaException("Baseline target not defined.")
 
         return target
@@ -123,7 +123,7 @@ class EqualWith(ComparisonCriteria):
     def delta(self):
         """Return the `delta` field of the baseline."""
         delta = self._baseline.get("delta")
-        if not delta:
+        if delta is None:
             raise CriteriaException("Baseline delta not defined.")
         return delta
 
