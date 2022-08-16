@@ -70,6 +70,7 @@ RUN apt-get update \
         libreadline-dev \
         libffi-dev \
         wget \
+        libbz2-dev \
     && python3 -m pip install \
         setuptools \
         setuptools_rust \
