@@ -26,10 +26,17 @@ def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
 
 
 def _check_cpu_features_arm(test_microvm):
-    expected_cpu_features = {
-        "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-        "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
-    }
+    if utils.get_instance_type() == "m6g.metal":
+        expected_cpu_features = {
+            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
+            "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
+        }
+    else:
+        expected_cpu_features = {
+            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
+            "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
+            "sha512 asimdfhm dit uscat ilrcpc flagm ssbs",
+        }
 
     utils.check_guest_cpuid_output(
         test_microvm, "lscpu", None, ":", expected_cpu_features
