@@ -30,7 +30,7 @@ OUTPUT_FILENAMES = {
         "test_block_performance_sync",
         "test_block_performance_async",
     ],
-    "snapshot_restore_performance": ["test_snap_restore_performance"],
+    "snap_restore_performance": ["test_snap_restore_performance"],
     "network_latency": ["test_network_latency"],
 }
 
@@ -38,7 +38,7 @@ DATA_PARSERS = {
     "vsock_throughput": Iperf3DataParser,
     "network_tcp_throughput": Iperf3DataParser,
     "block_performance": BlockDataParser,
-    "snapshot_restore_performance": SnapshotRestoreDataParser,
+    "snap_restore_performance": SnapshotRestoreDataParser,
     "network_latency": LatencyDataParser,
 }
 
@@ -100,11 +100,11 @@ def main():
                             are calculated.",
         action="store",
         choices=[
-            "vsock_throughput",
-            "network_tcp_throughput",
-            "network_latency",
             "block_performance",
-            "snapshot_restore_performance",
+            "network_latency",
+            "network_tcp_throughput",
+            "snap_restore_performance",
+            "vsock_throughput",
         ],
         required=True,
     )
