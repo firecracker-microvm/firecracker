@@ -22,12 +22,11 @@ for i in $(git diff --name-only --cached); do
     filename=$(basename -- "$i")
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
-        # Read rustfmt config, replace '\n' with ','
-        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
         # We first do a check run, this will fail when it finds a non-matching license.
-        rustfmt $i --check --config $rustfmt_config
-        # Run `cargo fmt` for this file
-        rustfmt $i --config $rustfmt_config
+        rustfmt $i +nightly --check --config-path ./tests/fmt.toml
+
+        # Run `cargo fmt` for this source file using the fmt.toml config
+        rustfmt $i +nightly --config-path ./tests/fmt.toml
     fi
     if [ "$extension" = "py" ]; then
         # Run `black` for this file

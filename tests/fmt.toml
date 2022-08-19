@@ -1,9 +1,12 @@
+# This file can be used as a whole TOML file via rustfmt's --config-path option
+# The individual key-pairs can also used with the rustfmt --config option,
+# but requires removing the quotes to work
+
 comment_width=100
 wrap_comments=true
 format_code_in_doc_comments=true
 format_strings=true
-license_template_path=./tests/license.txt
-imports_granularity=Module
+imports_granularity="Module"
 normalize_comments=true
 normalize_doc_attributes=true
-group_imports=StdExternalCrate
+group_imports="StdExternalCrate"

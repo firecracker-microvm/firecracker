@@ -12,10 +12,8 @@ def test_rust_style():
     @type: style
     """
 
-    #  ../src/io_uring/src/bindings.rs
-    config = open("fmt.toml", encoding="utf-8").read().replace("\n", ",")
     # Check that the output is empty.
-    _, stdout, _ = utils.run_cmd(f"cargo fmt --all -- --check --config {config}")
+    _, stdout, _ = utils.run_cmd("cargo fmt --all -- --check --config-path fmt.toml")
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout
