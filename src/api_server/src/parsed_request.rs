@@ -11,6 +11,7 @@ use super::VmmData;
 use crate::request::actions::parse_put_actions;
 use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
+use crate::request::cpu_configuration::parse_put_cpu_config;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
 use crate::request::instance_info::parse_get_instance_info;
 use crate::request::logger::parse_put_logger;
@@ -94,6 +95,7 @@ impl ParsedRequest {
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
+            (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.get(1) == Some(&"config") => {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))

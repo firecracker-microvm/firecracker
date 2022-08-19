@@ -1,26 +1,24 @@
 [package]
-name = "api_server"
+name = "guest_config"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 license = "Apache-2.0"
 
 [dependencies]
-libc = ">=0.2.39"
+bincode = "1.3.3"
 serde = { version = ">=1.0.27", features = ["derive"] }
-serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
+itertools = ">=0.10.3"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
-thiserror = "1.0.32"
+thiserror = "1.0.34"
+phf = { version = ">=0.10", features = ["macros"] }
+kvm-bindings = { version = ">=0.5.0", features = ["fam-wrappers"] }
+kvm-ioctls = ">=0.9.0"
 
-guest_config = { path = "../guest_config" }
+cpuid = { path = "../cpuid" }
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
-mmds = { path = "../mmds" }
-seccompiler = { path = "../seccompiler" }
-utils = { path = "../utils" }
-vmm = { path = "../vmm" }
+arch = { path = "../arch" }
 
 [dev-dependencies]
-libc = ">=0.2.39"
 tempfile = ">=3.3.0"

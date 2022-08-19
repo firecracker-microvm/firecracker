@@ -440,7 +440,7 @@ macro_rules! warn_support {
         if let Some(msg) = support_warn($eax, $ebx, $ecx, $edx) {
             log::info!(
                 "Could not fully validate support for Intel CPUID leaf {} due to being unable to \
-                 fully compare register/s: {}.",
+             fully compare register/s: {}.",
                 $a,
                 msg
             );

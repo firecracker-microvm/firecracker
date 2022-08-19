@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a new `GET cpu-config` runtime API endpoint STUB to generate
+  a configuration file to represent the currently running CPU configuration.
+
 ### Added
 
 - Add a new CPU template called `T2S`. This exposes the same CPUID as `T2`

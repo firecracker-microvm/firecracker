@@ -85,12 +85,12 @@ paths:
         Will fail if update is not possible.
       operationId: putBalloon
       parameters:
-      - name: body
-        in: body
-        description: Balloon properties
-        required: true
-        schema:
-          $ref: "#/definitions/Balloon"
+        - name: body
+          in: body
+          description: Balloon properties
+          required: true
+          schema:
+            $ref: "#/definitions/Balloon"
       responses:
         204:
           description: Balloon device created/updated
@@ -109,12 +109,12 @@ paths:
         Will fail if update is not possible.
       operationId: patchBalloon
       parameters:
-      - name: body
-        in: body
-        description: Balloon properties
-        required: true
-        schema:
-          $ref: "#/definitions/BalloonUpdate"
+        - name: body
+          in: body
+          description: Balloon properties
+          required: true
+          schema:
+            $ref: "#/definitions/BalloonUpdate"
       responses:
         204:
           description: Balloon device updated
@@ -151,12 +151,12 @@ paths:
         Will fail if update is not possible.
       operationId: patchBalloonStatsInterval
       parameters:
-      - name: body
-        in: body
-        description: Balloon properties
-        required: true
-        schema:
-          $ref: "#/definitions/BalloonStatsUpdate"
+        - name: body
+          in: body
+          description: Balloon properties
+          required: true
+          schema:
+            $ref: "#/definitions/BalloonStatsUpdate"
       responses:
         204:
           description: Balloon statistics interval updated
@@ -194,6 +194,32 @@ paths:
           description: Internal server error
           schema:
             $ref: "#/definitions/Error"
+
+  /cpu-config:
+    put:
+      summary: Configures CPU features flags for the vCPUs of the guest VM. Pre-boot only.
+      description:
+        Provides configuration to the Firecracker process to specify vCPU resource configuration prior to
+        launching the guest machine.
+      operationId: putCpuConfiguration
+      parameters:
+        - name: body
+          in: body
+          description: CPU configuration request
+          schema:
+            $ref: "#/definitions/CpuConfiguration"
+      responses:
+        204:
+          description: CPU configuration set
+        400:
+          description: CPU configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
 
   /drives/{drive_id}:
     put:
@@ -783,8 +809,31 @@ definitions:
       - C3
       - T2
       - T2S
+      - CUSTOM
       - None
     default: "None"
+
+  CpuConfiguration:
+    type: string
+    description:
+      The CPU configuration defines a set of flags to be disabled/enabled for the microvm.
+    properties:
+      attributes:
+        type: array
+        items:
+          $ref: "#/definitions/CpuAttribute"
+    default: "None"
+
+  CpuAttribute:
+    type: object
+    description: Configuration of a feature of a vCPU.
+    properties:
+      attribute_name:
+        type: string
+        description: Symbolic name of the CPU feature.
+      is_enabled:
+        type: boolean
+        description: Specifies whether the attribute specified is to be enabled or not.
 
   Drive:
     type: object

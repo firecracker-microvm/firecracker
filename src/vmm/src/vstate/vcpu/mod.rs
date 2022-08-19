@@ -69,13 +69,13 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// Encapsulates configuration parameters for the guest vCPUS.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
-    /// CPUID template to use.
+    /// CPU config template to use.
     pub cpu_template: CpuFeaturesTemplate,
 }
 

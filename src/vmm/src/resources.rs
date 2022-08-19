@@ -4,6 +4,9 @@
 use std::convert::From;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use guest_config::cpu::cpu_config::CustomCpuConfiguration;
+use guest_config::cpu::cpu_symbolic_engine::CPU_FEATURE_INDEX_MAP;
+use guest_config::GuestConfigurationError;
 use logger::info;
 use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::ns::MmdsNetworkStack;
@@ -18,6 +21,7 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::CpuFeaturesTemplate::CUSTOM;
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -224,7 +228,7 @@ impl VmResources {
         VcpuConfig {
             vcpu_count: self.vm_config().vcpu_count,
             smt: self.vm_config().smt,
-            cpu_template: self.vm_config().cpu_template,
+            cpu_template: self.vm_config().cpu_template.clone(),
         }
     }
 
@@ -241,6 +245,34 @@ impl VmResources {
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
+    }
+
+    fn validate_cpu_configuration(
+        &mut self,
+        cpu_config: &CustomCpuConfiguration,
+    ) -> Result<GuestConfigurationError> {
+        for cpu_config_entry in &cpu_config.cpu_feature_overrides {
+            if !CPU_FEATURE_INDEX_MAP.contains_key(cpu_config_entry.name.as_str()) {
+                return Err(GuestConfigurationError::UndefinedCpuFeatureName);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Configure vCPU features.
+    pub fn configure_cpu(
+        &mut self,
+        cpu_config: CustomCpuConfiguration,
+    ) -> Result<GuestConfigurationError> {
+        // Validate the CPU configuration first
+        let validation_result = self.validate_cpu_configuration(&cpu_config);
+        if validation_result.is_ok() {
+            // Update the CPU configuration on the VM
+            self.vm_config.cpu_template = CUSTOM(cpu_config);
+        }
+
+        validation_result
     }
 
     /// Update the machine configuration of the microVM.
@@ -291,8 +323,8 @@ impl VmResources {
         self.vm_config.mem_size_mib = mem_size_mib;
 
         // Update the CPU template
-        if let Some(cpu_template) = machine_config.cpu_template {
-            self.vm_config.cpu_template = cpu_template;
+        if let Some(cpu_template) = &machine_config.cpu_template {
+            self.vm_config.cpu_template = cpu_template.clone();
         }
 
         // Update dirty page tracking
@@ -1267,7 +1299,7 @@ mod tests {
         let expected_vcpu_config = VcpuConfig {
             vcpu_count: vm_resources.vm_config().vcpu_count,
             smt: vm_resources.vm_config().smt,
-            cpu_template: vm_resources.vm_config().cpu_template,
+            cpu_template: vm_resources.vm_config().cpu_template.clone(),
         };
 
         let vcpu_config = vm_resources.vcpu_config();

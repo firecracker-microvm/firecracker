@@ -23,7 +23,7 @@ macro_rules! bit_range {
 }
 
 // Basic CPUID Information
-mod leaf_0x1 {
+pub mod leaf_0x1 {
     pub const LEAF_NUM: u32 = 0x1;
 
     pub mod eax {
