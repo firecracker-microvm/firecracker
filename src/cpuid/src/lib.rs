@@ -19,9 +19,12 @@ use crate::common::*;
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::intel::{c3, t2, t2s};
+pub use crate::template::intel::{c3, configurable_template, t2, t2s};
 
 mod cpu_leaf;
+
+/// Contains types used to configure guest vCPUs.
+pub mod cpu_config;
 
 mod transformer;
 use crate::transformer::*;

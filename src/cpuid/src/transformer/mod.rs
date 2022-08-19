@@ -67,6 +67,10 @@ pub enum Error {
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     #[error("The maximum number of addressable logical CPUs cannot be stored in an `u8`.")]
     VcpuCountOverflow,
+    /// Error while configuring CPU features via CPUID
+    CpuId,
+    /// Error while configuration model-specific registers
+    MSRSConfiguration,
 }
 
 pub type EntryTransformerFn =

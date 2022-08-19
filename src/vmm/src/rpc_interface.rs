@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use cpuid::cpu_config::{CpuConfigError, CpuConfigurationSet};
 use logger::*;
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
@@ -64,6 +65,8 @@ pub enum VmmAction {
     GetBalloonConfig,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
+    /// Get the current CPU configuration.
+    GetCpuConfiguration,
     /// Get complete microVM configuration in JSON format.
     GetFullVmConfig,
     /// Get MMDS contents.
@@ -93,6 +96,8 @@ pub enum VmmAction {
     Pause,
     /// Repopulate the MMDS contents.
     PutMMDS(Value),
+    /// Configure the guest vCPU features.
+    PutCpuConfiguration(CpuConfigurationSet),
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
@@ -134,6 +139,8 @@ pub enum VmmActionError {
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
     CreateSnapshot(CreateSnapshotError),
+    /// The action `ConfigureCpu` failed.
+    ConfigureCpu(CpuConfigError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
     DriveConfig(DriveError),
@@ -180,6 +187,7 @@ impl Display for VmmActionError {
             match self {
                 BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
+                ConfigureCpu(err) => err.to_string(),
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
@@ -408,6 +416,9 @@ impl<'a> PrebootApiController<'a> {
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
+            GetCpuConfiguration => {
+                todo!()
+            }
             GetFullVmConfig => {
                 warn!(
                     "If the VM was restored from snapshot, boot-source, machine-config.smt, and \
@@ -427,6 +438,7 @@ impl<'a> PrebootApiController<'a> {
                 .load_snapshot(&config)
                 .map_err(VmmActionError::LoadSnapshot),
             PatchMMDS(value) => self.patch_mmds(value),
+            PutCpuConfiguration(cpu_config) => self.put_cpu_configuration(cpu_config),
             PutMMDS(value) => self.put_mmds(value),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
@@ -502,6 +514,13 @@ impl<'a> PrebootApiController<'a> {
             .update_vm_config(&cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MachineConfig)
+    }
+
+    fn put_cpu_configuration(&mut self, cpu_config: CpuConfigurationSet) -> ActionResult {
+        self.vm_resources
+            .configure_cpu(cpu_config)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::ConfigureCpu)
     }
 
     fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
@@ -625,6 +644,9 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
+            GetCpuConfiguration => {
+                todo!()
+            }
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
@@ -666,6 +688,7 @@ impl RuntimeApiController {
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
+            | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)

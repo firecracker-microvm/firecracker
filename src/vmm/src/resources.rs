@@ -4,6 +4,8 @@
 use std::convert::From;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use cpuid::configurable_template::CPU_FEATURE_INDEX_MAP;
+use cpuid::cpu_config::{CpuConfigError, CpuConfigurationSet};
 use logger::info;
 use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::ns::MmdsNetworkStack;
@@ -16,6 +18,7 @@ use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceCon
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::CpuFeaturesTemplate::CUSTOM;
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -222,7 +225,7 @@ impl VmResources {
         VcpuConfig {
             vcpu_count: self.vm_config().vcpu_count,
             smt: self.vm_config().smt,
-            cpu_template: self.vm_config().cpu_template,
+            cpu_template: self.vm_config().cpu_template.clone(),
         }
     }
 
@@ -239,6 +242,31 @@ impl VmResources {
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
+    }
+
+    fn validate_cpu_configuration(
+        &mut self,
+        cpu_config: &CpuConfigurationSet,
+    ) -> Result<CpuConfigError> {
+        for cpu_config_entry in &cpu_config.cpu_features {
+            if !CPU_FEATURE_INDEX_MAP.contains_key(cpu_config_entry.name.as_str()) {
+                return Err(CpuConfigError::UndefinedCpuFeatureName);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Configure vCPU features.
+    pub fn configure_cpu(&mut self, cpu_config: CpuConfigurationSet) -> Result<CpuConfigError> {
+        // Validate the CPU configuration first
+        let validation_result = self.validate_cpu_configuration(&cpu_config);
+        if validation_result.is_ok() {
+            // Update the CPU configuration on the VM
+            self.vm_config.cpu_template = CUSTOM(cpu_config);
+        }
+
+        validation_result
     }
 
     /// Update the machine configuration of the microVM.
@@ -289,8 +317,8 @@ impl VmResources {
         self.vm_config.mem_size_mib = mem_size_mib;
 
         // Update the CPU template
-        if let Some(cpu_template) = machine_config.cpu_template {
-            self.vm_config.cpu_template = cpu_template;
+        if let Some(cpu_template) = &machine_config.cpu_template {
+            self.vm_config.cpu_template = cpu_template.clone();
         }
 
         // Update dirty page tracking

@@ -206,7 +206,14 @@ pub mod leaf_0x7 {
             pub const AVX512_4VNNIW_BITINDEX: u32 = 2;
             // AVX-512 4-register Multiply Accumulation Single precision
             pub const AVX512_4FMAPS_BITINDEX: u32 = 3;
+            // Index to indirect branch restricted speculation (IBRS)
+            // pub const IBRS_BITINDEX: u32 = 26;
+            // Index to single thread indirect branch predictors (STIBP)
+            // pub const STIBP_BITINDEX: u32 = 27;
+
             pub const ARCH_CAPABILITIES_BITINDEX: u32 = 29;
+            // Index to disable speculative store bypass disable (SSBD)
+            // pub const SSBD_BITINDEX: u32 = 31;
         }
     }
 }

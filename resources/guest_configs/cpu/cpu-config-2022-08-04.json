@@ -1,0 +1,16 @@
+{
+  "cpu_features": [
+    {
+      "name": "ssbd",
+      "is_enabled": false
+    },
+    {
+      "name": "ibrs",
+      "is_enabled": true
+    },
+    {
+      "name": "sse4_2",
+      "is_enabled": false
+    }
+  ]
+}

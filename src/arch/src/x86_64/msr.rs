@@ -121,6 +121,38 @@ bitflags! {
         const OVERCLOCKING_STATUS   = 1 << 23;
         // Bits 24:63 are reserved
     }
+
+    /// Feature flags enumerated in IA32_SPEC_CTRL MSR
+    /// https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/cpuid-enumeration-and-architectural-msrs.html#inpage-nav-3
+    #[derive(Default)]
+    #[repr(C)]
+    pub struct SpectreControlMSRFlags: u64 {
+        /// Indirect Branch Restriction Speculation (IBRS)
+        const IBRS              = 1 << 0;
+
+        /// Single Thread Indirect Branch Predictors
+        const STIBP             = 1 << 1;
+
+        /// Speculative Store Bypass Disable
+        const SSBD              = 1 << 2;
+
+        /// Disables Indirect Predictor Control for Intra-mode BTI - Privilege level CPL3
+        const IPRED_DIS_U       = 1 << 3;
+        /// Disables Indirect Predictor Control for Intra-mode BTI - Privilege level CPL < 3
+        const IPRED_DIS_S       = 1 << 4;
+
+        /// Disables RRSBA for privilege level CPL3
+        const RRSBA_DIS_U       = 1 << 5;
+        /// Disables RRSBA for privilege level CPL < 3
+        const RRSBA_DIS_S       = 1 << 6;
+        /// Disables Fast Store Forwarding Predictor without disabling Speculative Store Bypass
+        const PSFD              = 1 << 7;
+        // Bits 8:9 are reserved
+        /// Branch History Injection mitigation functionality
+        /// https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/branch-history-injection.html#indirect-branch-predictor-controls
+        const BHI_DIS_S         = 1 << 10;
+        // Bits 11:63 are reserved
+    }
 }
 
 // Creates a MsrRange of one msr given as argument.

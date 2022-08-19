@@ -3,6 +3,7 @@
 
 use std::fmt;
 
+use cpuid::cpu_config::CpuConfigurationSet;
 use serde::{de, Deserialize, Serialize};
 
 /// The default memory size of the VM, in MiB.
@@ -237,7 +238,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,
@@ -245,6 +246,8 @@ pub enum CpuFeaturesTemplate {
     T2,
     /// T2S Template.
     T2S,
+    /// User-specified CPU configuration
+    CUSTOM(CpuConfigurationSet),
     /// No CPU template is used.
     None,
 }
@@ -262,6 +265,7 @@ impl fmt::Display for CpuFeaturesTemplate {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
+            CpuFeaturesTemplate::CUSTOM(config) => write!(f, "Custom:{:#?}", config),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
     }

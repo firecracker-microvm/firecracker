@@ -75,7 +75,7 @@ pub struct VcpuConfig {
     pub vcpu_count: u8,
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
-    /// CPUID template to use.
+    /// CPU config template to use.
     pub cpu_template: CpuFeaturesTemplate,
 }
 
