@@ -396,6 +396,7 @@ checksum = "f18f717c5c7c2e3483feb64cccebd077245ad6d19007c2db0fd341d38595353c"
 name = "devices"
 version = "0.1.0"
 dependencies = [
+ "acpi",
  "derive_more",
  "dumbo",
  "event-manager",

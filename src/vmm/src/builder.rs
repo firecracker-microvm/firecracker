@@ -409,6 +409,7 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
+    attach_vmgenid_device(&mut vmm, 42u128)?;
     vmm.acpi_device_manager
         .create_acpi_tables(
             &mut vmm.resource_manager,
@@ -606,6 +607,7 @@ pub fn build_microvm_from_snapshot(
             .map_err(MicrovmStateError::RestoreDevices)?;
     vmm.emulate_serial_init()?;
 
+    attach_vmgenid_device(&mut vmm, 4242u128)?;
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
         vcpus,
@@ -617,6 +619,12 @@ pub fn build_microvm_from_snapshot(
 
     // Restore vcpus kvm state.
     vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
+
+    vmm.acpi_device_manager
+        .vmgenid()
+        .unwrap()
+        .notify()
+        .expect("Could not send ACPI notification to VMGenID");
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
@@ -961,6 +969,26 @@ pub(crate) fn attach_boot_timer_device(
         .register_mmio_boot_timer(&mut vmm.resource_manager, boot_timer)
         .map_err(RegisterMmioDevice)?;
 
+    Ok(())
+}
+
+pub(crate) fn attach_vmgenid_device(
+    vmm: &mut Vmm,
+    gen_id: u128,
+) -> std::result::Result<(), StartMicrovmError> {
+    let vmgenid_irq = vmm
+        .acpi_device_manager
+        .create_vmgenid(
+            &mut vmm.resource_manager,
+            gen_id,
+            vmm.vm.fd(),
+            &vmm.guest_memory,
+        )
+        .map_err(StartMicrovmError::ConfigureACPI)?;
+
+    vmm.acpi_device_manager
+        .create_ged(vmgenid_irq)
+        .map_err(StartMicrovmError::ConfigureACPI)?;
     Ok(())
 }
 

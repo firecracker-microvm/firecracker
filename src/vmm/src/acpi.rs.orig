@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 
 use acpi::{aml, AcpiError, Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
+<<<<<<< HEAD
+=======
 use devices::{
     acpi::{AcpiGenericEventDevice, VMGenID, VMGenIDError},
     legacy::EventFdTrigger,
@@ -8,6 +10,8 @@ use devices::{
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use utils::eventfd::EventFd;
+use vm_allocator::{AddressAllocator, AllocPolicy, Error as VmAllocatorError, IdAllocator};
+>>>>>>> 3713a968 (acpi: add Virtual Machine Generation ID support)
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use crate::device_manager::legacy::PortIODeviceManager;
@@ -18,12 +22,17 @@ use crate::vstate::vcpu::Vcpu;
 #[derive(Debug)]
 pub enum AcpiDeviceManagerError {
     /// An error occurred while interacting with vm-allocator
+<<<<<<< HEAD
     VmAllocator(vm_allocator::Error),
+    /// Failed to register and IRQ file descriptor.
+=======
+    VmAllocator(VmAllocatorError),
     /// VMGenID device produced an error
     VMGenID(VMGenIDError),
     /// Error while creating an Event fd trigger
     EventFd(std::io::Error),
     /// Failed to register and IRQ file descriptor
+>>>>>>> 3713a968 (acpi: add Virtual Machine Generation ID support)
     RegisterIrqFd(kvm_ioctls::Error),
     /// Error handling ACPI tables
     AcpiTable(AcpiError),
@@ -76,15 +85,41 @@ type Result<T> = std::result::Result<T, AcpiDeviceManagerError>;
 
 /// A device manager for ACPI devices. It handles a range of IRQs and an address
 /// space for allocating to ACPI devices.
+<<<<<<< HEAD
+pub(crate) struct AcpiDeviceManager {}
+
+impl AcpiDeviceManager {
+    /// Create a new BIOS Manager
+    pub(crate) fn new() -> Result<Self> {
+        Ok(Self {})
+    }
+
+    fn write_acpi_table(
+        &mut self,
+        resource_manager: &mut ResourceManager,
+        mem: &GuestMemoryMmap,
+        table: &dyn Sdt,
+    ) -> Result<u64> {
+        let addr = resource_manager.allocate_acpi_addresses(
+            table.len() as u64,
+            64,
+            AllocPolicy::FirstMatch,
+        )?;
+=======
 pub(crate) struct AcpiDeviceManager {
+    irq_allocator: IdAllocator,
+    mem_allocator: AddressAllocator,
     vmgenid: Option<VMGenID>,
     ged: Option<AcpiGenericEventDevice>,
 }
 
 impl AcpiDeviceManager {
     /// Create a new BIOS Manager
-    pub(crate) fn new() -> Result<Self> {
+    pub(crate) fn new(irq_start: u32, irq_end: u32) -> Result<Self> {
+        let (mem_start, mem_size) = arch::boot_data_region();
         Ok(Self {
+            irq_allocator: IdAllocator::new(irq_start, irq_end)?,
+            mem_allocator: AddressAllocator::new(mem_start, mem_size)?,
             vmgenid: None,
             ged: None,
         })
@@ -99,33 +134,30 @@ impl AcpiDeviceManager {
     /// It returns the IRQ allocated for the VMGenID device
     pub(crate) fn create_vmgenid(
         &mut self,
-        resource_manager: &mut ResourceManager,
         gen_id: u128,
         vm: &VmFd,
         mem: &GuestMemoryMmap,
     ) -> Result<u32> {
         // Allocate memory for the VMGenID device at the end of the
         // memory region. Use the first addresses for ACPI tables.
-        let vmgenid_mem = resource_manager.allocate_acpi_addresses(
-            4096,
-            4096,
-            AllocPolicy::ExactMatch(0xff000),
-        )?;
+        let vmgenid_mem =
+            self.mem_allocator
+                .allocate(4096, 4096, AllocPolicy::ExactMatch(0xff000))?;
 
-        let vmgenid_irq = resource_manager.allocate_gsi(1)?;
+        let vmgenid_irq = self.irq_allocator.allocate_id()?;
         let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
 
         // Associate IRQ with device's Event file descriptor
-        vm.register_irqfd(&interrupt_evt, vmgenid_irq[0])?;
+        vm.register_irqfd(&interrupt_evt, vmgenid_irq)?;
 
-        let device = VMGenID::new(gen_id, interrupt_evt, GuestAddress(vmgenid_mem))?;
+        let device = VMGenID::new(gen_id, interrupt_evt, GuestAddress(vmgenid_mem.start()))?;
 
         // Write the generation ID in guest memory
         device.write_to_guest(mem)?;
 
         self.vmgenid = Some(device);
 
-        Ok(vmgenid_irq[0])
+        Ok(vmgenid_irq)
     }
 
     pub(crate) fn vmgenid(&self) -> Option<&VMGenID> {
@@ -139,17 +171,12 @@ impl AcpiDeviceManager {
         Ok(())
     }
 
-    fn write_acpi_table(
-        &mut self,
-        resource_manager: &mut ResourceManager,
-        mem: &GuestMemoryMmap,
-        table: &dyn Sdt,
-    ) -> Result<u64> {
-        let addr = resource_manager.allocate_acpi_addresses(
-            table.len() as u64,
-            64,
-            AllocPolicy::FirstMatch,
-        )?;
+    fn write_acpi_table(&mut self, mem: &GuestMemoryMmap, table: &dyn Sdt) -> Result<u64> {
+        let addr = self
+            .mem_allocator
+            .allocate(table.len() as u64, 64, AllocPolicy::FirstMatch)?
+            .start() as u64;
+>>>>>>> 3713a968 (acpi: add Virtual Machine Generation ID support)
 
         table.write_to_guest(mem, GuestAddress(addr))?;
 

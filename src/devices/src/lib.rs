@@ -8,6 +8,7 @@
 //! Emulates virtual and hardware devices.
 use std::io;
 
+pub mod acpi;
 mod bus;
 pub mod legacy;
 pub mod pseudo;
