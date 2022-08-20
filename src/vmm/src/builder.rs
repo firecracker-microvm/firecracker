@@ -37,6 +37,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
+use crate::acpi::{AcpiDeviceManager, AcpiDeviceManagerError};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
@@ -97,6 +98,8 @@ pub enum StartMicrovmError {
     SetVmResources(VmConfigError),
     /// ResourceAllocator errors
     ResourceAllocator(vm_allocator::Error),
+    /// Unable to configure ACPI
+    ConfigureACPI(AcpiDeviceManagerError),
 }
 impl std::error::Error for StartMicrovmError {}
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -181,6 +184,7 @@ impl Display for StartMicrovmError {
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
             SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
             ResourceAllocator(err) => write!(f, "ResourceAllocator error: {}", err),
+            ConfigureACPI(err) => write!(f, "Could not configure ACPI. Error: {}", err),
         }
     }
 }
@@ -256,6 +260,10 @@ fn create_vmm_and_vcpus(
     let mmio_device_manager =
         MMIODeviceManager::new().map_err(StartMicrovmError::RegisterMmioDevice)?;
 
+    // Create a manager for handling boot resources
+    let acpi_device_manager = AcpiDeviceManager::new(arch::IRQ_BASE, arch::IRQ_MAX)
+        .map_err(StartMicrovmError::ConfigureACPI)?;
+
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
@@ -306,6 +314,7 @@ fn create_vmm_and_vcpus(
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
+        acpi_device_manager,
     };
 
     Ok((vmm, vcpus))
@@ -405,6 +414,10 @@ pub fn build_microvm_for_boot(
 
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
+
+    vmm.acpi_device_manager
+        .create_acpi_tables(&vmm.mmio_device_manager, &vmm.guest_memory, &vcpus)
+        .map_err(StartMicrovmError::ConfigureACPI)?;
 
     configure_system_for_boot(
         &vmm,
@@ -856,7 +869,7 @@ pub fn configure_system_for_boot(
     vcpu_config: VcpuConfig,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
-    boot_cmdline: LoaderKernelCmdline,
+    mut boot_cmdline: LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
     #[cfg(target_arch = "x86_64")]
@@ -873,6 +886,8 @@ pub fn configure_system_for_boot(
                 .map_err(Internal)?;
         }
 
+        boot_cmdline.insert_str("acpi=noirq").unwrap();
+
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
@@ -881,6 +896,7 @@ pub fn configure_system_for_boot(
             &boot_cmdline,
         )
         .map_err(LoadCommandline)?;
+
         arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
@@ -1115,6 +1131,7 @@ pub mod tests {
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = default_portio_device_manager();
+        let acpi_device_manager = AcpiDeviceManager::new(arch::IRQ_BASE, arch::IRQ_MAX).unwrap();
 
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
@@ -1139,6 +1156,7 @@ pub mod tests {
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
+            acpi_device_manager,
         }
     }
 

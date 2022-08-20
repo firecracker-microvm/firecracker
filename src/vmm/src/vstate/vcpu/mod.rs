@@ -13,6 +13,7 @@ use std::sync::Mutex;
 use std::sync::{Arc, Barrier};
 use std::{fmt, io, result, thread};
 
+use acpi::{aml, Aml};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
@@ -536,6 +537,41 @@ impl Vcpu {
                 }
             }
         }
+    }
+}
+
+impl Vcpu {
+    #[cfg(target_arch = "x86_64")]
+    fn generate_mat(&self) -> Vec<u8> {
+        acpi::madt::LocalAPIC::new(self.kvm_vcpu.index).into()
+    }
+}
+
+impl Aml for Vcpu {
+    fn append_aml_bytes(&self, bytes: &mut Vec<u8>) {
+        #[cfg(target_arch = "x86_64")]
+        let mat_data: Vec<u8> = self.generate_mat();
+        aml::Device::new(
+            format!("C{:03}", self.kvm_vcpu.index).as_str().into(),
+            vec![
+                &aml::Name::new("_HID".into(), &"ACPI0007"),
+                &aml::Name::new("_UID".into(), &self.kvm_vcpu.index),
+                #[cfg(target_arch = "x86_64")]
+                &aml::Method::new(
+                    "_STA".into(),
+                    0,
+                    false,
+                    // Mark CPU present
+                    vec![&aml::Return::new(&0xfu8)],
+                ),
+                // The Linux kernel expects every CPU device to have a _MAT entry
+                // containing the LAPIC for this processor with the enabled bit set
+                // even it if is disabled in the MADT (non-boot CPU)
+                #[cfg(target_arch = "x86_64")]
+                &aml::Name::new("_MAT".into(), &aml::Buffer::new(mat_data)),
+            ],
+        )
+        .append_aml_bytes(bytes);
     }
 }
 

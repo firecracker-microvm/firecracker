@@ -15,13 +15,26 @@ pub const CMDLINE_START: u64 = 0x20000;
 /// Kernel command line maximum size.
 pub const CMDLINE_MAX_SIZE: usize = 2048;
 
+/// Where BIOS/VGA magic would live on a real PC.
+pub const EBDA_START: u64 = 0x000a_0000;
+
+// Put it at the beginning of the EBDA region
+/// Address of the RSDP ACPI structure
+pub const RSDP_ADDR: u64 = EBDA_START;
+
+/// The EBDA region ends at 0x000f_ffff (HIMEM_START), which makes it
+/// 384KiB long
+pub const EBDA_SIZE: u64 = HIMEM_START - EBDA_START;
+
 /// Start of the high memory.
 pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 
 // Typically, on x86 systems 24 IRQs are used (0-23).
-/// First usable IRQ ID for virtio device interrupts on x86_64.
+// IRQs from 0 to 4 are used by Port IO devices
+// IRQs from 5 to 23 are used by MMIO and ACPI devices
+/// First usable IRQ ID for non-legacy device interrupts on x86_64.
 pub const IRQ_BASE: u32 = 5;
-/// Last usable IRQ ID for virtio device interrupts on x86_64.
+/// Last usable IRQ ID for non-legacy device interrupts on x86_64.
 pub const IRQ_MAX: u32 = 23;
 
 /// Address for the TSS setup.
