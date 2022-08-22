@@ -1,5 +1,9 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# Pytest fixtures and redefined-outer-name don't mix well. Disable it.
+# pylint:disable=redefined-outer-name
+
 """Imported by pytest at the start of every test session.
 
 # Fixture Goals
@@ -178,8 +182,6 @@ class JsonFileDumper(ResultsDumperInterface):
 
 def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None):
     """Auxiliary function for instantiating a microvm and setting it up."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
 
     # Update permissions for custom binaries.
@@ -255,8 +257,6 @@ def test_fc_session_root_path():
 @pytest.fixture
 def test_session_tmp_path(test_fc_session_root_path):
     """Yield a random temporary directory. Destroyed on teardown."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
 
     tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
     yield tmp_path
@@ -285,8 +285,6 @@ def bin_cloner_path(test_fc_session_root_path):
     It's necessary because Python doesn't interface well with the `clone()`
     syscall directly.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     cloner_bin_path = os.path.join(test_fc_session_root_path, "newpid_cloner")
     _gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
     yield cloner_bin_path
@@ -295,8 +293,6 @@ def bin_cloner_path(test_fc_session_root_path):
 @pytest.fixture(scope="session")
 def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
     _gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
     yield vsock_helper_bin_path
@@ -305,7 +301,6 @@ def bin_vsock_path(test_fc_session_root_path):
 @pytest.fixture(scope="session")
 def change_net_config_space_bin(test_fc_session_root_path):
     """Build a binary that changes the MMIO config space."""
-    # pylint: disable=redefined-outer-name
     change_net_config_space_bin = os.path.join(
         test_fc_session_root_path, "change_net_config_space"
     )
@@ -327,8 +322,6 @@ def bin_seccomp_paths(test_fc_session_root_path):
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     seccomp_build_path = os.path.join(
         test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
     )
@@ -367,8 +360,6 @@ def bin_seccomp_paths(test_fc_session_root_path):
 @pytest.fixture(scope="session")
 def uffd_handler_paths(test_fc_session_root_path):
     """Build UFFD handler binaries."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     uffd_build_path = os.path.join(
         test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
     )
@@ -402,9 +393,6 @@ def uffd_handler_paths(test_fc_session_root_path):
 @pytest.fixture()
 def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
     vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
@@ -455,8 +443,6 @@ def test_microvm_any(request, microvm):
     test cases for each test that depends on this fixture, each receiving a
     microvm instance with a different microvm image.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
 
     MICROVM_S3_FETCHER.init_vm_resources(request.param, microvm)
     yield microvm
@@ -471,8 +457,6 @@ def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
     of the guest image used to spawn a microvm and the number of microvms
     to spawn.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     microvms = []
     (microvm_resources, how_many) = context
 
