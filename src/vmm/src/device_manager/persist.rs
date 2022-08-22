@@ -698,7 +698,7 @@ mod tests {
                 deflate_on_oom: false,
                 stats_polling_interval_s: 1,
             };
-            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
+            insert_balloon_device(&mut vmm, &mut event_manager, balloon_cfg);
             // Add a block device.
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(
@@ -720,7 +720,6 @@ mod tests {
             };
             insert_net_device_with_mmds(
                 &mut vmm,
-                &mut cmdline,
                 &mut event_manager,
                 network_interface,
                 MmdsVersion::V2,
@@ -732,7 +731,7 @@ mod tests {
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
-            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
 
             assert_eq!(
                 vmm.mmio_device_manager

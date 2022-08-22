@@ -9,6 +9,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use acpi::{aml, Aml};
 use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
@@ -150,8 +151,153 @@ impl PortIODeviceManager {
         vm_fd
             .register_irqfd(&self.kbd_evt, ResourceManager::i8042_gsi())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
-
         Ok(())
+    }
+}
+
+impl Aml for PortIODeviceManager {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        /* COM1 */
+        aml::Device::new(
+            "_SB_.COM1".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                &aml::Name::new("_UID".into(), &aml::ZERO),
+                &aml::Name::new("_DDN".into(), &"COM1"),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Interrupt::new(
+                            true,
+                            true,
+                            false,
+                            false,
+                            ResourceManager::serial_1_3_gsi(),
+                        ),
+                        &aml::Io::new(
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[0] as u16,
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[0] as u16,
+                            1,
+                            PortIODeviceManager::SERIAL_PORT_SIZE as u8,
+                        ),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+        /* COM2 */
+        aml::Device::new(
+            "_SB_.COM2".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                &aml::Name::new("_UID".into(), &aml::ONE),
+                &aml::Name::new("_DDN".into(), &"COM2"),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Interrupt::new(
+                            true,
+                            true,
+                            false,
+                            false,
+                            ResourceManager::serial_2_4_gsi(),
+                        ),
+                        &aml::Io::new(
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[1] as u16,
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[1] as u16,
+                            1,
+                            PortIODeviceManager::SERIAL_PORT_SIZE as u8,
+                        ),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+        /* COM3 */
+        aml::Device::new(
+            "_SB_.COM3".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                &aml::Name::new("_UID".into(), &2u8),
+                &aml::Name::new("_DDN".into(), &"COM3"),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Interrupt::new(
+                            true,
+                            true,
+                            false,
+                            false,
+                            ResourceManager::serial_1_3_gsi(),
+                        ),
+                        &aml::Io::new(
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[2] as u16,
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[2] as u16,
+                            1,
+                            PortIODeviceManager::SERIAL_PORT_SIZE as u8,
+                        ),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+        /* COM4 */
+        aml::Device::new(
+            "_SB_.COM4".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                &aml::Name::new("_UID".into(), &3u8),
+                &aml::Name::new("_DDN".into(), &"COM4"),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Interrupt::new(
+                            true,
+                            true,
+                            false,
+                            false,
+                            ResourceManager::serial_2_4_gsi(),
+                        ),
+                        &aml::Io::new(
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[3] as u16,
+                            PortIODeviceManager::SERIAL_PORT_ADDRESSES[3] as u16,
+                            1,
+                            PortIODeviceManager::SERIAL_PORT_SIZE as u8,
+                        ),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+        // i8042
+        aml::Device::new(
+            "_SB_.PS2_".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0303")),
+                &aml::Method::new("_STA".into(), 0, false, vec![&aml::Return::new(&0x0Fu8)]),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Io::new(
+                            PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS as u16,
+                            PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS as u16,
+                            1u8,
+                            1u8,
+                        ),
+                        /* Fake a command port so Linux stops complaining */
+                        &aml::Io::new(0x0064, 0x0064, 1u8, 1u8),
+                        &aml::Interrupt::new(
+                            true,
+                            true,
+                            false,
+                            false,
+                            ResourceManager::i8042_gsi(),
+                        ),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
     }
 }
 
