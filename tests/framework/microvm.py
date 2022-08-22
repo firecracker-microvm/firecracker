@@ -18,6 +18,7 @@ import select
 import shutil
 import time
 import weakref
+from pathlib import Path
 
 from threading import Lock
 from retry import retry
@@ -508,6 +509,7 @@ class Microvm:
         log_file="log_fifo",
         log_level="Info",
         use_ramdisk=False,
+        metrics_path=None,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -546,6 +548,11 @@ class Microvm:
             # to `Info` to also have the boot time printed in fifo.
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
             self.start_console_logger(log_fifo)
+
+        if metrics_path is not None:
+            self.create_jailed_resource(metrics_path, create_jail=True)
+            metrics_path = Path(metrics_path)
+            self.jailer.extra_args.update({"metrics-path": metrics_path.name})
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
