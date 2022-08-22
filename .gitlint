@@ -3,3 +3,7 @@ line-length=50
 
 [body-max-line-length]
 line-length=72
+
+[ignore-body-lines]
+# Ignore HTTP reference links
+regex=^\[.+\]: http.+
