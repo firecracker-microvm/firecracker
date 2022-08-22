@@ -366,7 +366,7 @@ paths:
         204:
           description: Metrics system created.
         400:
-          description: Metrics system cannot be initialized due to bad input.
+          description: Metrics system cannot be initialized due to bad input request or metrics system already initialized.
           schema:
             $ref: "#/definitions/Error"
         default:

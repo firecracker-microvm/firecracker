@@ -9,7 +9,7 @@
 //! which we are capturing specific metrics.
 //!
 //! ## JSON example with metrics:
-//! ```bash
+//! ```json
 //! {
 //!  "utc_timestamp_ms": 1541591155180,
 //!  "api_server": {

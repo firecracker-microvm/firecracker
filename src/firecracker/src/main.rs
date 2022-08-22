@@ -21,6 +21,7 @@ use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
+use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 // The reason we place default API socket under /run is that API socket is a
@@ -193,6 +194,11 @@ fn main_exitable() -> FcExitCode {
                     "Whether or not to include the file path and line number of the log's origin.",
                 ),
         )
+        .arg(
+            Argument::new("metrics-path")
+                .takes_value(true)
+                .help("Path to a fifo or a file used for configuring the metrics on startup."),
+        )
         .arg(Argument::new("boot-timer").takes_value(false).help(
             "Whether or not to load boot timer device for logging elapsed time since \
              InstanceStart command.",
@@ -289,7 +295,16 @@ fn main_exitable() -> FcExitCode {
             show_log_origin,
         );
         if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger:: {}", err));
+            return generic_error_exit(&format!("Could not initialize logger: {}", err));
+        };
+    }
+
+    if let Some(metrics_path) = arguments.single_value("metrics-path") {
+        let metrics_config = MetricsConfig {
+            metrics_path: PathBuf::from(metrics_path),
+        };
+        if let Err(err) = init_metrics(metrics_config) {
+            return generic_error_exit(&format!("Could not initialize metrics: {}", err));
         };
     }
 
