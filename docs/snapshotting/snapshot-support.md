@@ -385,7 +385,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
             "snapshot_path": "./snapshot_file",
             "mem_backend": {
                 "backend_path": "./mem_file",
-                "backend_type": "File",
+                "backend_type": "File"
             },
             "enable_diff_snapshots": true,
             "resume_vm": false
