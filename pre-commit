@@ -23,10 +23,10 @@ for i in $(git diff --name-only --cached); do
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # We first do a check run, this will fail when it finds a non-matching license.
-        rustfmt $i +nightly --check --config-path ./tests/fmt.toml
+        rustfmt $i --check --config-path ./tests/fmt.toml
 
         # Run `cargo fmt` for this source file using the fmt.toml config
-        rustfmt $i +nightly --config-path ./tests/fmt.toml
+        rustfmt $i --config-path ./tests/fmt.toml
     fi
     if [ "$extension" = "py" ]; then
         # Run `black` for this file
