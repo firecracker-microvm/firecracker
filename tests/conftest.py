@@ -413,6 +413,29 @@ def microvm(test_fc_session_root_path, bin_cloner_path):
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
 
 
+@pytest.fixture()
+def microvm_factory(tmp_path, bin_cloner_path):
+    """Fixture to create microvms simply.
+
+    By using tmp_path, the last 3 runs are kept. This may be a problem when
+    running large number of tests, but it's very handy for debugging.
+    """
+
+    class MicroVMFactory:
+        """MicroVM factory"""
+
+        def __init__(self, tmp_path, bin_cloner):
+            self.tmp_path = tmp_path
+            self.bin_cloner_path = bin_cloner
+
+        def build(self):
+            """Build a fresh microvm."""
+            vm = init_microvm(self.tmp_path, self.bin_cloner_path)
+            return vm
+
+    yield MicroVMFactory(tmp_path, bin_cloner_path)
+
+
 @pytest.fixture
 def network_config():
     """Yield a UniqueIPv4Generator."""
