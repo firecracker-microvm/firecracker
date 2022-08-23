@@ -59,7 +59,7 @@ For help on usage, see `tools/devtool help`.
 
 The `pytest`-powered integration tests rely on Firecracker's HTTP API for
 configuring and communicating with the VMM. Alongside these, the `vmm` crate
-also includes several [native-Rust integration tests](../vmm/tests/), which
+also includes several [native-Rust integration tests](../src/vmm/tests/), which
 exercise its programmatic API without the HTTP integration. `Cargo`
 automatically picks up these tests when `cargo test` is issued. They also count
 towards code coverage.
