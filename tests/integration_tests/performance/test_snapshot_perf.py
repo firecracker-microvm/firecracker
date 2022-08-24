@@ -15,7 +15,6 @@ from framework.utils import (
     eager_map,
     CpuMap,
     get_firecracker_version_from_toml,
-    compare_versions,
     get_kernel_version,
     is_io_uring_supported,
 )
@@ -92,15 +91,6 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 def snapshot_resume_measurements(vm_type):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
-
-    if is_io_uring_supported():
-        # There is added latency caused by the io_uring syscalls used by the
-        # block device.
-        load_latency["target"] += 115
-    if compare_versions(get_kernel_version(), "5.4.0") > 0:
-        # Host kernels >= 5.4 add an up to ~30ms latency.
-        # See: https://github.com/firecracker-microvm/firecracker/issues/2129
-        load_latency["target"] += 30
 
     latency = types.MeasurementDef.create_measurement(
         "latency",
