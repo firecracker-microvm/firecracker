@@ -82,10 +82,7 @@ impl IfReqBuilder {
     }
 
     pub(crate) fn flags(mut self, flags: i16) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
-        let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
-        *ifru_flags = flags;
-
+        self.0.ifr_ifru.ifru_flags = flags;
         self
     }
 
@@ -130,7 +127,7 @@ impl Tap {
         // Safe since only the name is accessed, and it's cloned out.
         Ok(Tap {
             tap_file: tuntap,
-            if_name: unsafe { *ifreq.ifr_ifrn.ifrn_name.as_ref() },
+            if_name: unsafe { ifreq.ifr_ifrn.ifrn_name },
         })
     }
 
@@ -206,12 +203,9 @@ pub mod tests {
     #[test]
     fn test_tap_name() {
         // Sanity check that the assumed max iface name length is correct.
-        assert_eq!(
-            IFACE_NAME_MAX_LEN,
-            net_gen::ifreq__bindgen_ty_1::default()
-                .bindgen_union_field
-                .len()
-        );
+        assert_eq!(IFACE_NAME_MAX_LEN, unsafe {
+            net_gen::ifreq__bindgen_ty_1::default().ifrn_name.len()
+        });
 
         // Empty name - The tap should be named "tap0" by default
         let tap = Tap::open_named("").unwrap();

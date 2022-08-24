@@ -229,7 +229,7 @@ pub fn if_index(tap: &Tap) -> i32 {
         .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
         .unwrap();
 
-    unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() }
+    unsafe { ifreq.ifr_ifru.ifru_ivalue }
 }
 
 /// Enable the tap interface.
