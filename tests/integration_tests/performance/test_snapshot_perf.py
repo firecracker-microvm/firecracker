@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import platform
+import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
@@ -26,6 +28,10 @@ import host_tools.logging as log_tools
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
 PLATFORM = platform.machine()
+ENGINES = ["Sync"]
+
+if is_io_uring_supported():
+    ENGINES.append("Async")
 
 # Latencies in milliseconds.
 # The latency for snapshot creation has high variance due to scheduler noise.
@@ -76,20 +82,40 @@ CREATE_LATENCY_BASELINES = {
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
 LOAD_LATENCY_BASELINES = {
-    'x86_64': {
-        '2vcpu_256mb.json': {
-            'target': 9
+    "x86_64": {
+        "4.14": {
+            "sync": {
+                "2vcpu_256mb.json": {"target": 9},
+                "2vcpu_512mb.json": {"target": 9},
+            }
         },
-        '2vcpu_512mb.json': {
-            'target': 9
+        "5.10": {
+            "sync": {
+                "2vcpu_256mb.json": {"target": 60},
+                "2vcpu_512mb.json": {"target": 60},
+            },
+            "async": {
+                "2vcpu_256mb.json": {"target": 190},
+                "2vcpu_512mb.json": {"target": 190},
+            },
         },
     },
-    'aarch64': {
-        '2vcpu_256mb.json': {
-            'target': 3
+    "aarch64": {
+        "4.14": {
+            "sync": {
+                "2vcpu_256mb.json": {"target": 2},
+                "2vcpu_512mb.json": {"target": 2},
+            }
         },
-        '2vcpu_512mb.json': {
-            'target': 3
+        "5.10": {
+            "sync": {
+                "2vcpu_256mb.json": {"target": 2},
+                "2vcpu_512mb.json": {"target": 2},
+            },
+            "async": {
+                "2vcpu_256mb.json": {"target": 125},
+                "2vcpu_512mb.json": {"target": 130},
+            },
         },
     }
 }
@@ -113,9 +139,11 @@ def snapshot_create_measurements(vm_type, snapshot_type):
     return [latency]
 
 
-def snapshot_resume_measurements(vm_type):
+def snapshot_resume_measurements(vm_type, io_engine):
     """Define measurements for snapshot resume tests."""
-    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
+    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][
+        get_kernel_version()
+    ][io_engine][vm_type]
 
     if is_io_uring_supported():
         # There is added latency caused by the io_uring syscalls used by the
@@ -308,10 +336,11 @@ def _test_snapshot_create_latency(context):
 
 
 def _test_snapshot_resume_latency(context):
-    logger = context.custom['logger']
-    vm_builder = context.custom['builder']
-    snapshot_type = context.custom['snapshot_type']
-    file_dumper = context.custom['results_file_dumper']
+    logger = context.custom["logger"]
+    vm_builder = context.custom["builder"]
+    snapshot_type = context.custom["snapshot_type"]
+    file_dumper = context.custom["results_file_dumper"]
+    io_engine = context.custom["io_engine"]
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("""Measuring snapshot resume({}) latency for microvm: \"{}\",
@@ -325,12 +354,15 @@ def _test_snapshot_resume_latency(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(kernel=context.kernel,
-                                   disks=[rw_disk],
-                                   ssh_key=ssh_key,
-                                   config=context.microvm,
-                                   diff_snapshots=diff_snapshots,
-                                   use_ramdisk=True)
+    vm_instance = vm_builder.build(
+        kernel=context.kernel,
+        disks=[rw_disk],
+        ssh_key=ssh_key,
+        config=context.microvm,
+        diff_snapshots=diff_snapshots,
+        use_ramdisk=True,
+        io_engine=io_engine,
+    )
     basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -368,11 +400,15 @@ def _test_snapshot_resume_latency(context):
 
     cons = consumer.LambdaConsumer(
         func=lambda cons, result: cons.consume_stat(
-            st_name="max", ms_name="latency", value=result),
-        func_kwargs={}
+            st_name="max", ms_name="latency", value=result
+        ),
+        func_kwargs={},
     )
-    eager_map(cons.set_measurement_def,
-              snapshot_resume_measurements(context.microvm.name()))
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_resume_measurements(context.microvm.name(),
+                                     io_engine.lower()),
+    )
 
     st_core.add_pipe(producer=prod, consumer=cons,
                      tag=context.microvm.name())
@@ -391,6 +427,7 @@ def _test_older_snapshot_resume_latency(context):
     logger = context.custom["logger"]
     snapshot_type = context.custom['snapshot_type']
     file_dumper = context.custom["results_file_dumper"]
+    io_engine = context.custom["io_engine"]
 
     firecracker = context.firecracker
     jailer = firecracker.jailer()
@@ -442,11 +479,15 @@ def _test_older_snapshot_resume_latency(context):
 
     cons = consumer.LambdaConsumer(
         func=lambda cons, result: cons.consume_stat(
-            st_name="max", ms_name="latency", value=result),
-        func_kwargs={}
+            st_name="max", ms_name="latency", value=result
+        ),
+        func_kwargs={},
     )
-    eager_map(cons.set_measurement_def,
-              snapshot_resume_measurements(context.microvm.name()))
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_resume_measurements(context.microvm.name(),
+                                     io_engine.lower()),
+    )
 
     st_core.add_pipe(producer=prod, consumer=cons,
                      tag=context.microvm.name())
@@ -475,9 +516,9 @@ def test_snapshot_create_full_latency(network_config,
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 256/512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_256mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
@@ -517,9 +558,9 @@ def test_snapshot_create_diff_latency(network_config,
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 256/512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_256mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
@@ -544,9 +585,10 @@ def test_snapshot_create_diff_latency(network_config,
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
-def test_snapshot_resume_latency(network_config,
-                                 bin_cloner_path,
-                                 results_file_dumper):
+@pytest.mark.parametrize("io_engine", ENGINES)
+def test_snapshot_resume_latency(
+    network_config, bin_cloner_path, results_file_dumper, io_engine
+):
     """
     Test scenario: Snapshot load performance measurement.
 
@@ -560,8 +602,8 @@ def test_snapshot_resume_latency(network_config,
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 256/512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_256mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
 
     kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
@@ -569,12 +611,13 @@ def test_snapshot_resume_latency(network_config,
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'network_config': network_config,
-        'logger': logger,
-        'snapshot_type': SnapshotType.FULL,
-        'name': 'resume_latency',
-        'results_file_dumper': results_file_dumper
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "network_config": network_config,
+        "logger": logger,
+        "snapshot_type": SnapshotType.FULL,
+        "name": "resume_latency",
+        "results_file_dumper": results_file_dumper,
+        "io_engine": io_engine,
     }
 
     # Create the test matrix.
@@ -588,7 +631,9 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
-def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
+@pytest.mark.parametrize("io_engine", ENGINES)
+def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper,
+                                       io_engine):
     """
     Test scenario: Older snapshot load performance measurement.
 
@@ -608,11 +653,12 @@ def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
 
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'logger': logger,
-        'snapshot_type': SnapshotType.FULL,
-        'name': 'old_snapshot_resume_latency',
-        'results_file_dumper': results_file_dumper
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "logger": logger,
+        "snapshot_type": SnapshotType.FULL,
+        "name": "old_snapshot_resume_latency",
+        "results_file_dumper": results_file_dumper,
+        "io_engine": io_engine,
     }
 
     # Create the test matrix.
