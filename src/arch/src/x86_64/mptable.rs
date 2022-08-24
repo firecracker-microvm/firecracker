@@ -221,7 +221,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         let mut mpc_intsrc = MpcIntsrcWrapper(mpspec::mpc_intsrc::default());
         mpc_intsrc.0.type_ = mpspec::MP_INTSRC as u8;
         mpc_intsrc.0.irqtype = mpspec::mp_irq_source_types_mp_INT as u8;
-        mpc_intsrc.0.irqflag = mpspec::MP_IRQDIR_DEFAULT as u16;
+        mpc_intsrc.0.irqflag = mpspec::MP_IRQPOL_DEFAULT as u16;
         mpc_intsrc.0.srcbus = 0;
         mpc_intsrc.0.srcbusirq = i;
         mpc_intsrc.0.dstapic = ioapicid;
@@ -236,7 +236,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         let mut mpc_lintsrc = MpcLintsrcWrapper(mpspec::mpc_lintsrc::default());
         mpc_lintsrc.0.type_ = mpspec::MP_LINTSRC as u8;
         mpc_lintsrc.0.irqtype = mpspec::mp_irq_source_types_mp_ExtINT as u8;
-        mpc_lintsrc.0.irqflag = mpspec::MP_IRQDIR_DEFAULT as u16;
+        mpc_lintsrc.0.irqflag = mpspec::MP_IRQPOL_DEFAULT as u16;
         mpc_lintsrc.0.srcbusid = 0;
         mpc_lintsrc.0.srcbusirq = 0;
         mpc_lintsrc.0.destapic = 0;
@@ -251,7 +251,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         let mut mpc_lintsrc = MpcLintsrcWrapper(mpspec::mpc_lintsrc::default());
         mpc_lintsrc.0.type_ = mpspec::MP_LINTSRC as u8;
         mpc_lintsrc.0.irqtype = mpspec::mp_irq_source_types_mp_NMI as u8;
-        mpc_lintsrc.0.irqflag = mpspec::MP_IRQDIR_DEFAULT as u16;
+        mpc_lintsrc.0.irqflag = mpspec::MP_IRQPOL_DEFAULT as u16;
         mpc_lintsrc.0.srcbusid = 0;
         mpc_lintsrc.0.srcbusirq = 0;
         mpc_lintsrc.0.destapic = 0xFF; // to all local APICs
