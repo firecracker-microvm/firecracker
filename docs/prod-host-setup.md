@@ -535,6 +535,42 @@ then KVM uses shadow pages.
 The vulnerability is fixed by [this commit][4]. The fix was integrated in
 5.10.119, 5.15.44 and 5.17.12 kernel releases.
 
+#### [CVE-2022-26373](https://nvd.nist.gov/vuln/detail/CVE-2022-26373)
+
+##### Description
+
+Isolation boundaries between processes are vulnerable to a return stack
+buffer underflow. This may result in some processors allowing neighbouring
+guests to access data in other processes via local access.
+
+This issue is not impacted by environments that make use of `RETPOLINE` as
+this results in [RSB stuffing implemented by KVM][5] which Firecracker uses
+exclusively.
+
+##### Impact
+
+A malicious attacker running on a guest can access information in other guests
+running on the same host.
+
+##### Vulnerable systems
+
+The vulnerability affects systems that do not have `RETPOLINE` enabled
+and use the following host kernel versions:
+
+- 5.10.x prior to 5.10.135
+- 5.15.x prior to 5.15.57
+
+See earlier in this document for checking `RETPOLINE` configuration.
+You can check the version of the kernel being used with:
+
+```
+uname -r
+```
+
+##### Mitigation
+
+The vulnerability is fixed in [these releases][6] by the [commits merged upstream][7].
+
 #### [ARM only] Physical counter directly passed through to the guest
 
 On ARM, the physical counter (i.e `CNTPCT`) it is returning the
@@ -547,3 +583,6 @@ to trap and control this in the hypervisor.
 [2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
 [3]: https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
 [4]: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit?id=9f46c187e2e680ecd9de7983e4d081c3391acc76
+[5]: https://elixir.bootlin.com/linux/v5.10.131/source/arch/x86/kvm/vmx/vmenter.S#L78
+[6]: https://alas.aws.amazon.com/cve/html/CVE-2022-26373.html
+[7]: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ce114c866860
