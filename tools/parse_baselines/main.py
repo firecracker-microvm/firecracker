@@ -145,12 +145,24 @@ def main():
         encoding="utf8",
     ) as baselines_file:
         json_baselines = json.load(baselines_file)
+        current_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
         cpus = parser.parse()
-        json_baselines["hosts"]["instances"][args.instance] = {"cpus": cpus}
 
+        for cpu in cpus:
+            model = cpu["model"]
+            for old_cpu in current_cpus:
+                if old_cpu["model"] == model:
+                    old_cpu["baselines"] = cpu["baselines"]
         baselines_file.truncate(0)
         baselines_file.seek(0, 0)
         json.dump(json_baselines, baselines_file, indent=4)
+
+        # Warn against the fact that not all CPUs pertaining to
+        # some arch were updated.
+        assert len(cpus) == len(current_cpus), (
+            "It may be that only a subset of CPU types were updated! "
+            "Need to run again! Nevertheless we updated the baselines..."
+        )
 
 
 if __name__ == "__main__":
