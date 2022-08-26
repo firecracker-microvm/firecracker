@@ -533,9 +533,7 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.drive = Drive(
-            self._api_socket, self._api_session, self.firecracker_version
-        )
+        self.drive = Drive(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
