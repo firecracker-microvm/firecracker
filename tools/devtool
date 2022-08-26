@@ -1334,6 +1334,7 @@ cmd_shell() {
             --ulimit memlock=-1:-1 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
+            -v /boot:/boot \
             ${ramdisk_args} \
             -- \
             bash
