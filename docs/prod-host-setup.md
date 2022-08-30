@@ -297,8 +297,8 @@ echo "KSM: ENABLED (Recommendation: DISABLED)"
 
 ###### Intel and AMD
 
-We recommend using a kernel compiled with eIBRS or `RETPOLINE`, together with
-microcode supporting conditional Indirect Branch Prediction Barriers (IBPB).
+We recommend using a kernel compiled with eIBRS or IBRS, together with microcode
+supporting conditional Indirect Branch Prediction Barriers (IBPB).
 
 Verification can be done by running:
 
@@ -308,7 +308,8 @@ cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
 
 The output should mention the following mitigations being in use:
 
-- `Enhanced IBRS` or `Retpolines`
+- One of Retpolines (pre-Skylake CPU), IBRS (Skylake), or Enhanced IBRS (Cascade
+  Lake and later)
 - `IBPB` at least `conditional`
 
 ###### ARM64
