@@ -6,8 +6,11 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::{Display, Formatter};
-use std::result;
+use std::{fmt, result};
 
+use arch::x86_64::interrupts;
+use arch::x86_64::msr::SetMSRsError;
+use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use cpuid::{c3, filter_cpuid, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -155,6 +158,50 @@ impl Display for Error {
 
 type Result<T> = result::Result<T, Error>;
 
+/// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
+#[derive(Debug, derive_more::From, PartialEq)]
+pub struct GetTscError(utils::errno::Error);
+impl fmt::Display for GetTscError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for GetTscError {}
+/// Error type for [`KvmVcpu::set_tsc_khz`].
+#[derive(Debug, derive_more::From, PartialEq)]
+pub struct SetTscError(kvm_ioctls::Error);
+impl fmt::Display for SetTscError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for SetTscError {}
+
+/// Error type for [`KvmVcpu::configure`].
+#[derive(Debug, thiserror::Error)]
+pub enum KvmVcpuConfigureError {
+    #[error("Failed to create `VmSpec`: {0}")]
+    VmSpec(cpuid::Error),
+    #[error("Failed to filter CPUID: {0}")]
+    FilterCpuid(cpuid::Error),
+    #[error("Failed to set CPUID entries: {0}")]
+    SetCpuidEntries(cpuid::Error),
+    #[error("Failed to set CPUID: {0}")]
+    SetCpuid(#[from] utils::errno::Error),
+    #[error("Failed to push MSR entry to FamStructWrapper.")]
+    PushMsrEntries(utils::fam::Error),
+    #[error("Failed to set MSRs: {0}")]
+    SetMsrs(#[from] SetMSRsError),
+    #[error("Failed to setup registers: {0}")]
+    SetupRegisters(#[from] SetupRegistersError),
+    #[error("Failed to setup FPU: {0}")]
+    SetupFpu(#[from] SetupFpuError),
+    #[error("Failed to setup special registers: {0}")]
+    SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
+    #[error("Faiuled to configure LAPICs: {0}")]
+    SetLint(#[from] interrupts::Error),
+}
+
 /// A wrapper around creating and using a kvm x86_64 vcpu.
 pub struct KvmVcpu {
     pub index: u8,
@@ -199,52 +246,52 @@ impl KvmVcpu {
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
         mut cpuid: CpuId,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), KvmVcpuConfigureError> {
         let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.smt)
-            .map_err(Error::CpuId)?;
+            .map_err(KvmVcpuConfigureError::VmSpec)?;
 
-        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|err| {
-            METRICS.vcpu.filter_cpuid.inc();
-            error!(
-                "Failure in configuring CPUID for vcpu {}: {:?}",
-                self.index, err
-            );
-            Error::CpuId(err)
-        })?;
+        filter_cpuid(&mut cpuid, &cpuid_vm_spec)
+            .map_err(|err| {
+                METRICS.vcpu.filter_cpuid.inc();
+                error!(
+                    "Failure in configuring CPUID for vcpu {}: {:?}",
+                    self.index, err
+                );
+                err
+            })
+            .map_err(KvmVcpuConfigureError::FilterCpuid)?;
 
         match vcpu_config.cpu_template {
-            CpuFeaturesTemplate::T2 => {
-                t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
-            }
-            CpuFeaturesTemplate::T2S => {
-                t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
-            }
-            CpuFeaturesTemplate::C3 => {
-                c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
-            }
+            CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
+                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
+            CpuFeaturesTemplate::T2S => t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
+                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
+            CpuFeaturesTemplate::C3 => c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
+                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::None => {}
         }
 
-        self.fd.set_cpuid2(&cpuid).map_err(Error::VcpuSetCpuid)?;
+        self.fd
+            .set_cpuid2(&cpuid)
+            .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
+        // Set MSRs
         let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
 
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
             for msr in t2s::msr_entries_to_save() {
                 self.msr_list
                     .push(*msr)
-                    .map_err(|_| Error::VcpuTemplateError)?;
+                    .map_err(KvmVcpuConfigureError::PushMsrEntries)?;
             }
             t2s::update_msr_entries(&mut msr_boot_entries);
         }
 
-        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)
-            .map_err(Error::MSRSConfiguration)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
-            .map_err(Error::REGSConfiguration)?;
-        arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd).map_err(Error::SREGSConfiguration)?;
-        arch::x86_64::interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
+        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
+        arch::x86_64::regs::setup_fpu(&self.fd)?;
+        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
+        arch::x86_64::interrupts::set_lint(&self.fd)?;
         Ok(())
     }
 
@@ -254,8 +301,13 @@ impl KvmVcpu {
     }
 
     /// Get the current TSC frequency for this vCPU.
-    pub fn get_tsc_khz(&self) -> Result<u32> {
-        self.fd.get_tsc_khz().map_err(Error::VcpuGetTSC)
+    ///
+    /// # Errors
+    ///
+    /// When [`kvm_ioctls::VcpuFd::get_tsc_khz`] errrors.
+    pub fn get_tsc_khz(&self) -> std::result::Result<u32, GetTscError> {
+        let res = self.fd.get_tsc_khz()?;
+        Ok(res)
     }
 
     /// Save the KVM internal state.
@@ -333,8 +385,15 @@ impl KvmVcpu {
         })
     }
 
-    // Checks whether the TSC needs scaling when restoring a snapshot.
-    pub fn is_tsc_scaling_required(&self, state_tsc_freq: u32) -> Result<bool> {
+    /// Checks whether the TSC needs scaling when restoring a snapshot.
+    ///
+    /// # Errors
+    ///
+    /// When
+    pub fn is_tsc_scaling_required(
+        &self,
+        state_tsc_freq: u32,
+    ) -> std::result::Result<bool, GetTscError> {
         // Compare the current TSC freq to the one found
         // in the state. If they are different, we need to
         // scale the TSC to the freq found in the state.
@@ -346,8 +405,9 @@ impl KvmVcpu {
     }
 
     // Scale the TSC frequency of this vCPU to the one provided as a parameter.
-    pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<()> {
-        self.fd.set_tsc_khz(tsc_freq).map_err(Error::VcpuSetTSC)
+    pub fn set_tsc_khz(&self, tsc_freq: u32) -> std::result::Result<(), SetTscError> {
+        let res = self.fd.set_tsc_khz(tsc_freq)?;
+        Ok(res)
     }
 
     /// Use provided state to populate KVM internal state.

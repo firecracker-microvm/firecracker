@@ -114,16 +114,18 @@ pub fn use_host_cpuid_function(
             break;
         }
 
-        cpuid.push(kvm_cpuid_entry2 {
-            function,
-            index: count,
-            flags: 0,
-            eax: entry.eax,
-            ebx: entry.ebx,
-            ecx: entry.ecx,
-            edx: entry.edx,
-            padding: [0, 0, 0],
-        })?;
+        cpuid
+            .push(kvm_cpuid_entry2 {
+                function,
+                index: count,
+                flags: 0,
+                eax: entry.eax,
+                ebx: entry.ebx,
+                ecx: entry.ecx,
+                edx: entry.edx,
+                padding: [0, 0, 0],
+            })
+            .map_err(Error::FamError)?;
 
         count += 1;
     }

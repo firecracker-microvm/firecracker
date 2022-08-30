@@ -34,20 +34,14 @@ pub type ApiRequest = Box<VmmAction>;
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Errors thrown when binding the API server to the socket path.
+#[derive(thiserror::Error)]
 pub enum Error {
     /// IO related error.
+    #[error("IO error: {0}")]
     Io(io::Error),
     /// EventFD related error.
+    #[error("EventFd error: {0}")]
     Eventfd(io::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
 }
 
 impl fmt::Debug for Error {

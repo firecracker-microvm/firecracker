@@ -18,11 +18,13 @@ pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
 /// cpuid related error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     /// The function was called with invalid parameters.
+    #[error("The function was called with invalid parameters.")]
     InvalidParameters(String),
     /// Function not supported on the current architecture.
+    #[error("Function not supported on the current architecture.")]
     NotSupported,
 }
 

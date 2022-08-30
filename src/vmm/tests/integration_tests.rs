@@ -7,7 +7,7 @@ use std::{io, thread};
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_serial_device};
-use vmm::persist::{self, snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
+use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::utilities::mock_devices::MockSerialInput;
@@ -261,6 +261,7 @@ fn test_create_and_load_snapshot() {
 
 #[test]
 fn test_snapshot_load_sanity_checks() {
+    use vmm::persist::SnapShotStateSanityCheckError;
     use vmm::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
     let mut microvm_state = get_microvm_state_from_snapshot();
@@ -271,13 +272,10 @@ fn test_snapshot_load_sanity_checks() {
     microvm_state.memory_state.regions.clear();
 
     // Validate sanity checks fail because there is no mem region in state.
-    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
-    match err {
-        LoadSnapshotError::InvalidSnapshot(err_msg) => {
-            assert_eq!(err_msg, "No memory region defined.")
-        }
-        _ => unreachable!(),
-    }
+    assert_eq!(
+        snapshot_state_sanity_check(&microvm_state),
+        Err(SnapShotStateSanityCheckError::NoMemory)
+    );
 
     // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
     for _ in 0..(MAX_SUPPORTED_VCPUS as f64).log2() as usize {
@@ -292,21 +290,19 @@ fn test_snapshot_load_sanity_checks() {
         .push(microvm_state.vcpu_states[0].clone());
 
     // Validate sanity checks fail because there are too many vCPUs.
-    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
-    match err {
-        LoadSnapshotError::InvalidSnapshot(err_msg) => assert_eq!(err_msg, "Invalid vCPU count."),
-        _ => unreachable!(),
-    }
+    assert_eq!(
+        snapshot_state_sanity_check(&microvm_state),
+        Err(SnapShotStateSanityCheckError::InvalidVcpuCount)
+    );
 
     // Remove all vCPUs states from microvm state.
     microvm_state.vcpu_states.clear();
 
     // Validate sanity checks fail because there is no vCPU in state.
-    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
-    match err {
-        LoadSnapshotError::InvalidSnapshot(err_msg) => assert_eq!(err_msg, "Invalid vCPU count."),
-        _ => unreachable!(),
-    }
+    assert_eq!(
+        snapshot_state_sanity_check(&microvm_state),
+        Err(SnapShotStateSanityCheckError::InvalidVcpuCount)
+    );
 }
 
 fn get_microvm_state_from_snapshot() -> MicrovmState {
@@ -344,7 +340,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
 
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
-    assert!(validate_cpu_vendor(&microvm_state).is_ok());
+    assert_eq!(validate_cpu_vendor(&microvm_state), Ok(true));
 
     // Modify the vendor id in CPUID.
     for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
@@ -358,8 +354,9 @@ fn test_snapshot_cpu_vendor_mismatch() {
         }
     }
 
-    // This must fail as the cpu vendor has been mangled.
-    assert!(validate_cpu_vendor(&microvm_state).is_err());
+    // It succeeds in checking if the CPU vendor is valid, in this process it discovers the CPU
+    // vendor not valid.
+    assert_eq!(validate_cpu_vendor(&microvm_state), Ok(false));
 
     // Negative test: remove the vendor id from cpuid.
     for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
@@ -368,8 +365,14 @@ fn test_snapshot_cpu_vendor_mismatch() {
         }
     }
 
-    // This must fail as the cpu vendor has been mangled.
-    assert!(validate_cpu_vendor(&microvm_state).is_err());
+    // It succeeds in checking if the CPU vendor is valid, in this process it discovers the CPU
+    // vendor not valid.
+    assert_eq!(
+        validate_cpu_vendor(&microvm_state),
+        Err(vmm::persist::ValidateCpuVendorError::Snapshot(
+            cpuid::common::Error::NotSupported
+        ))
+    );
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -409,13 +412,13 @@ fn test_snapshot_cpu_vendor() {
 #[test]
 fn test_snapshot_cpu_vendor_missing() {
     use arch::regs::MIDR_EL1;
-    use vmm::persist::validate_cpu_manufacturer_id;
+    use vmm::persist::{validate_cpu_manufacturer_id, ValidateCpuManufacturerIdError};
 
     let mut microvm_state = get_microvm_state_from_snapshot();
 
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
-    assert!(validate_cpu_manufacturer_id(&microvm_state).is_ok());
+    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(true));
 
     // Remove the MIDR_EL1 value from the VCPU states, by setting it to 0
     for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
@@ -425,7 +428,10 @@ fn test_snapshot_cpu_vendor_missing() {
             }
         }
     }
-    assert!(validate_cpu_manufacturer_id(&microvm_state).is_err());
+    assert!(matches!(
+        validate_cpu_manufacturer_id(&microvm_state),
+        Err(ValidateCpuManufacturerIdError::Snapshot(_))
+    ));
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -438,7 +444,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
 
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
-    assert!(validate_cpu_manufacturer_id(&microvm_state).is_ok());
+    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(true));
 
     // Change the MIDR_EL1 value from the VCPU states, to contain an
     // invalid manufacturer ID
@@ -449,5 +455,5 @@ fn test_snapshot_cpu_vendor_mismatch() {
             }
         }
     }
-    assert!(validate_cpu_manufacturer_id(&microvm_state).is_err());
+    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(false));
 }

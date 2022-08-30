@@ -53,15 +53,19 @@ impl VmSpec {
 }
 
 /// Errors associated with processing the CPUID leaves.
-#[derive(Debug, Clone, derive_more::From)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// A FamStructWrapper operation has failed
+    #[error("A FamStructWrapper operation has failed.")]
     FamError(utils::fam::Error),
     /// A call to an internal helper method failed
-    InternalError(super::common::Error),
+    #[error("A call to an internal helper method failed: {0}")]
+    InternalError(#[from] super::common::Error),
     /// The operation is not permitted for the current vendor
+    #[error("The operation is not permitted for the current vendor.")]
     InvalidVendor,
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
+    #[error("The maximum number of addressable logical CPUs cannot be stored in an `u8`.")]
     VcpuCountOverflow,
 }
 
