@@ -282,20 +282,44 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     ]
 }
 
+/// Error type for [`set_msrs`].
+#[derive(Debug, thiserror::Error)]
+pub enum SetMSRsError {
+    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
+    #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
+    Create(utils::fam::Error),
+    /// Settings MSRs resulted in an error.
+    #[error("Setting MSRs resulted in an error: {0}")]
+    Set(#[from] kvm_ioctls::Error),
+    /// Not all given MSRs were set.
+    #[error("Not all given MSRs were set.")]
+    Incomplete,
+}
+
 /// Configure Model Specific Registers (MSRs) required to boot Linux for a given x86_64 vCPU.
 ///
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
-    let msrs = Msrs::from_entries(&msr_entries).map_err(Error::FamError)?;
+///
+/// # Errors
+///
+/// When:
+/// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
+/// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
+/// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
+pub fn set_msrs(
+    vcpu: &VcpuFd,
+    msr_entries: &[kvm_msr_entry],
+) -> std::result::Result<(), SetMSRsError> {
+    let msrs = Msrs::from_entries(&msr_entries).map_err(SetMSRsError::Create)?;
     vcpu.set_msrs(&msrs)
-        .map_err(Error::SetModelSpecificRegisters)
+        .map_err(SetMSRsError::Set)
         .and_then(|msrs_written| {
-            if msrs_written as u32 != msrs.as_fam_struct_ref().nmsrs {
-                Err(Error::SetModelSpecificRegistersCount)
-            } else {
+            if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
+            } else {
+                Err(SetMSRsError::Incomplete)
             }
         })
 }

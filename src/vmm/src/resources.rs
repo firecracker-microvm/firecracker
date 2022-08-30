@@ -242,7 +242,10 @@ impl VmResources {
     }
 
     /// Update the machine configuration of the microVM.
-    pub fn update_vm_config(&mut self, machine_config: &VmUpdateConfig) -> Result<VmConfigError> {
+    pub fn update_vm_config(
+        &mut self,
+        machine_config: &VmUpdateConfig,
+    ) -> std::result::Result<(), VmConfigError> {
         let vcpu_count = machine_config
             .vcpu_count
             .unwrap_or(self.vm_config.vcpu_count);

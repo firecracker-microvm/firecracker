@@ -3,7 +3,6 @@
 
 //! Defines functionality for creating guest memory snapshots.
 
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;
 
@@ -64,31 +63,23 @@ where
 }
 
 /// Errors associated with dumping guest memory to file.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Cannot access file.
-    FileHandle(std::io::Error),
+    #[error("Cannot access file: {0:?}")]
+    FileHandle(#[from] std::io::Error),
     /// Cannot create memory.
-    CreateMemory(vm_memory::Error),
+    #[error("Cannot create memory: {0:?}")]
+    CreateMemory(#[from] vm_memory::Error),
     /// Cannot create region.
-    CreateRegion(vm_memory::MmapRegionError),
+    #[error("Cannot create memory region: {0:?}")]
+    CreateRegion(#[from] vm_memory::MmapRegionError),
     /// Cannot fetch system's page size.
-    PageSize(errno::Error),
+    #[error("Cannot fetch system's page size: {0:?}")]
+    PageSize(#[from] errno::Error),
     /// Cannot dump memory.
-    WriteMemory(GuestMemoryError),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-        match self {
-            FileHandle(err) => write!(f, "Cannot access file: {:?}", err),
-            CreateMemory(err) => write!(f, "Cannot create memory: {:?}", err),
-            CreateRegion(err) => write!(f, "Cannot create memory region: {:?}", err),
-            PageSize(err) => write!(f, "Cannot fetch system's page size: {:?}", err),
-            WriteMemory(err) => write!(f, "Cannot dump memory: {:?}", err),
-        }
-    }
+    #[error("Cannot dump memory: {0:?}")]
+    WriteMemory(#[from] GuestMemoryError),
 }
 
 impl SnapshotMemory for GuestMemoryMmap {

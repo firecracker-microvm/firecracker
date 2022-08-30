@@ -95,7 +95,7 @@ pub enum StartMicrovmError {
     /// Unable to set VmResources.
     SetVmResources(VmConfigError),
 }
-
+impl std::error::Error for StartMicrovmError {}
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
 impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
@@ -418,7 +418,8 @@ pub fn build_microvm_for_boot(
             .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
             .clone(),
     )
-    .map_err(Internal)?;
+    .map_err(Error::VcpuStart)
+    .map_err(StartMicrovmError::Internal)?;
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
@@ -430,7 +431,7 @@ pub fn build_microvm_for_boot(
             .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
     )
     .map_err(Error::SeccompFilters)
-    .map_err(Internal)?;
+    .map_err(StartMicrovmError::Internal)?;
 
     // The vcpus start off in the `Paused` state, let them run.
     vmm.resume_vm().map_err(Internal)?;
@@ -439,6 +440,65 @@ pub fn build_microvm_for_boot(
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
+}
+
+/// Error type for [`build_microvm_from_snapshot`].
+#[derive(Debug, thiserror::Error)]
+pub enum BuildMicrovmFromSnapshotError {
+    /// Failed to create micro-VM and vCPUs.
+    #[error("Failed to create micro-VM and vCPUs: {0}")]
+    CreateMicrovmAndVcpus(#[from] StartMicrovmError),
+    /// Only 255 vCPU state are supported, but {0} states where given.
+    #[error("Only 255 vCPU state are supported, but {0} states where given.")]
+    TooManyVCPUs(usize),
+    /// Could not access KVM.
+    #[error("Could not access KVM: {0}")]
+    KvmAccess(#[from] utils::errno::Error),
+    /// The CPUID specification from the snapshot contains features unsupported by and/or fields
+    /// outside the supported range, of the KVM.
+    #[error(
+        "The CPUID specification from the snapshot contains features unsupported by and/or fields \
+         outside the supported range, of the KVM"
+    )]
+    UnsupportedCPUID,
+    /// Error configuring the TSC, frequency not present in the given snapshot.
+    #[error("Error configuring the TSC, frequency not present in the given snapshot.")]
+    TscFrequencyNotPresent,
+    /// Could not get TSC to check if TSC scaling was required with the snapshot.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Could not get TSC to check if TSC scaling was required with the snapshot: {0}")]
+    GetTsc(#[from] crate::vstate::vcpu::GetTscError),
+    /// Could not set TSC scaling within the snapshot.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Could not set TSC scaling within the snapshot: {0}")]
+    SetTsc(#[from] crate::vstate::vcpu::SetTscError),
+    /// Failed to restore micro-VM state.
+    #[error("Failed to restore micro-VM state: {0}")]
+    RestoreState(#[from] crate::vstate::vm::RestoreStateError),
+    /// Failed to update micr-VM configuration.
+    #[error("Failed to update micr-VM configuration: {0}")]
+    VmUpdateConfig(#[from] VmConfigError),
+    /// Failed to restore MMIO device.
+    #[error("Failed to restore MMIO device: {0}")]
+    RestoreMmioDevice(#[from] MicrovmStateError),
+    /// Failed to emulate MMIO serial.
+    #[error("Failed to emulate MMIO serial: {0}")]
+    EmulateSerialInit(#[from] crate::EmulateSerialInitError),
+    /// Failed start vCPUs as no vCPU seccomp filter found.
+    #[error("Failed start vCPUs as no vCPU seccomp filter found.")]
+    MissingVcpuSeccompFilters,
+    /// Failed start vCPUs.
+    #[error("Failed start vCPUs: {0}")]
+    StartVcpus(#[from] crate::StartVcpusError),
+    /// Failed to restore vCPUs.
+    #[error("Failed to restore vCPUs: {0}")]
+    RestoreVcpus(#[from] crate::RestoreVcpusError),
+    /// Failed to apply VMM secccomp filter as none found.
+    #[error("Failed to apply VMM secccomp filter as none found.")]
+    MissingVmmSeccompFilters,
+    /// Failed to apply VMM secccomp filter.
+    #[error("Failed to apply VMM secccomp filter: {0}")]
+    SeccompFiltersInternal(#[from] seccompiler::InstallationError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -455,11 +515,10 @@ pub fn build_microvm_from_snapshot(
     track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
-    use self::StartMicrovmError::*;
-    let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
-        .map_err(|_| MicrovmStateError::InvalidInput)
-        .map_err(RestoreMicrovmState)?;
+) -> std::result::Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
+    let vcpu_count = u8::try_from(microvm_state.vcpu_states.len()).map_err(|_| {
+        BuildMicrovmFromSnapshotError::TooManyVCPUs(microvm_state.vcpu_states.len())
+    })?;
 
     // Build Vmm.
     let (mut vmm, vcpus) = create_vmm_and_vcpus(
@@ -481,25 +540,12 @@ pub fn build_microvm_from_snapshot(
         // No TSC freq in snapshot means we have to fail-fast.
         let state_tsc = microvm_state.vcpu_states[0]
             .tsc_khz
-            .ok_or_else(|| {
-                MicrovmStateError::IncompatibleState(
-                    "Error configuring the TSC, frequency not present in snapshot.".to_string(),
-                )
-            })
-            .map_err(RestoreMicrovmState)?;
+            .ok_or(BuildMicrovmFromSnapshotError::TscFrequencyNotPresent)?;
 
         // Scale the TSC frequency for all VCPUs, if needed.
-        if vcpus[0]
-            .kvm_vcpu
-            .is_tsc_scaling_required(state_tsc)
-            .map_err(|err| MicrovmStateError::IncompatibleState(err.to_string()))
-            .map_err(RestoreMicrovmState)?
-        {
+        if vcpus[0].kvm_vcpu.is_tsc_scaling_required(state_tsc)? {
             for vcpu in &vcpus {
-                vcpu.kvm_vcpu
-                    .set_tsc_khz(state_tsc)
-                    .map_err(|err| MicrovmStateError::IncompatibleState(err.to_string()))
-                    .map_err(RestoreMicrovmState)?;
+                vcpu.kvm_vcpu.set_tsc_khz(state_tsc)?;
             }
         }
     }
@@ -508,28 +554,20 @@ pub fn build_microvm_from_snapshot(
     {
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
-        vmm.vm
-            .restore_state(&mpidrs, &microvm_state.vm_state)
-            .map_err(MicrovmStateError::RestoreVmState)
-            .map_err(RestoreMicrovmState)?;
+        vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
-    vmm.vm
-        .restore_state(&microvm_state.vm_state)
-        .map_err(MicrovmStateError::RestoreVmState)
-        .map_err(RestoreMicrovmState)?;
+    vmm.vm.restore_state(&microvm_state.vm_state)?;
 
-    vm_resources
-        .update_vm_config(&VmUpdateConfig {
-            vcpu_count: Some(vcpu_count),
-            mem_size_mib: Some(mem_size_mib(&guest_memory) as usize),
-            smt: Some(false),
-            cpu_template: None,
-            track_dirty_pages: Some(track_dirty_pages),
-        })
-        .map_err(SetVmResources)?;
+    vm_resources.update_vm_config(&VmUpdateConfig {
+        vcpu_count: Some(vcpu_count),
+        mem_size_mib: Some(mem_size_mib(&guest_memory) as usize),
+        smt: Some(false),
+        cpu_template: None,
+        track_dirty_pages: Some(track_dirty_pages),
+    })?;
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
@@ -543,24 +581,20 @@ pub fn build_microvm_from_snapshot(
 
     vmm.mmio_device_manager =
         MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
-            .map_err(MicrovmStateError::RestoreDevices)
-            .map_err(RestoreMicrovmState)?;
-    vmm.emulate_serial_init()
-        .map_err(StartMicrovmError::Internal)?;
+            .map_err(MicrovmStateError::RestoreDevices)?;
+    vmm.emulate_serial_init()?;
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
         vcpus,
         seccomp_filters
             .get("vcpu")
-            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
+            .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
             .clone(),
-    )
-    .map_err(Internal)?;
+    )?;
 
     // Restore vcpus kvm state.
-    vmm.restore_vcpu_states(microvm_state.vcpu_states)
-        .map_err(RestoreMicrovmState)?;
+    vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
@@ -570,10 +604,8 @@ pub fn build_microvm_from_snapshot(
     seccompiler::apply_filter(
         seccomp_filters
             .get("vmm")
-            .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
-    )
-    .map_err(Error::SeccompFilters)
-    .map_err(StartMicrovmError::Internal)?;
+            .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
+    )?;
 
     Ok(vmm)
 }

@@ -56,6 +56,7 @@ pub enum InstallationError {
     /// Error returned by `prctl`.
     Prctl(i32),
 }
+impl std::error::Error for InstallationError {}
 
 impl Display for InstallationError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {

@@ -115,10 +115,10 @@ def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
 
     assert vm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "Load microVM snapshot error: Cannot connect to UDS in order to "
-        "send information on handling guest memory page-faults due to: "
-        "No such file or directory (os error 2)" in response.text
-    )
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: No "
+        "such file or directory (os error 2)"
+    ) in response.text
 
 
 def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
@@ -148,10 +148,10 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
 
     assert vm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "Load microVM snapshot error: Cannot connect to UDS in order to"
-        " send information on handling guest memory page-faults due to: "
-        "Connection refused (os error 111)" in response.text
-    )
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: "
+        "Connection refused (os error 111)"
+    ) in response.text
 
 
 def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):

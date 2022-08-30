@@ -367,7 +367,11 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
         "Response status code %d, content: %s.", response.status_code, response.text
     )
     assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot deserialize the microVM state" in response.text
+    assert (
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to get snapshot "
+        "state from file: Failed to load snapshot state from file: Snapshot file is smaller "
+        "than CRC length."
+    ) in response.text
 
     # Check if FC process is closed
     wait_process_termination(vm.jailer_clone_pid)
@@ -512,7 +516,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         )
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot open the memory file: Permission denied" in str(error)
+        assert (
+            "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+            "memory: Error creating guest memory from file: Failed to load guest memory: "
+            "Permission denied (os error 13)"
+        ) in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -526,9 +534,9 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     except AssertionError as error:
         # Check if proper error is returned.
         assert (
-            "Cannot perform open on the snapshot backing file:"
-            " Permission denied" in str(error)
-        )
+            "Load microVM snapshot error: Failed to restore from snapshot: Failed to get snapshot "
+            "state from file: Failed to open snapshot file: Permission denied (os error 13)"
+        ) in str(error)
     else:
         assert False, "Negative test failed"
 

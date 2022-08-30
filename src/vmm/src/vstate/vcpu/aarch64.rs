@@ -68,7 +68,7 @@ pub struct KvmVcpu {
 
     mpidr: u64,
 }
-
+pub type KvmVcpuConfigureError = Error;
 impl KvmVcpu {
     /// Constructs a new kvm vcpu with arch specific functionality.
     ///
@@ -102,7 +102,7 @@ impl KvmVcpu {
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), KvmVcpuConfigureError> {
         arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,

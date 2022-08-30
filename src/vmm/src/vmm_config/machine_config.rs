@@ -25,6 +25,7 @@ pub enum VmConfigError {
     /// balloon device was previously installed.
     InvalidVmState,
 }
+impl std::error::Error for VmConfigError {}
 
 impl fmt::Display for VmConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -50,6 +50,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "thiserror",
  "utils",
  "vmm",
 ]
@@ -67,6 +68,7 @@ dependencies = [
  "libc",
  "linux-loader",
  "logger",
+ "thiserror",
  "utils",
  "versionize",
  "versionize_derive",
@@ -243,6 +245,7 @@ dependencies = [
  "derive_more",
  "kvm-bindings",
  "kvm-ioctls",
+ "thiserror",
  "utils",
 ]
 
@@ -1045,6 +1048,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "libc",
+ "thiserror",
  "versionize",
  "versionize_derive",
 ]
@@ -1077,18 +1081,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.30"
+version = "1.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "854babe52e4df1653706b98fcfc05843010039b406875930a70e4d9644e5c417"
+checksum = "f5f6586b7f764adc0231f4c79be7b920e766bb2f3e51b3661cdb263828f19994"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.30"
+version = "1.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa32fd3f627f367fe16f893e2597ae3c05020f8bba2666a4e6ea73d377e5714b"
+checksum = "12bafc5b54507e0149cdf1b145a5d80ab80a90bcd9275df43d4fff68460f6c21"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1280,6 +1284,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapshot",
+ "thiserror",
  "userfaultfd",
  "utils",
  "versionize",
