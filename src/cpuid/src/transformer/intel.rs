@@ -126,6 +126,8 @@ impl CpuidTransformer for IntelCpuidTransformer {
             leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
             leaf_0xb::LEAF_NUM => Some(intel::update_extended_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
+            // hypervisor stuff
+            0x4000_0001 => Some(common::disable_kvm_feature_async_pf),
             _ => None,
         }
     }
