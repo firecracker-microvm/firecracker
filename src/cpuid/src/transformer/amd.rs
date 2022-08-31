@@ -147,8 +147,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x8000001d::LEAF_NUM => Some(amd::update_extended_cache_topology_entry),
             leaf_0x8000001e::LEAF_NUM => Some(amd::update_extended_apic_id_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
-
-            // hypervisor stuff
+            // Disable async PF, as it hangs the VM for some reason when loading from snapshot/uffd.
             0x4000_0001 => Some(common::disable_kvm_feature_async_pf),
             _ => None,
         }
