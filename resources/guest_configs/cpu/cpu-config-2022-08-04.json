@@ -1,4 +1,13 @@
 {
+  "baseline": {
+    "arch-general": {
+
+    },
+    "model-specific": {
+
+    }
+  },
+
   "cpu_features": [
     {
       "name": "ssbd",

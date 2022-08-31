@@ -20,6 +20,7 @@ use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_guest_config::cpu::cpu_symbolic_engine;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
@@ -261,22 +262,29 @@ impl KvmVcpu {
             })
             .map_err(KvmVcpuConfigureError::FilterCpuid)?;
 
-        match vcpu_config.cpu_template {
+        // Set initial MSR boot config
+        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
+
+        match &vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::T2S => t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::C3 => c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
+            CpuFeaturesTemplate::CUSTOM(cpu_config) => {
+                cpu_symbolic_engine::configure_cpu_features(
+                    &mut cpuid,
+                    &mut msr_boot_entries,
+                    &cpu_config,
+                );
+            }
             CpuFeaturesTemplate::None => {}
         }
 
         self.fd
             .set_cpuid2(&cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
-
-        // Set MSRs
-        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
 
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
             for msr in t2s::msr_entries_to_save() {

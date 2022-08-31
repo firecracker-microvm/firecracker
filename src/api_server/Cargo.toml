@@ -19,6 +19,7 @@ mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+vm_guest_config = { path = "../vm_guest_config" }
 
 [dev-dependencies]
 libc = ">=0.2.39"

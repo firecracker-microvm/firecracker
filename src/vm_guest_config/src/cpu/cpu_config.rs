@@ -11,6 +11,11 @@ use thiserror::Error;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CpuConfigurationSet {
+    /// Arch-general features
+    /// TODO Placeholder for General-Purpose CPUID structure
+    pub arch_features: Vec<LeafEntry>,
+    /// Model-specific registers
+    pub model_features: Vec<ModelRegisterValue>,
     /// List of entries for CPU features to be configured for a vCPU.
     pub cpu_features: Vec<CpuConfigurationAttribute>,
 }
@@ -23,6 +28,19 @@ pub struct CpuConfigurationAttribute {
     /// Flag to specify whether to enable or disable the feature on a vCPU.
     pub is_enabled: bool,
 }
+
+/// Model-specific register's key-value pair
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ModelRegisterValue {
+    /// Address pointer
+    pub register_address: u32,
+    /// Value to be written
+    pub register_value: u32,
+}
+
+/// TODO Placeholder for General-Purpose CPUID structure
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LeafEntry {}
 
 /// Errors associated with configuring the microVM.
 #[derive(Debug, PartialEq, Error)]

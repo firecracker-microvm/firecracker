@@ -1,8 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use cpuid::cpu_config::CpuConfigurationSet;
 use logger::{IncMetric, METRICS};
+use vm_guest_config::cpu::cpu_config::CpuConfigurationSet;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};

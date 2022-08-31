@@ -4,13 +4,13 @@
 use std::convert::From;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cpuid::configurable_template::CPU_FEATURE_INDEX_MAP;
-use cpuid::cpu_config::{CpuConfigError, CpuConfigurationSet};
 use logger::info;
 use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
+use vm_guest_config::cpu::cpu_config::{CpuConfigError, CpuConfigurationSet};
+use vm_guest_config::cpu::cpu_symbolic_engine::CPU_FEATURE_INDEX_MAP;
 
 use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
@@ -1278,7 +1278,7 @@ mod tests {
         let expected_vcpu_config = VcpuConfig {
             vcpu_count: vm_resources.vm_config().vcpu_count,
             smt: vm_resources.vm_config().smt,
-            cpu_template: vm_resources.vm_config().cpu_template,
+            cpu_template: *vm_resources.vm_config().cpu_template,
         };
 
         let vcpu_config = vm_resources.vcpu_config();

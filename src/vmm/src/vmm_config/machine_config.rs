@@ -3,8 +3,8 @@
 
 use std::fmt;
 
-use cpuid::cpu_config::CpuConfigurationSet;
 use serde::{de, Deserialize, Serialize};
+use vm_guest_config::cpu::cpu_config::CpuConfigurationSet;
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;

@@ -3,9 +3,6 @@
 
 /// Follows a C3 template in setting up the CPUID.
 pub mod c3;
-/// Provides functionality to configure a custom template provided
-/// by user
-pub mod configurable_template;
 /// Follows a T2 template in setting up the CPUID.
 pub mod t2;
 /// Follows a T2 template for setting up the CPUID with additional MSRs

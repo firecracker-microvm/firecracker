@@ -5,7 +5,6 @@ use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cpuid::cpu_config::{CpuConfigError, CpuConfigurationSet};
 use logger::*;
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
@@ -15,6 +14,7 @@ use tests::{
     build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
+use vm_guest_config::cpu::cpu_config::{CpuConfigError, CpuConfigurationSet};
 
 use super::Error as VmmError;
 #[cfg(not(test))]

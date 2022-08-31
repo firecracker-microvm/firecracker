@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use arch::x86_64::msr::{SpectreControlMSRFlags, MSR_IA32_SPEC_CTRL};
+use cpuid::bit_helper::BitHelper;
+use cpuid::cpu_leaf;
 use itertools::Itertools;
 use kvm_bindings::{kvm_msr_entry, CpuId};
 use logger::*;
 use phf::phf_map;
 
-use crate::bit_helper::BitHelper;
-use crate::cpu_config::{CpuConfigurationAttribute, CpuConfigurationSet};
+use crate::cpu::cpu_config::{CpuConfigurationAttribute, CpuConfigurationSet};
 
 /// "Database" that maps register configuration to symbolic names for CPU features.
 pub static CPU_FEATURE_INDEX_MAP: phf::Map<&'static str, CpuFeatureArchMapping> = phf_map! {
@@ -16,43 +17,43 @@ pub static CPU_FEATURE_INDEX_MAP: phf::Map<&'static str, CpuFeatureArchMapping> 
         leaf: None,
         register: Register::MSR { addr: MSR_IA32_SPEC_CTRL },
         bit_index: SpectreControlMSRFlags::IBRS.bits() as u32,
-        feature_type: CpuRegisterFeatureType::MSR,
+        feature_type: CpuRegisterFeatureType::SpecialPurpose,
     },
     "pku" => CpuFeatureArchMapping {
-        leaf: Some(crate::cpu_leaf::leaf_0xd::LEAF_NUM),
+        leaf: Some(cpu_leaf::leaf_0xd::LEAF_NUM),
         register: Register::EAX,
-        bit_index: crate::cpu_leaf::leaf_0xd::index0::eax::PKRU_BITINDEX,
-        feature_type: CpuRegisterFeatureType::CPUID,
+        bit_index: cpu_leaf::leaf_0xd::index0::eax::PKRU_BITINDEX,
+        feature_type: CpuRegisterFeatureType::GeneralPurpose,
     },
     "ssbd" => CpuFeatureArchMapping {
         leaf: None,
         register: Register::MSR { addr: MSR_IA32_SPEC_CTRL },
         bit_index: SpectreControlMSRFlags::SSBD.bits() as u32,
-        feature_type: CpuRegisterFeatureType::MSR,
+        feature_type: CpuRegisterFeatureType::SpecialPurpose,
     },
     "sgx" => CpuFeatureArchMapping {
-        leaf: Some(crate::cpu_leaf::leaf_0x7::LEAF_NUM),
+        leaf: Some(cpu_leaf::leaf_0x7::LEAF_NUM),
         register: Register::EBX,
-        bit_index: crate::cpu_leaf::leaf_0x7::index0::ebx::SGX_BITINDEX,
-        feature_type: CpuRegisterFeatureType::CPUID,
+        bit_index: cpu_leaf::leaf_0x7::index0::ebx::SGX_BITINDEX,
+        feature_type: CpuRegisterFeatureType::GeneralPurpose,
     },
     "smx" => CpuFeatureArchMapping {
-        leaf: Some(crate::cpu_leaf::leaf_0x1::LEAF_NUM),
+        leaf: Some(cpu_leaf::leaf_0x1::LEAF_NUM),
         register: Register::ECX,
-        bit_index: crate::cpu_leaf::leaf_0x1::ecx::SMX_BITINDEX,
-        feature_type: CpuRegisterFeatureType::CPUID,
+        bit_index: cpu_leaf::leaf_0x1::ecx::SMX_BITINDEX,
+        feature_type: CpuRegisterFeatureType::GeneralPurpose,
     },
     "sse4_2" => CpuFeatureArchMapping {
-        leaf: Some(crate::cpu_leaf::leaf_0x1::LEAF_NUM),
+        leaf: Some(cpu_leaf::leaf_0x1::LEAF_NUM),
         register: Register::EDX,
-        bit_index: crate::cpu_leaf::leaf_0x1::edx::SSE42_BITINDEX,
-        feature_type: CpuRegisterFeatureType::CPUID,
+        bit_index: cpu_leaf::leaf_0x1::edx::SSE42_BITINDEX,
+        feature_type: CpuRegisterFeatureType::GeneralPurpose,
     },
     "stibp" => CpuFeatureArchMapping {
         leaf: None,
         register: Register::MSR { addr: MSR_IA32_SPEC_CTRL },
         bit_index: SpectreControlMSRFlags::SSBD.bits() as u32,
-        feature_type: CpuRegisterFeatureType::MSR,
+        feature_type: CpuRegisterFeatureType::SpecialPurpose,
     },
 };
 
@@ -61,7 +62,7 @@ pub fn configure_cpu_features(
     cpuid: &mut CpuId,
     msr_boot_entries: &mut Vec<kvm_msr_entry>,
     cpu_config: &CpuConfigurationSet,
-) -> () {
+) {
     configure_cpu_features_and_build_msr_config(
         cpuid,
         msr_boot_entries,
@@ -98,13 +99,14 @@ fn configure_cpu_features_and_build_msr_config(
     cpuid: &mut CpuId,
     msr_boot_entries: &mut Vec<kvm_msr_entry>,
     cpu_features: &Vec<CpuConfigurationInstruction>,
-) -> () {
+) {
     // Process CPUID features
     // First group enabled CPU features by the leaf they are configured by
     let leaf_to_cpuid_features_map = cpu_features
         .into_iter()
         .filter(|&config_instruction| {
-            config_instruction.feature_mapping.feature_type == CpuRegisterFeatureType::CPUID
+            config_instruction.feature_mapping.feature_type
+                == CpuRegisterFeatureType::GeneralPurpose
                 && !config_instruction.feature_mapping.leaf.is_none()
         })
         .into_group_map_by(|&feature_mapping| feature_mapping.feature_mapping.leaf.unwrap());
@@ -120,7 +122,8 @@ fn configure_cpu_features_and_build_msr_config(
     let msr_to_features_map = cpu_features
         .into_iter()
         .filter(|&config_instruction| {
-            config_instruction.feature_mapping.feature_type == CpuRegisterFeatureType::MSR
+            config_instruction.feature_mapping.feature_type
+                == CpuRegisterFeatureType::SpecialPurpose
         })
         .into_group_map_by(|&x| x.feature_mapping.register);
 
@@ -133,7 +136,7 @@ fn configure_cpu_features_and_build_msr_config(
             .filter_map(|msr_pointer| {
                 build_single_msr_configuration(msr_pointer, msr_to_features_map.get(msr_pointer))
             }),
-    );
+    )
 }
 
 fn convert_cpu_feature_configuration(
@@ -212,10 +215,11 @@ fn build_single_msr_configuration(
 /// Type to help demarcate how a given CPU feature must be configured
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuRegisterFeatureType {
-    /// CPU feature to be configured via normal CPUID interface as per x86 arch
-    CPUID,
+    /// General purpose CPU feature.
+    /// To be configured via normal CPUID interface as per x86 architecture
+    GeneralPurpose,
     /// CPU feature that requires configuration via a model specific register
-    MSR,
+    SpecialPurpose,
 }
 
 /// Encapsulates information necessary to toggle an arbitrary CPU feature
