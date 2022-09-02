@@ -895,7 +895,6 @@ pub fn configure_system_for_boot(
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
             boot_cmdline.as_str().len() + 1,
             initrd,
-            vcpus.len() as u8,
         )
         .map_err(ConfigureSystem)?;
     }

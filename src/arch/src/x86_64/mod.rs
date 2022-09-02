@@ -10,7 +10,6 @@ mod gdt;
 pub mod interrupts;
 /// Layout for the x86_64 system.
 pub mod layout;
-mod mptable;
 /// Logic for configuring x86_64 model specific registers (MSRs).
 pub mod msr;
 /// Logic for configuring x86_64 registers.
@@ -23,6 +22,11 @@ use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemory
 
 use crate::InitrdConfig;
 
+/// IOAPIC default physical address. Source: linux/arch/x86/include/asm/apicdef.h
+pub const IO_APIC_DEFAULT_PHYS_BASE: u32 = 0xfec0_0000;
+/// APIC default physical address. source: linux/arch/x86/include/asm/apicdef.h
+pub const APIC_DEFAULT_PHYS_BASE: u32 = 0xfee0_0000;
+
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 const E820_RAM: u32 = 1;
 
@@ -31,8 +35,6 @@ const E820_RAM: u32 = 1;
 pub enum Error {
     /// Invalid e820 setup params.
     E820Configuration,
-    /// Error writing MP table to memory.
-    MpTableSetup(mptable::Error),
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
     /// Failed to compute initrd address.
@@ -105,7 +107,6 @@ pub fn configure_system(
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
-    num_cpus: u8,
 ) -> super::Result<()> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
@@ -115,9 +116,6 @@ pub fn configure_system(
     let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
-
-    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, num_cpus)?;
 
     let mut params = boot_params::default();
 
@@ -219,34 +217,23 @@ mod tests {
 
     #[test]
     fn test_system_configuration() {
-        let no_vcpus = 4;
-        let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
-                .unwrap();
-        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
-        assert!(config_err.is_err());
-        assert_eq!(
-            config_err.unwrap_err(),
-            super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
-        );
-
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
     }
 
     #[test]
