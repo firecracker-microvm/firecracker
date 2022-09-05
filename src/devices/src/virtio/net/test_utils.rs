@@ -298,7 +298,7 @@ pub fn default_guest_memory() -> GuestMemoryMmap {
 }
 
 pub fn set_mac(net: &mut Net, mac: MacAddr) {
-    net.guest_mac = Some(mac);
+    net.guest_mac = mac;
     net.config_space.guest_mac.copy_from_slice(mac.get_bytes());
 }
 
