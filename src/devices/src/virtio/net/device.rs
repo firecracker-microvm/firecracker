@@ -4,9 +4,6 @@
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
-
-#[cfg(not(test))]
-use std::io;
 use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicUsize;
@@ -21,6 +18,7 @@ use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use utils::rand_bytes;
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
@@ -48,6 +46,9 @@ enum FrontendError {
     GuestMemory(GuestMemoryError),
     ReadOnlyDescriptor,
 }
+
+// KVM OUI MAC address is 52:54:00:xx:xx:xx
+const KVM_OUI: [u8; 3] = [0x52, 0x54, 0x00];
 
 pub(crate) fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
@@ -78,6 +79,14 @@ fn init_vnet_hdr(buf: &mut [u8]) {
     for i in &mut buf[0..vnet_hdr_len()] {
         *i = 0;
     }
+}
+
+fn generate_mac_address() -> MacAddr {
+    let mut random_mac: [u8; MAC_ADDR_LEN] = [0; MAC_ADDR_LEN];
+    let (left, right) = random_mac.split_at_mut(3);
+    left.copy_from_slice(&KVM_OUI);
+    right.copy_from_slice(rand_bytes(3).as_slice());
+    MacAddr::from_bytes_unchecked(&random_mac)
 }
 
 #[derive(Clone, Copy)]
@@ -120,7 +129,7 @@ pub struct Net {
     pub(crate) irq_trigger: IrqTrigger,
 
     pub(crate) config_space: ConfigSpace,
-    pub(crate) guest_mac: Option<MacAddr>,
+    pub(crate) guest_mac: MacAddr,
 
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
@@ -162,12 +171,18 @@ impl Net {
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         let mut config_space = ConfigSpace::default();
-        if let Some(mac) = guest_mac {
-            config_space.guest_mac.copy_from_slice(mac.get_bytes());
-            // When this feature isn't available, the driver generates a random MAC address.
-            // Otherwise, it should attempt to read the device MAC address from the config space.
-            avail_features |= 1 << VIRTIO_NET_F_MAC;
-        }
+        // Enable feature to configure a MAC address
+        // If not enabled, the driver generates a random MAC address.
+        avail_features |= 1 << VIRTIO_NET_F_MAC;
+        let mac_addr = {
+            if let Some(some_mac_adrr) = guest_mac {
+                *some_mac_adrr
+            } else {
+                // When the MAC address is not specified explicitly, generate one and assign it.
+                generate_mac_address()
+            }
+        };
+        config_space.guest_mac.copy_from_slice(mac_addr.get_bytes());
 
         let mut queue_evts = Vec::new();
         let mut queues = Vec::new();
@@ -195,7 +210,7 @@ impl Net {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             config_space,
             mmds_ns: None,
-            guest_mac: guest_mac.copied(),
+            guest_mac: mac_addr,
 
             #[cfg(test)]
             mocks: Mocks::default(),
@@ -208,8 +223,8 @@ impl Net {
     }
 
     /// Provides the MAC of this net device.
-    pub fn guest_mac(&self) -> Option<&MacAddr> {
-        self.guest_mac.as_ref()
+    pub fn guest_mac(&self) -> &MacAddr {
+        &self.guest_mac
     }
 
     /// Provides the host IFACE name of this net device.
@@ -413,7 +428,7 @@ impl Net {
         rate_limiter: &mut RateLimiter,
         frame_buf: &[u8],
         tap: &mut Tap,
-        guest_mac: Option<MacAddr>,
+        guest_mac: MacAddr,
     ) -> Result<bool> {
         let checked_frame = |frame_buf| {
             frame_bytes_from_buf(frame_buf).map_err(|err| {
@@ -438,13 +453,11 @@ impl Net {
         // This frame goes to the TAP.
 
         // Check for guest MAC spoofing.
-        if let Some(mac) = guest_mac {
-            let _ = EthernetFrame::from_bytes(checked_frame(frame_buf)?).map(|eth_frame| {
-                if mac != eth_frame.src_mac() {
-                    METRICS.net.tx_spoofed_mac_count.inc();
-                }
-            });
-        }
+        let _ = EthernetFrame::from_bytes(checked_frame(frame_buf)?).map(|eth_frame| {
+            if guest_mac != eth_frame.src_mac() {
+                METRICS.net.tx_spoofed_mac_count.inc();
+            }
+        });
 
         match tap.write(frame_buf) {
             Ok(_) => {
@@ -661,7 +674,7 @@ impl Net {
     }
 
     #[cfg(not(test))]
-    fn read_tap(&mut self) -> io::Result<usize> {
+    fn read_tap(&mut self) -> std::io::Result<usize> {
         self.tap.read(&mut self.rx_frame_buf)
     }
 
@@ -830,9 +843,8 @@ impl VirtioDevice for Net {
         }
 
         config_space_bytes[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
-        self.guest_mac = Some(MacAddr::from_bytes_unchecked(
-            &self.config_space.guest_mac[..MAC_ADDR_LEN],
-        ));
+        self.guest_mac =
+            MacAddr::from_bytes_unchecked(&self.config_space.guest_mac[..MAC_ADDR_LEN]);
         METRICS.net.mac_address_updates.inc();
     }
 
@@ -1003,7 +1015,7 @@ pub mod tests {
 
         // Check that the guest MAC was updated.
         let expected_guest_mac = MacAddr::from_bytes_unchecked(&new_config);
-        assert_eq!(expected_guest_mac, net.guest_mac.unwrap());
+        assert_eq!(expected_guest_mac, net.guest_mac);
         assert_eq!(METRICS.net.mac_address_updates.count(), 1);
 
         // Partial write (this is how the kernel sets a new mac address) - byte by byte.
@@ -1470,7 +1482,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &frame_buf[..frame_len],
                 &mut net.tap,
-                Some(src_mac),
+                src_mac,
             )
             .unwrap())
         );
@@ -1504,7 +1516,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &frame_buf[..frame_len],
                 &mut net.tap,
-                Some(guest_mac),
+                guest_mac,
             )
         );
 
@@ -1517,7 +1529,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &frame_buf[..frame_len],
                 &mut net.tap,
-                Some(not_guest_mac),
+                not_guest_mac,
             )
         );
     }

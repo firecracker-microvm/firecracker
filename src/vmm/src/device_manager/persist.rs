@@ -526,6 +526,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use devices::virtio::block::CacheType;
+    use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -695,7 +696,7 @@ mod tests {
             let network_interface = NetworkInterfaceConfig {
                 iface_id: String::from("netif"),
                 host_dev_name: String::from("hostname"),
-                guest_mac: None,
+                guest_mac: Some(MacAddr::parse_str("00:00:00:00:00:00").unwrap()),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             };

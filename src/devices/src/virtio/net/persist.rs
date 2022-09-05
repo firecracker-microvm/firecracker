@@ -18,7 +18,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
-use super::device::{ConfigSpace, Net};
+use super::device::Net;
 use super::{NUM_QUEUES, QUEUE_SIZE};
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
@@ -83,7 +83,10 @@ impl Persist<'_> for Net {
         let mut net = Net::new_with_tap(
             state.id.clone(),
             state.tap_if_name.clone(),
-            None,
+            Some(MacAddr::from_bytes_unchecked(
+                &state.config_space.guest_mac[..MAC_ADDR_LEN],
+            ))
+            .as_ref(),
             rx_rate_limiter,
             tx_rate_limiter,
         )?;
@@ -115,13 +118,6 @@ impl Persist<'_> for Net {
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
-        net.config_space = ConfigSpace {
-            guest_mac: state.config_space.guest_mac,
-        };
-
-        net.guest_mac = Some(MacAddr::from_bytes_unchecked(
-            &state.config_space.guest_mac[..MAC_ADDR_LEN],
-        ));
 
         if state.virtio_state.activated {
             net.device_state = DeviceState::Activated(constructor_args.mem);
