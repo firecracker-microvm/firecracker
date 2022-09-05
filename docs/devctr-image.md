@@ -29,6 +29,14 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    | docker login --username AWS --password-stdin public.ecr.aws
     ```
 
+   For non-TTY devices, although not recommended a less secure approach can be
+   used:
+
+   ```bash
+   docker login --username AWS --password \
+   $(aws ecr-public get-login-password) public.ecr.aws
+   ```
+
 1. Navigate to the Firecracker directory. Verify that you have the latest
    container image locally.
 
