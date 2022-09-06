@@ -44,6 +44,7 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
 use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::resource_manager::ResourceManager;
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -94,6 +95,8 @@ pub enum StartMicrovmError {
     RestoreMicrovmState(MicrovmStateError),
     /// Unable to set VmResources.
     SetVmResources(VmConfigError),
+    /// ResourceAllocator errors
+    ResourceAllocator(vm_allocator::Error),
 }
 impl std::error::Error for StartMicrovmError {}
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -177,6 +180,7 @@ impl Display for StartMicrovmError {
             }
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
             SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
+            ResourceAllocator(err) => write!(f, "ResourceAllocator error: {}", err),
         }
     }
 }
@@ -244,15 +248,13 @@ fn create_vmm_and_vcpus(
         .map_err(Error::EventFd)
         .map_err(Internal)?;
 
+    let resource_manager = ResourceManager::new().map_err(ResourceAllocator)?;
+
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
-    let mmio_device_manager = MMIODeviceManager::new(
-        arch::MMIO_MEM_START,
-        arch::MMIO_MEM_SIZE,
-        (arch::IRQ_BASE, arch::IRQ_MAX),
-    )
-    .map_err(StartMicrovmError::RegisterMmioDevice)?;
+    let mmio_device_manager =
+        MMIODeviceManager::new().map_err(StartMicrovmError::RegisterMmioDevice)?;
 
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -300,6 +302,7 @@ fn create_vmm_and_vcpus(
         uffd,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
+        resource_manager,
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
@@ -578,6 +581,7 @@ pub fn build_microvm_from_snapshot(
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
         mem: guest_memory,
         vm: vmm.vm.fd(),
+        resource_manager: &mut vmm.resource_manager,
         event_manager,
         for_each_restored_device: VmResources::update_from_restored_device,
         vm_resources,
@@ -817,7 +821,7 @@ fn attach_legacy_devices_aarch64(
             Box::new(io::stdout()),
         )?;
         vmm.mmio_device_manager
-            .register_mmio_serial(vmm.vm.fd(), serial, None)
+            .register_mmio_serial(&mut vmm.resource_manager, vmm.vm.fd(), serial, None)
             .map_err(Error::RegisterMMIODevice)?;
         vmm.mmio_device_manager
             .add_mmio_serial_to_cmdline(cmdline)
@@ -826,7 +830,7 @@ fn attach_legacy_devices_aarch64(
 
     let rtc = setup_rtc_device();
     vmm.mmio_device_manager
-        .register_mmio_rtc(rtc, None)
+        .register_mmio_rtc(&mut vmm.resource_manager, rtc, None)
         .map_err(Error::RegisterMMIODevice)
 }
 
@@ -927,7 +931,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device);
     vmm.mmio_device_manager
-        .register_mmio_virtio_for_boot(vmm.vm.fd(), id, device, cmdline)
+        .register_mmio_virtio_for_boot(&mut vmm.resource_manager, vmm.vm.fd(), id, device, cmdline)
         .map_err(RegisterMmioDevice)
         .map(|_| ())
 }
@@ -941,7 +945,7 @@ pub(crate) fn attach_boot_timer_device(
     let boot_timer = devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
-        .register_mmio_boot_timer(boot_timer)
+        .register_mmio_boot_timer(&mut vmm.resource_manager, boot_timer)
         .map_err(RegisterMmioDevice)?;
 
     Ok(())
@@ -1071,12 +1075,7 @@ pub mod tests {
     }
 
     fn default_mmio_device_manager() -> MMIODeviceManager {
-        MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .unwrap()
+        MMIODeviceManager::new().unwrap()
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1136,6 +1135,7 @@ pub mod tests {
             uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
+            resource_manager: ResourceManager::new().unwrap(),
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
