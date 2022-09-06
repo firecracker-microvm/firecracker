@@ -89,8 +89,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.249,
-                                                    "delta_percentage": 2.1
+                                                    "target": 0.255,
+                                                    "delta_percentage": 4.1
                                                 }
                                             }
                                         }
@@ -101,7 +101,7 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.262,
+                                                    "target": 0.267,
                                                     "delta_percentage": 4.1
                                                 }
                                             }
