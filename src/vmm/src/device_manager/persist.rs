@@ -27,10 +27,10 @@ use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_allocator::AllocPolicy;
 use vm_memory::GuestMemoryMmap;
 
 use super::mmio::*;
+use crate::resource_manager::{AllocPolicy, ResourceManager};
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::EventManager;
@@ -198,10 +198,48 @@ impl DeviceStates {
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
+    pub resource_manager: &'a mut ResourceManager,
     pub event_manager: &'a mut EventManager,
     pub for_each_restored_device: fn(&mut VmResources, SharedDeviceType),
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn restore_helper(
+    device: Arc<Mutex<dyn VirtioDevice>>,
+    as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
+    mem: GuestMemoryMmap,
+    id: &str,
+    state: &MmioTransportState,
+    slot: &MMIODeviceInfo,
+    vm: &VmFd,
+    device_manager: &mut MMIODeviceManager,
+    resource_manager: &mut ResourceManager,
+    event_manager: &mut EventManager,
+) -> Result<(), Error> {
+    let restore_args = MmioTransportConstructorArgs { mem, device };
+
+    let mmio_transport =
+        MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+
+    // We do not currently require exact re-allocation of IDs via
+    // `resource_manager.allocate_gsi()` and currently cannot do
+    // this effectively as `IdAllocator` does not implement an exact
+    // match API.
+    // In the future we may require preserving `IdAllocator`'s state
+    // after snapshot restore so as to restore the exact interrupt IDs
+    // from the original device's state for implementing hot-plug.
+    // For now this is why we do not restore the state of the
+    // `IdAllocator` under `dev_manager`.
+    resource_manager
+        .allocate_mmio_addresses(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
+        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+
+    device_manager.register_mmio_virtio(vm, id.to_string(), mmio_transport, slot)?;
+    event_manager.add_subscriber(as_subscriber);
+
+    Ok(())
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -322,17 +360,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     }
 
     fn restore(
-        constructor_args: Self::ConstructorArgs,
+        mut constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager = MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .map_err(Self::Error::DeviceManager)?;
+        let mut dev_manager = MMIODeviceManager::new().map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
+        let resource_manager = &mut constructor_args.resource_manager;
 
         #[cfg(target_arch = "aarch64")]
         {
@@ -344,66 +378,38 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         Box::new(std::io::stdout()),
                     )?;
 
-                    dev_manager
-                        .address_allocator
-                        .allocate(
+                    resource_manager
+                        .allocate_mmio_addresses(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.mmio_slot.addr),
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
-                    dev_manager.register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))?;
+                    dev_manager.register_mmio_serial(
+                        resource_manager,
+                        vm,
+                        serial,
+                        Some(state.mmio_slot.clone()),
+                    )?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
-                    dev_manager
-                        .address_allocator
-                        .allocate(
+                    resource_manager
+                        .allocate_mmio_addresses(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.mmio_slot.addr),
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
-                    dev_manager.register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))?;
+                    dev_manager.register_mmio_rtc(
+                        resource_manager,
+                        rtc,
+                        Some(state.mmio_slot.clone()),
+                    )?;
                 }
             }
         }
-
-        let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
-                                  as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
-                                  id: &String,
-                                  state: &MmioTransportState,
-                                  slot: &MMIODeviceInfo,
-                                  event_manager: &mut EventManager|
-         -> Result<(), Self::Error> {
-            let restore_args = MmioTransportConstructorArgs {
-                mem: mem.clone(),
-                device,
-            };
-            let mmio_transport =
-                MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
-
-            // We do not currently require exact re-allocation of IDs via
-            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do
-            // this effectively as `IdAllocator` does not implement an exact
-            // match API.
-            // In the future we may require preserving `IdAllocator`'s state
-            // after snapshot restore so as to restore the exact interrupt IDs
-            // from the original device's state for implementing hot-plug.
-            // For now this is why we do not restore the state of the
-            // `IdAllocator` under `dev_manager`.
-
-            dev_manager
-                .address_allocator
-                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
-                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
-
-            dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, slot)?;
-
-            event_manager.add_subscriber(as_subscriber);
-            Ok(())
-        };
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -419,9 +425,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             restore_helper(
                 device.clone(),
                 device,
+                mem.clone(),
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
                 &balloon_state.mmio_slot,
+                vm,
+                &mut dev_manager,
+                resource_manager,
                 constructor_args.event_manager,
             )?;
         }
@@ -440,9 +450,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             restore_helper(
                 device.clone(),
                 device,
+                mem.clone(),
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.mmio_slot,
+                vm,
+                &mut dev_manager,
+                resource_manager,
                 constructor_args.event_manager,
             )?;
         }
@@ -485,9 +499,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             restore_helper(
                 device.clone(),
                 device,
+                mem.clone(),
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.mmio_slot,
+                vm,
+                &mut dev_manager,
+                resource_manager,
                 constructor_args.event_manager,
             )?;
         }
@@ -513,9 +531,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             restore_helper(
                 device.clone(),
                 device,
+                mem.clone(),
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
                 &vsock_state.mmio_slot,
+                vm,
+                &mut dev_manager,
+                resource_manager,
                 constructor_args.event_manager,
             )?;
         }
@@ -625,13 +647,9 @@ mod tests {
 
     impl MMIODeviceManager {
         fn soft_clone(&self) -> Self {
-            let dummy_mmio_base = 0;
-            let dummy_irq_range = (0, 0);
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
-            let mut clone =
-                MMIODeviceManager::new(dummy_mmio_base, arch::MMIO_MEM_SIZE, dummy_irq_range)
-                    .unwrap();
+            let mut clone = MMIODeviceManager::new().unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone
@@ -759,13 +777,14 @@ mod tests {
         tmp_sock_file.remove().unwrap();
 
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let vmm = default_vmm();
+        let mut vmm = default_vmm();
         let device_states: DeviceStates =
             DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 3).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
+            resource_manager: &mut vmm.resource_manager,
             event_manager: &mut event_manager,
             for_each_restored_device: VmResources::update_from_restored_device,
             vm_resources,

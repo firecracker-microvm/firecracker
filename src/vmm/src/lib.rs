@@ -16,6 +16,8 @@ pub(crate) mod device_manager;
 pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;
+/// Universal handling of Guest VM resources such as GSIs and memory addresses
+pub(crate) mod resource_manager;
 /// Resource store for configured microVM resources.
 pub mod resources;
 /// microVM RPC API adapters.
@@ -50,6 +52,7 @@ use devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
+use resource_manager::ResourceManager;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
@@ -289,6 +292,9 @@ pub struct Vmm {
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
+
+    // Manager to handle GSIs and Guest address space
+    resource_manager: ResourceManager,
 
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,

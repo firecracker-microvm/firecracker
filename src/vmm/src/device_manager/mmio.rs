@@ -28,9 +28,10 @@ use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 #[cfg(target_arch = "x86_64")]
 use vm_memory::GuestAddress;
+
+use crate::resource_manager::{AllocPolicy, ResourceManager};
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -102,39 +103,30 @@ pub struct MMIODeviceInfo {
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
-    pub(crate) irq_allocator: IdAllocator,
-    pub(crate) address_allocator: AddressAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
-    pub fn new(
-        mmio_base: u64,
-        mmio_size: u64,
-        (irq_start, irq_end): (u32, u32),
-    ) -> Result<MMIODeviceManager> {
+    pub fn new() -> Result<MMIODeviceManager> {
         Ok(MMIODeviceManager {
-            irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::AllocatorError)?,
-            address_allocator: AddressAllocator::new(mmio_base, mmio_size)
-                .map_err(Error::AllocatorError)?,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         })
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_new_slot(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
-        let irqs = (0..irq_count)
-            .map(|_| self.irq_allocator.allocate_id())
-            .collect::<vm_allocator::Result<_>>()
+    pub(crate) fn allocate_new_slot(
+        resource_manager: &mut ResourceManager,
+        irq_count: u32,
+    ) -> Result<MMIODeviceInfo> {
+        let irqs = resource_manager
+            .allocate_gsi(irq_count)
             .map_err(Error::AllocatorError)?;
         let slot = MMIODeviceInfo {
-            addr: self
-                .address_allocator
-                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
-                .map_err(Error::AllocatorError)?
-                .start(),
+            addr: resource_manager
+                .allocate_mmio_addresses(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+                .map_err(Error::AllocatorError)?,
             len: MMIO_LEN,
             irqs,
         };
@@ -205,12 +197,13 @@ impl MMIODeviceManager {
     /// to the boot cmdline.
     pub fn register_mmio_virtio_for_boot(
         &mut self,
+        resource_manager: &mut ResourceManager,
         vm: &VmFd,
         device_id: String,
         mmio_device: MmioTransport,
         _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<MMIODeviceInfo> {
-        let mmio_slot = self.allocate_new_slot(1)?;
+        let mmio_slot = Self::allocate_new_slot(resource_manager, 1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &mmio_slot)?;
         #[cfg(target_arch = "x86_64")]
         Self::add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
@@ -222,6 +215,7 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_serial(
         &mut self,
+        resource_manager: &mut ResourceManager,
         vm: &VmFd,
         serial: Arc<Mutex<SerialDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
@@ -231,7 +225,7 @@ impl MMIODeviceManager {
         let slot = if let Some(dev_info) = dev_info_opt {
             dev_info
         } else {
-            self.allocate_new_slot(1)?
+            Self::allocate_new_slot(resource_manager, 1)?
         };
 
         vm.register_irqfd(
@@ -262,6 +256,7 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
+        resource_manager: &mut ResourceManager,
         rtc: Arc<Mutex<RTCDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
@@ -270,7 +265,7 @@ impl MMIODeviceManager {
         let slot = if let Some(dev_info) = dev_info_opt {
             dev_info
         } else {
-            self.allocate_new_slot(0)?
+            Self::allocate_new_slot(resource_manager, 0)?
         };
 
         // Create a new identifier for the RTC device.
@@ -280,9 +275,13 @@ impl MMIODeviceManager {
     }
 
     /// Register a boot timer device.
-    pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
+    pub fn register_mmio_boot_timer(
+        &mut self,
+        resource_manager: &mut ResourceManager,
+        device: BootTimer,
+    ) -> Result<()> {
         // Attach a new boot timer device.
-        let slot = self.allocate_new_slot(0)?;
+        let slot = Self::allocate_new_slot(resource_manager, 0)?;
 
         let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
         self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
@@ -478,13 +477,19 @@ mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
+            resource_manager: &mut ResourceManager,
             device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64> {
             let mmio_device = MmioTransport::new(guest_mem, device);
-            let mmio_slot =
-                self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
+            let mmio_slot = self.register_mmio_virtio_for_boot(
+                resource_manager,
+                vm,
+                dev_id.to_string(),
+                mmio_device,
+                cmdline,
+            )?;
             Ok(mmio_slot.addr)
         }
     }
@@ -577,12 +582,8 @@ mod tests {
         )
         .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = MMIODeviceManager::new().unwrap();
+        let mut resource_manager = ResourceManager::new().unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
@@ -592,7 +593,14 @@ mod tests {
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
 
         assert!(device_manager
-            .register_virtio_test_device(vm.fd(), guest_mem, dummy, &mut cmdline, "dummy")
+            .register_virtio_test_device(
+                vm.fd(),
+                guest_mem,
+                &mut resource_manager,
+                dummy,
+                &mut cmdline,
+                "dummy"
+            )
             .is_ok());
     }
 
@@ -606,12 +614,8 @@ mod tests {
         )
         .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = MMIODeviceManager::new().unwrap();
+        let mut resource_manager = ResourceManager::new().unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         #[cfg(target_arch = "x86_64")]
@@ -624,6 +628,7 @@ mod tests {
                 .register_virtio_test_device(
                     vm.fd(),
                     guest_mem.clone(),
+                    &mut resource_manager,
                     Arc::new(Mutex::new(DummyDevice::new())),
                     &mut cmdline,
                     "dummy1",
@@ -637,6 +642,7 @@ mod tests {
                     .register_virtio_test_device(
                         vm.fd(),
                         guest_mem,
+                        &mut resource_manager,
                         Arc::new(Mutex::new(DummyDevice::new())),
                         &mut cmdline,
                         "dummy2"
@@ -706,19 +712,22 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
 
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = MMIODeviceManager::new().unwrap();
+        let mut resource_manager = ResourceManager::new().unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
         let type_id = dummy.lock().unwrap().device_type();
         let id = String::from("foo");
         let addr = device_manager
-            .register_virtio_test_device(vm.fd(), guest_mem, dummy, &mut cmdline, &id)
+            .register_virtio_test_device(
+                vm.fd(),
+                guest_mem,
+                &mut resource_manager,
+                dummy,
+                &mut cmdline,
+                &id,
+            )
             .unwrap();
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
@@ -740,7 +749,14 @@ mod tests {
         let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));
         let id2 = String::from("foo2");
         device_manager
-            .register_virtio_test_device(vm.fd(), mem_clone, dummy2, &mut cmdline, &id2)
+            .register_virtio_test_device(
+                vm.fd(),
+                mem_clone,
+                &mut resource_manager,
+                dummy2,
+                &mut cmdline,
+                &id2,
+            )
             .unwrap();
 
         let mut count = 0;
@@ -760,40 +776,60 @@ mod tests {
 
     #[test]
     fn test_slot_irq_allocation() {
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
-        .unwrap();
-        let slot = device_manager.allocate_new_slot(0).unwrap();
+        let mut resource_manager = ResourceManager::new().unwrap();
+
+        // If we ask for 0 GSIs, we'll get 0 GSIs
+        let slot = MMIODeviceManager::allocate_new_slot(&mut resource_manager, 0).unwrap();
         assert_eq!(slot.irqs.len(), 0);
-        let slot = device_manager.allocate_new_slot(1).unwrap();
+        // If we ask 1 we'll get 1 and it will be the first available 1 (arch::IRQ_BASE)
+        let slot = MMIODeviceManager::allocate_new_slot(&mut resource_manager, 1).unwrap();
         assert_eq!(slot.irqs[0], arch::IRQ_BASE);
+        // If we ask all of the range now, we should fail
         assert_eq!(
             format!(
                 "{}",
-                device_manager
-                    .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE + 1)
-                    .unwrap_err()
+                MMIODeviceManager::allocate_new_slot(
+                    &mut resource_manager,
+                    arch::IRQ_MAX - arch::IRQ_BASE + 1
+                )
+                .unwrap_err()
             ),
             "failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
 
-        for i in arch::IRQ_BASE..arch::IRQ_MAX {
-            device_manager.irq_allocator.free_id(i).unwrap();
-        }
+        // At this point, only 1 GSI (`arch::IRQ_BASE`) has been allocated, let's try to allocate
+        // the rest of them apart from 1
+        let slot = MMIODeviceManager::allocate_new_slot(
+            &mut resource_manager,
+            arch::IRQ_MAX - arch::IRQ_BASE - 1,
+        )
+        .unwrap();
+        // Now, we should have the list:
+        // [IRQ_BASE + 1, IRQ_BASE + 2, IRQ_BASE + 3, IRQ_BASE + 4, ..., IRQ_MAX - 1]
+        assert_eq!(slot.irqs[0], arch::IRQ_BASE + 1);
+        assert_eq!(*slot.irqs.last().unwrap(), arch::IRQ_MAX - 1);
 
-        let slot = device_manager
-            .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1)
-            .unwrap();
-        assert_eq!(slot.irqs[16], arch::IRQ_BASE + 16);
+        // We cannot allocate 2 more
         assert_eq!(
-            format!("{}", device_manager.allocate_new_slot(2).unwrap_err()),
+            format!(
+                "{}",
+                MMIODeviceManager::allocate_new_slot(&mut resource_manager, 2).unwrap_err()
+            ),
             "failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
-        assert!(device_manager.allocate_new_slot(0).is_ok());
+
+        // We can allocate 1 though and it should be the last one of the range
+        assert_eq!(
+            MMIODeviceManager::allocate_new_slot(&mut resource_manager, 1)
+                .unwrap()
+                .irqs[0],
+            arch::IRQ_MAX
+        );
+
+        // We have allocated all GSIs, but we should be able to allocate a slot if we don't
+        // need a GSI
+        assert!(MMIODeviceManager::allocate_new_slot(&mut resource_manager, 0).is_ok());
     }
 }

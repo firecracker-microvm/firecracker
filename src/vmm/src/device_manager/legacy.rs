@@ -16,6 +16,8 @@ use logger::METRICS;
 use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
+use crate::resource_manager::ResourceManager;
+
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From)]
 pub enum Error {
@@ -71,17 +73,6 @@ pub struct PortIODeviceManager {
 }
 
 impl PortIODeviceManager {
-    /// x86 global system interrupt for communication events on serial ports 1
-    /// & 3. See
-    /// <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
-    const COM_EVT_1_3_GSI: u32 = 4;
-    /// x86 global system interrupt for communication events on serial ports 2
-    /// & 4. See
-    /// <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
-    const COM_EVT_2_4_GSI: u32 = 3;
-    /// x86 global system interrupt for keyboard port.
-    /// See <https://en.wikipedia.org/wiki/Interrupt_request_(PC_architecture)>.
-    const KBD_EVT_GSI: u32 = 1;
     /// Legacy serial port device addresses. See
     /// <https://tldp.org/HOWTO/Serial-HOWTO-10.html#ss10.1>.
     const SERIAL_PORT_ADDRESSES: [u64; 4] = [0x3f8, 0x2f8, 0x3e8, 0x2e8];
@@ -151,13 +142,13 @@ impl PortIODeviceManager {
         )?;
 
         vm_fd
-            .register_irqfd(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)
+            .register_irqfd(&self.com_evt_1_3, ResourceManager::serial_1_3_gsi())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
-            .register_irqfd(&self.com_evt_2_4, Self::COM_EVT_2_4_GSI)
+            .register_irqfd(&self.com_evt_2_4, ResourceManager::serial_2_4_gsi())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
         vm_fd
-            .register_irqfd(&self.kbd_evt, Self::KBD_EVT_GSI)
+            .register_irqfd(&self.kbd_evt, ResourceManager::i8042_gsi())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
         Ok(())
