@@ -26,6 +26,7 @@
   "network-interfaces": [],
   "vsock": null,
   "logger": null,
+  "memory-devices": [],
   "metrics": null,
   "mmds-config": null
 }

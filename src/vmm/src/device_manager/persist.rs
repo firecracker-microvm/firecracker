@@ -804,6 +804,7 @@ mod tests {
     "smt": false,
     "track_dirty_pages": false
   }},
+  "memory-devices": [],
   "metrics": null,
   "mmds-config": {{
     "version": "V2",

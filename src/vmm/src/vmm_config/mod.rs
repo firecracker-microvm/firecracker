@@ -23,6 +23,8 @@ pub mod instance_info;
 pub mod logger;
 /// Wrapper for configuring the memory and CPU of the microVM.
 pub mod machine_config;
+/// Wrapper for configuring the memory devices.
+pub mod memory;
 /// Wrapper for configuring the metrics.
 pub mod metrics;
 /// Wrapper for configuring the MMDS.

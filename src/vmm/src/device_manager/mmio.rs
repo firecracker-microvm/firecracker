@@ -19,8 +19,8 @@ use devices::legacy::RTCDevice;
 use devices::legacy::SerialDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
-    Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_VSOCK,
+    Balloon, Block, Memory, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK,
+    TYPE_MEMORY, TYPE_NET, TYPE_VSOCK,
 };
 use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
@@ -437,6 +437,17 @@ impl MMIODeviceManager {
                     // so for Vsock we don't support connection persistence through snapshot.
                     // Any in-flight packets or events are simply lost.
                     // Vsock is restored 'empty'.
+                }
+                TYPE_MEMORY => {
+                    let memory = virtio.as_mut_any().downcast_mut::<Memory>().unwrap();
+
+                    if memory.is_activated() {
+                        info!("kick memory device {}.", id);
+                        // TODO: This should be memory device trying to process a posssible
+                        // initialization when the `plugged_size` > 0
+                        // (See virtio-1.2 Chapter 5.15.5).
+                        memory.process_guest_request_queue();
+                    }
                 }
                 _ => (),
             }

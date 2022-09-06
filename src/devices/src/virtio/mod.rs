@@ -12,6 +12,7 @@ use std::io::Error as IOError;
 pub mod balloon;
 pub mod block;
 pub mod device;
+pub mod memory;
 mod mmio;
 pub mod net;
 pub mod persist;
@@ -22,6 +23,7 @@ pub mod vsock;
 pub use self::balloon::*;
 pub use self::block::*;
 pub use self::device::*;
+pub use self::memory::*;
 pub use self::mmio::*;
 pub use self::net::*;
 pub use self::persist::*;
@@ -50,6 +52,7 @@ mod device_status {
 pub const TYPE_NET: u32 = 1;
 pub const TYPE_BLOCK: u32 = 2;
 pub const TYPE_BALLOON: u32 = 5;
+pub const TYPE_MEMORY: u32 = 24;
 
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.
@@ -69,6 +72,7 @@ pub trait AsAny {
 
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
+
 impl<T: Any> AsAny for T {
     fn as_any(&self) -> &dyn Any {
         self

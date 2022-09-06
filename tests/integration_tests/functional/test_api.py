@@ -1293,6 +1293,9 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "network_interfaces": [DEFAULT_DEV_NAME],
     }
 
+    # memory devices are not snapshotted
+    expected_cfg["memory-devices"] = []
+
     # Validate full vm configuration post-restore.
     response = microvm.full_cfg.get()
     assert microvm.api_session.is_status_ok(response.status_code)
@@ -1392,6 +1395,9 @@ def test_get_full_config(test_microvm_with_api):
         "ipv4_address": "169.254.169.250",
         "network_interfaces": ["1"],
     }
+
+    # TODO: for now there is no logic to retreive the configs of memory devicesd
+    expected_cfg["memory-devices"] = []
 
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.full_cfg.get()

@@ -150,6 +150,10 @@ pub struct Vm {
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
     irqchip_handle: Option<Box<dyn GICDevice>>,
+
+    // the next available slot to be used for adding a user memory region wit
+    // KVM_SET_USER_MEMORY_REGION
+    next_memory_slot: u16,
 }
 
 impl Vm {
@@ -174,6 +178,7 @@ impl Vm {
             supported_msrs,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
+            next_memory_slot: 0,
         })
     }
 
@@ -196,7 +201,7 @@ impl Vm {
         kvm_max_memslots: usize,
         track_dirty_pages: bool,
     ) -> Result<()> {
-        if guest_mem.num_regions() > kvm_max_memslots {
+        if guest_mem.num_regions() + self.next_memory_slot as usize > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
         self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
@@ -204,6 +209,14 @@ impl Vm {
         self.fd
             .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
             .map_err(Error::VmSetup)?;
+
+        Ok(())
+    }
+
+    /// Adds an additional guest_memory to the VM (needed for Virtio Memory Devices) by registering
+    /// it with KVM.
+    pub fn add_memory(&mut self, guest_mem: &GuestMemoryMmap) -> Result<()> {
+        self.set_kvm_memory_regions(guest_mem, false)?;
 
         Ok(())
     }
@@ -344,7 +357,7 @@ impl Vm {
     }
 
     pub(crate) fn set_kvm_memory_regions(
-        &self,
+        &mut self,
         guest_mem: &GuestMemoryMmap,
         track_dirty_pages: bool,
     ) -> Result<()> {
@@ -355,15 +368,21 @@ impl Vm {
         guest_mem
             .iter()
             .enumerate()
-            .try_for_each(|(index, region)| {
+            .try_for_each(|(_index, region)| {
                 let memory_region = kvm_userspace_memory_region {
-                    slot: index as u32,
+                    slot: self.next_memory_slot as u32,
                     guest_phys_addr: region.start_addr().raw_value() as u64,
                     memory_size: region.len() as u64,
                     // It's safe to unwrap because the guest address is valid.
                     userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
                     flags,
                 };
+
+                // This is needed because virtio memory devices introduce a new `GuestMemoryMmap`
+                // for each memory device. And each one of those starts numbering the regions
+                // from 0, but they each must be registered with KVM using unique
+                // slot numbers.
+                self.next_memory_slot += 1;
 
                 // Safe because the fd is a valid KVM file descriptor.
                 unsafe { self.fd.set_user_memory_region(memory_region) }
@@ -487,7 +506,7 @@ pub(crate) mod tests {
     #[test]
     fn test_set_kvm_memory_regions() {
         let kvm_context = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         let gm =
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)

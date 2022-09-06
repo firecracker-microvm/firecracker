@@ -14,6 +14,7 @@ use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use super::{device_status, *};
 use crate::bus::BusDevice;
+use crate::virtio::device::VirtioDevice;
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
@@ -316,9 +317,10 @@ impl BusDevice for MmioTransport {
             }
             _ => {
                 warn!(
-                    "invalid virtio mmio write: 0x{:x}:0x{:x}",
+                    "invalid virtio mmio write: 0x{:x}:0x{:x} for device type [{}]",
                     offset,
-                    data.len()
+                    data.len(),
+                    self.device().lock().expect("Poisoned Lock!").device_type()
                 );
             }
         }
