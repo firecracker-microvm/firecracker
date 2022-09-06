@@ -28,6 +28,8 @@ pub const FC_V1_0_SNAP_VERSION: u16 = 4;
 pub const FC_V1_1_SNAP_VERSION: u16 = 5;
 /// Snap version for Firecracker v1.2
 pub const FC_V1_2_SNAP_VERSION: u16 = 6;
+/// Snap version for Firecracker v1.3
+pub const FC_V1_3_SNAP_VERSION: u16 = 7;
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -54,6 +56,9 @@ lazy_static! {
         // v1.2 state change mappings.
         version_map.new_version().set_type_version(VmInfo::type_id(), 2);
 
+        // v1.3 state change mappings.
+        version_map.new_version().set_type_version(BlockState::type_id(), 4);
+
         version_map
     };
 
@@ -69,6 +74,7 @@ lazy_static! {
         mapping.insert(String::from("1.0.0"), FC_V1_0_SNAP_VERSION);
         mapping.insert(String::from("1.1.0"), FC_V1_1_SNAP_VERSION);
         mapping.insert(String::from("1.2.0"), FC_V1_2_SNAP_VERSION);
+        mapping.insert(String::from("1.3.0"), FC_V1_3_SNAP_VERSION);
 
         mapping
     };

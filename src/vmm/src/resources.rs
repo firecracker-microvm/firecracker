@@ -550,6 +550,7 @@ mod tests {
                 partuuid: Some("0eaa91a0-01".to_string()),
                 cache_type: CacheType::Unsafe,
                 is_read_only: false,
+                is_direct_io: false,
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: FileEngineType::default(),
             },

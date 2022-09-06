@@ -87,6 +87,9 @@ pub struct BlockDeviceConfig {
     #[serde(default)]
     #[serde(rename = "io_engine")]
     pub file_engine_type: FileEngineType,
+    /// If set to true, the disk is opened using DIRECT_IO.
+    #[serde(default)]
+    pub is_direct_io: bool,
 }
 
 impl From<&Block> for BlockDeviceConfig {
@@ -98,6 +101,7 @@ impl From<&Block> for BlockDeviceConfig {
             is_root_device: block.is_root_device(),
             partuuid: block.partuuid().cloned(),
             is_read_only: block.is_read_only(),
+            is_direct_io: block.is_direct_io(),
             cache_type: block.cache_type(),
             rate_limiter: rl.into_option(),
             file_engine_type: block.file_engine_type(),
@@ -227,6 +231,7 @@ impl BlockBuilder {
             block_device_config.path_on_host,
             block_device_config.is_read_only,
             block_device_config.is_root_device,
+            block_device_config.is_direct_io,
             rate_limiter.unwrap_or_default(),
             block_device_config.file_engine_type,
         )
@@ -266,6 +271,7 @@ mod tests {
                 partuuid: self.partuuid.clone(),
                 cache_type: self.cache_type,
                 is_read_only: self.is_read_only,
+                is_direct_io: self.is_direct_io,
                 drive_id: self.drive_id.clone(),
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
@@ -290,6 +296,7 @@ mod tests {
             partuuid: None,
             cache_type: CacheType::Writeback,
             is_read_only: false,
+            is_direct_io: false,
             drive_id: dummy_id.clone(),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -321,6 +328,7 @@ mod tests {
             partuuid: None,
             cache_type: CacheType::Unsafe,
             is_read_only: true,
+            is_direct_io: false,
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -352,6 +360,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -365,6 +374,7 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -389,6 +399,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -402,6 +413,7 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -415,6 +427,7 @@ mod tests {
             drive_id: String::from("3"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -453,6 +466,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -466,6 +480,7 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -479,6 +494,7 @@ mod tests {
             drive_id: String::from("3"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -518,6 +534,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -531,6 +548,7 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -590,6 +608,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
         // Switch roots and add a PARTUUID for the new one.
         let mut root_block_device_old = root_block_device;
@@ -603,6 +622,7 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
         assert!(block_devs.insert(root_block_device_old).is_ok());
         let root_block_id = root_block_device_new.drive_id.clone();
@@ -625,6 +645,7 @@ mod tests {
             drive_id: String::from("1"),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -647,6 +668,7 @@ mod tests {
             backing_file.as_path().to_str().unwrap().to_string(),
             true,
             true,
+            false,
             RateLimiter::default(),
             FileEngineType::default(),
         )

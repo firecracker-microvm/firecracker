@@ -788,6 +788,7 @@ mod tests {
             true,
             None,
             true,
+            false,
             CacheType::Unsafe,
         )];
         insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);

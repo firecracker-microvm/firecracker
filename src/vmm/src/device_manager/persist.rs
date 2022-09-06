@@ -696,6 +696,7 @@ mod tests {
                 true,
                 None,
                 true,
+                false,
                 CacheType::Unsafe,
             )];
             _block_files =
@@ -798,7 +799,8 @@ mod tests {
       "is_read_only": true,
       "cache_type": "Unsafe",
       "rate_limiter": null,
-      "io_engine": "Sync"
+      "io_engine": "Sync",
+      "is_direct_io": false
     }}
   ],
   "boot-source": {{

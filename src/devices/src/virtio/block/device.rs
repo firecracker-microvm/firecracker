@@ -9,6 +9,7 @@ use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -76,6 +77,7 @@ impl FileEngineType {
 /// Helper object for setting up all `Block` fields derived from its backing file.
 pub(crate) struct DiskProperties {
     cache_type: CacheType,
+    is_disk_direct_io: bool,
     file_path: String,
     file_engine: FileEngine<PendingRequest>,
     nsectors: u64,
@@ -86,12 +88,19 @@ impl DiskProperties {
     pub fn new(
         disk_image_path: String,
         is_disk_read_only: bool,
+        is_disk_direct_io: bool,
         cache_type: CacheType,
         file_engine_type: FileEngineType,
     ) -> result::Result<Self, Error> {
+        let custom_flags = if is_disk_direct_io {
+            libc::O_DIRECT
+        } else {
+            0
+        };
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
+            .custom_flags(custom_flags)
             .open(PathBuf::from(&disk_image_path))
             .map_err(Error::BackingFile)?;
         let disk_size = disk_image
@@ -110,6 +119,7 @@ impl DiskProperties {
 
         Ok(Self {
             cache_type,
+            is_disk_direct_io,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
@@ -239,12 +249,14 @@ impl Block {
         disk_image_path: String,
         is_disk_read_only: bool,
         is_disk_root: bool,
+        is_disk_direct_io: bool,
         rate_limiter: RateLimiter,
         file_engine_type: FileEngineType,
     ) -> result::Result<Block, Error> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             is_disk_read_only,
+            is_disk_direct_io,
             cache_type,
             file_engine_type,
         )?;
@@ -449,6 +461,7 @@ impl Block {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             self.is_read_only(),
+            self.is_direct_io(),
             self.cache_type(),
             self.file_engine_type(),
         )?;
@@ -485,6 +498,11 @@ impl Block {
     /// Specifies if this block device is read only.
     pub fn is_read_only(&self) -> bool {
         self.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0
+    }
+
+    /// Specifies if his block device uses DIRECT_IO.
+    pub fn is_direct_io(&self) -> bool {
+        self.disk.is_disk_direct_io
     }
 
     /// Specifies if this block device is read only.
@@ -661,6 +679,7 @@ pub(crate) mod tests {
         let disk_properties = DiskProperties::new(
             String::from(f.as_path().to_str().unwrap()),
             true,
+            false,
             CacheType::Unsafe,
             default_engine_type_for_kv(),
         )
@@ -679,6 +698,7 @@ pub(crate) mod tests {
         assert!(DiskProperties::new(
             "invalid-disk-path".to_string(),
             true,
+            false,
             CacheType::Unsafe,
             default_engine_type_for_kv(),
         )

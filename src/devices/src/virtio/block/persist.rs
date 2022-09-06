@@ -99,6 +99,11 @@ pub struct BlockState {
     // v1.0 are incompatible with older FC versions (due to incompatible notification suppression
     // feature).
     file_engine_type: FileEngineTypeState,
+    #[version(
+        start = 4,
+        default_fn = "default_is_direct_io"
+    )]
+    is_direct_io: bool,
 }
 
 impl BlockState {
@@ -115,6 +120,10 @@ impl BlockState {
 
     fn default_cache_type_flush(_source_version: u16) -> CacheTypeState {
         CacheTypeState::Unsafe
+    }
+
+    fn default_is_direct_io(_source_version: u16) -> bool {
+        false
     }
 }
 
@@ -134,6 +143,7 @@ impl Persist<'_> for Block {
             partuuid: self.partuuid.clone(),
             cache_type: CacheTypeState::from(self.cache_type()),
             root_device: self.root_device,
+            is_direct_io: self.is_direct_io(),
             disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
@@ -156,6 +166,7 @@ impl Persist<'_> for Block {
             state.disk_path.clone(),
             is_disk_read_only,
             state.root_device,
+            state.is_direct_io,
             rate_limiter,
             state.file_engine_type.into(),
         )
@@ -177,6 +188,7 @@ impl Persist<'_> for Block {
                     state.disk_path.clone(),
                     is_disk_read_only,
                     state.root_device,
+                    state.is_direct_io,
                     rate_limiter,
                     FileEngineType::Sync,
                 )
@@ -255,6 +267,7 @@ mod tests {
             f.as_path().to_str().unwrap().to_string(),
             false,
             false,
+            false,
             RateLimiter::default(),
             FileEngineType::default(),
         )
@@ -307,6 +320,7 @@ mod tests {
                 f.as_path().to_str().unwrap().to_string(),
                 false,
                 false,
+                false,
                 RateLimiter::default(),
                 // Need to use Sync because it will otherwise return an error.
                 // We'll overwrite the state instead.
@@ -350,6 +364,7 @@ mod tests {
             None,
             CacheType::Unsafe,
             f.as_path().to_str().unwrap().to_string(),
+            false,
             false,
             false,
             RateLimiter::default(),
