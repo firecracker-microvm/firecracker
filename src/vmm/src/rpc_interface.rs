@@ -1316,6 +1316,7 @@ mod tests {
             drive_id: String::new(),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
@@ -1331,6 +1332,7 @@ mod tests {
             drive_id: String::new(),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         });
         check_preboot_request_err(
             req,
@@ -2025,6 +2027,7 @@ mod tests {
                 drive_id: String::new(),
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
+                is_direct_io: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -2128,6 +2131,7 @@ mod tests {
             drive_id: String::new(),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            is_direct_io: false,
         });
         verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
 

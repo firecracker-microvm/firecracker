@@ -964,6 +964,7 @@ def _drive_patch(test_microvm):
             "is_root_device": True,
             "partuuid": None,
             "is_read_only": False,
+            "is_direct_io": False,
             "cache_type": "Unsafe",
             "io_engine": "Sync",
             "rate_limiter": None,
@@ -974,6 +975,7 @@ def _drive_patch(test_microvm):
             "is_root_device": False,
             "partuuid": None,
             "is_read_only": False,
+            "is_direct_io": False,
             "cache_type": "Unsafe",
             "io_engine": "Async" if is_io_uring_supported() else "Sync",
             "rate_limiter": {
@@ -1217,6 +1219,7 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "is_direct_io": False,
         }
     ]
 
@@ -1334,6 +1337,7 @@ def test_get_full_config(test_microvm_with_api):
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "is_direct_io": False,
         }
     ]
 

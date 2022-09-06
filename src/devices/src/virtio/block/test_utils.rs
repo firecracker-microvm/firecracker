@@ -51,6 +51,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         path,
         false,
         false,
+        false,
         rate_limiter,
         file_engine_type,
     )

@@ -1040,6 +1040,7 @@ pub mod tests {
         is_root_device: bool,
         partuuid: Option<String>,
         is_read_only: bool,
+        is_direct_io: bool,
         cache_type: CacheType,
     }
 
@@ -1049,6 +1050,7 @@ pub mod tests {
             is_root_device: bool,
             partuuid: Option<String>,
             is_read_only: bool,
+            is_direct_io: bool,
             cache_type: CacheType,
         ) -> Self {
             CustomBlockConfig {
@@ -1056,6 +1058,7 @@ pub mod tests {
                 is_root_device,
                 partuuid,
                 is_read_only,
+                is_direct_io,
                 cache_type,
             }
         }
@@ -1173,6 +1176,7 @@ pub mod tests {
                 is_root_device: custom_block_cfg.is_root_device,
                 partuuid: custom_block_cfg.partuuid.clone(),
                 is_read_only: custom_block_cfg.is_read_only,
+                is_direct_io: custom_block_cfg.is_direct_io,
                 cache_type: custom_block_cfg.cache_type,
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
@@ -1394,6 +1398,7 @@ pub mod tests {
                 true,
                 None,
                 true,
+                false,
                 CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
@@ -1414,6 +1419,7 @@ pub mod tests {
                 true,
                 Some("0eaa91a0-01".to_string()),
                 false,
+                false,
                 CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
@@ -1433,6 +1439,7 @@ pub mod tests {
                 drive_id.clone(),
                 false,
                 Some("0eaa91a0-01".to_string()),
+                false,
                 false,
                 CacheType::Unsafe,
             )];
@@ -1455,6 +1462,7 @@ pub mod tests {
                     true,
                     Some("0eaa91a0-01".to_string()),
                     false,
+                    false,
                     CacheType::Unsafe,
                 ),
                 CustomBlockConfig::new(
@@ -1462,12 +1470,14 @@ pub mod tests {
                     false,
                     None,
                     true,
+                    false,
                     CacheType::Unsafe,
                 ),
                 CustomBlockConfig::new(
                     String::from("third"),
                     false,
                     None,
+                    false,
                     false,
                     CacheType::Unsafe,
                 ),
@@ -1507,6 +1517,7 @@ pub mod tests {
                 true,
                 None,
                 false,
+                false,
                 CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
@@ -1527,6 +1538,7 @@ pub mod tests {
                 true,
                 Some("0eaa91a0-01".to_string()),
                 true,
+                false,
                 CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
@@ -1547,12 +1559,39 @@ pub mod tests {
                 true,
                 None,
                 false,
+                false,
                 CacheType::Writeback,
             )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
+            assert!(vmm
+                .mmio_device_manager
+                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                .is_some());
+        }
+
+        // Use case 8: root block device is rw with direct io.
+        {
+            let drive_id = String::from("root");
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id.clone(),
+                true,
+                None,
+                false,
+                true,
+                CacheType::Unsafe,
+            )];
+            let mut vmm = default_vmm();
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline
+                .as_cstring()
+                .unwrap()
+                .into_string()
+                .unwrap()
+                .contains("root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
