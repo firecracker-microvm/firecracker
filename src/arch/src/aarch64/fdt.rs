@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::fmt::Debug;
 use std::result;
 
@@ -66,7 +67,7 @@ type Result<T> = result::Result<T, Error>;
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
-    cmdline: &str,
+    cmdline: CString,
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &dyn GICDevice,
     initrd: &Option<InitrdConfig>,
@@ -230,11 +231,16 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
 
 fn create_chosen_node(
     fdt: &mut FdtWriter,
-    cmdline: &str,
+    cmdline: CString,
     initrd: &Option<InitrdConfig>,
 ) -> Result<()> {
     let chosen = fdt.begin_node("chosen")?;
-    fdt.property_string("bootargs", cmdline)?;
+    // Workaround to be able to reuse an existing property_*() method; in property_string() method,
+    // the cmdline is reconverted to a CString to be written in memory as a null terminated string.
+    let cmdline_string = cmdline
+        .into_string()
+        .map_err(|_| vm_fdt::Error::InvalidString)?;
+    fdt.property_string("bootargs", cmdline_string.as_str())?;
 
     if let Some(initrd_config) = initrd {
         fdt.property_u64(
@@ -415,6 +421,8 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
     use kvm_ioctls::Kvm;
 
     use super::*;
@@ -481,7 +489,7 @@ mod tests {
         assert!(create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &dev_info,
             gic.as_ref(),
             &None,
@@ -507,7 +515,7 @@ mod tests {
         let current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             gic.as_ref(),
             &None,
@@ -570,7 +578,7 @@ mod tests {
         let current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             gic.as_ref(),
             &Some(initrd),

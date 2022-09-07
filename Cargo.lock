@@ -607,11 +607,11 @@ dependencies = [
 
 [[package]]
 name = "linux-loader"
-version = "0.4.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a5e77493808403a6bd56a301a64ea6b9342e36ea845044bf0dfdf56fe52fa08"
+checksum = "f8242360c7d79a7713a28043c994b815e9820b0e97e44b228ec9bd913c16bdfe"
 dependencies = [
- "vm-memory 0.8.0",
+ "vm-memory 0.9.0",
 ]
 
 [[package]]
@@ -1244,14 +1244,14 @@ version = "0.3.0"
 dependencies = [
  "libc",
  "utils",
- "vm-memory 0.8.0",
+ "vm-memory 0.9.0",
 ]
 
 [[package]]
 name = "vm-memory"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "767ed8aaebbff902e02e6d3749dc2baef55e46565f8a6414a065e5baee4b4a81"
+checksum = "583f213899e8a5eea23d9c507252d4bed5bc88f0ecbe0783262f80034630744b"
 dependencies = [
  "libc",
  "winapi",

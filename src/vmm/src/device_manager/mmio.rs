@@ -594,7 +594,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
@@ -623,7 +623,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
         #[cfg(target_arch = "aarch64")]
@@ -722,7 +722,7 @@ mod tests {
             (arch::IRQ_BASE, arch::IRQ_MAX),
         )
         .unwrap();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
         let type_id = dummy.lock().unwrap().device_type();
