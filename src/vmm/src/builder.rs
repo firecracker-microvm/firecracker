@@ -336,27 +336,7 @@ pub fn build_microvm_for_boot(
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
-    let mut boot_cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-
-    // We're splitting the boot_args in regular parameters and init arguments.
-    // This is needed because on x86_64 we're altering the boot arguments by
-    // adding the virtio device configuration. We need to make sure that the init
-    // parameters are last, specified after -- as specified in the kernel docs
-    // (https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html).
-    let init_and_regular = boot_config
-        .cmdline
-        .as_str()
-        .split("--")
-        .collect::<Vec<&str>>();
-    if init_and_regular.len() > 2 {
-        return Err(StartMicrovmError::KernelCmdline(
-            "Too many `--` in kernel cmdline.".to_string(),
-        ));
-    }
-    let boot_args = init_and_regular[0];
-    let init_params = init_and_regular.get(1);
-
-    boot_cmdline.insert_str(boot_args)?;
+    let mut boot_cmdline = boot_config.cmdline.clone();
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
@@ -391,10 +371,6 @@ pub fn build_microvm_for_boot(
     )?;
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
-    }
-
-    if let Some(init) = init_params {
-        boot_cmdline.insert_str(format!("--{}", init))?;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -754,7 +730,14 @@ fn attach_legacy_devices_aarch64(
     cmdline: &mut LoaderKernelCmdline,
 ) -> super::Result<()> {
     // Serial device setup.
-    if cmdline.as_str().contains("console=") {
+    let cmdline_contains_console = cmdline
+        .as_cstring()
+        .map_err(|_| Error::Cmdline)?
+        .into_string()
+        .map_err(|_| Error::Cmdline)?
+        .contains("console=");
+
+    if cmdline_contains_console {
         // Make stdout non-blocking.
         set_stdout_nonblocking();
         let serial = setup_serial_device(
@@ -817,6 +800,10 @@ pub fn configure_system_for_boot(
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
+        let cmdline_size = boot_cmdline
+            .as_cstring()
+            .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
+
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
@@ -826,7 +813,7 @@ pub fn configure_system_for_boot(
         arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            boot_cmdline.as_str().len() + 1,
+            cmdline_size,
             initrd,
             vcpus.len() as u8,
         )
@@ -845,9 +832,10 @@ pub fn configure_system_for_boot(
             .iter_mut()
             .map(|cpu| cpu.kvm_vcpu.get_mpidr())
             .collect();
+        let cmdline = boot_cmdline.as_cstring()?;
         arch::aarch64::configure_system(
             &vmm.guest_memory,
-            boot_cmdline.as_str(),
+            cmdline,
             vcpu_mpidr,
             vmm.mmio_device_manager.get_device_info(),
             vmm.vm.get_irqchip(),
@@ -1036,10 +1024,18 @@ pub mod tests {
         .unwrap()
     }
 
+    fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
+        cmdline
+            .as_cstring()
+            .unwrap()
+            .into_string()
+            .unwrap()
+            .contains(slug)
+    }
+
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        let mut boot_cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        boot_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
-        boot_cmdline
+        linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, arch::CMDLINE_MAX_SIZE)
+            .unwrap()
     }
 
     pub(crate) fn default_vmm() -> Vmm {
@@ -1307,7 +1303,7 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(cmdline.as_str().contains("root=/dev/vda ro"));
+            assert!(cmdline_contains(&cmdline, "root=/dev/vda ro"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1327,7 +1323,7 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 rw"));
+            assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1347,8 +1343,8 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(!cmdline.as_str().contains("root=PARTUUID="));
-            assert!(!cmdline.as_str().contains("root=/dev/vda"));
+            assert!(!cmdline_contains(&cmdline, "root=PARTUUID="));
+            assert!(!cmdline_contains(&cmdline, "root=/dev/vda"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1384,7 +1380,7 @@ pub mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
-            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 rw"));
+            assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), "root")
@@ -1400,9 +1396,10 @@ pub mod tests {
 
             // Check if these three block devices are inserted in kernel_cmdline.
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            assert!(cmdline
-                .as_str()
-                .contains("virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7"));
+            assert!(cmdline_contains(
+                &cmdline,
+                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7"
+            ));
         }
 
         // Use case 5: root block device is rw.
@@ -1418,7 +1415,7 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(cmdline.as_str().contains("root=/dev/vda rw"));
+            assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1438,7 +1435,7 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 ro"));
+            assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 ro"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1458,7 +1455,7 @@ pub mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
-            assert!(cmdline.as_str().contains("root=/dev/vda rw"));
+            assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1494,9 +1491,10 @@ pub mod tests {
         insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
         // Check if the vsock device is described in kernel_cmdline.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert!(cmdline
-            .as_str()
-            .contains("virtio_mmio.device=4K@0xd0000000:5"));
+        assert!(cmdline_contains(
+            &cmdline,
+            "virtio_mmio.device=4K@0xd0000000:5"
+        ));
     }
 
     #[test]
@@ -1512,9 +1510,10 @@ pub mod tests {
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
         // Check if the vsock device is described in kernel_cmdline.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert!(cmdline
-            .as_str()
-            .contains("virtio_mmio.device=4K@0xd0000000:5"));
+        assert!(cmdline_contains(
+            &cmdline,
+            "virtio_mmio.device=4K@0xd0000000:5"
+        ));
     }
 
     #[test]

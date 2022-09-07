@@ -105,6 +105,9 @@ pub const FC_EXIT_CODE_ARG_PARSING: ExitCode = 153;
 /// have permissions to open the KVM fd).
 #[derive(Debug)]
 pub enum Error {
+    /// Invalid command line error.
+    #[cfg(target_arch = "aarch64")]
+    Cmdline,
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
@@ -171,6 +174,8 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
+            #[cfg(target_arch = "aarch64")]
+            Cmdline => write!(f, "Invalid cmdline"),
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
             DeviceManager(e) => write!(f, "{}", e),
