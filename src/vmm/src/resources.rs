@@ -566,8 +566,8 @@ mod tests {
     }
 
     fn default_boot_cfg() -> BootSource {
-        let mut kernel_cmdline = linux_loader::cmdline::Cmdline::new(4096);
-        kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+        let kernel_cmdline =
+            linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
         let tmp_file = TempFile::new().unwrap();
         BootSource {
             config: BootSourceConfig::default(),
@@ -595,7 +595,7 @@ mod tests {
 
     impl PartialEq for BootConfig {
         fn eq(&self, other: &Self) -> bool {
-            self.cmdline.as_str().eq(other.cmdline.as_str())
+            self.cmdline.eq(&other.cmdline)
                 && self.kernel_file.metadata().unwrap().st_ino()
                     == other.kernel_file.metadata().unwrap().st_ino()
                 && self
@@ -1398,7 +1398,14 @@ mod tests {
         let boot_builder = vm_resources.boot_source_builder().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
-        assert_ne!(boot_builder.cmdline.as_str(), cmdline);
+        assert_ne!(
+            boot_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
         assert_ne!(
             boot_builder.kernel_file.metadata().unwrap().st_ino(),
             tmp_ino
@@ -1416,7 +1423,14 @@ mod tests {
 
         vm_resources.build_boot_source(expected_boot_cfg).unwrap();
         let boot_source_builder = vm_resources.boot_source_builder().unwrap();
-        assert_eq!(boot_source_builder.cmdline.as_str(), cmdline);
+        assert_eq!(
+            boot_source_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
         assert_eq!(
             boot_source_builder.kernel_file.metadata().unwrap().st_ino(),
             tmp_ino
