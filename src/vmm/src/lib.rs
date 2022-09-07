@@ -105,6 +105,10 @@ pub const FC_EXIT_CODE_ARG_PARSING: ExitCode = 153;
 /// have permissions to open the KVM fd).
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(target_arch = "aarch64")]
+    #[error("Invalid cmdline")]
+    /// Invalid command line error.
+    Cmdline,
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]

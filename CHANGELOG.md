@@ -7,6 +7,9 @@
 - Fixed a self-DoS scenario in the virtio-queue code by reporting and
   terminating execution when the number of available descriptors reported
   by the driver is higher than the queue size.
+- Fixed the bad handling of kernel cmdline parameters when init arguments
+  where provided in the `boot_args` field of the JSON body of the
+  PUT `/boot-source` request.
 
 ## [1.0.0]
 
