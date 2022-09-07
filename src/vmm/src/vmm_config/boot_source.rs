@@ -95,14 +95,13 @@ impl BootConfig {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
-        let mut cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        let boot_args = match cfg.boot_args.as_ref() {
+
+        let cmdline_str = match cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
         };
-        cmdline
-            .insert_str(boot_args)
-            .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
+        let cmdline = linux_loader::cmdline::Cmdline::try_from(cmdline_str, arch::CMDLINE_MAX_SIZE)
+            .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
             cmdline,
@@ -132,7 +131,10 @@ pub(crate) mod tests {
 
         let boot_cfg = BootConfig::new(boot_src_cfg.clone()).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
-        assert_eq!(boot_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+        assert_eq!(
+            boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
+            [DEFAULT_KERNEL_CMDLINE.as_bytes(), &[b'\0']].concat()
+        );
         assert_eq!(boot_cfg.description, boot_src_cfg);
 
         let generated_cfg = BootSourceConfig::from(&boot_cfg);
