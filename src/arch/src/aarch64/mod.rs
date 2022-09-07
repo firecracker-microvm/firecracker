@@ -12,6 +12,7 @@ pub mod regs;
 
 use std::cmp::min;
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::fmt::Debug;
 
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -54,7 +55,7 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `initrd` - Information about an optional initrd.
 pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
-    cmdline_cstring: &str,
+    cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &dyn GICDevice,
