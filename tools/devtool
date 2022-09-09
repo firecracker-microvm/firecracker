@@ -1189,11 +1189,11 @@ mount_ramdisk() {
     say "Using ramdisk ..."
     local ramdisk_size="$1"
     umount_ramdisk
-    mkdir -p ${DEFAULT_RAMDISK_PATH} && \
-    mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
+    sudo mkdir -p ${DEFAULT_RAMDISK_PATH} && \
+    sudo mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
     ok_or_die "Failed to mount ramdisk to ${DEFAULT_RAMDISK_PATH}. Check the permission."
-    mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
-    mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
+    sudo mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
+    sudo mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
 }
 
 umount_ramdisk() {
@@ -1206,8 +1206,8 @@ umount_ramdisk() {
     if [ ! -w "${DEFAULT_RAMDISK_PATH}" ]; then
         die "Failed to unmount ${DEFAULT_RAMDISK_PATH}. Check the permission."
     fi
-    umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
-    rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
+    sudo umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
+    sudo rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
 }
 
 # `$0 test` - run integration tests
