@@ -1186,14 +1186,17 @@ get_swagger_version() {
 }
 
 mount_ramdisk() {
-    say "Using ramdisk ..."
     local ramdisk_size="$1"
     umount_ramdisk
+    DEFAULT_RAMDISK_PATH=$(sudo mktemp -d /mnt/devtool-ramdisk.XXXXXX)
+    ok_or_die "Could not create ramdisk directory"
     sudo mkdir -p ${DEFAULT_RAMDISK_PATH} && \
     sudo mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
     ok_or_die "Failed to mount ramdisk to ${DEFAULT_RAMDISK_PATH}. Check the permission."
     sudo mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
     sudo mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
+
+    say "Using ramdisk: ${DEFAULT_RAMDISK_PATH}"
 }
 
 umount_ramdisk() {
