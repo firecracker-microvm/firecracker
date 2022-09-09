@@ -1278,6 +1278,8 @@ cmd_test() {
 
     ret=$?
 
+    say "$(date -u +'%F %H:%M:%S %Z')"
+    say "Finished test run ..."
 
     if [[ $ramdisk = true ]]; then
         umount_ramdisk
