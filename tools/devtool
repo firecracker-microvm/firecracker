@@ -1251,7 +1251,7 @@ cmd_test() {
 
     if [[ $ramdisk = true ]]; then
         mount_ramdisk ${ramdisk_size}
-        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
+        ramdisk_args="--env TMPDIR=${DEFAULT_TEST_SESSION_ROOT_PATH}/tmp --volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
     fi
 
     # Testing (running Firecracker via the jailer) needs root access,
