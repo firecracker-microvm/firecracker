@@ -586,9 +586,6 @@ cmd_help() {
     echo "        Builds a kernel image custom-tailored for our CI."
     echo "        -c, --config  Path to the config file."
     echo "        -n, --nproc  Number of cores to use for building kernel."
-
-    help_build_release_archive
-
     echo "    build_rootfs -s|--size [--partuuid]"
     echo "        Builds a rootfs image custom-tailored for use in our CI."
     echo "        -s, --size      Size of the rootfs image. Defaults to 300MB.
@@ -664,9 +661,6 @@ cmd_help() {
                                                binaries, logs/metrics FIFOs
                                                and test created device files)."
     echo ""
-    echo "    strip"
-    echo "        Strip debug symbols from the Firecracker release binaries."
-    echo ""
 
     help_upload_assets
 }
@@ -701,17 +695,6 @@ help_upload_assets() {
     echo "        -t, --token               A GitHub Access token with "repo" permissions"
     echo "        -r, --repo                The name of the repository where the draft release exists."
     echo "        -a, --asset               Path to asset to be uploaded."
-}
-
-help_build_release_archive() {
-    echo "    build_release_archive -v <val>"
-    echo "        Building the release archive involves the following steps:"
-    echo "            1. Running integration tests."
-    echo "            2. Building release binaries and stripping them of debug symbols."
-    echo "            3. Verifying artifacts' version against release version targeted."
-    echo "            4. Packing all artifacts into \`release-v{version}-{arch}\` directory."
-    echo "            5. Creating firecracker-v{version}-{arch} release archive."
-    echo "        -v, --version             The targeted release version."
 }
 
 # `$0 build` - build Firecracker
@@ -757,113 +740,25 @@ cmd_build() {
         shift
     done
 
-    target="$TARGET_PREFIX${libc}"
-
     # Check prerequisites
     ensure_devctr
     ensure_build_dir
-
-    say "Starting build ($profile, $libc) ..."
-
-    # Cargo uses the debug profile by default. If we're building the release
-    # binaries, we need to pass an extra argument to cargo.
-    cargo_args=("$@")
-
-    # Add the default target if we did not get that argument in the build command.
-    add_default_target=true
-    for flag in "${@}"; do
-        if [[ "$flag" == "--" ]]; then
-            break
-        elif [[ "$flag" == "--target" || "$flag" =~ --target=.* ]]; then
-            add_default_target=false
-        fi
-    done
-
-    if [ "$add_default_target" = true ]; then
-        cargo_args+=(--target "$target")
-    fi
-
-    [ $profile = "release" ] && cargo_args+=("--release")
 
     # Map the public and private keys to the guest if they are specified.
     [ ! -z "$host_pub_key_path" ] && [ ! -z "$host_priv_key_path" ] &&
         extra_args="--volume $host_pub_key_path:$PUB_KEY_PATH:z \
                     --volume $host_priv_key_path:$PRIV_KEY_PATH:z"
 
-    # Artificially trigger a re-run of the build script,
-    # to make sure that `firecracker --version` reports the latest changes.
-    touch "$FC_ROOT_DIR/build.rs"
-
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
-
-    # Build seccompiler-bin.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         ${extra_args} \
         -- \
-        cargo build -p seccompiler --bin seccompiler-bin \
-            --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
-            "${cargo_args[@]}"
+        ./tools/release.sh --libc $libc --profile $profile
     ret=$?
-
-    [ $ret -ne 0 ] && return $ret
-
-    # Build rebase-snap.
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        ${extra_args} \
-        -- \
-        cargo build -p rebase-snap \
-            --target-dir "$CTR_CARGO_REBASE_SNAP_TARGET_DIR" \
-            "${cargo_args[@]}"
-    ret=$?
-
-    # Build Firecracker.
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        ${extra_args} \
-        -- \
-        cargo build \
-            --target-dir "$CTR_CARGO_TARGET_DIR" \
-            "${cargo_args[@]}"
-    ret=$?
-
-    [ $ret -ne 0 ] && return $ret
-
-    # Build jailer only in case of musl for compatibility reasons.
-    if [ "$libc" == "musl" ];then
-        run_devctr \
-            --user "$(id -u):$(id -g)" \
-            --workdir "$CTR_FC_ROOT_DIR" \
-            ${extra_args} \
-            -- \
-            cargo build -p jailer \
-                --target-dir "$CTR_CARGO_TARGET_DIR" \
-                "${cargo_args[@]}"
-
-    fi
-
-    ret=$?
-
-    # If `cargo build` was successful, output a message.
-    [ $ret -eq 0 ] && {
-        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
-        seccompiler_bin_dir="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile"
-        rebase_snap_bin_dir="$CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile"
-
-        # Seccompiler has a different build folder, we need to output two
-        # messages.
-        say "Build successful."
-        say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
-        say "Seccompiler-bin binary placed under $seccompiler_bin_dir"
-        say "Rebase_snap binary placed under $rebase_snap_bin_dir"
-    }
-
     return $ret
 }
 
@@ -892,196 +787,6 @@ cmd_distclean() {
     if [ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -eq "1" ]; then
         say "Removing $DEVCTR_IMAGE"
         docker rmi -f "$DEVCTR_IMAGE"
-    fi
-}
-
-# Suppress "referencing arguments but none are ever passed" error, because
-# strip command accepts only --help argument.
-# shellcheck disable=SC2120
-cmd_strip() {
-    profile="release"
-    target="$TARGET_PREFIX""musl"
-
-    # Parse any command line args.
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            "-h"|"--help")  { cmd_help; exit 1;     } ;;
-            *)
-                die "Unknown argument: $1. Please use --help for help."
-            ;;
-        esac
-        shift
-    done
-
-    # Check prerequisites
-    ensure_devctr
-    ensure_build_dir
-    ensure_release_binaries_exist $target $profile
-
-    say "Starting stripping the debug symbols for $profile binaries built against $target target."
-    strip_flags="--strip-debug"
-    say "Strip flags: $strip_flags."
-
-    run_devctr \
-      --user "$(id -u):$(id -g)" \
-      -- \
-      strip $strip_flags\
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
-        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" \
-        "$CTR_CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
-    ret=$?
-
-    [ $ret -eq 0 ] && {
-        say "Stripping was successful."
-        say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
-        say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
-        say "Stripped rebase-snap binary placed under $CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile."
-    }
-
-    return $ret
-}
-
-cmd_build_release_archive() {
-    target="$TARGET_PREFIX""musl"
-    profile="release"
-    seccomp_json="resources/seccomp/$target.json"
-
-    # Parse any command line args.
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            "-h"|"--help")      { help_build_release_archive; exit 1; } ;;
-            "-v"|"--version")   { version="$2"; shift 2;              } ;;
-            *)
-                die "Unknown argument: $1. Please use --help for help."
-        esac
-    done
-
-    validate_version "$version"
-    say "Will start preparing release archive for v$version ..."
-    get_user_confirmation || die "Aborted."
-    release_suffix="v$version-$(uname -m)"
-    archive_name="firecracker-$release_suffix.tgz"
-    archive_checksum="$archive_name.sha256.txt"
-    release_dir="release-$release_suffix"
-
-    # Build release binaries and strip them from debug symbols.
-    ( cmd_build --release && cmd_strip ) || die "Aborted."
-
-    # Create release directory or overwrite if it already exists.
-    rm -rf "$release_dir" && mkdir "$release_dir"
-
-    # Copy release artifacts to release directory.
-    say "Populating release artifacts directory..."
-    bin_paths=( "$(build_fc_bin_path "$target" "$profile")"
-                "$(build_jailer_bin_path "$target" "$profile")"
-                "$(build_seccomp_bin_path "$target" "$profile")"
-                "$(build_rebase_snap_bin_path "$target" "$profile")" )
-
-    for bin_path in "${bin_paths[@]}"; do
-        add_bin_artifact "$release_dir" "$bin_path" "$release_suffix"
-    done
-
-    add_swagger_artifact "$release_dir"
-    add_file_artifact "$release_dir" "$seccomp_json" "seccomp-filter-$release_suffix.json"
-    for file in "LICENSE" "NOTICE" "THIRD-PARTY"; do
-        add_file_artifact "$release_dir" "$file"
-    done
-
-    find $release_dir -type f |sort |xargs sha256sum > SHA256SUMS.$(uname -m)
-
-    # Run tests to obtain test reports dir.
-    cmd_test || cleanup_release_dir "$release_dir" "Tests failed."
-    add_folder_artifact "$release_dir" "test_results" "$release_suffix"
-
-    # Create release archive.
-    say "Creating release archive..."
-    tar -czf "$archive_name" "$release_dir"
-    say "Done. Archive $archive_name successfully created."
-    say "Calculating checksum for release archive..."
-    sha256sum "$archive_name"  | awk '{print $1}' > "$archive_checksum"
-    say "Done. Saved checksum in $archive_checksum."
-}
-
-cleanup_release_dir() {
-    release_dir="$1"
-    error_msg="$2"
-
-    rm -rf "$release_dir"
-    die "$error_msg"
-}
-
-check_file_existence() {
-    artifact="$1"
-    if [ ! -f "$artifact" ]; then
-        die "Artifact $artifact does not exist!"
-    fi
-}
-
-add_swagger_artifact() {
-    local release_dir="$1"
-    local swagger_path="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
-
-    check_file_existence "$swagger_path"
-
-    # Validate swagger version against target version.
-    swagger_ver=$(get_swagger_version "$swagger_path")
-    if [ ! "$swagger_ver" == "$version" ]; then
-        die "Swagger version: $swagger_ver does not match release version: $version."
-    fi
-
-    copy_release_artifact "$swagger_path" "$release_dir/firecracker_spec-v$version.yaml"
-}
-
-add_file_artifact() {
-    local release_dir="$1"
-    local path="$2"
-    local name="${3:-"$path"}"
-
-    check_file_existence "$path"
-    copy_release_artifact "$path" "$release_dir/$name"
-}
-
-add_bin_artifact() {
-    local release_dir="$1"
-    local path="$2"
-    local release_suffix="$3"
-
-    check_file_existence "$path"
-
-    # Validate binary version against target version.
-    output=$("$path" --version)
-    bin_version=$( echo "$output" | head -1 | grep -oP ' v\K.*')
-    if [[ ! "$bin_version" == "$version" ]]; then
-        die "Artifact $path's version: $bin_version does not match release version $version."
-    fi
-
-    formatted_name="$(basename "$path")-$release_suffix"
-    copy_release_artifact "$path" "$release_dir/$formatted_name"
-}
-
-add_folder_artifact() {
-    local release_dir="$1"
-    local path="$2"
-    local release_suffix="$3"
-
-    # Ensure the directory exists.
-    if [ ! -d "$path" ]; then
-        die "Artifact $path does not exist!"
-    fi
-    formatted_name="$(basename "$path")-$release_suffix"
-    copy_release_artifact "$path" "$release_dir/$formatted_name"
-}
-
-copy_release_artifact() {
-    local from_path="$1"
-    local to_path="$2"
-
-    say "Copying release artifact from $from_path to $to_path."
-    if [[ -f "$from_path" ]]; then
-        cp "$from_path" "$to_path"
-    elif [[ -d "$from_path" ]]; then
-        cp -r "$from_path" "$to_path"
     fi
 }
 
