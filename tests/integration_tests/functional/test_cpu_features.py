@@ -289,36 +289,12 @@ def _test_cpu_rdmsr(context):
     microvm_val_df = microvm_df.drop(columns="STATUS")
     baseline_val_df = baseline_df.drop(columns="STATUS")
 
-    # Some MSR values should not be checked since they can change at Guest runtime.
-    # Current exceptions:
-    #   * FS and GS change on task switch and arch_prctl.
-    #   * TSC is different for each Guest.
-    #   * MSR_{C, L}STAR used for SYSCALL/SYSRET; can be different between guests.
-    #   * MSR_IA32_SYSENTER_E{SP, IP} used for SYSENTER/SYSEXIT; same as above.
-    #   * MSR_KVM_{WALL, SYSTEM}_CLOCK addresses for struct pvclock_* can be different.
-    #
-    # More detailed information about MSRs can be found in the Intel® 64 and IA-32
-    # Architectures Software Developer’s Manual - Volume 4: Model-Specific Registers
-    # Check `arch_gen/src/x86/msr_idex.rs` and `msr-index.h` in upstream Linux
-    # for symbolic definitions.
-    ignore_msrs = [
-        "0x10",  # MSR_IA32_TSC
-        "0x11",  # MSR_KVM_WALL_CLOCK
-        "0x12",  # MSR_KVM_SYSTEM_TIME
-        "0x175",  # MSR_IA32_SYSENTER_ESP
-        "0x176",  # MSR_IA32_SYSENTER_EIP
-        "0x6e0",  # MSR_IA32_TSCDEADLINE
-        "0xc0000082",  # MSR_LSTAR
-        "0xc0000083",  # MSR_CSTAR
-        "0xc0000100",  # MSR_FS_BASE
-        "0xc0000101",  # MSR_GS_BASE
-    ]
     # pylint: disable=C0121
     microvm_val_df = microvm_val_df[
-        microvm_val_df["MSR_ADDR"].isin(ignore_msrs) == False
+        microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
     ]
     baseline_val_df = baseline_val_df[
-        baseline_val_df["MSR_ADDR"].isin(ignore_msrs) == False
+        baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
     ]
 
     # Also some MSRs are different based on Guest configuration and kernel used.
