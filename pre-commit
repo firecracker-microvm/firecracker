@@ -16,7 +16,7 @@ set -e
 # Audit code base
 cargo audit
 # For every staged file
-for i in $(git diff --name-only --cached); do
+for i in $(git diff --name-only --cached --diff-filter=d); do
     echo $i
     # Get the extension
     filename=$(basename -- "$i")
