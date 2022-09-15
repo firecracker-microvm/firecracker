@@ -114,6 +114,9 @@ CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 # Full path to the seccompiler cargo target dir on the host.
 CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
 
+# Full path to the guestconfig-compiler cargo target dir on the host.
+CARGO_GUESTCONFIG_COMPILER_TARGET_DIR="${FC_BUILD_DIR}/guestconfig-compiler"
+
 # Full path to the rebase-snap cargo target dir on the host.
 CARGO_REBASE_SNAP_TARGET_DIR="${FC_BUILD_DIR}/rebase-snap"
 
@@ -128,6 +131,9 @@ CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 
 # Full path to the seccompiler cargo target dir, as bind-mounted in the container.
 CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
+
+# Full path to the guestconfig_compiler cargo target dir, as bind-mounted in the container.
+CTR_CARGO_GUESTCONFIG_COMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/guestconfig_compiler"
 
 # Full path to the rebase-snap cargo target dir, as bind-mounted in the container.
 CTR_CARGO_REBASE_SNAP_TARGET_DIR="$CTR_FC_BUILD_DIR/rebase-snap"
@@ -314,6 +320,12 @@ build_seccomp_bin_path() {
     echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
 }
 
+build_guestconfig_compiler_bin_path() {
+    target="$1"
+    profile="$2"
+    echo "$CARGO_GUESTCONFIG_COMPILER_TARGET_DIR/$target/$profile/guestconfig-compiler-bin"
+}
+
 build_rebase_snap_bin_path() {
     target="$1"
     profile="$2"
@@ -326,14 +338,16 @@ ensure_release_binaries_exist() {
     firecracker_bin_path=$( build_fc_bin_path "$target" "$profile")
     jailer_bin_path=$( build_jailer_bin_path "$target" "$profile")
     seccompiler_bin_path=$( build_seccomp_bin_path "$target" "$profile")
+    guestconfigcompiler_bin_path=$( build_guestconfig_compiler_bin_path "$target" "$profile")
     rebase_snap_bin_path=$( build_rebase_snap_bin_path "$target" "$profile")
 
-    { [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] && \
-    [ -f "$rebase_snap_bin_path" ]; } || \
+    { [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] &&
+    [ -f "$rebase_snap_bin_path" ] && [ -f "$guestconfigcompiler_bin_path" ]; } || \
     die "Missing release binaries. Needed files:\n" \
     "* $firecracker_bin_path\n" \
     "* $jailer_bin_path\n" \
     "* $seccompiler_bin_path\n" \
+    "* $guestconfigcompiler_bin_path\n" \
     "* $rebase_snap_bin_path\n" \
     "To build the binaries, run:\n\t$0 build --$profile"
 }
@@ -914,6 +928,17 @@ cmd_build() {
             "${cargo_args[@]}"
     ret=$?
 
+    # Build guestconfig-compiler-bin.
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        ${extra_args} \
+        -- \
+        cargo build -p guest_config --bin guestconfig-compiler-bin \
+            --target-dir "$CTR_CARGO_GUESTCONFIG_COMPILER_TARGET_DIR" \
+            "${cargo_args[@]}"
+    ret=$?
+
     [ $ret -ne 0 ] && return $ret
 
     # Build rebase-snap.
@@ -960,12 +985,14 @@ cmd_build() {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
         seccompiler_bin_dir="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile"
         rebase_snap_bin_dir="$CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile"
+        guestconfigcompiler_bin_dir="$CARGO_GUESTCONFIG_COMPILER_TARGET_DIR/$target/$profile"
 
         # Seccompiler has a different build folder, we need to output two
         # messages.
         say "Build successful."
         say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
         say "Seccompiler-bin binary placed under $seccompiler_bin_dir"
+        say "Guestconfig-compiler-bin binary placed under $guestconfigcompiler_bin_dir"
         say "Rebase_snap binary placed under $rebase_snap_bin_dir"
     }
 
@@ -1024,6 +1051,7 @@ cmd_strip() {
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
         "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
         "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" \
+        "$CTR_CARGO_GUESTCONFIG_COMPILER_TARGET_DIR/$target/$profile/guestconfig-compiler-bin" \
         "$CTR_CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
     ret=$?
 
@@ -1031,6 +1059,7 @@ cmd_strip() {
         say "Stripping was successful."
         say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
         say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
+        say "Stripped guestconfig-compiler-bin binary placed under $CARGO_GUESTCONFIG_COMPILER_TARGET_DIR/$target/$profile."
         say "Stripped rebase-snap binary placed under $CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile."
     }
 
@@ -1071,6 +1100,7 @@ cmd_build_release_archive() {
     bin_paths=( "$(build_fc_bin_path "$target" "$profile")"
                 "$(build_jailer_bin_path "$target" "$profile")"
                 "$(build_seccomp_bin_path "$target" "$profile")"
+                "$(build_guestconfig_compiler_bin_path "$target" "$profile")"
                 "$(build_rebase_snap_bin_path "$target" "$profile")" )
 
     for bin_path in "${bin_paths[@]}"; do
@@ -2043,6 +2073,9 @@ cmd_install() {
 
     say "Installing seccomp in $install_path"
     install -m 755 "$( build_seccomp_bin_path "$target" "$profile")" "$install_path"
+
+    say "Installing guestconfig-compiler in $install_path"
+    install -m 755 "$( build_guestconfig_compiler_bin_path "$target" "$profile")" "$install_path"
 
     say "Installing rebase-snap in $install_path"
     install -m 755 "$( build_rebase_snap_bin_path "$target" "$profile")" "$install_path"
