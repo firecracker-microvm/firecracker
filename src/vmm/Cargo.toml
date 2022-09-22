@@ -39,6 +39,12 @@ cpuid = { path = "../cpuid" }
 [dev-dependencies]
 criterion = "0.3.0"
 
+[features]
+default = ["c3","t2s","t2"]
+c3 = ["cpuid/c3"]
+t2s = ["cpuid/t2s"]
+t2 = ["cpuid/t2"]
+
 [[bench]]
 name = "main"
 harness = false

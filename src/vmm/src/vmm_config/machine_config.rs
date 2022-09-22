@@ -240,10 +240,13 @@ where
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
+    #[cfg(feature = "c3")]
     C3,
     /// T2 Template.
+    #[cfg(feature = "t2")]
     T2,
     /// T2S Template.
+    #[cfg(feature = "t2s")]
     T2S,
     /// No CPU template is used.
     None,
@@ -259,8 +262,11 @@ impl CpuFeaturesTemplate {
 impl fmt::Display for CpuFeaturesTemplate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            #[cfg(feature = "c3")]
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
+            #[cfg(feature = "t2")]
             CpuFeaturesTemplate::T2 => write!(f, "T2"),
+            #[cfg(feature = "t2s")]
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
@@ -279,9 +285,12 @@ mod tests {
 
     #[test]
     fn test_display_cpu_features_template() {
-        assert_eq!(CpuFeaturesTemplate::C3.to_string(), "C3".to_string());
-        assert_eq!(CpuFeaturesTemplate::T2.to_string(), "T2".to_string());
-        assert_eq!(CpuFeaturesTemplate::T2S.to_string(), "T2S".to_string());
+        #[cfg(feature = "c3")]
+        assert_eq!(CpuFeaturesTemplate::C3.to_string(), String::from("C3"));
+        #[cfg(feature = "t2")]
+        assert_eq!(CpuFeaturesTemplate::T2.to_string(), String::from("T2"));
+        #[cfg(feature = "t2s")]
+        assert_eq!(CpuFeaturesTemplate::T2S.to_string(), String::from("T2S"));
     }
 
     #[test]

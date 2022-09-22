@@ -3,15 +3,14 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use std::convert::TryFrom;
+use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::is_same_model;
+use cpuid::FeatureComparison;
 use devices::legacy::serial::ReadableFd;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
@@ -26,7 +25,7 @@ use linux_loader::loader::elf::Elf as Loader;
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
 use logger::{error, warn, METRICS};
-use seccompiler::BpfThreadMap;
+use seccompiler::{BpfThreadMap, InstallationError};
 use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
@@ -49,9 +48,12 @@ use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use crate::vstate::system::KvmContext;
-use crate::vstate::vcpu::{Vcpu, VcpuConfig};
-use crate::vstate::vm::Vm;
-use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
+use crate::vstate::vcpu::{self, Vcpu, VcpuConfig};
+use crate::vstate::vm::{RestoreStateError, Vm};
+use crate::{
+    device_manager, mem_size_mib, EmulateSerialInitError, Error, EventManager, RestoreVcpusError,
+    StartVcpusError, Vmm, VmmEventsObserver,
+};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -454,6 +456,10 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not access KVM.
     #[error("Could not access KVM: {0}")]
     KvmAccess(#[from] utils::errno::Error),
+    /// Failed to create new CPUID structure from given snapshot.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Failed to create new CPUID structure from given snapshot: {0}")]
+    CpuidNewError(#[from] cpuid::CpuidNewError),
     /// The CPUID specification from the snapshot contains features unsupported by and/or fields
     /// outside the supported range, of the KVM.
     #[error(
@@ -461,20 +467,30 @@ pub enum BuildMicrovmFromSnapshotError {
          outside the supported range, of the KVM"
     )]
     UnsupportedCPUID,
+    /// The CPUID specification from the snapshot could not be fully compared to the supported
+    /// CPUID of KVM.
+    #[error(
+        "The CPUID specification from the snapshot could not be fully compared to the supported \
+         CPUID of KVM"
+    )]
+    IncomparableCPUID,
+    /// Failed get KVM supported CPUID structure.
+    #[error("Failed to get KVM supported CPUID structure: {0}")]
+    KvmGetSupportedCpuid(#[from] cpuid::KvmGetSupportedCpuidError),
     /// Error configuring the TSC, frequency not present in the given snapshot.
     #[error("Error configuring the TSC, frequency not present in the given snapshot.")]
     TscFrequencyNotPresent,
     /// Could not get TSC to check if TSC scaling was required with the snapshot.
     #[cfg(target_arch = "x86_64")]
     #[error("Could not get TSC to check if TSC scaling was required with the snapshot: {0}")]
-    GetTsc(#[from] crate::vstate::vcpu::GetTscError),
+    GetTsc(#[from] vcpu::GetTscError),
     /// Could not set TSC scaling within the snapshot.
     #[cfg(target_arch = "x86_64")]
     #[error("Could not set TSC scaling within the snapshot: {0}")]
-    SetTsc(#[from] crate::vstate::vcpu::SetTscError),
+    SetTsc(#[from] vcpu::SetTscError),
     /// Failed to restore micro-VM state.
     #[error("Failed to restore micro-VM state: {0}")]
-    RestoreState(#[from] crate::vstate::vm::RestoreStateError),
+    RestoreState(#[from] RestoreStateError),
     /// Failed to update micr-VM configuration.
     #[error("Failed to update micr-VM configuration: {0}")]
     VmUpdateConfig(#[from] VmConfigError),
@@ -483,22 +499,22 @@ pub enum BuildMicrovmFromSnapshotError {
     RestoreMmioDevice(#[from] MicrovmStateError),
     /// Failed to emulate MMIO serial.
     #[error("Failed to emulate MMIO serial: {0}")]
-    EmulateSerialInit(#[from] crate::EmulateSerialInitError),
+    EmulateSerialInit(#[from] EmulateSerialInitError),
     /// Failed start vCPUs as no vCPU seccomp filter found.
     #[error("Failed start vCPUs as no vCPU seccomp filter found.")]
     MissingVcpuSeccompFilters,
     /// Failed start vCPUs.
     #[error("Failed start vCPUs: {0}")]
-    StartVcpus(#[from] crate::StartVcpusError),
+    StartVcpus(#[from] StartVcpusError),
     /// Failed to restore vCPUs.
     #[error("Failed to restore vCPUs: {0}")]
-    RestoreVcpus(#[from] crate::RestoreVcpusError),
+    RestoreVcpus(#[from] RestoreVcpusError),
     /// Failed to apply VMM secccomp filter as none found.
     #[error("Failed to apply VMM secccomp filter as none found.")]
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter.
     #[error("Failed to apply VMM secccomp filter: {0}")]
-    SeccompFiltersInternal(#[from] seccompiler::InstallationError),
+    SeccompFiltersInternal(#[from] InstallationError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -531,22 +547,39 @@ pub fn build_microvm_from_snapshot(
     )?;
 
     #[cfg(target_arch = "x86_64")]
-    // Check if we need to scale the TSC.
-    // We start by checking if the CPU model in the snapshot is
-    // the same as this host's. If they are the same, we don't
-    // need to do anything else.
-    if !is_same_model(&microvm_state.vcpu_states[0].cpuid) {
-        // Extract the TSC freq from the state.
-        // No TSC freq in snapshot means we have to fail-fast.
-        let state_tsc = microvm_state.vcpu_states[0]
-            .tsc_khz
-            .ok_or(BuildMicrovmFromSnapshotError::TscFrequencyNotPresent)?;
+    {
+        // Convert CPUID to better format
+        let snapshot_cpuid = {
+            let raw_snapshot_cpuid =
+                cpuid::RawCpuid::from(microvm_state.vcpu_states[0].cpuid.clone());
+            cpuid::Cpuid::try_from(raw_snapshot_cpuid)?
+        };
+        // Get KVM supported CPUID
+        let supported_cpuid = cpuid::Cpuid::kvm_get_supported_cpuid()?;
+        // Previously `is_same_model` checked a variety of CPUID information, here we check all
+        // CPUID information.
+        let cmp = supported_cpuid.feature_cmp(&snapshot_cpuid);
+        // If the host supports the CPU model in the snapshot, but they are not the same
+        if let Some(cpuid::FeatureRelation::Superset) = cmp {
+            // In this case we need to scale TSC.
 
-        // Scale the TSC frequency for all VCPUs, if needed.
-        if vcpus[0].kvm_vcpu.is_tsc_scaling_required(state_tsc)? {
-            for vcpu in &vcpus {
-                vcpu.kvm_vcpu.set_tsc_khz(state_tsc)?;
+            // Extract the TSC freq from the state.
+            // No TSC freq in snapshot means we have to fail-fast.
+            let state_tsc = microvm_state.vcpu_states[0]
+                .tsc_khz
+                .ok_or(BuildMicrovmFromSnapshotError::TscFrequencyNotPresent)?;
+            // Scale the TSC frequency for all VCPUs, if needed.
+            if vcpus[0].kvm_vcpu.is_tsc_scaling_required(state_tsc)? {
+                for vcpu in &vcpus {
+                    vcpu.kvm_vcpu.set_tsc_khz(state_tsc)?;
+                }
             }
+        }
+        // If the KVM does not support the CPU model in the snapshot
+        else if let Some(cpuid::FeatureRelation::Subset) = cmp {
+            return Err(BuildMicrovmFromSnapshotError::UnsupportedCPUID);
+        } else if let None = cmp {
+            return Err(BuildMicrovmFromSnapshotError::IncomparableCPUID);
         }
     }
 

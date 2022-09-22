@@ -589,11 +589,8 @@ impl BitFieldBuilder {
                 else if self.superset(other) {
                     Some(std::cmp::Ordering::Greater)
                 }
-                else if self.subset(other) {
-                    Some(std::cmp::Ordering::Less)
-                }
                 else {
-                    None
+                    Some(std::cmp::Ordering::Less)
                 }
             }
         };
@@ -642,6 +639,7 @@ impl BitFieldBuilder {
                 #struct_bits
                 #struct_member_fields
             }
+            impl std::marker::Copy for #struct_name { }
             #serde
             impl std::cmp::PartialEq<#struct_data_type> for #struct_name {
                 fn eq(&self,other:&#struct_data_type) -> bool {
@@ -691,6 +689,24 @@ impl BitFieldBuilder {
             impl std::convert::From<#struct_name> for #struct_data_type {
                 fn from(bit_field: #struct_name) -> Self {
                     bit_field.data
+                }
+            }
+            impl std::ops::BitOr for #struct_name {
+                type Output = Self;
+                fn bitor(self,rhs: Self) -> Self::Output {
+                    Self::from(self.data | rhs.data)
+                }
+            }
+            impl std::ops::BitAnd for #struct_name {
+                type Output = Self;
+                fn bitand(self,rhs: Self) -> Self::Output {
+                    Self::from(self.data & rhs.data)
+                }
+            }
+            impl std::ops::Not for #struct_name {
+                type Output = Self;
+                fn not(self) -> Self::Output {
+                    Self::from(!self.data)
                 }
             }
             impl #struct_name {

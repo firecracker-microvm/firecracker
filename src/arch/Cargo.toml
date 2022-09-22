@@ -16,6 +16,7 @@ vm-fdt = "0.1.0"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 thiserror = "1.0.32"
 bitflags = ">=1.0.4"
+vmm-sys-util = ">=0.8.0"
 
 arch_gen = { path = "../arch_gen" }
 logger = { path = "../logger" }

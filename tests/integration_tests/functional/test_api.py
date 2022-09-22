@@ -491,8 +491,8 @@ def test_api_machine_config(test_microvm_with_api):
     if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
         # We shouldn't be able to apply Intel templates on AMD hosts
         fail_msg = (
-            "Internal error while starting microVM: Error configuring the vcpu for boot: Failed to "
-            "set CPUID entries: The operation is not permitted for the current vendor."
+            "Internal error while starting microVM: Error configuring the vcpu for boot: KVM could "
+            "not check support for the given CPUID or specified template."
         )
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         assert fail_msg in response.text

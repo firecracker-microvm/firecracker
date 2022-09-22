@@ -13,3 +13,34 @@ thiserror = "1.0.32"
 
 utils = { path = "../utils"}
 arch = { path = "../arch" }
+
+vmm-sys-util = ">=0.8.0"
+bit-fields = { path = "../bit-fields", features = ["serde_feature"] }
+phf = { version = "0.10", features = ["macros"] }
+serde = { version="1.0.138", features=["derive"] }
+log-derive = "0.4.1"
+log = "0.4.17"
+
+arrayvec = { version="0.7.2", features=["serde"], optional=true }
+
+libc = "0.2.126"
+
+bincode = "1.3.3" # Testing & Benchmarking
+serde_json = "1.0.85" # Testing & Benchmarking
+
+[features]
+default = ["static","leaf_18"]
+static = ["arrayvec"]
+leaf_18 = []
+# We only have hardcoded static templates and these templates include leaf 18.
+templates = ["static","leaf_18"]
+c3 = ["templates"]
+t2s = ["templates"]
+t2 = ["templates"]
+
+[dev-dependencies]
+criterion = "0.3" # Benchmarking
+
+[[bench]]
+name = "benchmark"
+harness = false

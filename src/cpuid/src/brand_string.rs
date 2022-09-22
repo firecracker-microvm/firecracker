@@ -80,7 +80,7 @@ impl BrandString {
     ///
     /// For other CPUs, we'll just expose an empty string.
     ///
-    /// This is safe because we know BRAND_STRING_INTEL and BRAND_STRING_AMD to hold valid data
+    /// This is safe because we know `BRAND_STRING_INTEL` and `BRAND_STRING_AMD` to hold valid data
     /// (allowed length and holding only valid ASCII chars).
     pub fn from_vendor_id(vendor_id: &[u8; 12]) -> BrandString {
         match vendor_id {
@@ -139,6 +139,7 @@ impl BrandString {
     /// Returns the given register value for the given CPUID leaf.
     ///
     /// `leaf` must be between 0x80000002 and 0x80000004.
+    #[cfg(test)]
     #[inline]
     pub fn get_reg_for_leaf(&self, leaf: u32, reg: Reg) -> u32 {
         // It's ok not to validate parameters here, leaf and reg should
@@ -164,14 +165,17 @@ impl BrandString {
         // This is actually safe, because self.reg_buf has a fixed, known size,
         // and also there's no risk of misalignment, since we're downgrading
         // alignment constraints from dword to byte.
-        unsafe { slice::from_raw_parts(self.reg_buf.as_ptr() as *const u8, Self::REG_BUF_SIZE * 4) }
+        unsafe { slice::from_raw_parts(self.reg_buf.as_ptr().cast::<u8>(), Self::REG_BUF_SIZE * 4) }
     }
 
     /// Gets a mutable `u8` slice view into the brand string buffer.
     #[inline]
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
-            slice::from_raw_parts_mut(self.reg_buf.as_mut_ptr() as *mut u8, Self::REG_BUF_SIZE * 4)
+            slice::from_raw_parts_mut(
+                self.reg_buf.as_mut_ptr().cast::<u8>(),
+                Self::REG_BUF_SIZE * 4,
+            )
         }
     }
 
@@ -306,10 +310,12 @@ fn null_terminator_index(slice: &[u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
     use std::iter::repeat;
 
     use super::*;
 
+    #[allow(clippy::similar_names)]
     #[test]
     fn test_brand_string() {
         #[inline]
@@ -333,19 +339,19 @@ mod tests {
                 let ecx_offs = (4 * 4) * i + 8;
                 let edx_offs = (4 * 4) * i + 12;
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Eax),
+                    bstr.get_reg_for_leaf(0x8000_0002 + u32::try_from(i).unwrap(), Reg::Eax),
                     pack_u32(&TEST_STR[eax_offs..(eax_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Ebx),
+                    bstr.get_reg_for_leaf(0x8000_0002 + u32::try_from(i).unwrap(), Reg::Ebx),
                     pack_u32(&TEST_STR[ebx_offs..(ebx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Ecx),
+                    bstr.get_reg_for_leaf(0x8000_0002 + u32::try_from(i).unwrap(), Reg::Ecx),
                     pack_u32(&TEST_STR[ecx_offs..(ecx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Edx),
+                    bstr.get_reg_for_leaf(0x8000_0002 + u32::try_from(i).unwrap(), Reg::Edx),
                     pack_u32(&TEST_STR[edx_offs..(edx_offs + 4)])
                 );
             }
@@ -361,7 +367,7 @@ mod tests {
         bstr.set_reg_for_leaf(0x8000_0003, Reg::Ecx, pack_u32(b"GHz "));
         assert_eq!(bstr.find_freq().unwrap(), b"5.20GHz");
 
-        let _overflow: [u8; 50] = [b'a'; 50];
+        let overflow: [u8; 50] = [b'a'; 50];
 
         // Test BrandString::check_push()
         //
@@ -371,7 +377,7 @@ mod tests {
         assert!(bstr.check_push(b", world!"));
         bstr.push_bytes(b", world!").unwrap();
 
-        assert!(!bstr.check_push(&_overflow));
+        assert!(!bstr.check_push(&overflow));
 
         // Test BrandString::push_bytes()
         //
@@ -379,7 +385,7 @@ mod tests {
         let mut old_bytes: Vec<u8> = repeat(0).take(actual_len).collect();
         old_bytes.copy_from_slice(bstr.as_bytes());
         assert_eq!(
-            bstr.push_bytes(&_overflow),
+            bstr.push_bytes(&overflow),
             Err(Error::Overflow(
                 "Appending to the brand string failed.".to_string()
             ))
@@ -387,7 +393,7 @@ mod tests {
         assert!(bstr.as_bytes().to_vec() == old_bytes);
 
         // Test BrandString::from_host_cpuid() and get_reg_for_leaf()
-        //
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match BrandString::from_host_cpuid() {
             Ok(bstr) => {
                 for leaf in 0x8000_0002..=0x8000_0004_u32 {
@@ -416,8 +422,8 @@ mod tests {
         assert!(bstr.as_bytes() == vec![b'\0'; 48].as_slice());
     }
 
+    /// Prevent against <https://github.com/firecracker-microvm/firecracker/issues/2914>
     #[test]
-    /// Prevent against https://github.com/firecracker-microvm/firecracker/issues/2914
     fn test_null_terminator_index() {
         let bytes = vec![b'\0'; 48];
         assert_eq!(null_terminator_index(bytes.as_slice()), 0);

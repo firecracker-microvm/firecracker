@@ -1,7 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-#![macro_use]
+use std::convert::TryFrom;
 
 /// Structure representing a range of bits in a number.
 ///
@@ -15,7 +14,8 @@
 ///     lsb_index: 3,
 /// };
 /// ```
-/// The BitRange specified above will represent the following part of the number 72:
+/// The `BitRange` specified above will represent the following part of the number 72:
+/// ```text
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
 /// | Base 2 Representation of the number | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
@@ -23,6 +23,7 @@
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
 /// | BitRange                            |   |   | * | * | * | * | * |   |   |   |
 /// +-------------------------------------+---+---+---+---+---+---+---+---+---+---+
+/// ```
 pub struct BitRange {
     /// most significant bit index
     pub msb_index: u32,
@@ -55,7 +56,7 @@ pub trait BitRangeExt<T> {
     /// ```
     fn get_mask(&self) -> T;
 
-    /// Checks if the current BitRange is valid for type `T`.
+    /// Checks if the current [`BitRange`] is valid for type `T`.
     fn is_valid(&self) -> bool;
 
     /// Asserts if `self.is_valid()` returns true.
@@ -70,21 +71,13 @@ impl BitRangeExt<u32> for BitRange {
     fn get_mask(&self) -> u32 {
         self.check();
 
-        ((((1_u64) << (self.msb_index - self.lsb_index + 1)) - 1) << self.lsb_index) as u32
+        u32::try_from((((1_u64) << (self.msb_index - self.lsb_index + 1)) - 1) << self.lsb_index)
+            .unwrap()
     }
 
     fn is_valid(&self) -> bool {
         self.msb_index >= self.lsb_index && self.msb_index <= MAX_U32_BIT_INDEX
     }
-}
-
-macro_rules! bit_range {
-    ($msb_index:expr, $lsb_index:expr) => {
-        BitRange {
-            msb_index: $msb_index,
-            lsb_index: $lsb_index,
-        }
-    };
 }
 
 /// Trait containing helper methods for bit operations.
@@ -172,7 +165,7 @@ impl BitHelper for u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::bit_helper::*;
+    use super::*;
 
     #[test]
     #[should_panic]
@@ -418,6 +411,7 @@ mod tests {
         );
     }
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_simple_write_bits() {
         let mut val: u32 = 0;
