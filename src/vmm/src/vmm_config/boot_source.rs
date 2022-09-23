@@ -35,12 +35,6 @@ pub struct BootSourceConfig {
     pub boot_args: Option<String>,
 }
 
-impl From<&BootConfig> for BootSourceConfig {
-    fn from(cfg: &BootConfig) -> Self {
-        cfg.description.clone()
-    }
-}
-
 /// Errors associated with actions on `BootSourceConfig`.
 #[derive(Debug)]
 pub enum BootSourceConfigError {
@@ -69,21 +63,29 @@ impl Display for BootSourceConfigError {
     }
 }
 
-/// Holds the kernel configuration.
+/// Holds the kernel specification (both configuration as well as runtime details).
+#[derive(Default)]
+pub struct BootSource {
+    /// The boot source configuration.
+    pub config: BootSourceConfig,
+    /// The boot source builder (a boot source allocated and validated).
+    /// It is an option cause a resumed microVM does not need it.
+    pub builder: Option<BootConfig>,
+}
+
+/// Holds the kernel builder (created and validates based on BootSourceConfig).
 pub struct BootConfig {
     /// The commandline validated against correctness.
     pub cmdline: linux_loader::cmdline::Cmdline,
     /// The descriptor to the kernel file.
-    pub kernel_file: std::fs::File,
+    pub kernel_file: File,
     /// The descriptor to the initrd file, if there is one.
-    pub initrd_file: Option<std::fs::File>,
-    /// The configuration above fields are based on.
-    pub description: BootSourceConfig,
+    pub initrd_file: Option<File>,
 }
 
 impl BootConfig {
     /// Creates the BootConfig based on a given configuration.
-    pub fn new(cfg: BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
+    pub fn new(cfg: &BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
         use self::BootSourceConfigError::{
             InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
         };
@@ -107,8 +109,6 @@ impl BootConfig {
             cmdline,
             kernel_file,
             initrd_file,
-            // We can simply store original config since it doesn't support updates.
-            description: cfg,
         })
     }
 }
