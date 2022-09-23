@@ -505,7 +505,9 @@ mod tests {
 
     use super::*;
     use crate::resources::VmResources;
-    use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::boot_source::{
+        BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
+    };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
     use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
@@ -562,22 +564,24 @@ mod tests {
         blocks
     }
 
-    fn default_boot_cfg() -> BootConfig {
+    fn default_boot_cfg() -> BootSource {
         let mut kernel_cmdline = linux_loader::cmdline::Cmdline::new(4096);
         kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
         let tmp_file = TempFile::new().unwrap();
-        BootConfig {
-            cmdline: kernel_cmdline,
-            kernel_file: File::open(tmp_file.as_path()).unwrap(),
-            initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
-            description: Default::default(),
+        BootSource {
+            config: BootSourceConfig::default(),
+            builder: Some(BootConfig {
+                cmdline: kernel_cmdline,
+                kernel_file: File::open(tmp_file.as_path()).unwrap(),
+                initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
+            }),
         }
     }
 
     fn default_vm_resources() -> VmResources {
         VmResources {
             vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
+            boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
             balloon: Default::default(),
@@ -1373,8 +1377,8 @@ mod tests {
     #[test]
     fn test_boot_config() {
         let vm_resources = default_vm_resources();
-        let expected_boot_cfg = vm_resources.boot_config.as_ref().unwrap();
-        let actual_boot_cfg = vm_resources.boot_source().unwrap();
+        let expected_boot_cfg = vm_resources.boot_source.builder.as_ref().unwrap();
+        let actual_boot_cfg = vm_resources.boot_source_builder().unwrap();
 
         assert!(actual_boot_cfg == expected_boot_cfg);
     }
@@ -1390,13 +1394,16 @@ mod tests {
         };
 
         let mut vm_resources = default_vm_resources();
-        let boot_cfg = vm_resources.boot_source().unwrap();
+        let boot_builder = vm_resources.boot_source_builder().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
-        assert_ne!(boot_cfg.cmdline.as_str(), cmdline);
-        assert_ne!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
+        assert_ne!(boot_builder.cmdline.as_str(), cmdline);
         assert_ne!(
-            boot_cfg
+            boot_builder.kernel_file.metadata().unwrap().st_ino(),
+            tmp_ino
+        );
+        assert_ne!(
+            boot_builder
                 .initrd_file
                 .as_ref()
                 .unwrap()
@@ -1406,12 +1413,15 @@ mod tests {
             tmp_ino
         );
 
-        vm_resources.set_boot_source(expected_boot_cfg).unwrap();
-        let boot_cfg = vm_resources.boot_source().unwrap();
-        assert_eq!(boot_cfg.cmdline.as_str(), cmdline);
-        assert_eq!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
+        vm_resources.build_boot_source(expected_boot_cfg).unwrap();
+        let boot_source_builder = vm_resources.boot_source_builder().unwrap();
+        assert_eq!(boot_source_builder.cmdline.as_str(), cmdline);
         assert_eq!(
-            boot_cfg
+            boot_source_builder.kernel_file.metadata().unwrap().st_ino(),
+            tmp_ino
+        );
+        assert_eq!(
+            boot_source_builder
                 .initrd_file
                 .as_ref()
                 .unwrap()
