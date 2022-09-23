@@ -80,7 +80,7 @@ pub enum StartMicrovmError {
     KernelLoader(linux_loader::loader::Error),
     /// Cannot load command line string.
     LoadCommandline(linux_loader::loader::Error),
-    /// Cannot start the VM because the kernel was not configured.
+    /// Cannot start the VM because the kernel builder was not configured.
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
     MissingMemSizeConfig,
@@ -328,7 +328,9 @@ pub fn build_microvm_for_boot(
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
 
-    let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
+    let boot_config = vm_resources
+        .boot_source_builder()
+        .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
     let guest_memory =
