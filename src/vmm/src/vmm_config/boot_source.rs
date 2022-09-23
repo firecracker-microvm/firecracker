@@ -130,12 +130,8 @@ pub(crate) mod tests {
             kernel_image_path: kernel_path,
         };
 
-        let boot_cfg = BootConfig::new(boot_src_cfg.clone()).unwrap();
+        let boot_cfg = BootConfig::new(&boot_src_cfg).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
         assert_eq!(boot_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
-        assert_eq!(boot_cfg.description, boot_src_cfg);
-
-        let generated_cfg = BootSourceConfig::from(&boot_cfg);
-        assert_eq!(generated_cfg, boot_src_cfg);
     }
 }

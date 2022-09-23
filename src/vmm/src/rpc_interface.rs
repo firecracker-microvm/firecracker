@@ -925,7 +925,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn set_boot_source(
+        pub fn build_boot_source(
             &mut self,
             _: BootSourceConfig,
         ) -> Result<(), BootSourceConfigError> {
