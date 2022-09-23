@@ -12,7 +12,9 @@ use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::boot_source::{
+    BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
+};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
@@ -99,8 +101,8 @@ pub struct VmmConfig {
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
     vm_config: VmConfig,
-    /// The boot configuration for this microVM.
-    boot_config: Option<BootConfig>,
+    /// The boot source spec (contains both config and builder) for this microVM.
+    boot_source: BootSource,
     /// The block devices.
     pub block: BlockBuilder,
     /// The vsock device.
@@ -146,7 +148,7 @@ impl VmResources {
             resources.update_vm_config(&machine_config)?;
         }
 
-        resources.set_boot_source(vmm_config.boot_source)?;
+        resources.build_boot_source(vmm_config.boot_source)?;
 
         for drive_config in vmm_config.block_devices.into_iter() {
             resources.set_block_device(drive_config)?;
@@ -340,8 +342,13 @@ impl VmResources {
     }
 
     /// Gets a reference to the boot source configuration.
-    pub fn boot_source(&self) -> Option<&BootConfig> {
-        self.boot_config.as_ref()
+    pub fn boot_source_config(&self) -> &BootSourceConfig {
+        &self.boot_source.config
+    }
+
+    /// Gets a reference to the boot source builder.
+    pub fn boot_source_builder(&self) -> Option<&BootConfig> {
+        self.boot_source.builder.as_ref()
     }
 
     /// Sets a balloon device to be attached when the VM starts.
@@ -358,13 +365,19 @@ impl VmResources {
         self.balloon.set(config)
     }
 
-    /// Set the guest boot source configuration.
-    pub fn set_boot_source(
+    /// Obtains the boot source hooks (kernel fd, commandline creation and validation).
+    pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
-        self.boot_config = Some(BootConfig::new(boot_source_cfg)?);
+        self.set_boot_source_config(boot_source_cfg);
+        self.boot_source.builder = Some(BootConfig::new(&self.boot_source_config())?);
         Ok(())
+    }
+
+    /// Set the boot source configuration (contains raw kernel config details).
+    pub fn set_boot_source_config(&mut self, boot_source_cfg: BootSourceConfig) {
+        self.boot_source.config = boot_source_cfg;
     }
 
     /// Inserts a block to be attached when the VM starts.
@@ -465,16 +478,10 @@ impl VmResources {
 
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
-        let boot_source = resources
-            .boot_config
-            .as_ref()
-            .map(BootSourceConfig::from)
-            .unwrap_or_default();
-
         VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),
-            boot_source,
+            boot_source: resources.boot_source_config().clone(),
             logger: None,
             machine_config: Some(resources.vm_config.clone()),
             metrics: None,
