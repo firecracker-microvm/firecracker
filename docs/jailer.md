@@ -32,8 +32,8 @@ jailer --id <id> \
 - `id` is the unique VM identification string, which may contain alphanumeric
   characters and hyphens. The maximum `id` length is currently 64 characters.
 - `exec_file` is the path to the Firecracker binary that will be exec-ed by the
-  jailer. The user can provide a path to any binary, but the interaction with
-  the jailer is mostly Firecracker specific.
+  jailer. The filename must include the string `firecracker`. This is enforced
+  because the interaction with the jailer is Firecracker specific.
 - `uid` and `gid` are the uid and gid the jailer switches to as it execs the
   target binary.
 - `parent-cgroup` is used to allow the placement of microvm cgroups in custom

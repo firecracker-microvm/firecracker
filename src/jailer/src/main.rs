@@ -38,7 +38,8 @@ pub enum Error {
     CStringParsing(NulError),
     Dup2(io::Error),
     Exec(io::Error),
-    FileName(PathBuf),
+    ExecFileName(String),
+    ExtractFileName(PathBuf),
     FileOpen(PathBuf, io::Error),
     FromBytesWithNul(std::ffi::FromBytesWithNulError),
     GetOldFdFlags(io::Error),
@@ -140,7 +141,13 @@ impl fmt::Display for Error {
             CStringParsing(_) => write!(f, "Encountered interior \\0 while parsing a string"),
             Dup2(ref err) => write!(f, "Failed to duplicate fd: {}", err),
             Exec(ref err) => write!(f, "Failed to exec into Firecracker: {}", err),
-            FileName(ref path) => write!(
+            ExecFileName(ref filename) => write!(
+                f,
+                "Invalid filename. The filename of `--exec-file` option must contain \
+                 \"firecracker\": {}",
+                filename
+            ),
+            ExtractFileName(ref path) => write!(
                 f,
                 "{}",
                 format!("Failed to extract filename from path {:?}", path).replace("\"", "")
@@ -609,7 +616,12 @@ mod tests {
             format!("Failed to exec into Firecracker: {}", err2_str)
         );
         assert_eq!(
-            format!("{}", Error::FileName(file_path.clone())),
+            format!("{}", Error::ExecFileName("foobarbaz".to_string())),
+            "Invalid filename. The filename of `--exec-file` option must contain \"firecracker\": \
+             foobarbaz",
+        );
+        assert_eq!(
+            format!("{}", Error::ExtractFileName(file_path.clone())),
             "Failed to extract filename from path /foo/bar",
         );
         assert_eq!(

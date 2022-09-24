@@ -104,6 +104,49 @@ def test_empty_jailer_id(test_microvm_with_api):
         assert expected_err in str(err)
 
 
+def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
+    """
+    Test the jailer option `--exec-file`
+
+    @type: security
+    """
+    test_microvm = test_microvm_with_api
+
+    # Error case 1: No such file exists
+    pseudo_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
+    test_microvm.jailer.exec_file = pseudo_exec_file_path
+
+    with pytest.raises(
+        Exception,
+        match=rf"Jailer error: Failed to canonicalize path {pseudo_exec_file_path}:"
+        rf" No such file or directory \(os error 2\)",
+    ):
+        test_microvm.spawn()
+
+    # Error case 2: Not a file
+    pseudo_exec_dir_path = tmp_path / "firecracker_test_dir"
+    pseudo_exec_dir_path.mkdir()
+    test_microvm.jailer.exec_file = pseudo_exec_dir_path
+
+    with pytest.raises(
+        Exception,
+        match=rf"Jailer error: {pseudo_exec_dir_path} is not a file",
+    ):
+        test_microvm.spawn()
+
+    # Error case 3: Filename without "firecracker"
+    pseudo_exec_file_path = tmp_path / "foobarbaz"
+    pseudo_exec_file_path.touch()
+    test_microvm.jailer.exec_file = pseudo_exec_file_path
+
+    with pytest.raises(
+        Exception,
+        match=r"Jailer error: Invalid filename. The filename of `--exec-file` option"
+        r' must contain "firecracker": foobarbaz',
+    ):
+        test_microvm.spawn()
+
+
 def test_default_chroot_hierarchy(test_microvm_with_initrd):
     """
     Test the folder hierarchy created by default by the jailer.

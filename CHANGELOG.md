@@ -17,6 +17,12 @@
   network interfaces. This address can be obtained as part of the GET
   `/vm/config`.
 
+### Changed
+
+- Changed the jailer option `--exec-file` to fail if the filename does not
+  contain the string `firecracker` to prevent from running non-firecracker
+  binaries.
+
 ### Fixed
 
 - Make the `T2` template more robust by explicitly disabling additional
