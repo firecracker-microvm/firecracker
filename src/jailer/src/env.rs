@@ -120,16 +120,7 @@ impl Env {
         let exec_file = arguments
             .single_value("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
-        let exec_file_path = canonicalize(&exec_file)
-            .map_err(|err| Error::Canonicalize(PathBuf::from(&exec_file), err))?;
-
-        if !exec_file_path.is_file() {
-            return Err(Error::NotAFile(exec_file_path));
-        }
-
-        let exec_file_name = exec_file_path
-            .file_name()
-            .ok_or_else(|| Error::FileName(exec_file_path.clone()))?;
+        let (exec_file_path, exec_file_name) = Env::validate_exec_file(exec_file)?;
 
         let chroot_base = arguments
             .single_value("chroot-base-dir")
@@ -169,7 +160,7 @@ impl Env {
         let mut cgroups: Vec<Box<dyn Cgroup>> = Vec::new();
         let parent_cgroup = match arguments.single_value("parent-cgroup") {
             Some(parent_cg) => Path::new(parent_cg),
-            None => Path::new(exec_file_name),
+            None => Path::new(&exec_file_name),
         };
         if parent_cgroup
             .components()
@@ -247,6 +238,29 @@ impl Env {
         self.uid
     }
 
+    fn validate_exec_file(exec_file: &str) -> Result<(PathBuf, String)> {
+        let exec_file_path = canonicalize(exec_file)
+            .map_err(|err| Error::Canonicalize(PathBuf::from(exec_file), err))?;
+
+        if !exec_file_path.is_file() {
+            return Err(Error::NotAFile(exec_file_path));
+        }
+
+        let exec_file_name = exec_file_path
+            .file_name()
+            .ok_or_else(|| Error::ExtractFileName(exec_file_path.clone()))?
+            .to_str()
+            // Safe to unwrap as the original `exec_file` is `String`.
+            .unwrap()
+            .to_string();
+
+        if !exec_file_name.contains("firecracker") {
+            return Err(Error::ExecFileName(exec_file_name));
+        }
+
+        Ok((exec_file_path, exec_file_name))
+    }
+
     fn parse_resource_limits(resource_limits: &mut ResourceLimits, args: &[String]) -> Result<()> {
         for arg in args {
             let (name, value) = arg
@@ -293,7 +307,7 @@ impl Env {
     fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {
         let chroot_exec_file_str = chroot_exec_file
             .to_str()
-            .ok_or_else(|| Error::FileName(chroot_exec_file.clone()))?;
+            .ok_or_else(|| Error::ExtractFileName(chroot_exec_file.clone()))?;
         let pid_file_path =
             PathBuf::from(format!("{}{}", chroot_exec_file_str, PID_FILE_EXTENSION));
         let mut pid_file = OpenOptions::new()
@@ -363,7 +377,7 @@ impl Env {
         let exec_file_name = self
             .exec_file_path
             .file_name()
-            .ok_or_else(|| Error::FileName(self.exec_file_path.clone()))?;
+            .ok_or_else(|| Error::ExtractFileName(self.exec_file_path.clone()))?;
         // We do a quick push here to get the global path of the executable inside the chroot,
         // without having to create a new PathBuf. We'll then do a pop to revert to the actual
         // chroot_dir right after the copy.
@@ -620,6 +634,8 @@ mod tests {
     use crate::build_arg_parser;
     use crate::cgroup::test_util::MockCgroupFs;
 
+    const PSEUDO_EXEC_FILE_PATH: &str = "/tmp/pseudo_firecracker_exec_file";
+
     #[derive(Clone)]
     struct ArgVals<'a> {
         pub id: &'a str,
@@ -637,9 +653,10 @@ mod tests {
 
     impl ArgVals<'_> {
         pub fn new() -> ArgVals<'static> {
+            File::create(PSEUDO_EXEC_FILE_PATH).unwrap();
             ArgVals {
                 id: "bd65600d-8669-4903-8a14-af88203add38",
-                exec_file: "/proc/cpuinfo",
+                exec_file: PSEUDO_EXEC_FILE_PATH,
                 uid: "1001",
                 gid: "1002",
                 chroot_base: "/",
@@ -877,6 +894,49 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_exec_file() {
+        // Success case
+        File::create(PSEUDO_EXEC_FILE_PATH).unwrap();
+        assert!(Env::validate_exec_file(PSEUDO_EXEC_FILE_PATH).is_ok());
+
+        // Error case 1: No such file exists
+        std::fs::remove_file(PSEUDO_EXEC_FILE_PATH).unwrap();
+        assert_eq!(
+            format!(
+                "{}",
+                Env::validate_exec_file(PSEUDO_EXEC_FILE_PATH).unwrap_err()
+            ),
+            format!(
+                "Failed to canonicalize path {}: No such file or directory (os error 2)",
+                PSEUDO_EXEC_FILE_PATH
+            )
+        );
+
+        // Error case 2: Not a file
+        std::fs::create_dir_all("/tmp/firecracker_test_dir").unwrap();
+        assert_eq!(
+            format!(
+                "{}",
+                Env::validate_exec_file("/tmp/firecracker_test_dir").unwrap_err()
+            ),
+            "/tmp/firecracker_test_dir is not a file"
+        );
+
+        // Error case 3: Filename without "firecracker"
+        File::create("/tmp/firecracker_test_dir/foobarbaz").unwrap();
+        assert_eq!(
+            format!(
+                "{}",
+                Env::validate_exec_file("/tmp/firecracker_test_dir/foobarbaz").unwrap_err()
+            ),
+            "Invalid filename. The filename of `--exec-file` option must contain \"firecracker\": \
+             foobarbaz"
+        );
+        std::fs::remove_file("/tmp/firecracker_test_dir/foobarbaz").unwrap();
+        std::fs::remove_dir_all("/tmp/firecracker_test_dir").unwrap();
+    }
+
+    #[test]
     fn test_setup_jailed_folder() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         assert!(!mock_cgroups.add_v1_mounts().is_err());
@@ -986,15 +1046,15 @@ mod tests {
         assert!(!mock_cgroups.add_v1_mounts().is_err());
 
         // Create tmp resources for `exec_file` and `chroot_base`.
-        let some_file = TempFile::new_with_prefix("/tmp/").unwrap();
-        let some_file_path = some_file.as_path().to_str().unwrap();
-        let some_file_name = some_file.as_path().file_name().unwrap();
+        File::create(PSEUDO_EXEC_FILE_PATH).unwrap();
+        let exec_file_path = PSEUDO_EXEC_FILE_PATH;
+        let exec_file_name = Path::new(exec_file_path).file_name().unwrap();
         let some_dir = TempDir::new().unwrap();
         let some_dir_path = some_dir.as_path().to_str().unwrap();
 
         let some_arg_vals = ArgVals {
             id: "bd65600d-8669-4903-8a14-af88203add38",
-            exec_file: some_file_path,
+            exec_file: exec_file_path,
             uid: "1001",
             gid: "1002",
             chroot_base: some_dir_path,
@@ -1005,7 +1065,7 @@ mod tests {
             resource_limits: Vec::new(),
             parent_cgroup: None,
         };
-        fs::write(some_file_path, "some_content").unwrap();
+        fs::write(exec_file_path, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
         let mut env = Env::new(&args, 0, 0).unwrap();
 
@@ -1014,10 +1074,10 @@ mod tests {
 
         assert_eq!(
             env.copy_exec_to_chroot().unwrap(),
-            some_file_name.to_os_string()
+            exec_file_name.to_os_string()
         );
 
-        let dest_path = env.chroot_dir.join(some_file_name);
+        let dest_path = env.chroot_dir.join(exec_file_name);
         // Check that `fs::copy()` copied src content and permission bits to destination.
         let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
         let metadata_dest = fs::metadata(&dest_path).unwrap();
