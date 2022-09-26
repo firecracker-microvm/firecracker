@@ -792,7 +792,7 @@ cmd_build() {
 
     # Artificially trigger a re-run of the build script,
     # to make sure that `firecracker --version` reports the latest changes.
-    touch "$FC_ROOT_DIR/build.rs"
+    # touch "$FC_ROOT_DIR/build.rs"
 
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the

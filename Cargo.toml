@@ -1,6 +1,5 @@
 [workspace]
-members = ["src/firecracker", "src/jailer", "src/seccompiler", "src/rebase-snap"]
-default-members = ["src/firecracker"]
+members = ["firecracker", "jailer", "seccompiler", "rebase-snap"]
 
 [profile.dev]
 panic = "abort"

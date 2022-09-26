@@ -15,22 +15,17 @@ set -e
 
 # Audit code base
 cargo audit
+# Format rust code
+cargo fmt
 # For every staged file
 for i in $(git diff --name-only --cached --diff-filter=d); do
     echo $i
     # Get the extension
     filename=$(basename -- "$i")
     extension="${filename##*.}"
-    if [ "$extension" = "rs" ]; then
-        # Read rustfmt config, replace '\n' with ','
-        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
-        # We first do a check run, this will fail when it finds a non-matching license.
-        rustfmt $i --check --config $rustfmt_config
-        # Run `cargo fmt` for this file
-        rustfmt $i --config $rustfmt_config
-    fi
+    # If python
     if [ "$extension" = "py" ]; then
-        # Run `black` for this file
+        # Run `black` to format this file
         black $i
     fi
     # Add changes to this file (as a result of formatting) to the commit.
