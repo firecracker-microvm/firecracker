@@ -3,6 +3,7 @@
 """Tests checking against the existence of licenses in each file."""
 
 import datetime
+
 from framework import utils
 
 AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
@@ -105,3 +106,7 @@ def test_for_valid_licenses():
         if _validate_license(file) is False:
             error_msg.append("{}".format(str(file)))
     assert not error_msg, "Files {} have invalid licenses".format((error_msg))
+
+
+if __name__ == "__main__":
+    test_for_valid_licenses()
