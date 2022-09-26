@@ -1105,6 +1105,8 @@ pub mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
+    pub const KIB: u64 = 1024;
+
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
@@ -1673,11 +1675,11 @@ pub mod tests {
         let mut vmm = default_vmm();
 
         let memory_config = MemoryDeviceConfig {
-            block_size: page_size(),
+            block_size_kib: 4 * page_size() / KIB,
             id: String::from("mem-dev"),
-            node_id: 0,
-            region_size: 8 * page_size(),
-            requested_size: 0,
+            node_id: None,
+            region_size_kib: 8 * 4 * page_size() / KIB,
+            requested_size_kib: 0,
         };
 
         let mut cmdline = default_kernel_cmdline();
