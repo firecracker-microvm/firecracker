@@ -1199,6 +1199,9 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "track_dirty_pages": False,
     }
 
+    if cpu_vendor == utils.CpuVendor.ARM:
+        setup_cfg["machine-config"]["smt"] = False
+
     if cpu_vendor == utils.CpuVendor.INTEL:
         setup_cfg["machine-config"]["cpu_template"] = "C3"
 
@@ -1277,14 +1280,12 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 
     expected_cfg = setup_cfg.copy()
 
-    # We expect boot-source, machine-config.smt, and
-    # machine-config.cpu_template to all be empty/default after restoring
-    # from a snapshot.
-    expected_cfg["boot-source"] = {"kernel_image_path": "", "initrd_path": None}
-    expected_cfg["machine-config"]["smt"] = False
-
-    if cpu_vendor == utils.CpuVendor.INTEL:
-        expected_cfg["machine-config"].pop("cpu_template")
+    # We expect boot-source to be set with the following values
+    expected_cfg["boot-source"] = {
+        "kernel_image_path": test_microvm.get_jailed_resource(test_microvm.kernel_file),
+        "initrd_path": None,
+        "boot_args": "console=ttyS0 reboot=k panic=1",
+    }
 
     # no ipv4 specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {

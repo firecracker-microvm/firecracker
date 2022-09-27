@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io;
 
 use serde::{Deserialize, Serialize};
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
@@ -22,7 +24,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 825
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, Versionize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.

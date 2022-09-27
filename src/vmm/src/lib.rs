@@ -461,7 +461,10 @@ impl Vmm {
     }
 
     /// Saves the state of a paused Microvm.
-    pub fn save_state(&mut self) -> std::result::Result<MicrovmState, MicrovmStateError> {
+    pub fn save_state(
+        &mut self,
+        vm_info: &VmInfo,
+    ) -> std::result::Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
         let vm_state = {
@@ -478,11 +481,10 @@ impl Vmm {
         };
         let device_states = self.mmio_device_manager.save();
 
-        let mem_size_mib = mem_size_mib(self.guest_memory());
         let memory_state = self.guest_memory().describe();
 
         Ok(MicrovmState {
-            vm_info: VmInfo { mem_size_mib },
+            vm_info: vm_info.clone(),
             memory_state,
             vm_state,
             vcpu_states,
