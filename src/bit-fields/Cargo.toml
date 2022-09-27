@@ -1,0 +1,40 @@
+[package]
+name = "bit-fields"
+version = "0.1.0"
+edition = "2018"
+license = "Apache-2.0"
+keywords = ["bit", "bitmask", "bitflags", "flags"]
+repository = "https://github.com/firecracker-microvm/firecracker"
+homepage = "https://github.com/firecracker-microvm/firecracker"
+documentation = "https://docs.rs/bit-fields"
+description = "A macro to generate structures which support bit flags and sub-bytes ranges."
+exclude = ["/src/main.rs"]
+
+[dependencies] 
+bit-fields-macros = { path = "../bit-fields-macros" }
+serde = { version = "1.0.139", features=["derive"], optional = true }
+thiserror = "1.0.32"
+
+[dev-dependencies]
+serde_json = "1.0.83"
+rand = "0.8.5"
+
+[features]
+default = ["set_theory","bit_index","flag_set","field_map","display","cmp_flags","serde_feature"]
+# Set theory functions, these are `superset`, `subset`, `disjoint`, `intersection` and `union`.
+set_theory = ["bit-fields-macros/set_theory"]
+# Bit indexing, allowing constant indexing like `.bit::<3>()` and `.bit_mut::<3>()`.
+bit_index = ["bit-fields-macros/bit_index"]
+# Flag set interoperability, allowing converting to and form a hashset of strings reffering to bit flags.
+flag_set = ["bit-fields-macros/flag_set"]
+# Field map interoperability, allowing converting to and from a hashmap of string field names and data type field values.
+field_map = ["bit-fields-macros/field_map"]
+# std::fmt::Display implementation
+display = ["bit-fields-macros/display"]
+# The `cmp_flags` function which can be used to compare bit flags of 2 bit field structures.
+cmp_flags = ["bit-fields-macros/cmp_flags","set_theory"]
+# Serde serialize and deserialize implementations
+#
+# Rename this to `serde` and use `dep:serde` here when this is stabilized (when we update Rust 
+# version).
+serde_feature = ["serde","bit-fields-macros/serde","flag_set","field_map"]

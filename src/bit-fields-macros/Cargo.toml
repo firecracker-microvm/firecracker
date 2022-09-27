@@ -1,0 +1,29 @@
+[package]
+name = "bit-fields-macros"
+version = "0.1.0"
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies] 
+quote = "1.0.21"
+proc-macro2 = "1.0.43"
+proc-macro-error = "1.0.4"
+
+[features]
+# Set theory functions, these are `superset`, `subset`, `disjoint`, `intersection` and `union`.
+set_theory = []
+# Bit indexing, allowing constant indexing like `.bit::<3>()` and `.bit_mut::<3>()`.
+bit_index = []
+# Flag set interoperability, allowing converting to and form a hashset of strings reffering to bit flags.
+flag_set = []
+# Field map interoperability, allowing converting to and from a hashmap of string field names and data type field values.
+field_map = []
+# std::fmt::Display implementation
+display = []
+# The `cmp_flags` function which can be used to compare bit flags of 2 bit field structures.
+cmp_flags = []
+# Serde serialize and deserialize implementations
+serde = ["flag_set","field_map"]
+
+[lib]
+proc-macro = true
