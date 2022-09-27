@@ -16,7 +16,7 @@ use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use devices::virtio::TYPE_NET;
-use logger::{error, info};
+use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
@@ -34,8 +34,9 @@ use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -47,11 +48,59 @@ use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManag
 const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, Default, PartialEq, Versionize, Serialize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// smt information
+    #[version(start = 2, default_fn = "def_smt", ser_fn = "ser_smt")]
+    pub smt: bool,
+    /// CPU template type
+    #[version(
+        start = 2,
+        default_fn = "def_cpu_template",
+        ser_fn = "ser_cpu_template"
+    )]
+    pub cpu_template: CpuFeaturesTemplate,
+    /// Boot source information.
+    #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
+    pub boot_source: BootSourceConfig,
+}
+
+impl VmInfo {
+    fn def_smt(_: u16) -> bool {
+        warn!("SMT field not found in snapshot.");
+        false
+    }
+
+    fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include smt info.
+        warn!("Saving to older snapshot version, SMT information will not be saved.");
+        Ok(())
+    }
+
+    fn def_cpu_template(_: u16) -> CpuFeaturesTemplate {
+        warn!("CPU template field not found in snapshot.");
+        CpuFeaturesTemplate::None
+    }
+
+    fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include cpu template info.
+        warn!("Saving to older snapshot version, CPU template information will not be saved.");
+        Ok(())
+    }
+
+    fn def_boot_source(_: u16) -> BootSourceConfig {
+        warn!("Boot source information not found in snapshot.");
+        BootSourceConfig::default()
+    }
+
+    fn ser_boot_source(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include boot source info.
+        warn!("Saving to older snapshot version, boot source information will not be saved.");
+        Ok(())
+    }
 }
 
 /// Contains the necesary state for saving/restoring a microVM.
@@ -195,6 +244,7 @@ impl Display for CreateSnapshotError {
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
     vmm: &mut Vmm,
+    vm_info: &VmInfo,
     params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
@@ -202,7 +252,7 @@ pub fn create_snapshot(
     let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
 
     let microvm_state = vmm
-        .save_state()
+        .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
 
     snapshot_state_to_file(
@@ -787,7 +837,10 @@ mod tests {
             device_states: states,
             memory_state,
             vcpu_states,
-            vm_info: VmInfo { mem_size_mib: 1u64 },
+            vm_info: VmInfo {
+                mem_size_mib: 1u64,
+                ..Default::default()
+            },
             #[cfg(target_arch = "aarch64")]
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]

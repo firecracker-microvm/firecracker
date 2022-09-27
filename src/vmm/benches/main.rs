@@ -16,10 +16,12 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use versionize::VersionMap;
-use vmm::persist::MicrovmState;
+use vmm::persist::{MicrovmState, VmInfo};
 use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
 use vmm::utilities::test_utils::create_vmm;
 use vmm::version_map::VERSION_MAP;
+use vmm::vmm_config::boot_source::BootSourceConfig;
+use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{persist, FcExitCode};
 
@@ -78,10 +80,20 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
         mem_file_path: memory_file.as_path().to_path_buf(),
         version: None,
     };
+    let mut vm_info = VmInfo {
+        mem_size_mib: 1u64,
+        ..Default::default()
+    };
 
     {
         let mut locked_vmm = vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
+        persist::create_snapshot(
+            &mut locked_vmm,
+            &mut vm_info,
+            &snapshot_params,
+            VERSION_MAP.clone(),
+        )
+        .unwrap();
     }
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);

@@ -7,7 +7,7 @@ use std::{io, thread};
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_serial_device};
-use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState};
+use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::utilities::mock_devices::MockSerialInput;
@@ -123,18 +123,21 @@ fn test_dirty_bitmap_success() {
 #[test]
 fn test_disallow_snapshots_without_pausing() {
     let (vmm, _) = default_vmm(Some(NOISY_KERNEL_IMAGE));
+    let vm_info = VmInfo {
+        mem_size_mib: 1u64,
+        ..Default::default()
+    };
 
     // Verify saving state while running is not allowed.
-    // Can't do unwrap_err() because MicrovmState doesn't impl Debug.
-    match vmm.lock().unwrap().save_state() {
-        Err(err) => assert!(format!("{:?}", err).contains("NotAllowed")),
-        Ok(_) => panic!("Should not be allowed."),
-    };
+    assert!(matches!(
+        vmm.lock().unwrap().save_state(&vm_info),
+        Err(MicrovmStateError::NotAllowed(_))
+    ));
 
     // Pause microVM.
     vmm.lock().unwrap().pause_vm().unwrap();
     // It is now allowed.
-    vmm.lock().unwrap().save_state().unwrap();
+    vmm.lock().unwrap().save_state(&vm_info).unwrap();
     // Stop.
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
@@ -162,10 +165,20 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         mem_file_path: memory_file.as_path().to_path_buf(),
         version: Some(String::from("0.24.0")),
     };
+    let vm_info = VmInfo {
+        mem_size_mib: 1u64,
+        ..Default::default()
+    };
 
     {
         let mut locked_vmm = vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
+        persist::create_snapshot(
+            &mut locked_vmm,
+            &vm_info,
+            &snapshot_params,
+            VERSION_MAP.clone(),
+        )
+        .unwrap();
     }
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
@@ -181,12 +194,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     )
     .unwrap();
 
-    // Check memory file size.
-    let memory_file_size_mib = memory_file.as_file().metadata().unwrap().len() >> 20;
-    assert_eq!(
-        restored_microvm_state.vm_info.mem_size_mib,
-        memory_file_size_mib
-    );
+    assert_eq!(restored_microvm_state.vm_info, vm_info);
 
     // Verify deserialized data.
     // The default vmm has no devices and one vCPU.

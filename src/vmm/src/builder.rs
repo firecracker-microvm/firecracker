@@ -51,7 +51,7 @@ use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
+use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -565,11 +565,14 @@ pub fn build_microvm_from_snapshot(
 
     vm_resources.update_vm_config(&VmUpdateConfig {
         vcpu_count: Some(vcpu_count),
-        mem_size_mib: Some(mem_size_mib(&guest_memory) as usize),
-        smt: Some(false),
-        cpu_template: None,
+        mem_size_mib: Some(microvm_state.vm_info.mem_size_mib as usize),
+        smt: Some(microvm_state.vm_info.smt),
+        cpu_template: Some(microvm_state.vm_info.cpu_template),
         track_dirty_pages: Some(track_dirty_pages),
     })?;
+
+    // Restore the boot source config paths.
+    vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {

@@ -22,7 +22,7 @@ use super::{
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
-use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError};
+use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -743,9 +743,21 @@ impl RuntimeApiController {
         }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
+        let vm_cfg = self.vm_resources.vm_config();
+        let vm_info = VmInfo {
+            mem_size_mib: vm_cfg.mem_size_mib as u64,
+            smt: vm_cfg.smt,
+            cpu_template: vm_cfg.cpu_template,
+            boot_source: self.vm_resources.boot_source_config().clone(),
+        };
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())?;
+        create_snapshot(
+            &mut locked_vmm,
+            &vm_info,
+            create_params,
+            VERSION_MAP.clone(),
+        )?;
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
@@ -865,6 +877,7 @@ mod tests {
         pub vsock: VsockBuilder,
         balloon_config_called: bool,
         balloon_set: bool,
+        boot_src: BootSourceConfig,
         boot_cfg_set: bool,
         block_set: bool,
         vsock_set: bool,
@@ -927,15 +940,20 @@ mod tests {
 
         pub fn build_boot_source(
             &mut self,
-            _: BootSourceConfig,
+            boot_source: BootSourceConfig,
         ) -> Result<(), BootSourceConfigError> {
             if self.force_errors {
                 return Err(BootSourceConfigError::InvalidKernelPath(
                     std::io::Error::from_raw_os_error(0),
                 ));
             }
+            self.boot_src = boot_source;
             self.boot_cfg_set = true;
             Ok(())
+        }
+
+        pub fn boot_source_config(&mut self) -> &BootSourceConfig {
+            &self.boot_src
         }
 
         pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
@@ -1140,6 +1158,7 @@ mod tests {
     // instead of our mocks.
     pub fn create_snapshot(
         _: &mut Vmm,
+        _: &VmInfo,
         _: &CreateSnapshotParams,
         _: versionize::VersionMap,
     ) -> std::result::Result<(), CreateSnapshotError> {
