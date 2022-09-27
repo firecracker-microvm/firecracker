@@ -354,17 +354,16 @@ cmd_fix_perms() {
 # Builds the development container from its Dockerfile.
 #
 cmd_build_devctr() {
-    arch=$(uname -m)
-    docker_file_name="Dockerfile.$arch"
+    local ARCH="x86_64"
     build_args="--build-arg TMP_POETRY_DIR=$CTR_POETRY_TMP_DIR"
 
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
             "-n"|"--no-python-package-upgrade")
-                shift
                 build_args="$build_args --build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
                 ;;
+	    "-a"|"--arch")      { ARCH="$2"; shift; } ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -373,7 +372,19 @@ cmd_build_devctr() {
         shift
     done
 
-    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
+    if [[ $ARCH == "x86_64" ]]; then
+	docker_file_name="Dockerfile.x86_64"
+	build_target="linux/amd64"
+	say "Building container image for x86_64"
+    elif [[ $ARCH == "aarch64" ]] || [[ $ARCH == "arm64" ]]; then
+	docker_file_name="Dockerfile.aarch64"
+	build_target="linux/arm64"
+	say "Building container image for aarch64"
+    else
+        die "Unknown architecture '$ARCH'"
+    fi
+
+    docker build --platform $build_target -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
 
     # Copy back the lockfile, since a new dependency or version would have
     # updated it.
@@ -686,6 +697,9 @@ cmd_help() {
     echo "    build_devctr [--no-python-package-upgrade]"
     echo "        Builds the development container from its Dockerfile."
     echo "        -n, --no-python-package-upgrade  Do not update python packages."
+    echo "        -a, --arch <arch>"
+    echo "          Define architecture to build the container for."
+    echo "          Supported options: x86_64, aarch64 and arm64. (Default: x86_64)"
     echo ""
     echo "    build_kernel -c|--config [-n|--nproc]"
     echo "        Builds a kernel image custom-tailored for our CI."
