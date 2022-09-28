@@ -127,6 +127,9 @@ pub enum StartMicrovmError {
     /// Unable to set VmResources.
     #[error("Cannot set vm resources: {0}")]
     SetVmResources(VmConfigError),
+    /// Failed to create an Entropy device
+    #[error("Cannot create the entropy device: {0}")]
+    CreateEntropyDevice(devices::virtio::rng::Error),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -312,6 +315,8 @@ pub fn build_microvm_for_boot(
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
     }
+
+    attach_entropy_device(&mut vmm, event_manager, &mut boot_cmdline)?;
 
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
@@ -921,6 +926,24 @@ pub(crate) fn attach_boot_timer_device(
         .register_mmio_boot_timer(boot_timer)
         .map_err(RegisterMmioDevice)?;
 
+    Ok(())
+}
+
+fn attach_entropy_device(
+    vmm: &mut Vmm,
+    event_manager: &mut EventManager,
+    cmdline: &mut LoaderKernelCmdline,
+) -> std::result::Result<(), StartMicrovmError> {
+    let entropy_device = Arc::new(Mutex::new(
+        devices::virtio::rng::Entropy::new().map_err(StartMicrovmError::CreateEntropyDevice)?,
+    ));
+    let id = entropy_device
+        .lock()
+        .expect("Poisoned lock")
+        .id()
+        .to_string();
+
+    attach_virtio_device(event_manager, vmm, id, entropy_device, cmdline)?;
     Ok(())
 }
 
