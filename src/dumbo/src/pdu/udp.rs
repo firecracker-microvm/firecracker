@@ -28,7 +28,7 @@ pub const UDP_HEADER_SIZE: usize = 8;
 const IPV4_MAX_UDP_PACKET_SIZE: usize = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,

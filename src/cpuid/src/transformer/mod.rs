@@ -57,7 +57,7 @@ impl VmSpec {
 pub enum Error {
     /// A FamStructWrapper operation has failed
     #[error("A FamStructWrapper operation has failed.")]
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// A call to an internal helper method failed
     #[error("A call to an internal helper method failed: {0}")]
     InternalError(#[from] super::common::Error),

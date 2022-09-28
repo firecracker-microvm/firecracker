@@ -79,12 +79,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Deserialize in vspace=4", |b| {
-        b.iter(|| {
-            restore(
-                black_box(&mut snapshot_mem.as_slice()),
-                black_box(vm.clone()),
-            )
-        })
+        b.iter(|| restore(black_box(snapshot_mem.as_slice()), black_box(vm.clone())))
     });
 
     // Extend vspace to 100.
@@ -103,12 +98,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
     c.bench_function("Deserialize in vspace=100", |b| {
-        b.iter(|| {
-            restore(
-                black_box(&mut snapshot_mem.as_slice()),
-                black_box(vm.clone()),
-            )
-        })
+        b.iter(|| restore(black_box(snapshot_mem.as_slice()), black_box(vm.clone())))
     });
 
     // Extend vspace to 1001.
@@ -128,12 +118,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
     c.bench_function("Deserialize in vspace=1000", |b| {
-        b.iter(|| {
-            restore(
-                black_box(&mut snapshot_mem.as_slice()),
-                black_box(vm.clone()),
-            )
-        })
+        b.iter(|| restore(black_box(snapshot_mem.as_slice()), black_box(vm.clone())))
     });
 }
 

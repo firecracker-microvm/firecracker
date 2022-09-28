@@ -26,7 +26,7 @@ pub enum Error {
     /// Failed to get a system register.
     GetSysRegister(kvm_ioctls::Error),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(kvm_ioctls::Error, String),
     /// Failed to Set multiprocessor state.
@@ -55,7 +55,7 @@ impl fmt::Display for Error {
             SetMP(ref err) => write!(f, "Failed to set multiprocessor state: {}", err),
             SetRegister(ref err) => write!(f, "Failed to set register: {}", err),
             GetMidrEl1(ref err) => write!(f, "{}", err),
-            FamError(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
+            Fam(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
         }
     }
 }
@@ -401,7 +401,7 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
-    let mut reg_list = RegList::new(500).map_err(Error::FamError)?;
+    let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 

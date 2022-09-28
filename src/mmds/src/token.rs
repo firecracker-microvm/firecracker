@@ -64,7 +64,7 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &*self {
+        match self {
             Error::EntropyPool(err) => {
                 write!(
                     f,
@@ -264,7 +264,7 @@ impl TokenAuthority {
 
     /// Validate the token time to live against bounds.
     fn check_ttl(ttl_seconds: u32) -> bool {
-        MIN_TOKEN_TTL_SECONDS <= ttl_seconds && ttl_seconds <= MAX_TOKEN_TTL_SECONDS
+        (MIN_TOKEN_TTL_SECONDS..=MAX_TOKEN_TTL_SECONDS).contains(&ttl_seconds)
     }
 
     /// Compute expiry time in seconds by adding the time to live provided
