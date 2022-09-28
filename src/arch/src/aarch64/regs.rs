@@ -175,18 +175,11 @@ pub fn get_manufacturer_id_from_host() -> Result<u32> {
         &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
 
     let midr_el1 = fs::read_to_string(midr_el1_path).map_err(|err| {
-        Error::GetMidrEl1(format!(
-            "Failed to get MIDR_EL1 from host path: {}",
-            err.to_string()
-        ))
+        Error::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
     let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
-    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16).map_err(|err| {
-        Error::GetMidrEl1(format!(
-            "Invalid MIDR_EL1 found on host: {}",
-            err.to_string()
-        ))
-    })?;
+    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16)
+        .map_err(|err| Error::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {err}",)))?;
 
     Ok(manufacturer_id >> 24)
 }
@@ -577,15 +570,15 @@ mod tests {
 
         let res = get_mpstate(&vcpu);
         assert!(res.is_err());
-        &&assert_eq!(
-            format!("{}", res.unwrap_err()),
+        assert_eq!(
+            res.unwrap_err().to_string(),
             "Failed to get multiprocessor state: Bad file descriptor (os error 9)"
         );
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
         assert!(res.is_err());
-        &&assert_eq!(
-            format!("{}", res.unwrap_err()),
+        assert_eq!(
+            res.unwrap_err().to_string(),
             "Failed to set multiprocessor state: Bad file descriptor (os error 9)"
         );
     }
