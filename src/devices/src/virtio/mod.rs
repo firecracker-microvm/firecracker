@@ -17,6 +17,7 @@ mod mmio;
 pub mod net;
 pub mod persist;
 mod queue;
+pub mod rng;
 pub mod test_utils;
 pub mod vsock;
 
@@ -50,6 +51,7 @@ mod device_status {
 /// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
 pub const TYPE_NET: u32 = 1;
 pub const TYPE_BLOCK: u32 = 2;
+pub const TYPE_RNG: u32 = 4;
 pub const TYPE_BALLOON: u32 = 5;
 
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
