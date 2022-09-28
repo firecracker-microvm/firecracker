@@ -1,1 +1,0 @@
-{(// Copyright 20[0-2][0-9] Amazon\.com, Inc\. or its affiliates\. All Rights Reserved\.\n// SPDX-License-Identifier: Apache-2.0|// Copyright( | TUNTAP, )20[0-2][0-9] The Chromium OS Authors\. All rights reserved\.\n// Use of this source code is governed by a BSD-style license that can be\n// found in the THIRD-PARTY file\.)}
