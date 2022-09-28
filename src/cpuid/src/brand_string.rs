@@ -6,7 +6,7 @@ use std::slice;
 
 use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     NotSupported,
     Overflow(String),

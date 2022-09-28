@@ -4,7 +4,7 @@ use snapshot::{Error, Snapshot};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Debug, PartialEq, Eq, Versionize)]
 pub enum TestState {
     Zero,
     One(u32),
@@ -24,7 +24,7 @@ impl TestState {
     }
 }
 
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Debug, PartialEq, Eq, Versionize)]
 pub struct A {
     a: u32,
     #[version(start = 1, end = 2)]
@@ -120,7 +120,7 @@ fn test_hardcoded_snapshot_deserialization() {
 #[test]
 fn test_invalid_format_version() {
     #[rustfmt::skip]
-    let invalid_format_snap: &[u8] = &[
+    let mut invalid_format_snap: &[u8] = &[
         // This blob consists of the following: magic_id (8 bytes),
         0xAA, 0xAA,
         #[cfg(target_arch = "aarch64")]
@@ -142,12 +142,12 @@ fn test_invalid_format_version() {
     ];
 
     let mut result: Result<A, Error> =
-        Snapshot::unchecked_load(&mut invalid_format_snap.as_ref(), VersionMap::new());
+        Snapshot::unchecked_load(&mut invalid_format_snap, VersionMap::new());
     let mut expected_err = Error::InvalidFormatVersion(0xAAAA);
     assert_eq!(result.unwrap_err(), expected_err);
 
     #[rustfmt::skip]
-    let null_format_snap: &[u8] = &[
+    let mut null_format_snap: &[u8] = &[
         // This blob consists of the following: magic_id (8 bytes),
         0x00, 0x00,
         #[cfg(target_arch = "aarch64")]
@@ -168,7 +168,7 @@ fn test_invalid_format_version() {
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
 
-    result = Snapshot::unchecked_load(&mut null_format_snap.as_ref(), VersionMap::new());
+    result = Snapshot::unchecked_load(&mut null_format_snap, VersionMap::new());
     expected_err = Error::InvalidFormatVersion(0);
     assert_eq!(result.unwrap_err(), expected_err);
 }
@@ -176,7 +176,7 @@ fn test_invalid_format_version() {
 #[test]
 fn test_invalid_data_version() {
     #[rustfmt::skip]
-    let invalid_data_version_snap: &[u8] = &[
+    let mut invalid_data_version_snap: &[u8] = &[
         // This blob consists of the following: magic_id (8 bytes),
         0x01, 0x00,
         #[cfg(target_arch = "aarch64")]
@@ -197,12 +197,12 @@ fn test_invalid_data_version() {
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
     let mut result: Result<A, Error> =
-        Snapshot::unchecked_load(&mut invalid_data_version_snap.as_ref(), VersionMap::new());
+        Snapshot::unchecked_load(&mut invalid_data_version_snap, VersionMap::new());
     let mut expected_err = Error::InvalidDataVersion(0xAAAA);
     assert_eq!(result.unwrap_err(), expected_err);
 
     #[rustfmt::skip]
-    let null_data_version_snap: &[u8] = &[
+    let mut null_data_version_snap: &[u8] = &[
         // This blob consists of the following: magic_id (8 bytes),
         0x01, 0x00,
         #[cfg(target_arch = "aarch64")]
@@ -222,7 +222,7 @@ fn test_invalid_data_version() {
         // + inner enum value (4 bytes).
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
-    result = Snapshot::unchecked_load(&mut null_data_version_snap.as_ref(), VersionMap::new());
+    result = Snapshot::unchecked_load(&mut null_data_version_snap, VersionMap::new());
     expected_err = Error::InvalidDataVersion(0);
     assert_eq!(result.unwrap_err(), expected_err);
 }

@@ -827,7 +827,7 @@ pub const IORING_OP_TEE: _bindgen_ty_2 = 33;
 pub const IORING_OP_LAST: _bindgen_ty_2 = 34;
 pub type _bindgen_ty_2 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_cqe {
     pub user_data: __u64,
     pub res: __s32,
@@ -900,7 +900,7 @@ fn bindgen_test_layout_io_uring_cqe() {
 pub const IORING_CQE_BUFFER_SHIFT: _bindgen_ty_3 = 16;
 pub type _bindgen_ty_3 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_sqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -1079,7 +1079,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
     test_field_resv2();
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_cqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -1258,7 +1258,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
     test_field_resv2();
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_params {
     pub sq_entries: __u32,
     pub cq_entries: __u32,
@@ -1470,7 +1470,7 @@ pub const IORING_REGISTER_ENABLE_RINGS: _bindgen_ty_4 = 12;
 pub const IORING_REGISTER_LAST: _bindgen_ty_4 = 13;
 pub type _bindgen_ty_4 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_files_update {
     pub offset: __u32,
     pub resv: __u32,
@@ -1541,7 +1541,7 @@ fn bindgen_test_layout_io_uring_files_update() {
     test_field_fds();
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_probe_op {
     pub op: __u8,
     pub resv: __u8,

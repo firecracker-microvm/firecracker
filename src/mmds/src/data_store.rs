@@ -19,7 +19,7 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MmdsVersion {
     V1,
     V2,
@@ -544,7 +544,7 @@ mod tests {
         assert!(mmds.patch_data(data_store).is_ok());
 
         let data = "{\"new_key2\" : \"smth\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert_eq!(
             mmds.patch_data(data_store).unwrap_err().to_string(),
             Error::DataStoreLimitExceeded.to_string()
@@ -552,13 +552,13 @@ mod tests {
         assert!(!mmds.get_data_str().contains("smth"));
 
         let data = "{\"new_key\" : \"smth\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert!(mmds.patch_data(data_store).is_ok());
         assert!(mmds.get_data_str().contains("smth"));
         assert_eq!(mmds.get_data_str().len(), 53);
 
         let data = "{\"new_key2\" : \"smth2\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert!(mmds.patch_data(data_store).is_ok());
         assert!(mmds.get_data_str().contains("smth2"));
         assert_eq!(mmds.get_data_str().len(), 72);

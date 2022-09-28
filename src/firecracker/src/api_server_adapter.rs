@@ -181,16 +181,16 @@ pub(crate) fn run_with_api(
     // Configure, build and start the microVM.
     let build_result = match config_json {
         Some(json) => super::build_microvm_from_json(
-            &seccomp_filters,
+            seccomp_filters,
             &mut event_manager,
             json,
             instance_info,
             boot_timer_enabled,
             mmds_size_limit,
-            metadata_json.as_deref(),
+            metadata_json,
         ),
         None => PrebootApiController::build_microvm_from_requests(
-            &seccomp_filters,
+            seccomp_filters,
             &mut event_manager,
             instance_info,
             || {

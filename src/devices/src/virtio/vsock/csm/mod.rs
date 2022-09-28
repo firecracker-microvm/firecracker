@@ -58,7 +58,7 @@ impl std::error::Error for Error {}
 type Result<T> = std::result::Result<T, Error>;
 
 /// A vsock connection state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnState {
     /// The connection has been initiated by the host end, but is yet to be confirmed by the guest.
     LocalInit,
