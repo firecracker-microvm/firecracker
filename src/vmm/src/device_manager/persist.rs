@@ -117,7 +117,7 @@ pub struct ConnectedLegacyState {
 }
 
 /// Holds the MMDS data store version.
-#[derive(Debug, PartialEq, Versionize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum MmdsVersionState {
     V1,
@@ -166,10 +166,10 @@ pub struct DeviceStates {
 /// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
 /// from a snapshot.
 pub enum SharedDeviceType {
-    SharedBlock(Arc<Mutex<Block>>),
-    SharedNetwork(Arc<Mutex<Net>>),
-    SharedBalloon(Arc<Mutex<Balloon>>),
-    SharedVsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
+    Block(Arc<Mutex<Block>>),
+    Network(Arc<Mutex<Net>>),
+    Balloon(Arc<Mutex<Balloon>>),
+    Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
 }
 
 impl DeviceStates {
@@ -421,7 +421,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::SharedBalloon(device.clone()),
+                SharedDeviceType::Balloon(device.clone()),
             );
 
             restore_helper(
@@ -442,7 +442,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::SharedBlock(device.clone()),
+                SharedDeviceType::Block(device.clone()),
             );
 
             restore_helper(
@@ -487,7 +487,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::SharedNetwork(device.clone()),
+                SharedDeviceType::Network(device.clone()),
             );
 
             restore_helper(
@@ -515,7 +515,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::SharedVsock(device.clone()),
+                SharedDeviceType::Vsock(device.clone()),
             );
 
             restore_helper(
@@ -834,14 +834,8 @@ mod tests {
     "uds_path": "{}"
   }}
 }}"#,
-            _block_files
-                .last()
-                .unwrap()
-                .as_path()
-                .to_str()
-                .unwrap()
-                .to_string(),
-            tmp_sock_file.as_path().to_str().unwrap().to_string()
+            _block_files.last().unwrap().as_path().to_str().unwrap(),
+            tmp_sock_file.as_path().to_str().unwrap()
         );
 
         assert_eq!(

@@ -12,7 +12,7 @@ const HELP_ARG: &str = "--help";
 const VERSION_ARG: &str = "--version";
 
 /// Errors associated with parsing and validating arguments.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// The argument B cannot be used together with argument A.
     ForbiddenArgument(String, String),
@@ -133,7 +133,7 @@ impl<'a> ArgParser<'a> {
 }
 
 /// Stores the characteristics of the `name` command line argument.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Argument<'a> {
     name: &'a str,
     required: bool,
@@ -245,7 +245,7 @@ impl<'a> Argument<'a> {
 }
 
 /// Represents the type of argument, and the values it takes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
     Flag,
     Single(String),
@@ -303,7 +303,7 @@ impl<'a> Arguments<'a> {
             argument
                 .user_value
                 .as_ref()
-                .or_else(|| argument.default_value.as_ref())
+                .or(argument.default_value.as_ref())
         })
     }
 
@@ -341,7 +341,7 @@ impl<'a> Arguments<'a> {
             return (&args[..index], &args[index + 1..]);
         }
 
-        (&args, &[])
+        (args, &[])
     }
 
     /// Collect the command line arguments and the values provided for them.
@@ -475,7 +475,7 @@ impl<'a> Arguments<'a> {
 
         // Check the constraints for the `required`, `requires` and `forbids` fields of all
         // arguments.
-        self.validate_requirements(&args)?;
+        self.validate_requirements(args)?;
 
         Ok(())
     }

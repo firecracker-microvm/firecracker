@@ -73,7 +73,7 @@ impl std::fmt::Display for Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -169,7 +169,7 @@ impl VmResources {
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
             resources.locked_mmds_or_default().put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+                serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
             info!("Successfully added metadata to mmds from file");
         }
@@ -199,19 +199,19 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::SharedBlock(block) => {
+            SharedDeviceType::Block(block) => {
                 self.block.add_device(block);
             }
 
-            SharedDeviceType::SharedNetwork(network) => {
+            SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
 
-            SharedDeviceType::SharedBalloon(balloon) => {
+            SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
             }
 
-            SharedDeviceType::SharedVsock(vsock) => {
+            SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
         }
@@ -365,13 +365,13 @@ impl VmResources {
         self.balloon.set(config)
     }
 
-    /// Obtains the boot source hooks (kernel fd, commandline creation and validation).
+    /// Obtains the boot source hooks (kernel fd, command line creation and validation).
     pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
         self.set_boot_source_config(boot_source_cfg);
-        self.boot_source.builder = Some(BootConfig::new(&self.boot_source_config())?);
+        self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
     }
 

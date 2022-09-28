@@ -10,7 +10,7 @@ use micro_http::{HttpHeaderError, RequestError};
 pub const REJECTED_HEADER: &str = "X-Forwarded-For";
 
 /// Wrapper over the list of token headers associated with a Request.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TokenHeaders {
     /// The `X-metadata-token` header might be used by HTTP clients to specify a token in order
     /// to authenticate to the session. This is used for guest requests to MMDS only.

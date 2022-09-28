@@ -20,7 +20,7 @@ use serde::ser::{Serialize, Serializer};
 pub const MAC_ADDR_LEN: usize = 6;
 
 /// Represents a MAC address
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
@@ -87,7 +87,7 @@ impl MacAddr {
         // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
         // if this ever becomes a performance bottleneck.
         let mut bytes = [0u8; MAC_ADDR_LEN];
-        bytes[..].copy_from_slice(&src);
+        bytes[..].copy_from_slice(src);
 
         MacAddr { bytes }
     }
@@ -165,7 +165,7 @@ mod tests {
 
         let mac = MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
 
-        println!("parsed MAC address: {}", mac.to_string());
+        println!("parsed MAC address: {}", mac);
 
         let bytes = mac.get_bytes();
         assert_eq!(bytes, [0x12u8, 0x34, 0x56, 0x78, 0x9a, 0xbc]);

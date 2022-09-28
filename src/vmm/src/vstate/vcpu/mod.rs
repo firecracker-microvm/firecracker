@@ -69,7 +69,7 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// Encapsulates configuration parameters for the guest vCPUS.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,
@@ -647,7 +647,7 @@ impl Drop for VcpuHandle {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VcpuEmulation {
     Handled,
     Interrupted,
