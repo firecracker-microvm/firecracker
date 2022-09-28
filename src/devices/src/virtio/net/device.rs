@@ -906,7 +906,7 @@ pub mod tests {
         pub fn read_tap(&mut self) -> io::Result<usize> {
             match &self.mocks.read_tap {
                 ReadTapMock::MockFrame(frame) => {
-                    self.rx_frame_buf[..frame.len()].copy_from_slice(&frame);
+                    self.rx_frame_buf[..frame.len()].copy_from_slice(frame);
                     Ok(frame.len())
                 }
                 ReadTapMock::Failure => Err(io::Error::new(
@@ -1436,7 +1436,7 @@ pub mod tests {
         dst_ip: Ipv4Addr,
     ) -> ([u8; MAX_BUFFER_SIZE], usize) {
         let mut frame_buf = [b'\0'; MAX_BUFFER_SIZE];
-        let frame_len;
+
         // Create an ethernet frame.
         let incomplete_frame = EthernetFrame::write_incomplete(
             frame_bytes_from_buf_mut(&mut frame_buf).unwrap(),
@@ -1450,7 +1450,7 @@ pub mod tests {
         let mut frame = incomplete_frame.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
 
         // Save the total frame length.
-        frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
+        let frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
 
         // Create the ARP request.
         let arp_request =
@@ -1797,7 +1797,7 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data(frame);
             }
         }
     }
@@ -1906,7 +1906,7 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data(frame);
             }
         }
     }

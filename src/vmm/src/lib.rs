@@ -74,7 +74,7 @@ pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FcExitCode {
     /// Success exit code.
     Ok = 0,

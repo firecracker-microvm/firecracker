@@ -222,7 +222,7 @@ impl VsockChannel for VsockMuxer {
             // connection requests.
             if pkt.op() == uapi::VSOCK_OP_REQUEST {
                 // Oh, this is a connection request!
-                self.handle_peer_request_pkt(&pkt);
+                self.handle_peer_request_pkt(pkt);
             } else {
                 // Send back an RST, to let the drive know we weren't expecting this packet.
                 self.enq_rst(pkt.dst_port(), pkt.src_port());
@@ -796,7 +796,7 @@ mod tests {
 
     // Create a TempFile with a given prefix and return it as a nice String
     fn get_file(fprefix: &str) -> String {
-        let listener_path = TempFile::new_with_prefix(fprefix.to_owned()).unwrap();
+        let listener_path = TempFile::new_with_prefix(fprefix).unwrap();
         listener_path
             .as_path()
             .as_os_str()
@@ -988,7 +988,7 @@ mod tests {
 
         let conn_eventfd = conn.as_raw_fd();
 
-        (&mut ctx.muxer).handle_event(conn_eventfd, EventSet::OUT);
+        ctx.muxer.handle_event(conn_eventfd, EventSet::OUT);
 
         assert_eq!(METRICS.vsock.conn_event_fails.count(), 1);
     }

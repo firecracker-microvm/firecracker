@@ -7,7 +7,7 @@ use std::fmt;
 const MAX_INSTANCE_ID_LEN: usize = 64;
 const MIN_INSTANCE_ID_LEN: usize = 1;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidChar(char, usize),        // (char, position)
     InvalidLen(usize, usize, usize), // (length, min, max)

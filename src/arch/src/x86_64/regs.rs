@@ -77,8 +77,7 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> std::result::Result<(), SetupFpuError> {
         ..Default::default()
     };
 
-    let res = vcpu.set_fpu(&fpu)?;
-    Ok(res)
+    vcpu.set_fpu(&fpu).map_err(SetupFpuError)
 }
 
 /// Error type of [`setup_regs`].
@@ -289,11 +288,11 @@ mod tests {
     }
 
     fn validate_segments_and_sregs(gm: &GuestMemoryMmap, sregs: &kvm_sregs) {
-        assert_eq!(0x0, read_u64(&gm, BOOT_GDT_OFFSET));
-        assert_eq!(0xaf_9b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
-        assert_eq!(0xcf_9300_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
-        assert_eq!(0x8f_8b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
-        assert_eq!(0x0, read_u64(&gm, BOOT_IDT_OFFSET));
+        assert_eq!(0x0, read_u64(gm, BOOT_GDT_OFFSET));
+        assert_eq!(0xaf_9b00_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 8));
+        assert_eq!(0xcf_9300_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 16));
+        assert_eq!(0x8f_8b00_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 24));
+        assert_eq!(0x0, read_u64(gm, BOOT_IDT_OFFSET));
 
         assert_eq!(0, sregs.cs.base);
         assert_eq!(0xfffff, sregs.ds.limit);
@@ -309,10 +308,10 @@ mod tests {
     }
 
     fn validate_page_tables(gm: &GuestMemoryMmap, sregs: &kvm_sregs) {
-        assert_eq!(0xa003, read_u64(&gm, PML4_START));
-        assert_eq!(0xb003, read_u64(&gm, PDPTE_START));
+        assert_eq!(0xa003, read_u64(gm, PML4_START));
+        assert_eq!(0xb003, read_u64(gm, PDPTE_START));
         for i in 0..512 {
-            assert_eq!((i << 21) + 0x83u64, read_u64(&gm, PDE_START + (i * 8)));
+            assert_eq!((i << 21) + 0x83u64, read_u64(gm, PDE_START + (i * 8)));
         }
 
         assert_eq!(PML4_START as u64, sregs.cr3);

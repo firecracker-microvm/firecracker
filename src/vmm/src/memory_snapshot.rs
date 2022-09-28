@@ -17,7 +17,7 @@ use vm_memory::{
 use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryRegionState {
     // This should have been named `base_guest_addr` since it's _guest_ addr, but for
@@ -31,7 +31,7 @@ pub struct GuestMemoryRegionState {
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
-#[derive(Debug, Default, PartialEq, Versionize)]
+#[derive(Debug, Default, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryState {
     /// List of regions.
@@ -298,13 +298,13 @@ mod tests {
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
             restored_guest_memory
-                .read(&mut actual_region.as_mut_slice(), GuestAddress(0))
+                .read(actual_region.as_mut_slice(), GuestAddress(0))
                 .unwrap();
             assert_eq!(first_region, actual_region);
 
             restored_guest_memory
                 .read(
-                    &mut actual_region.as_mut_slice(),
+                    actual_region.as_mut_slice(),
                     GuestAddress(page_size as u64 * 3),
                 )
                 .unwrap();
@@ -332,13 +332,13 @@ mod tests {
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
             restored_guest_memory
-                .read(&mut actual_region.as_mut_slice(), GuestAddress(0))
+                .read(actual_region.as_mut_slice(), GuestAddress(0))
                 .unwrap();
             assert_eq!(first_region, actual_region);
 
             restored_guest_memory
                 .read(
-                    &mut actual_region.as_mut_slice(),
+                    actual_region.as_mut_slice(),
                     GuestAddress(page_size as u64 * 3),
                 )
                 .unwrap();

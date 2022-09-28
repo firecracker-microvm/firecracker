@@ -61,7 +61,7 @@ pub fn filter_cpuid(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error
     };
 
     if let Some(cpuid_transformer) = maybe_cpuid_transformer {
-        cpuid_transformer.process_cpuid(kvm_cpuid, &vm_spec)?;
+        cpuid_transformer.process_cpuid(kvm_cpuid, vm_spec)?;
     }
 
     Ok(())

@@ -115,14 +115,14 @@ impl Display for StartMicrovmError {
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
             CreateNetDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
 
                 write!(f, "Cannot create network device. {}", err_msg)
             }
             GuestMemoryMmap(err) => {
                 // Remove imbricated quotes from error message.
                 let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
                 write!(f, "Invalid Memory Configuration: {}", err_msg)
             }
             InitrdLoad => write!(
@@ -134,7 +134,7 @@ impl Display for StartMicrovmError {
             KernelCmdline(err) => write!(f, "Invalid kernel command line: {}", err),
             KernelLoader(err) => {
                 let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
                 write!(
                     f,
                     "Cannot load kernel due to invalid memory configuration or invalid kernel \
@@ -144,7 +144,7 @@ impl Display for StartMicrovmError {
             }
             LoadCommandline(err) => {
                 let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
                 write!(f, "Cannot load command line string. {}", err_msg)
             }
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
@@ -161,13 +161,13 @@ impl Display for StartMicrovmError {
             }
             OpenBlockDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
 
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
             }
             RegisterMmioDevice(err) => {
                 let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
+                err_msg = err_msg.replace('\"', "");
                 write!(
                     f,
                     "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline. \
@@ -728,7 +728,7 @@ pub(crate) fn setup_kvm_vm(
         .map_err(Error::KvmContext)
         .map_err(Internal)?;
     let mut vm = Vm::new(kvm.fd()).map_err(Error::Vm).map_err(Internal)?;
-    vm.memory_init(&guest_memory, kvm.max_memslots(), track_dirty_pages)
+    vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
         .map_err(Error::Vm)
         .map_err(Internal)?;
     Ok(vm)
