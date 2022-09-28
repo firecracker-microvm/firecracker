@@ -444,7 +444,7 @@ pub fn snapshot_state_sanity_check(
     #[cfg(target_arch = "x86_64")]
     validate_cpu_vendor(microvm_state)?;
     #[cfg(target_arch = "aarch64")]
-    validate_cpu_manufacturer_id(&microvm_state)?;
+    validate_cpu_manufacturer_id(microvm_state)?;
 
     Ok(())
 }

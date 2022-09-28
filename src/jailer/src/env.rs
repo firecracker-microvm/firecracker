@@ -1257,7 +1257,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     fn test_copy_cache_info() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         let env = create_env();
 
