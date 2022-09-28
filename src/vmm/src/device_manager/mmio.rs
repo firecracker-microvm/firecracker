@@ -245,7 +245,7 @@ impl MMIODeviceManager {
         };
 
         vm.register_irqfd(
-            &serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
+            serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
             device_info.irqs[0],
         )
         .map_err(Error::RegisterIrqFd)?;
