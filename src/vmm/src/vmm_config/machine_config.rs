@@ -209,7 +209,7 @@ where
     #[cfg(target_arch = "aarch64")]
     if val == T::from(true) {
         return Err(de::Error::invalid_value(
-            de::Unexpected::Other(&"smt"),
+            de::Unexpected::Other("smt"),
             &"Enabling simultaneous multithreading is not supported on aarch64",
         ));
     }

@@ -104,7 +104,7 @@ impl GICDevice for GICv2 {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
-            &gic_device.device_fd(),
+            gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
             u64::from(kvm_bindings::KVM_VGIC_V2_ADDR_TYPE_DIST),
             &GICv2::get_dist_addr() as *const u64 as u64,
@@ -113,7 +113,7 @@ impl GICDevice for GICv2 {
 
         // Setting up the CPU attribute.
         Self::set_device_attribute(
-            &gic_device.device_fd(),
+            gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
             u64::from(kvm_bindings::KVM_VGIC_V2_ADDR_TYPE_CPU),
             &GICv2::get_cpu_addr() as *const u64 as u64,
