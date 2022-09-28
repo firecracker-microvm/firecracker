@@ -48,7 +48,7 @@ pub enum Error {
     /// Could not enable the ring.
     Enable(IOError),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// The number of ops in the ring is >= CQ::count
     FullCQueue,
     /// Fd was not registered.
@@ -346,7 +346,7 @@ impl IoUring {
     }
 
     fn check_operations(&self) -> Result<()> {
-        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::FamError)?;
+        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::Fam)?;
 
         // Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {

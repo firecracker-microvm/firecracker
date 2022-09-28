@@ -38,7 +38,7 @@ impl fmt::Display for QueueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::QueueError::*;
 
-        match &*self {
+        match self {
             DescIndexOutOfBounds(val) => write!(f, "Descriptor index out of bounds: {}", val),
             UsedRing(err) => write!(
                 f,
@@ -164,7 +164,7 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
@@ -791,13 +791,13 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let q = vq.create_queue();
-        assert_eq!(q.used_event(&m), Wrapping(0));
+        assert_eq!(q.used_event(m), Wrapping(0));
 
         vq.avail.event.set(10);
-        assert_eq!(q.used_event(&m), Wrapping(10));
+        assert_eq!(q.used_event(m), Wrapping(10));
 
         vq.avail.event.set(u16::MAX);
-        assert_eq!(q.used_event(&m), Wrapping(u16::MAX));
+        assert_eq!(q.used_event(m), Wrapping(u16::MAX));
     }
 
     #[test]
@@ -808,10 +808,10 @@ pub(crate) mod tests {
         let mut q = vq.create_queue();
         assert_eq!(vq.used.event.get(), 0);
 
-        q.set_avail_event(10, &m);
+        q.set_avail_event(10, m);
         assert_eq!(vq.used.event.get(), 10);
 
-        q.set_avail_event(u16::MAX, &m);
+        q.set_avail_event(u16::MAX, m);
         assert_eq!(vq.used.event.get(), u16::MAX);
     }
 
@@ -831,7 +831,7 @@ pub(crate) mod tests {
                         q.next_used = Wrapping(used_idx);
                         vq.avail.event.set(used_event);
                         q.num_added = Wrapping(num_added);
-                        assert!(q.prepare_kick(&m));
+                        assert!(q.prepare_kick(m));
                     }
                 }
             }
@@ -843,7 +843,7 @@ pub(crate) mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(5);
-            assert!(q.prepare_kick(&m));
+            assert!(q.prepare_kick(m));
         }
 
         {
@@ -851,7 +851,7 @@ pub(crate) mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(4);
-            assert!(q.prepare_kick(&m));
+            assert!(q.prepare_kick(m));
         }
 
         {
@@ -859,7 +859,7 @@ pub(crate) mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(3);
-            assert!(!q.prepare_kick(&m));
+            assert!(!q.prepare_kick(m));
         }
     }
 
@@ -879,18 +879,18 @@ pub(crate) mod tests {
         assert_eq!(q.len(m), 1);
 
         // Notification suppression is disabled. try_enable_notification shouldn't do anything.
-        assert_eq!(q.try_enable_notification(m), true);
+        assert!(q.try_enable_notification(m));
         assert_eq!(q.avail_event(m), 0);
 
         // Enable notification suppression and check again. There is 1 available descriptor chain.
         // Again nothing should happen.
         q.enable_notif_suppression();
-        assert_eq!(q.try_enable_notification(m), false);
+        assert!(!q.try_enable_notification(m));
         assert_eq!(q.avail_event(m), 0);
 
         // Consume the descriptor. avail_event should be modified
         assert!(q.pop(m).is_some());
-        assert_eq!(q.try_enable_notification(m), true);
+        assert!(q.try_enable_notification(m));
         assert_eq!(q.avail_event(m), 1);
     }
 

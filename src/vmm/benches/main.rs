@@ -128,7 +128,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Deserialize MicrovmState CRC", |b| {
         b.iter(|| {
             bench_restore_snapshot(
-                &mut snapshot_state_with_crc.as_mut_slice(),
+                snapshot_state_with_crc.as_mut_slice(),
                 black_box(snapshot_len),
                 black_box(version_map.clone()),
                 black_box(true),
@@ -158,7 +158,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Deserialize MicrovmState", |b| {
         b.iter(|| {
             bench_restore_snapshot(
-                black_box(&mut snapshot_state_without_crc.as_mut_slice()),
+                black_box(snapshot_state_without_crc.as_mut_slice()),
                 black_box(snapshot_len),
                 black_box(version_map.clone()),
                 black_box(false),

@@ -40,13 +40,13 @@ fn test_build_microvm() {
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
         let vmm_ret = build_microvm_for_boot(
             &InstanceInfo::default(),
             &resources,
             &mut event_manager,
-            &mut empty_seccomp_filters,
+            &empty_seccomp_filters,
         );
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
@@ -203,7 +203,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     use vmm::memory_snapshot::SnapshotMemory;
 
     let mut event_manager = EventManager::new().unwrap();
-    let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
     // Deserialize microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
@@ -232,7 +232,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         mem,
         None,
         false,
-        &mut empty_seccomp_filters,
+        &empty_seccomp_filters,
         vm_resources,
     )
     .unwrap();

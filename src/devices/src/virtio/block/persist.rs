@@ -21,7 +21,7 @@ use crate::virtio::block::device::FileEngineType;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BLOCK};
 
-#[derive(Clone, Copy, Debug, Versionize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum CacheTypeState {
     Unsafe,
@@ -46,7 +46,7 @@ impl From<CacheTypeState> for CacheType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Versionize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum FileEngineTypeState {
     Sync,

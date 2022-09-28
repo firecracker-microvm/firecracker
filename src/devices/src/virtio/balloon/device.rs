@@ -64,7 +64,7 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
 pub struct BalloonConfig {
     pub amount_mib: u32,
     pub deflate_on_oom: bool,
@@ -72,7 +72,7 @@ pub struct BalloonConfig {
 }
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
     pub target_pages: u32,
