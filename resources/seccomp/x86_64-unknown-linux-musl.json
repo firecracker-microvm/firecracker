@@ -103,6 +103,10 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
+              "syscall": "getrandom",
+              "comment": "getrandom is used by virtio-rng to initialize the rand crate"
+            },
+            {
                 "syscall": "accept4",
                 "comment": "Called to accept vsock connections",
                 "args": [

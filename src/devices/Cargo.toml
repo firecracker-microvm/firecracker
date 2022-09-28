@@ -14,6 +14,7 @@ versionize = "0.1.6"
 versionize_derive = "0.1.4"
 vm-superio = "0.7.0"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+rand = "0.8.5"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
