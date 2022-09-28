@@ -78,7 +78,7 @@ impl fmt::Display for Error {
             FileOpen(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to open file {:?}: {}", path, err).replace("\"", "")
+                format!("Failed to open file {:?}: {}", path, err).replace('\"', "")
             ),
             Json(ref err) => write!(f, "Error parsing JSON: {}", err),
             MissingInputFile => write!(f, "Missing input file."),
@@ -367,7 +367,7 @@ mod tests {
                 path,
                 io::Error::from_raw_os_error(2)
             )
-            .replace("\"", "")
+            .replace('\"', "")
         );
         assert_eq!(
             format!(

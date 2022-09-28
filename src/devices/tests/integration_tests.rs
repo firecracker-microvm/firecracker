@@ -23,7 +23,8 @@ fn create_serial(
     // Serial input is the reading end of the pipe.
     let serial_in = MockSerialInput(pipe);
     let kick_stdin_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
-    let serial = Arc::new(Mutex::new(SerialWrapper {
+
+    Arc::new(Mutex::new(SerialWrapper {
         serial: Serial::with_events(
             EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
             SerialEventsWrapper {
@@ -33,9 +34,7 @@ fn create_serial(
             Box::new(io::stdout()),
         ),
         input: Some(Box::new(serial_in)),
-    }));
-
-    serial
+    }))
 }
 
 #[test]
@@ -176,7 +175,7 @@ fn test_issue_hangup() {
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
-    let _id = event_manager.add_subscriber(serial.clone());
+    let _id = event_manager.add_subscriber(serial);
 
     let mut ev_count = event_manager.run().unwrap();
     assert_eq!(ev_count, 1);

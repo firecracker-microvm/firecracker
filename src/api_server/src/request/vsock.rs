@@ -70,6 +70,6 @@ mod tests {
                 "uds_path": "vsock.sock"
               }"#;
         let (_, mut parsing_info) = parse_put_vsock(&Body::new(body)).unwrap().into_parts();
-        assert!(!parsing_info.take_deprecation_message().is_some());
+        assert!(parsing_info.take_deprecation_message().is_none());
     }
 }

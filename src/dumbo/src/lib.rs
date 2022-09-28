@@ -66,7 +66,7 @@ mod tests {
         let a = [1u8, 2, 3];
         let mut b = [0u8; 2];
         assert_eq!(bb_len(a.as_ref()), a.len());
-        assert_eq!(bb_is_empty(a.as_ref()), false);
+        assert!(!bb_is_empty(a.as_ref()));
         bb_read_from_1(a.as_ref(), b.as_mut());
         assert_eq!(b, [2, 3]);
     }

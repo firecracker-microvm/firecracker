@@ -249,7 +249,7 @@ pub fn create_snapshot(
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     // Fail early from invalid target version.
-    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
+    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, vmm)?;
 
     let microvm_state = vmm
         .save_state(vm_info)
@@ -492,7 +492,7 @@ pub fn snapshot_state_sanity_check(
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_cpu_vendor(&microvm_state)?;
+    validate_cpu_vendor(microvm_state)?;
     #[cfg(target_arch = "aarch64")]
     validate_cpu_manufacturer_id(&microvm_state)?;
 

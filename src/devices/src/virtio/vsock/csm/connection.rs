@@ -300,7 +300,7 @@ where
                 }
 
                 // Unwrapping here is safe, since we just checked `pkt.buf()` above.
-                if let Err(err) = self.send_bytes(mem, &pkt) {
+                if let Err(err) = self.send_bytes(mem, pkt) {
                     // If we can't write to the host stream, that's an unrecoverable error, so
                     // we'll terminate this connection.
                     warn!(

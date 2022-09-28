@@ -36,7 +36,7 @@ use vm_memory::GuestAddress;
 #[derive(Debug)]
 pub enum Error {
     /// Failed to perform an operation on the bus.
-    BusError(devices::BusError),
+    Bus(devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found.
@@ -62,7 +62,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BusError(err) => write!(f, "failed to perform bus operation: {}", err),
+            Error::Bus(err) => write!(f, "failed to perform bus operation: {}", err),
             Error::Cmdline(err) => {
                 write!(f, "unable to add device to kernel command line: {}", err)
             }
@@ -88,7 +88,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 pub const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
-#[derive(Clone, Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MMIODeviceInfo {
     /// Mmio address at which the device is registered.
@@ -150,7 +150,7 @@ impl MMIODeviceManager {
     ) -> Result<()> {
         self.bus
             .insert(device, device_info.addr, device_info.len)
-            .map_err(Error::BusError)?;
+            .map_err(Error::Bus)?;
         self.id_to_dev_info.insert(identifier, device_info);
         Ok(())
     }
@@ -671,7 +671,7 @@ mod tests {
             // Use an exhaustive 'match' to make sure we cover all error variants.
             // When adding a new variant here, don't forget to also call this function with it.
             let msg = match err {
-                Error::BusError(_) => format!("{}{:?}", err, err),
+                Error::Bus(_) => format!("{}{:?}", err, err),
                 Error::Cmdline(_) => format!("{}{:?}", err, err),
                 Error::DeviceNotFound => format!("{}{:?}", err, err),
                 Error::EventFd(_) => format!("{}{:?}", err, err),
@@ -685,7 +685,7 @@ mod tests {
             };
             assert!(!msg.is_empty());
         };
-        check_fmt_err(Error::BusError(devices::BusError::Overlap));
+        check_fmt_err(Error::Bus(devices::BusError::Overlap));
         check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
@@ -744,7 +744,7 @@ mod tests {
 
         let id = "bar";
         assert!(device_manager
-            .get_device(DeviceType::Virtio(type_id), &id)
+            .get_device(DeviceType::Virtio(type_id), id)
             .is_none());
 
         let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));

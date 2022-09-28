@@ -171,7 +171,7 @@ impl Read for Tap {
 
 impl Write for Tap {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        self.tap_file.write(&buf)
+        self.tap_file.write(buf)
     }
 
     fn flush(&mut self) -> IoResult<()> {
