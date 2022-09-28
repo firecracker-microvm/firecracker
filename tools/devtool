@@ -2116,12 +2116,12 @@ cmd_build_kernel() {
     say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
 }
 
-# `./devtool build_rootfs -s 500MB`
+# `./devtool build_rootfs -s 500M`
 # Build a rootfs of custom size.
 #
 cmd_build_rootfs() {
-    # Default size for the resulting rootfs image is 300MB.
-    SIZE="300MB"
+    # Default size for the resulting rootfs image is 300M.
+    SIZE="300M"
     FROM_CTR=ubuntu:18.04
     flavour="bionic"
     ROOTFS_DIR=/firecracker/build/rootfs
