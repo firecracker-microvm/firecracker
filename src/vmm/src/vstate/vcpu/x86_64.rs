@@ -85,6 +85,8 @@ pub enum Error {
     VcpuSetMpState(kvm_ioctls::Error),
     /// Failed to set KVM vcpu msrs.
     VcpuSetMsrs(kvm_ioctls::Error),
+    /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
+    VcpuSetMSRSIncomplete,
     /// Failed to set KVM vcpu regs.
     VcpuSetRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu sregs.
@@ -145,6 +147,10 @@ impl Display for Error {
             VcpuSetLapic(err) => write!(f, "Failed to set KVM vcpu lapic: {}", err),
             VcpuSetMpState(err) => write!(f, "Failed to set KVM vcpu mp state: {}", err),
             VcpuSetMsrs(err) => write!(f, "Failed to set KVM vcpu msrs: {}", err),
+            VcpuSetMSRSIncomplete => write!(
+                f,
+                "Failed to set all KVM MSRs for this vCPU. Only a partial write was done."
+            ),
             VcpuSetRegs(err) => write!(f, "Failed to set KVM vcpu regs: {}", err),
             VcpuSetSregs(err) => write!(f, "Failed to set KVM vcpu sregs: {}", err),
             VcpuSetVcpuEvents(err) => write!(f, "Failed to set KVM vcpu event: {}", err),
@@ -452,7 +458,11 @@ impl KvmVcpu {
         self.fd
             .set_lapic(&state.lapic)
             .map_err(Error::VcpuSetLapic)?;
-        self.fd.set_msrs(&state.msrs).map_err(Error::VcpuSetMsrs)?;
+        let nmsrs = self.fd.set_msrs(&state.msrs).map_err(Error::VcpuSetMsrs)?;
+        let num_msrs = state.msrs.as_fam_struct_ref().nmsrs as usize;
+        if nmsrs < num_msrs {
+            return Err(Error::VcpuSetMSRSIncomplete);
+        }
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(Error::VcpuSetVcpuEvents)?;
