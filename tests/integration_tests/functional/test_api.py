@@ -464,7 +464,7 @@ def test_api_machine_config(test_microvm_with_api):
     response = test_microvm.actions.put(action_type="InstanceStart")
     fail_msg = (
         "Invalid Memory Configuration: MmapRegion(Mmap(Os { code: "
-        "12, kind: Other, message: Out of memory }))"
+        "12, kind: OutOfMemory, message: Out of memory }))"
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert fail_msg in response.text
