@@ -349,13 +349,9 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
-    if let Ok(paths) = fs::read_dir("/proc/self/fd") {
-        for maybe_path in paths {
-            if maybe_path.is_err() {
-                continue;
-            }
-
-            let file_name = maybe_path.unwrap().file_name();
+    if let Ok(mut paths) = fs::read_dir("/proc/self/fd") {
+        while let Some(Ok(path)) = paths.next() {
+            let file_name = path.file_name();
             let fd_str = file_name.to_str().unwrap_or("0");
             let fd = fd_str.parse::<i32>().unwrap_or(0);
 
