@@ -40,7 +40,7 @@ class IMDSv2Client:
             headers = {IMDSV2_HDR_TOKEN_TTL: str(self.ttl)}
             # To get a token, docs say to always use latest
             url = f"{self.endpoint}/latest/api/token"
-            res = requests.put(url, headers=headers)
+            res = requests.put(url, headers=headers, timeout=2)
             self.token = res.content
             self.token_expiry_time = time.time() + self.ttl
         return self.token
@@ -53,7 +53,7 @@ class IMDSv2Client:
         """
         headers = {IMDSV2_HDR_TOKEN: self.get_token()}
         url = f"{self.endpoint}/{self.version}{path}"
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=2)
         if res.status_code != 200:
             raise Exception(f"IMDSv2 returned {res.status_code} for {url}")
         return res.text
