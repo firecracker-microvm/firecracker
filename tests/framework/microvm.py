@@ -939,7 +939,7 @@ class Microvm:
 class Serial:
     """Class for serial console communication with a Microvm."""
 
-    RX_TIMEOUT_S = 5
+    RX_TIMEOUT_S = 20
 
     def __init__(self, vm):
         """Initialize a new Serial object."""
@@ -988,6 +988,7 @@ class Serial:
             if rx_str.endswith(token):
                 break
             if (time.time() - start) >= self.RX_TIMEOUT_S:
+                self._vm.kill()
                 assert False
 
         return rx_str
