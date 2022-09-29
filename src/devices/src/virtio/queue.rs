@@ -48,7 +48,7 @@ impl fmt::Display for QueueError {
     }
 }
 
-/// A virtio descriptor constraints with C representive.
+/// A virtio descriptor constraints with C representative.
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct Descriptor {
@@ -103,9 +103,9 @@ impl<'a> DescriptorChain<'a> {
         // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = match mem.read_obj::<Descriptor>(desc_head) {
             Ok(ret) => ret,
-            Err(_) => {
+            Err(err) => {
                 // TODO log address
-                error!("Failed to read from memory");
+                error!("Failed to read virtio descriptor from memory: {}", err);
                 return None;
             }
         };
@@ -288,7 +288,7 @@ impl Queue {
     }
 
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
-    pub fn len(&self, mem: &GuestMemoryMmap) -> u16 {
+    fn len(&self, mem: &GuestMemoryMmap) -> u16 {
         (self.avail_idx(mem) - self.next_avail).0
     }
 
@@ -299,7 +299,21 @@ impl Queue {
 
     /// Pop the first available descriptor chain from the avail ring.
     pub fn pop<'a, 'b>(&'a mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
-        if self.len(mem) == 0 {
+        let len = self.len(mem);
+        // The number of descriptor chain heads to process should always
+        // be smaller or equal to the queue size, as the driver should
+        // never ask the VMM to process a available ring entry more than
+        // once. Checking and reporting such incorrect driver behavior
+        // can prevent potential hanging and Denial-of-Service from
+        // happening on the VMM side.
+        if len > self.actual_size() {
+            // We are choosing to interrupt execution since this could be a potential malicious
+            // driver scenario. This way we also eliminate the risk of repeatedly
+            // logging and potentially clogging the microVM through the log system.
+            panic!("The number of available virtio descriptors is greater than queue size!");
+        }
+
+        if len == 0 {
             return None;
         }
 
@@ -424,9 +438,9 @@ impl Queue {
     fn avail_idx(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
         // Bound checks for queue inner data have already been performed, at device activation time,
         // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
-        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the guest
-        //       after device activation, so we can be certain that no change has occured since
-        //       the last `self.is_valid()` check.
+        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
+        // guest       after device activation, so we can be certain that no change has
+        // occurred since the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
@@ -462,7 +476,17 @@ impl Queue {
             return true;
         }
 
-        if self.len(mem) != 0 {
+        let len = self.len(mem);
+        if len != 0 {
+            // The number of descriptor chain heads to process should always
+            // be smaller or equal to the queue size.
+            if len > self.actual_size() {
+                // We are choosing to interrupt execution since this could be a potential malicious
+                // driver scenario. This way we also eliminate the risk of
+                // repeatedly logging and potentially clogging the microVM through
+                // the log system.
+                panic!("The number of available virtio descriptors is greater than queue size!");
+            }
             return false;
         }
 
@@ -739,6 +763,92 @@ pub(crate) mod tests {
         q.enable_notif_suppression();
         assert!(q.pop_or_enable_notification(m).is_none());
         assert_eq!(q.avail_event(m), 2);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The number of available virtio descriptors is greater than queue size!"
+    )]
+    fn test_invalid_avail_idx_no_notification() {
+        // This test ensures constructing a descriptor chain succeeds
+        // with valid available ring indexes while it produces an error with invalid
+        // indexes.
+        // No notification suppression enabled.
+        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x6000)], false).unwrap();
+
+        // We set up a queue of size 4.
+        let vq = VirtQueue::new(GuestAddress(0), m, 4);
+        let mut q = vq.create_queue();
+
+        for j in 0..4 {
+            vq.dtable[j].set(
+                0x1000 * (j + 1) as u64,
+                0x1000,
+                VIRTQ_DESC_F_NEXT,
+                (j + 1) as u16,
+            );
+        }
+
+        // Create 2 descriptor chains.
+        // the chains are (0, 1) and (2, 3)
+        vq.dtable[1].flags.set(0);
+        vq.dtable[3].flags.set(0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(2);
+        vq.avail.idx.set(2);
+
+        // We've just set up two chains.
+        assert_eq!(q.len(m), 2);
+
+        // We process the first descriptor.
+        let d = q.pop(m).unwrap().next_descriptor();
+        assert!(matches!(d, Some(x) if !x.has_next()));
+        // We confuse the device and set the available index as being 6.
+        vq.avail.idx.set(6);
+
+        // We've actually just popped a descriptor so 6 - 1 = 5.
+        assert_eq!(q.len(m), 5);
+
+        // However, since the apparent length set by the driver is more than the queue size,
+        // we would be running the risk of going through some descriptors more than once.
+        // As such, we expect to panic.
+        q.pop(m);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The number of available virtio descriptors is greater than queue size!"
+    )]
+    fn test_invalid_avail_idx_with_notification() {
+        // This test ensures constructing a descriptor chain succeeds
+        // with valid available ring indexes while it produces an error with invalid
+        // indexes.
+        // Notification suppression is enabled.
+        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x6000)], false).unwrap();
+
+        // We set up a queue of size 4.
+        let vq = VirtQueue::new(GuestAddress(0), m, 4);
+        let mut q = vq.create_queue();
+
+        q.uses_notif_suppression = true;
+
+        // Create 1 descriptor chain of 4.
+        for j in 0..4 {
+            vq.dtable[j].set(
+                0x1000 * (j + 1) as u64,
+                0x1000,
+                VIRTQ_DESC_F_NEXT,
+                (j + 1) as u16,
+            );
+        }
+        // We need to clear the VIRTQ_DESC_F_NEXT for the last descriptor.
+        vq.dtable[3].flags.set(0);
+        vq.avail.ring[0].set(0);
+
+        // driver sets available index to suspicious value.
+        vq.avail.idx.set(6);
+
+        q.pop_or_enable_notification(m);
     }
 
     #[test]
