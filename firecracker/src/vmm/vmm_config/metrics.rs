@@ -18,7 +18,7 @@ pub struct MetricsConfig {
 }
 
 /// Errors associated with actions on the `MetricsConfig`.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MetricsConfigError {
     /// Cannot initialize the metrics system due to bad user input.
     InitializationFailure(String),
@@ -51,21 +51,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_init_metrics() {
+    fn test_init_metrics_invalid_pipe() {
         // Error case: initializing metrics with invalid pipe returns error.
         let desc = MetricsConfig {
             metrics_path: PathBuf::from("not_found_file_metrics"),
         };
-        assert!(init_metrics(desc).is_err());
+        let init = init_metrics(desc);
+        assert_eq!(
+            init,
+            Err(MetricsConfigError::InitializationFailure(String::from(
+                "No such file or directory (os error 2)"
+            )))
+        );
+    }
 
+    #[test]
+    fn test_init_metrics() {
         // Initializing metrics with valid pipe is ok.
         let metrics_file = TempFile::new().unwrap();
         let desc = MetricsConfig {
             metrics_path: metrics_file.as_path().to_path_buf(),
         };
 
-        assert!(init_metrics(desc.clone()).is_ok());
-        assert!(init_metrics(desc).is_err());
+        // At this point we do not know if the metrics have been initialized in
+        // this process, but we need to guarantee it is for the following
+        // assertion. So we make this function call and do not check it.
+        init_metrics(desc.clone()).ok();
+        let init = init_metrics(desc);
+        assert_eq!(
+            init,
+            Err(MetricsConfigError::InitializationFailure(String::from(
+                "Reinitialization of metrics not allowed."
+            )))
+        )
     }
 
     #[test]

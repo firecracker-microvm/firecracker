@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(missing_docs)]
 
-use std::path::PathBuf;
-
 use super::super::resources::VmResources;
 use super::super::vmm_config::boot_source::BootSourceConfig;
 use super::super::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
@@ -17,13 +15,6 @@ pub const DEFAULT_KERNEL_IMAGE: &str = "test_pe.bin";
 pub const NOISY_KERNEL_IMAGE: &str = "test_noisy_elf.bin";
 #[cfg(target_arch = "aarch64")]
 pub const NOISY_KERNEL_IMAGE: &str = "test_pe.bin";
-
-fn kernel_image_path(kernel_image: Option<&str>) -> String {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("src/utilities/mock_resources");
-    path.push(kernel_image.unwrap_or(DEFAULT_KERNEL_IMAGE));
-    path.as_os_str().to_str().unwrap().to_string()
-}
 
 macro_rules! generate_from {
     ($src_type: ty, $dst_type: ty) => {
@@ -40,7 +31,14 @@ pub struct MockBootSourceConfig(BootSourceConfig);
 impl MockBootSourceConfig {
     pub fn new() -> MockBootSourceConfig {
         MockBootSourceConfig(BootSourceConfig {
-            kernel_image_path: kernel_image_path(None),
+            #[cfg(target_arch = "x86_64")]
+            kernel_image_path: String::from(
+                "./firecracker/src/vmm/utilities/mock_resources/test_elf.bin",
+            ),
+            #[cfg(target_arch = "aarch64")]
+            kernel_image_path: String::from(
+                "./firecracker/src/vmm/utilities/mock_resources/test_pe.bin",
+            ),
             initrd_path: None,
             boot_args: None,
         })
@@ -53,7 +51,8 @@ impl MockBootSourceConfig {
 
     #[cfg(target_arch = "x86_64")]
     pub fn with_kernel(mut self, kernel_image: &str) -> Self {
-        self.0.kernel_image_path = kernel_image_path(Some(kernel_image));
+        self.0.kernel_image_path =
+            format!("./firecracker/src/vmm/utilities/mock_resources/{kernel_image}");
         self
     }
 }

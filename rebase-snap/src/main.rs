@@ -6,7 +6,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
-use std::{env, process};
+use std::process;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments};
 use utils::seek_hole::SeekHole;

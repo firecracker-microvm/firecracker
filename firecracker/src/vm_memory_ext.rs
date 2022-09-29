@@ -45,11 +45,15 @@ fn build_guarded_region(
     track_dirty_pages: bool,
 ) -> Result<GuestMmapRegion, MmapRegionError> {
     let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
-    // Create the guarded range size (received size + X pages),
-    // where X is defined as a constant GUARD_PAGE_COUNT.
-    let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
 
-    // Map the guarded range to PROT_NONE
+    // We create `GUARD_PAGE_COUNT` guard pages to the left and right of the mapped memory region,
+    // these guarded regions each have `guard_size` size.
+    let guard_region_size = GUARD_PAGE_COUNT * page_size;
+    // The total guarded size is thus equal to the size of the memory region plus
+    // `2 * guard_region_size`.
+    let guarded_size = size + (2 * guard_region_size);
+
+    // Map the guarded range to `PROT_NONE`
     let guard_addr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
@@ -73,7 +77,7 @@ fn build_guarded_region(
         None => (-1, 0),
     };
 
-    let region_start_addr = guard_addr as usize + page_size * GUARD_PAGE_COUNT;
+    let region_start_addr = guard_addr as usize + guard_region_size;
 
     // Inside the protected range, starting with guard_addr + PAGE_SIZE,
     // map the requested range with received protection and flags
@@ -111,21 +115,32 @@ pub fn create_guest_memory(
     regions: &[(Option<FileOffset>, GuestAddress, usize)],
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, Error> {
-    let prot = libc::PROT_READ | libc::PROT_WRITE;
-    let mut mmap_regions = Vec::with_capacity(regions.len());
+    // Protection specifying the memory can be both read from and written to.
+    const PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
+    const FLAGS: i32 = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
-    for region in regions {
-        let flags = match region.0 {
-            None => libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            Some(_) => libc::MAP_NORESERVE | libc::MAP_PRIVATE,
-        };
+    let mmap_regions = regions
+        .iter()
+        .map(|region| {
+            let anon = if region.0.is_none() {
+                libc::MAP_ANONYMOUS
+            } else {
+                0
+            };
+            let region_flags = FLAGS | anon;
 
-        let mmap_region =
-            build_guarded_region(region.0.clone(), region.2, prot, flags, track_dirty_pages)
-                .map_err(Error::MmapRegion)?;
-
-        mmap_regions.push(GuestRegionMmap::new(mmap_region, region.1)?);
-    }
+            match build_guarded_region(
+                region.0.clone(),
+                region.2,
+                PROT,
+                region_flags,
+                track_dirty_pages,
+            ) {
+                Ok(mmap_region) => GuestRegionMmap::new(mmap_region, region.1),
+                Err(err) => Err(Error::MmapRegion(err)),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     GuestMemoryMmap::from_regions(mmap_regions)
 }
@@ -187,55 +202,45 @@ pub fn create_anon_guest_memory(
 
 #[cfg(test)]
 mod tests {
+    use std::ptr::{read_volatile, write_volatile};
+
     use utils::get_page_size;
     use utils::tempfile::TempFile;
 
     use super::*;
 
-    enum AddrOp {
-        Read,
-        Write,
-    }
-
-    impl AddrOp {
-        fn apply_on_addr(&self, addr: *mut u8) {
-            match self {
-                AddrOp::Read => {
-                    // We have to do something perform a read_volatile, otherwise
-                    // the Release version will optimize it out, making the test fail.
-                    unsafe { std::ptr::read_volatile(addr) };
-                }
-                AddrOp::Write => unsafe {
-                    std::ptr::write(addr, 0xFF);
-                },
-            }
-        }
-    }
-
-    fn fork_and_run(function: &dyn Fn(), expect_sigsegv: bool) {
+    /// Asserts that executing a given function results in a segmentation fault (`SIGSEGV`).
+    ///
+    /// 1. Fork process
+    /// 2. Parent executes function.
+    /// 3. Child waits for parent to exit.
+    /// 4. Child asserts parents exited with `SIGSEGV`.
+    fn assert_sigsegv(f: impl Fn()) {
+        // Forks process
         let pid = unsafe { libc::fork() };
-        match pid {
-            0 => {
-                function();
-            }
-            child_pid => {
-                let mut child_status: i32 = -1;
-                let pid_done = unsafe { libc::waitpid(child_pid, &mut child_status, 0) };
-                assert_eq!(pid_done, child_pid);
+        // The pid of the parent will be 0.
+        if pid == 0 {
+            // In this case we execute the function.
+            f();
+            // If the process didn't exit on `f()` we then exit here.
+            unreachable!();
+        } else {
+            // Wait for parent to exit and get status.
+            let status = {
+                let mut status = std::mem::MaybeUninit::<i32>::uninit();
+                // Waits fo parent to exit
+                let pid_done = unsafe { libc::waitpid(pid, status.as_mut_ptr(), 0) };
+                // TODO Document this
+                assert_eq!(pid_done, pid);
+                // Assume status set
+                unsafe { status.assume_init_read() }
+            };
 
-                if expect_sigsegv {
-                    // Asserts that the child process terminated because
-                    // it received a signal that was not handled.
-                    assert!(libc::WIFSIGNALED(child_status));
-                    // Signal code should be a SIGSEGV
-                    assert_eq!(libc::WTERMSIG(child_status), libc::SIGSEGV);
-                } else {
-                    assert!(libc::WIFEXITED(child_status));
-                    // Signal code should be a SIGSEGV
-                    assert_eq!(libc::WEXITSTATUS(child_status), 0);
-                }
-            }
-        };
+            // Assert parent terminated by signal
+            assert!(libc::WIFSIGNALED(status));
+            // Assert parent terminated by `SIGSEGV`.
+            assert_eq!(libc::WTERMSIG(status), libc::SIGSEGV);
+        }
     }
 
     fn validate_guard_region(region: &GuestMmapRegion) {
@@ -251,40 +256,39 @@ mod tests {
 
         // Try a read/write operation against the left guard border of the range
         let left_border = (addr as usize - page_size) as *mut u8;
-        fork_and_run(&|| AddrOp::Read.apply_on_addr(left_border), true);
-        fork_and_run(&|| AddrOp::Write.apply_on_addr(left_border), true);
+
+        assert_sigsegv(|| unsafe {
+            read_volatile(left_border);
+        });
+        assert_sigsegv(|| unsafe {
+            write_volatile(left_border, 0xFF);
+        });
 
         // Try a read/write operation against the right guard border of the range
         let right_border = (addr as usize + region.size()) as *mut u8;
-        fork_and_run(&|| AddrOp::Read.apply_on_addr(right_border), true);
-        fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
+
+        assert_sigsegv(|| unsafe {
+            read_volatile(right_border);
+        });
+        assert_sigsegv(|| unsafe {
+            write_volatile(right_border, 0xFF);
+        });
     }
 
     fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
         let right_page_guard = region.as_ptr() as usize + region.size();
 
-        fork_and_run(
-            &|| {
-                let mut addr = region.as_ptr() as usize;
-                loop {
-                    if addr >= right_page_guard {
-                        break;
-                    }
-                    AddrOp::Write.apply_on_addr(addr as *mut u8);
-
-                    addr += page_size;
-                }
-            },
-            false,
-        );
-
-        fork_and_run(
-            &|| {
-                AddrOp::Write.apply_on_addr(right_page_guard as *mut u8);
-            },
-            true,
-        );
+        // Write to memory region
+        for page in (region.as_ptr() as usize..region.size()).step_by(page_size) {
+            unsafe {
+                write_volatile(page as *mut u8, 0xFF);
+            }
+        }
+        // Write to guarded boundary
+        assert_sigsegv(|| unsafe {
+            write_volatile(right_page_guard as *mut u8, 0xFF);
+        });
     }
 
     #[test]
@@ -337,56 +341,55 @@ mod tests {
         }
     }
 
+    /// Test that all regions are guarded.
     #[test]
-    fn test_create_guest_memory() {
-        // Test that all regions are guarded.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (None, GuestAddress(0x0), region_size),
-                (None, GuestAddress(0x10000), region_size),
-                (None, GuestAddress(0x20000), region_size),
-                (None, GuestAddress(0x30000), region_size),
-            ];
+    fn test_create_guest_memory_guarded() {
+        let region_size = 0x10000;
+        let regions = vec![
+            (None, GuestAddress(0x0), region_size),
+            (None, GuestAddress(0x10000), region_size),
+            (None, GuestAddress(0x20000), region_size),
+            (None, GuestAddress(0x30000), region_size),
+        ];
 
-            let guest_memory = create_guest_memory(&regions, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                validate_guard_region(region);
-                loop_guard_region_to_sigsegv(region);
-            });
-        }
+        let guest_memory = create_guest_memory(&regions, false).unwrap();
 
-        // Check dirty page tracking is off.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (None, GuestAddress(0x0), region_size),
-                (None, GuestAddress(0x10000), region_size),
-                (None, GuestAddress(0x20000), region_size),
-                (None, GuestAddress(0x30000), region_size),
-            ];
+        guest_memory.iter().for_each(|region| {
+            validate_guard_region(region);
+            loop_guard_region_to_sigsegv(region);
+        });
+    }
+    /// Check dirty page tracking is off.
+    #[test]
+    fn test_create_guest_memory_tracking_off() {
+        let region_size = 0x10000;
+        let regions = vec![
+            (None, GuestAddress(0x0), region_size),
+            (None, GuestAddress(0x10000), region_size),
+            (None, GuestAddress(0x20000), region_size),
+            (None, GuestAddress(0x30000), region_size),
+        ];
 
-            let guest_memory = create_guest_memory(&regions, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_none());
-            });
-        }
+        let guest_memory = create_guest_memory(&regions, false).unwrap();
+        guest_memory.iter().for_each(|region| {
+            assert!(region.bitmap().is_none());
+        });
+    }
+    /// Check dirty page tracking is on.
+    #[test]
+    fn test_create_guest_memory_tracking_on() {
+        let region_size = 0x10000;
+        let regions = vec![
+            (None, GuestAddress(0x0), region_size),
+            (None, GuestAddress(0x10000), region_size),
+            (None, GuestAddress(0x20000), region_size),
+            (None, GuestAddress(0x30000), region_size),
+        ];
 
-        // Check dirty page tracking is on.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (None, GuestAddress(0x0), region_size),
-                (None, GuestAddress(0x10000), region_size),
-                (None, GuestAddress(0x20000), region_size),
-                (None, GuestAddress(0x30000), region_size),
-            ];
-
-            let guest_memory = create_guest_memory(&regions, true).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_some());
-            });
-        }
+        let guest_memory = create_guest_memory(&regions, true).unwrap();
+        guest_memory.iter().for_each(|region| {
+            assert!(region.bitmap().is_some());
+        });
     }
 
     #[test]

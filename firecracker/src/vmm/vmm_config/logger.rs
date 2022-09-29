@@ -111,7 +111,7 @@ impl LoggerConfig {
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
     InitializationFailure(String),
@@ -164,19 +164,29 @@ mod tests {
     use crate::logger::warn;
 
     #[test]
-    fn test_init_logger() {
+    fn test_init_logger_invalid_pipe() {
         let default_instance_info = InstanceInfo::default();
 
-        // Error case: initializing logger with invalid pipe returns error.
+        // Initializing logger with invalid pipe
         let desc = LoggerConfig {
             log_path: PathBuf::from("not_found_file_log"),
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
         };
-        assert!(init_logger(desc, &default_instance_info).is_err());
+        let init = init_logger(desc, &default_instance_info);
+        assert_eq!(
+            init,
+            Err(LoggerConfigError::InitializationFailure(String::from(
+                "No such file or directory (os error 2)"
+            )))
+        );
+    }
+    #[test]
+    fn test_init_logger() {
+        let default_instance_info = InstanceInfo::default();
 
-        // Initializing logger with valid pipe is ok.
+        // Initializing logger with valid pipe
         let log_file = TempFile::new().unwrap();
         let desc = LoggerConfig {
             log_path: log_file.as_path().to_path_buf(),
@@ -184,52 +194,39 @@ mod tests {
             show_level: true,
             show_log_origin: true,
         };
+        // At this point we do not know if the logger has been initialized in
+        // this process, but we need to guarantee it is for the following
+        // assertion. So we make this function call and do not check it.
+        init_logger(desc.clone(), &default_instance_info).ok();
 
-        assert!(init_logger(desc.clone(), &default_instance_info).is_ok());
-        assert!(init_logger(desc, &default_instance_info).is_err());
+        let init = init_logger(desc, &default_instance_info);
+        assert_eq!(
+            init,
+            Err(LoggerConfigError::InitializationFailure(String::from(
+                "Logger initialization failure: The component is already initialized."
+            )))
+        );
 
-        // Validate logfile works.
+        let reader = BufReader::new(log_file.into_file());
+        let mut lines_iter = reader.lines();
+
+        // Validate log file works.
         warn!("this is a test");
-
-        let mut reader = BufReader::new(log_file.into_file());
-
-        let mut line = String::new();
-        loop {
-            if line.contains("this is a test") {
-                break;
-            }
-            if reader.read_line(&mut line).unwrap() == 0 {
-                // If it ever gets here, this assert will fail.
-                assert!(line.contains("this is a test"));
-            }
-        }
+        lines_iter.any(|x| x.unwrap().ends_with("this is a test"));
 
         // Validate logging the boot time works.
         let mut boot_timer = BootTimer::new(TimestampUs::default());
         boot_timer.write(0, &[123]);
 
-        let mut line = String::new();
-        loop {
-            if line.contains("Guest-boot-time =") {
-                break;
-            }
-            if reader.read_line(&mut line).unwrap() == 0 {
-                // If it ever gets here, this assert will fail.
-                assert!(line.contains("Guest-boot-time ="));
-            }
-        }
+        lines_iter.any(|x| x.unwrap().contains("Guest-boot-time ="));
     }
 
     #[test]
     fn test_error_display() {
+        const MSG: &str = "Failed to initialize logger";
         assert_eq!(
-            format!(
-                "{}",
-                LoggerConfigError::InitializationFailure(String::from(
-                    "Failed to initialize logger"
-                ))
-            ),
-            "Failed to initialize logger"
+            LoggerConfigError::InitializationFailure(String::from(MSG)).to_string(),
+            MSG
         );
     }
 
@@ -247,10 +244,9 @@ mod tests {
     fn test_parse_level() {
         // Check `from_string()` behaviour for different scenarios.
         assert_eq!(
-            format!(
-                "{}",
-                LoggerLevel::from_string("random_value".to_string()).unwrap_err()
-            ),
+            LoggerLevel::from_string("random_value".to_string())
+                .unwrap_err()
+                .to_string(),
             "random_value"
         );
         assert_eq!(

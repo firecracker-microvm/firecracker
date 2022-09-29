@@ -914,8 +914,6 @@ mod tests {
     use seccomp_filters::{get_filters, SeccompConfig};
     use utilities::mock_devices::MockSerialInput;
     use utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
-    #[cfg(target_arch = "x86_64")]
-    use utilities::test_utils::dirty_tracking_vmm;
     use utilities::test_utils::{create_vmm, default_vmm};
     use utils::tempfile::TempFile;
     use version_map::VERSION_MAP;
@@ -963,7 +961,7 @@ mod tests {
         // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
         #[cfg(target_arch = "x86_64")]
         _evmgr.run_with_timeout(500).unwrap();
-        #[cfg(target_arch = "aarch64")]
+
         vmm.lock().unwrap().stop(FcExitCode::Ok);
 
         assert_eq!(
@@ -1000,28 +998,6 @@ mod tests {
             format!("{:?}", vmm.lock().unwrap().get_dirty_bitmap().err()),
             "Some(DirtyBitmap(Error(2)))"
         );
-        vmm.lock().unwrap().stop(FcExitCode::Ok);
-    }
-
-    #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn test_dirty_bitmap_success() {
-        // The vmm will start with dirty page tracking = ON.
-        let (vmm, _) = dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
-
-        // Let it churn for a while and dirty some pages...
-        thread::sleep(Duration::from_millis(100));
-        let bitmap = vmm.lock().unwrap().get_dirty_bitmap().unwrap();
-        let num_dirty_pages: u32 = bitmap
-            .values()
-            .map(|bitmap_per_region| {
-                // Gently coerce to u32
-                let num_dirty_pages_per_region: u32 =
-                    bitmap_per_region.iter().map(|n| n.count_ones()).sum();
-                num_dirty_pages_per_region
-            })
-            .sum();
-        assert!(num_dirty_pages > 0);
         vmm.lock().unwrap().stop(FcExitCode::Ok);
     }
 

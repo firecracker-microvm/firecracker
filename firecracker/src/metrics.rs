@@ -101,21 +101,22 @@ pub mod tests {
 
     #[test]
     fn test_periodic_metrics() {
+        const FLUSH_PERIOD_MS: u64 = 50;
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let metrics = Arc::new(Mutex::new(PeriodicMetrics::new()));
         event_manager.add_subscriber(metrics.clone());
 
-        let flush_period_ms = 50;
         metrics
             .lock()
             .expect("Unlock failed.")
-            .start(flush_period_ms);
+            .start(FLUSH_PERIOD_MS);
         // .start() does an initial flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 1);
 
         // Wait for at most 1.5x period.
+        std::thread::sleep(Duration::from_millis(FLUSH_PERIOD_MS));
         event_manager
-            .run_with_timeout((flush_period_ms + flush_period_ms / 2) as i32)
+            .run_with_timeout((FLUSH_PERIOD_MS + FLUSH_PERIOD_MS / 2) as i32)
             .expect("Metrics event timeout or error.");
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);

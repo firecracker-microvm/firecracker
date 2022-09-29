@@ -871,9 +871,9 @@ mod tests {
         use std::fs::File;
 
         #[cfg(target_arch = "x86_64")]
-        const PATH: &str = "./src/vmm/utilities/mock_resources/test_elf.bin";
+        const PATH: &str = "./firecracker/src/vmm/utilities/mock_resources/test_elf.bin";
         #[cfg(target_arch = "aarch64")]
-        const PATH: &str = "./src/utilities/mock_resources/test_pe.bin";
+        const PATH: &str = "./firecracker/src/vmm/utilities/mock_resources/test_pe.bin";
 
         let mut kernel_file = File::open(PATH).expect("Cannot open kernel file");
 

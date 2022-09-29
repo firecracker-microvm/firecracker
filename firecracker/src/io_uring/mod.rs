@@ -779,10 +779,9 @@ mod tests {
                     .unwrap()
             };
             assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-            assert!(
-                matches!(unsafe{ring.pop::<u8>().unwrap().unwrap().result()},
-                Err(err) if err.kind() == std::io::ErrorKind::Other)
-            );
+            let result = unsafe { ring.pop::<u8>().unwrap().unwrap().result() };
+            dbg!(&result);
+            assert!(matches!(result,Err(err) if err.raw_os_error() == Some(-13)));
         }
     }
 
