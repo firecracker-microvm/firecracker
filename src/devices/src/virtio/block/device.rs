@@ -1480,7 +1480,6 @@ pub(crate) mod tests {
             add_flush_requests_batch(&mut block, &mem, &vq, 1);
             simulate_queue_event(&mut block, Some(false));
             assert_eq!(block.is_io_engine_throttled, true);
-            assert_eq!(block.queues[0].len(&mem), 1);
 
             simulate_async_completion_event(&mut block, true);
             assert_eq!(block.is_io_engine_throttled, false);
