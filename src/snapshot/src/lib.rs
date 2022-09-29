@@ -424,10 +424,9 @@ mod tests {
 
         assert_eq!(
             restored_state_result.unwrap_err(),
-            Error::Versionize(versionize::VersionizeError::Deserialize(
-                "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
-                    .to_owned()
-            ))
+            Error::Versionize(versionize::VersionizeError::Deserialize(String::from(
+                "Io(Error { kind: UnexpectedEof, message: \"failed to fill whole buffer\" })"
+            )))
         );
     }
 
