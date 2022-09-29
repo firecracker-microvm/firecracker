@@ -37,18 +37,6 @@ def cargo_build(path, extra_args="", src_dir="", extra_env=""):
     utils.run_cmd(cmd)
 
 
-def cargo_test(path, extra_args=""):
-    """Trigger unit tests depending on flags provided."""
-    path = os.path.join(path, CARGO_UNITTEST_REL_PATH)
-    cmd = (
-        "CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 "
-        'RUSTFLAGS="{}" cargo test {} --all --no-fail-fast'.format(
-            path, get_rustflags(), extra_args
-        )
-    )
-    utils.run_cmd(cmd)
-
-
 def get_firecracker_binaries():
     """Build the Firecracker and Jailer binaries if they don't exist.
 

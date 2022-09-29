@@ -2,25 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test that ensures that all unit tests pass at integration time."""
 
-import platform
-
-import host_tools.cargo_build as host  # pylint:disable=import-error
-
-MACHINE = platform.machine()
-# No need to run unittests for musl since
-# we run coverage with musl for all platforms.
-TARGET = "{}-unknown-linux-gnu".format(MACHINE)
+from framework import utils
 
 
-def test_unittests(test_fc_session_root_path):
+def test_unittests():
     """
     Run unit and doc tests for all supported targets.
 
     @type: build
     """
-    extra_args = "--release --target {} ".format(TARGET)
-
-    host.cargo_test(
-        test_fc_session_root_path,
-        extra_args=extra_args
-    )
+    utils.run_cmd("cargo test --all --no-fail-fast -- --test-threads=1")
