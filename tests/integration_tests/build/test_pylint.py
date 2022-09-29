@@ -25,7 +25,7 @@ def test_python_pylint():
 
     # Get all *.py files from the project
     python_files = utils.get_files_from(
-        find_path="..", pattern="*.py", exclude_names=["build", ".kernel"]
+        find_path="..", pattern="*.py", exclude_names=["build", ".kernel", ".git"]
     )
 
     # Assert if somehow no python files were found
