@@ -22,8 +22,8 @@ NSEC_IN_MSEC = 1000000
 BASELINES = {
     "Intel": {
         "serialize": {
-            "no-crc": {"target": 0.146, "delta": 0.025},  # milliseconds  # milliseconds
-            "crc": {"target": 0.205, "delta": 0.025},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.150, "delta": 0.03},  # milliseconds  # milliseconds
+            "crc": {"target": 0.205, "delta": 0.035},  # milliseconds  # milliseconds
         },
         "deserialize": {
             "no-crc": {"target": 0.034, "delta": 0.015},  # milliseconds  # milliseconds
@@ -36,14 +36,14 @@ BASELINES = {
             "crc": {"target": 0.108, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.070, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.030, "delta": 0.02},  # milliseconds  # milliseconds
             "crc": {"target": 0.052, "delta": 0.04},  # milliseconds  # milliseconds
         },
     },
     "ARM": {
         "serialize": {
-            "no-crc": {"target": 0.05, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.054, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.050, "delta": 0.03},  # milliseconds  # milliseconds
+            "crc": {"target": 0.050, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
             "no-crc": {"target": 0.057, "delta": 0.02},  # milliseconds  # milliseconds
