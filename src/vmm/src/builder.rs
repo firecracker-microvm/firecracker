@@ -855,6 +855,7 @@ pub fn configure_system_for_boot(
             cmdline_size,
             initrd,
             vcpu_config.vcpu_count,
+            entry_point.protocol,
         )
         .map_err(ConfigureSystem)?;
 
