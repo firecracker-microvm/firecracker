@@ -27,6 +27,9 @@ pub const IRQ_MAX: u32 = 23;
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
 
+/// Address of the hvm_start_info struct used in PVH boot
+pub const PVH_INFO_START: u64 = 0x6000;
+
 /// The 'zero page', a.k.a linux kernel bootparams.
 pub const ZERO_PAGE_START: u64 = 0x7000;
 

@@ -340,7 +340,7 @@ pub fn build_microvm_for_boot(
         vcpus.as_mut(),
         &vm_resources.vm_config,
         &cpu_template,
-        entry_point.entry_addr,
+        entry_point,
         &initrd,
         boot_cmdline,
     )?;
@@ -569,6 +569,7 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
@@ -779,7 +780,7 @@ pub fn configure_system_for_boot(
     vcpus: &mut [Vcpu],
     vm_config: &VmConfig,
     cpu_template: &CustomCpuTemplate,
-    entry_addr: GuestAddress,
+    entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
     boot_cmdline: LoaderKernelCmdline,
 ) -> Result<(), StartMicrovmError> {
@@ -828,7 +829,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
+            .configure(vmm.guest_memory(), entry_point, &vcpu_config)
             .map_err(VmmError::VcpuConfigure)
             .map_err(Internal)?;
     }
