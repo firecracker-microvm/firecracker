@@ -30,6 +30,14 @@ pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
 /// Address of the hvm_start_info struct used in PVH boot
 pub const PVH_INFO_START: u64 = 0x6000;
 
+/// Starting address of array of modules of hvm_modlist_entry type.
+/// Used to enable initrd support using the PVH boot ABI.
+pub const MODLIST_START: u64 = 0x6040;
+
+/// Address of memory map table used in PVH boot. Can overlap
+/// with the zero page address since they are mutually exclusive.
+pub const MEMMAP_START: u64 = 0x7000;
+
 /// The 'zero page', a.k.a linux kernel bootparams.
 pub const ZERO_PAGE_START: u64 = 0x7000;
 
