@@ -16,6 +16,8 @@ use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::Elf as Loader;
+#[cfg(target_arch = "x86_64")]
+use linux_loader::loader::elf::PvhBootCapability;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
@@ -29,7 +31,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
-use crate::arch::InitrdConfig;
+use crate::arch::{BootProtocol, EntryPoint, InitrdConfig};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -256,7 +258,7 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
-    let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    let entry_point = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -330,7 +332,7 @@ pub fn build_microvm_for_boot(
         vcpus.as_mut(),
         &vm_resources.machine_config,
         &cpu_template,
-        entry_addr,
+        entry_point.entry_addr,
         &initrd,
         boot_cmdline,
     )?;
@@ -339,8 +341,14 @@ pub fn build_microvm_for_boot(
 
     #[cfg(feature = "gdb")]
     if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
-        gdb::gdb_thread(vmm.clone(), vcpu_fds, gdb_rx, entry_addr, gdb_socket_path)
-            .map_err(GdbServer)?;
+        gdb::gdb_thread(
+            vmm.clone(),
+            vcpu_fds,
+            gdb_rx,
+            entry_point.entry_addr,
+            gdb_socket_path,
+        )
+        .map_err(GdbServer)?;
     } else {
         debug!("No GDB socket provided not starting gdb server.");
     }
@@ -562,13 +570,12 @@ pub fn build_microvm_from_snapshot(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> Result<GuestAddress, StartMicrovmError> {
+) -> Result<EntryPoint, StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
         .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
 
-    #[cfg(target_arch = "x86_64")]
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
         None,
@@ -577,7 +584,32 @@ fn load_kernel(
     )
     .map_err(StartMicrovmError::KernelLoader)?;
 
-    #[cfg(target_arch = "aarch64")]
+    let mut entry_point_addr: GuestAddress = entry_addr.kernel_load;
+    let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
+    if let PvhBootCapability::PvhEntryPresent(pvh_entry_addr) = entry_addr.pvh_boot_cap {
+        // Use the PVH kernel entry point to boot the guest
+        entry_point_addr = pvh_entry_addr;
+        boot_prot = BootProtocol::PvhBoot;
+    }
+
+    debug!("Kernel loaded using {boot_prot}");
+
+    Ok(EntryPoint {
+        entry_addr: entry_point_addr,
+        protocol: boot_prot,
+    })
+}
+
+#[cfg(target_arch = "aarch64")]
+fn load_kernel(
+    boot_config: &BootConfig,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<EntryPoint, StartMicrovmError> {
+    let mut kernel_file = boot_config
+        .kernel_file
+        .try_clone()
+        .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
+
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
         Some(GuestAddress(crate::arch::get_kernel_start())),
@@ -586,7 +618,10 @@ fn load_kernel(
     )
     .map_err(StartMicrovmError::KernelLoader)?;
 
-    Ok(entry_addr.kernel_load)
+    Ok(EntryPoint {
+        entry_addr: entry_addr.kernel_load,
+        protocol: BootProtocol::LinuxBoot,
+    })
 }
 
 fn load_initrd_from_config(
