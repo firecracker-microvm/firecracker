@@ -845,6 +845,7 @@ pub fn configure_system_for_boot(
             cmdline_size,
             initrd,
             vcpus.len() as u8,
+            entry_point.protocol,
         )
         .map_err(ConfigureSystem)?;
     }
