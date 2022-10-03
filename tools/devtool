@@ -72,7 +72,8 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG="v43"
+# TODO: add a proper tag once we are ready
+DEVCTR_IMAGE_TAG="rust_update"
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
