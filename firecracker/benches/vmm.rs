@@ -179,7 +179,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default().sample_size(200).output_directory(Path::new("../../build/vmm_benchmark"));
+    config = Criterion::default().sample_size(200);
     targets = criterion_benchmark
 }
 
