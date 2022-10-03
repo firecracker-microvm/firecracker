@@ -15,6 +15,8 @@ const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 // It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
+    set_firecracker_version();
+
     let target = env::var("TARGET").expect("Missing target.");
     let out_dir = env::var("OUT_DIR").expect("Missing build-level OUT_DIR.");
 
@@ -113,4 +115,16 @@ fn register_seccompiler_src_watchlist(src_dir: &Path) {
             register_seccompiler_src_watchlist(&path);
         }
     }
+}
+
+fn set_firecracker_version() {
+    let res = Command::new("git").args(["describe", "--dirty"]).output();
+    let version = match res {
+        Ok(ok) if ok.status.success() => {
+            let s = String::from_utf8(ok.stdout).unwrap();
+            s.trim_start_matches('v').to_string()
+        }
+        _ => env!("CARGO_PKG_VERSION").to_string(),
+    };
+    println!("cargo:rustc-env=FIRECRACKER_VERSION={version}");
 }
