@@ -13,15 +13,15 @@ use std::thread;
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use snapshot::Snapshot;
+use firecracker::snapshot::Snapshot;
+use firecracker::vmm::persist::MicrovmState;
+use firecracker::vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
+use firecracker::vmm::utilities::test_utils::create_vmm;
+use firecracker::vmm::version_map::VERSION_MAP;
+use firecracker::vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use firecracker::vmm::{persist, FcExitCode};
 use utils::tempfile::TempFile;
 use versionize::VersionMap;
-use vmm::persist::{MicrovmState, VmInfo};
-use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
-use vmm::utilities::test_utils::create_vmm;
-use vmm::version_map::VERSION_MAP;
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{persist, FcExitCode};
 
 #[inline]
 pub fn bench_restore_snapshot(

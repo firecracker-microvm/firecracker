@@ -39,33 +39,35 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::{fmt, io};
 
-use arch::DeviceType;
-use devices::legacy::serial::{IER_RDA_BIT, IER_RDA_OFFSET};
-use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
-    TYPE_BLOCK, TYPE_NET,
-};
-use devices::BusDevice;
+#[cfg(target_arch = "x86_64")]
+use device_manager::legacy::PortIODeviceManager;
+use device_manager::mmio::MMIODeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
-use rate_limiter::BucketUpdate;
+use memory_snapshot::SnapshotMemory;
+use persist::{MicrovmState, MicrovmStateError, VmInfo};
 use seccompiler::BpfProgram;
-use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
-use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
+use vmm_config::instance_info::{InstanceInfo, VmState};
+use vstate::vcpu::{
+    self, KvmVcpuConfigureError, StartThreadedError, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse,
+    VcpuSendEventError, VcpuState,
+};
+use vstate::vm::Vm;
 
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::memory_snapshot::SnapshotMemory;
-use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
-use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
-use crate::vstate::vm::Vm;
+use crate::arch::DeviceType;
+use crate::devices::legacy::serial::{IER_RDA_BIT, IER_RDA_OFFSET};
+use crate::devices::virtio::balloon::Error as BalloonError;
+use crate::devices::virtio::{
+    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
+    TYPE_BLOCK, TYPE_NET,
+};
+use crate::devices::BusDevice;
+use crate::logger::{error, info, warn, LoggerError, MetricsError, METRICS};
+use crate::rate_limiter::BucketUpdate;
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
@@ -138,7 +140,7 @@ pub enum Error {
     EventFd(io::Error),
     /// I8042 Error.
     #[error("I8042 error: {0}")]
-    I8042Error(devices::legacy::I8042DeviceError),
+    I8042Error(crate::devices::legacy::I8042DeviceError),
     /// Cannot access kernel file.
     #[error("Cannot access kernel file: {0}")]
     KernelFile(io::Error),
@@ -232,7 +234,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
-pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
+pub fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
 }
 
@@ -418,7 +420,7 @@ impl Vmm {
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
         #[cfg(target_arch = "aarch64")]
-        use devices::legacy::SerialDevice;
+        use crate::devices::legacy::SerialDevice;
         #[cfg(target_arch = "x86_64")]
         let mut serial = self
             .pio_device_manager
@@ -582,7 +584,7 @@ impl Vmm {
         // example, if this function were to be exposed through the VMM controller, the VMM
         // resources should cache the flag.
         self.vm
-            .set_kvm_memory_regions(&self.guest_memory, enable)
+            .set_kvm_memory_ext_regions(&self.guest_memory, enable)
             .map_err(Error::Vm)
     }
 

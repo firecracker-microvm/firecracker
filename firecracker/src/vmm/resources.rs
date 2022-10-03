@@ -4,26 +4,26 @@
 use std::convert::From;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use logger::info;
-use mmds::data_store::{Mmds, MmdsVersion};
-use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
-use crate::device_manager::persist::SharedDeviceType;
-use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{
+use super::device_manager::persist::SharedDeviceType;
+use super::vmm_config::balloon::*;
+use super::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
-use crate::vmm_config::drive::*;
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
-use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
-use crate::vmm_config::net::*;
-use crate::vmm_config::vsock::*;
-use crate::vstate::vcpu::VcpuConfig;
+use super::vmm_config::drive::*;
+use super::vmm_config::instance_info::InstanceInfo;
+use super::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use super::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use super::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use super::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use super::vmm_config::net::*;
+use super::vmm_config::vsock::*;
+use super::vstate::vcpu::VcpuConfig;
+use crate::logger::info;
+use crate::mmds::data_store::{Mmds, MmdsVersion};
+use crate::mmds::ns::MmdsNetworkStack;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -43,7 +43,7 @@ pub enum Error {
     /// Metrics system configuration error.
     Metrics(MetricsConfigError),
     /// MMDS error.
-    Mmds(mmds::data_store::Error),
+    Mmds(crate::mmds::data_store::Error),
     /// MMDS configuration error.
     MmdsConfig(MmdsConfigError),
     /// Net device configuration error.
@@ -497,24 +497,23 @@ mod tests {
     use std::fs::File;
     use std::os::linux::fs::MetadataExt;
 
-    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
-    use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
-    use super::*;
-    use crate::resources::VmResources;
-    use crate::vmm_config::boot_source::{
-        BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
+    use super::super::vmm_config::boot_source::{
+        BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
-    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::RateLimiterConfig;
-    use crate::vstate::vcpu::VcpuConfig;
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
+    use super::super::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
+    use super::super::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use super::super::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use super::super::vmm_config::vsock::tests::default_config;
+    use super::super::vmm_config::RateLimiterConfig;
+    use super::super::vstate::vcpu::VcpuConfig;
+    use super::super::HTTP_MAX_PAYLOAD_SIZE;
+    use super::{VmResources, *};
+    use crate::devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
+    use crate::logger::{LevelFilter, LOGGER};
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -953,7 +952,7 @@ mod tests {
             None,
         ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                devices::virtio::net::Error::TapOpen { .. },
+                crate::devices::virtio::net::Error::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
         }

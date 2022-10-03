@@ -7,16 +7,16 @@ use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::address::Address;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use super::device::*;
 use super::queue::*;
-use crate::virtio::MmioTransport;
+use super::MmioTransport;
+use crate::snapshot::Persist;
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::vm_memory_ext::address::Address;
+use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum Error {
@@ -215,12 +215,12 @@ impl Persist<'_> for MmioTransport {
 mod tests {
     use utils::tempfile::TempFile;
 
+    use super::super::block::device::FileEngineType;
+    use super::super::block::test_utils::default_block_with_path;
+    use super::super::mmio::tests::DummyDevice;
+    use super::super::test_utils::default_mem;
+    use super::super::{net, Block, Net, Vsock, VsockUnixBackend};
     use super::*;
-    use crate::virtio::block::device::FileEngineType;
-    use crate::virtio::block::test_utils::default_block_with_path;
-    use crate::virtio::mmio::tests::DummyDevice;
-    use crate::virtio::test_utils::default_mem;
-    use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {

@@ -10,8 +10,8 @@ use std::fmt;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use logger::error;
-use vm_memory::{
+use crate::logger::error;
+use crate::vm_memory_ext::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
 
@@ -534,12 +534,10 @@ impl Queue {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
-
+    use super::super::test_utils::VirtQueue;
+    use super::super::QueueError::{DescIndexOutOfBounds, UsedRing};
     pub use super::*;
-    use crate::virtio::test_utils::VirtQueue;
-    use crate::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
+    use crate::vm_memory_ext::{create_anon_guest_memory, GuestAddress, GuestMemoryMmap};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {

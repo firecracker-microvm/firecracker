@@ -6,9 +6,9 @@ use std::ops::Range;
 use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
-use crate::aarch64::gic::Result;
-use crate::{IRQ_BASE, IRQ_MAX};
+use crate::arch::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
+use crate::arch::aarch64::gic::Result;
+use crate::arch::aarch64::{IRQ_BASE, IRQ_MAX};
 
 // Distributor registers as detailed at page 75 from
 // https://developer.arm.com/documentation/ihi0048/latest/.
@@ -131,7 +131,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::gic::{create_gic, Error, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, Error, GICVersion};
 
     #[test]
     fn test_access_dist_regs() {

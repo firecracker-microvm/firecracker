@@ -14,7 +14,7 @@ use kvm_bindings::CpuId;
 
 /// cpuid utility functions.
 pub mod common;
-use crate::common::*;
+use common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
@@ -26,8 +26,8 @@ pub use crate::template::msrs_to_save_by_cpuid;
 mod cpu_leaf;
 
 mod transformer;
-use crate::transformer::*;
-pub use crate::transformer::{Error, VmSpec};
+use transformer::*;
+pub use transformer::{Error, VmSpec};
 
 mod brand_string;
 

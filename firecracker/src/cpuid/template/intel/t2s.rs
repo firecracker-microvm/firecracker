@@ -1,12 +1,12 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::{kvm_cpuid_entry2, kvm_msr_entry, CpuId};
 
-use crate::cpu_leaf::*;
-use crate::template::intel::validate_vendor_id;
-use crate::transformer::*;
+use super::super::super::cpu_leaf::*;
+use super::super::super::template::intel::validate_vendor_id;
+use super::super::super::transformer::*;
+use crate::arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 
 /// Sets up the cpuid entries for a given VCPU following a T2S template.
 struct T2SCpuidTransformer {}
@@ -14,10 +14,10 @@ struct T2SCpuidTransformer {}
 impl CpuidTransformer for T2SCpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
-            leaf_0x1::LEAF_NUM => Some(crate::t2::update_feature_info_entry),
-            leaf_0x7::LEAF_NUM => Some(crate::t2::update_structured_extended_entry),
-            leaf_0xd::LEAF_NUM => Some(crate::t2::update_xsave_features_entry),
-            leaf_0x80000001::LEAF_NUM => Some(crate::t2::update_extended_feature_info_entry),
+            leaf_0x1::LEAF_NUM => Some(super::t2::update_feature_info_entry),
+            leaf_0x7::LEAF_NUM => Some(super::t2::update_structured_extended_entry),
+            leaf_0xd::LEAF_NUM => Some(super::t2::update_xsave_features_entry),
+            leaf_0x80000001::LEAF_NUM => Some(super::t2::update_extended_feature_info_entry),
             _ => None,
         }
     }

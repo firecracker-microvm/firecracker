@@ -453,8 +453,8 @@ pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
 mod tests {
     use kvm_ioctls::Kvm;
 
+    use super::super::{arch_memory_regions, layout};
     use super::*;
-    use crate::aarch64::{arch_memory_regions, layout};
 
     #[test]
     fn test_setup_regs() {

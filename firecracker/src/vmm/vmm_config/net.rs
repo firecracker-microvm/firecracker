@@ -6,13 +6,13 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::{fmt, result};
 
-use devices::virtio::net::TapError;
-use devices::virtio::Net;
 use serde::{Deserialize, Serialize};
 use utils::net::mac::MacAddr;
 
+use super::super::Error as VmmError;
 use super::RateLimiterConfig;
-use crate::Error as VmmError;
+use crate::devices::virtio::net::TapError;
+use crate::devices::virtio::Net;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -64,7 +64,7 @@ pub struct NetworkInterfaceUpdateConfig {
 #[derive(Debug, derive_more::From)]
 pub enum NetworkInterfaceError {
     /// Could not create Network Device.
-    CreateNetworkDevice(devices::virtio::net::Error),
+    CreateNetworkDevice(crate::devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(std::io::Error),
     /// The MAC address is already in use.
@@ -161,7 +161,8 @@ impl NetBuilder {
         }
 
         // Add new device.
-        let net = Arc::new(Mutex::new(Self::create_net(netif_config)?));
+        let create_net_result = Self::create_net(netif_config);
+        let net = Arc::new(Mutex::new(create_net_result?));
         self.net_devices.push(net.clone());
 
         Ok(net)
@@ -179,7 +180,7 @@ impl NetBuilder {
             .transpose()?;
 
         // Create and return the Net device
-        devices::virtio::net::Net::new_with_tap(
+        crate::devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
             cfg.host_dev_name.clone(),
             cfg.guest_mac.as_ref(),
@@ -203,9 +204,8 @@ impl NetBuilder {
 mod tests {
     use std::str;
 
-    use rate_limiter::RateLimiter;
-
     use super::*;
+    use crate::rate_limiter::RateLimiter;
 
     impl NetBuilder {
         pub fn len(&self) -> usize {
@@ -296,9 +296,11 @@ mod tests {
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
-            ))
+            NetworkInterfaceError::CreateNetworkDevice(
+                crate::devices::virtio::net::Error::TapOpen(TapError::IoctlError(
+                    std::io::Error::from_raw_os_error(16)
+                ))
+            )
             .to_string()
         );
         assert_eq!(net_builder.net_devices.len(), 1);
@@ -320,9 +322,11 @@ mod tests {
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
-            ))
+            NetworkInterfaceError::CreateNetworkDevice(
+                crate::devices::virtio::net::Error::TapOpen(TapError::IoctlError(
+                    std::io::Error::from_raw_os_error(16)
+                ))
+            )
             .to_string()
         );
     }
@@ -330,9 +334,9 @@ mod tests {
     #[test]
     fn test_error_display() {
         // FIXME: use macro
-        let err = NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-            TapError::InvalidIfname,
-        ));
+        let err = NetworkInterfaceError::CreateNetworkDevice(
+            crate::devices::virtio::net::Error::TapOpen(TapError::InvalidIfname),
+        );
         let _ = format!("{}{:?}", err, err);
         let err = NetworkInterfaceError::CreateRateLimiter(std::io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);

@@ -3,21 +3,75 @@ name = "firecracker"
 version = "1.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
-build = "../../build.rs"
 description = "Firecracker enables you to deploy workloads in lightweight virtual machines, called microVMs, which provide enhanced security and workload isolation over traditional VMs, while enabling the speed and resource efficiency of containers."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
 [dependencies]
+# firecracker
 event-manager = ">=0.2.1"
 libc = ">=0.2.39"
 serde_json = ">=1.0.68"
 timerfd = ">=1.0"
-
-api_server = { path = "../api_server" }
-logger = { path = "../logger" }
-mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
-vmm = { path = "../vmm" }
+
+# api_sever
+serde = { version = ">=1.0.27", features = ["derive","rc"] }
+serde_derive = ">=1.0.27"
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+thiserror = "1.0.32"
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
+
+# vmm
+kvm-bindings = { version = ">=0.5.0", features = ["fam-wrappers"] }
+kvm-ioctls = ">=0.9.0"
+lazy_static = ">=1.4.0"
+linux-loader = ">=0.4.0"
+userfaultfd = ">=0.4.0"
+versionize = ">=0.1.6"
+versionize_derive = ">=0.1.3"
+vm-superio = ">=0.4.0"
+vm-allocator = "0.1.0"
+
+# mmds
+aes-gcm = "0.9.4"
+base64 = "0.13.0"
+bincode = "1.2.1"
+
+# devices
+net_gen = { path = "../net_gen" }
+
+# dumbo
+bitflags = ">=1.0.4"
+
+# arch
+vm-fdt = "0.1.0"
+
+# vm-memory-ext
+vm-memory = { version = ">=0.7.0", features = ["backend-mmap", "backend-bitmap"] }
+
+# logger
+log = { version = ">=0.4", features = ["std"] }
+
+[dev-dependencies]
+# api_sever
+libc = ">=0.2.39"
+
+# vmm
+criterion = "0.3.0"
+
+# devices
+proptest = { version = ">=1.0.0", default-features = false, features = ["std"] }
+
+# dumbo
+serde_json = ">=1.0.9"
+
+# vmm
+[[bench]]
+name = "vmm"
+harness = false
+# snapshot
+[[bench]]
+name = "snapshot"
+harness = false

@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
-use crate::resources::VmResources;
-use crate::vmm_config::boot_source::BootSourceConfig;
-use crate::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
+use super::super::resources::VmResources;
+use super::super::vmm_config::boot_source::BootSourceConfig;
+use super::super::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
 #[cfg(target_arch = "x86_64")]

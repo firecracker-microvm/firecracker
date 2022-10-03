@@ -172,7 +172,7 @@ impl BitHelper for u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::bit_helper::*;
+    use super::*;
 
     #[test]
     #[should_panic]

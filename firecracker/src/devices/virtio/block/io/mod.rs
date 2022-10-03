@@ -6,11 +6,11 @@ pub mod sync_io;
 
 use std::fs::File;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+pub use async_io::AsyncFileEngine;
+pub use sync_io::SyncFileEngine;
 
-pub use self::async_io::AsyncFileEngine;
-pub use self::sync_io::SyncFileEngine;
-use crate::virtio::block::device::FileEngineType;
+use super::device::FileEngineType;
+use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct UserDataOk<T> {
@@ -179,11 +179,10 @@ pub mod tests {
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
-    use vm_memory::{Bitmap, Bytes, GuestMemory};
 
+    use super::super::super::request::PendingRequest;
     use super::*;
-    use crate::virtio::block::device::FileEngineType;
-    use crate::virtio::block::request::PendingRequest;
+    use crate::vm_memory_ext::{Bitmap, Bytes, GuestMemory};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -233,8 +232,7 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
-            .unwrap()
+        crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true).unwrap()
     }
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {

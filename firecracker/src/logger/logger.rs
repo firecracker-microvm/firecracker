@@ -22,7 +22,7 @@
 //! ```
 //! use std::ops::Deref;
 //!
-//! use logger::{error, warn, LOGGER};
+//! use crate::logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
 //! if let Err(err) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
@@ -38,7 +38,8 @@
 //! use std::io::Cursor;
 //!
 //! use libc::c_char;
-//! use logger::{error, warn, LOGGER};
+//!
+//! use crate::logger::{error, warn, LOGGER};
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -85,10 +86,9 @@ use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;
 
-use super::extract_guard;
-use crate::init;
-use crate::init::Init;
-use crate::metrics::{IncMetric, METRICS};
+use super::init::Init;
+use super::metrics::{IncMetric, METRICS};
+use super::{extract_guard, init};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -155,7 +155,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use crate::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -186,7 +186,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use crate::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -226,7 +226,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{info, warn, LOGGER};
+    /// use crate::logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -303,7 +303,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::LOGGER;
+    /// use crate::loggerLOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -338,7 +338,7 @@ impl Logger {
     /// ```
     /// use std::io::Cursor;
     ///
-    /// use logger::LOGGER;
+    /// use crate::loggerLOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///

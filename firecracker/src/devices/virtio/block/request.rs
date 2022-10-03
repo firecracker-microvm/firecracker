@@ -8,18 +8,16 @@
 use std::convert::From;
 use std::result;
 
-use logger::{error, IncMetric, METRICS};
-use rate_limiter::{RateLimiter, TokenType};
-pub use virtio_gen::virtio_blk::{
+use super::super::{DescriptorChain, SECTOR_SIZE};
+use super::device::DiskProperties;
+use super::{io as block_io, Error, SECTOR_SHIFT};
+use crate::logger::{error, IncMetric, METRICS};
+use crate::rate_limiter::{RateLimiter, TokenType};
+pub use crate::virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
-
-use super::super::DescriptorChain;
-use super::{io as block_io, Error, SECTOR_SHIFT};
-use crate::virtio::block::device::DiskProperties;
-use crate::virtio::SECTOR_SIZE;
+use crate::vm_memory_ext::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
@@ -400,12 +398,11 @@ impl Request {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{Address, GuestAddress, GuestMemory};
-
+    use super::super::super::queue::tests::*;
+    use super::super::super::test_utils::{VirtQueue, VirtqDesc};
+    use super::super::super::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use super::*;
-    use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
+    use crate::vm_memory_ext::{create_anon_guest_memory, Address, GuestAddress, GuestMemory};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 

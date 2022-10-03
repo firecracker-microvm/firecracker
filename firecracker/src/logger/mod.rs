@@ -14,11 +14,10 @@ use std::sync::LockResult;
 
 pub use log::Level::*;
 pub use log::{warn, *};
-
-pub use crate::logger::{LoggerError, LOGGER};
+pub use logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
-pub use crate::metrics::RTCDeviceMetrics;
-pub use crate::metrics::{
+pub use metrics::RTCDeviceMetrics;
+pub use metrics::{
     IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
     SharedStoreMetric, StoreMetric, METRICS,
 };

@@ -11,13 +11,13 @@ use std::sync::Arc;
 use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, SerialDeviceMetrics};
 use utils::epoll::EventSet;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};
 
-use crate::legacy::EventFdTrigger;
-use crate::BusDevice;
+use super::super::legacy::EventFdTrigger;
+use super::super::BusDevice;
+use crate::logger::{error, warn, IncMetric, SerialDeviceMetrics};
 
 // Cannot use multiple types as bounds for a trait object, so we define our own trait
 // which is a composition of the desired bounds. In this case, io::Read and AsRawFd.

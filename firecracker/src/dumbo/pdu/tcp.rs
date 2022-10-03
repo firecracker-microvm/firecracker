@@ -14,10 +14,9 @@ use std::result::Result;
 
 use bitflags::bitflags;
 
+use super::super::ByteBuffer;
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use super::Incomplete;
-use crate::pdu::ChecksumProto;
-use crate::ByteBuffer;
+use super::{ChecksumProto, Incomplete};
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -208,7 +207,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     ///
     /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
-        crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
+        super::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
     }
 
     /// Parses TCP header options (only `MSS` is supported for now).

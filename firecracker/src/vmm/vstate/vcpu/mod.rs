@@ -16,29 +16,29 @@ use std::{fmt, io, result, thread};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
-use logger::{error, info, IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
 use utils::errno;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
-use crate::vstate::vm::Vm;
-use crate::FcExitCode;
+use super::super::vmm_config::machine_config::CpuFeaturesTemplate;
+use super::super::vstate::vm::Vm;
+use super::super::FcExitCode;
+use crate::logger::{error, info, IncMetric, METRICS};
 
 #[cfg(target_arch = "aarch64")]
-pub(crate) mod aarch64;
+pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
-pub(crate) mod x86_64;
+pub mod x86_64;
 
 #[cfg(target_arch = "aarch64")]
-pub(crate) use aarch64::{Error as VcpuError, *};
+pub use aarch64::{Error as VcpuError, *};
 #[cfg(target_arch = "x86_64")]
-pub(crate) use x86_64::{Error as VcpuError, *};
+pub use x86_64::{Error as VcpuError, *};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
-pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
+pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
@@ -221,7 +221,7 @@ impl Vcpu {
     }
 
     /// Sets a MMIO bus for this vcpu.
-    pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
+    pub fn set_mmio_bus(&mut self, mmio_bus: crate::devices::Bus) {
         self.kvm_vcpu.mmio_bus = Some(mmio_bus);
     }
 
@@ -662,18 +662,17 @@ mod tests {
     use linux_loader::loader::KernelLoader;
     use utils::errno;
     use utils::signal::validate_signal_num;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    use super::*;
-    use crate::builder::StartMicrovmError;
-    use crate::seccomp_filters::{get_filters, SeccompConfig};
-    use crate::vstate::vcpu::Error as EmulationError;
-    use crate::vstate::vm::tests::setup_vm;
-    use crate::vstate::vm::Vm;
-    use crate::RECV_TIMEOUT_SEC;
+    use super::super::vm::tests::setup_vm;
+    use super::super::vm::Vm;
+    use super::{Error as EmulationError, *};
+    use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
+    use crate::vmm::builder::StartMicrovmError;
+    use crate::vmm::seccomp_filters::{get_filters, SeccompConfig};
+    use crate::vmm::RECV_TIMEOUT_SEC;
 
     struct DummyDevice;
-    impl devices::BusDevice for DummyDevice {}
+    impl crate::devices::BusDevice for DummyDevice {}
 
     impl Vcpu {
         pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
@@ -785,7 +784,7 @@ mod tests {
             )
         );
 
-        let mut bus = devices::Bus::new();
+        let mut bus = crate::devices::Bus::new();
         let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         vcpu.set_mmio_bus(bus);
@@ -811,19 +810,21 @@ mod tests {
 
     impl PartialEq for VcpuResponse {
         fn eq(&self, other: &Self) -> bool {
-            use crate::VcpuResponse::*;
             // Guard match with no wildcard to make sure we catch new enum variants.
             match self {
-                Paused | Resumed | Exited(_) => (),
-                Error(_) | NotAllowed(_) | RestoredState | SavedState(_) => (),
+                Self::Paused | Self::Resumed | Self::Exited(_) => (),
+                Self::Error(_)
+                | Self::NotAllowed(_)
+                | Self::RestoredState
+                | Self::SavedState(_) => (),
             };
             match (self, other) {
-                (Paused, Paused) | (Resumed, Resumed) => true,
-                (Exited(code), Exited(other_code)) => code == other_code,
-                (NotAllowed(_), NotAllowed(_))
-                | (RestoredState, RestoredState)
-                | (SavedState(_), SavedState(_)) => true,
-                (Error(ref err), Error(ref other_err)) => {
+                (Self::Paused, Self::Paused) | (Self::Resumed, Self::Resumed) => true,
+                (Self::Exited(code), Self::Exited(other_code)) => code == other_code,
+                (Self::NotAllowed(_), Self::NotAllowed(_))
+                | (Self::RestoredState, Self::RestoredState)
+                | (Self::SavedState(_), Self::SavedState(_)) => true,
+                (Self::Error(ref err), Self::Error(ref other_err)) => {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
                 _ => false,
@@ -867,30 +868,27 @@ mod tests {
         (vm, vcpu, gm)
     }
 
-    fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
+    fn load_good_kernel(vm_memory_ext: &GuestMemoryMmap) -> GuestAddress {
         use std::fs::File;
-        use std::path::PathBuf;
-
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         #[cfg(target_arch = "x86_64")]
-        path.push("src/utilities/mock_resources/test_elf.bin");
+        const PATH: &str = "./src/vmm/utilities/mock_resources/test_elf.bin";
         #[cfg(target_arch = "aarch64")]
-        path.push("src/utilities/mock_resources/test_pe.bin");
+        const PATH: &str = "./src/utilities/mock_resources/test_pe.bin";
 
-        let mut kernel_file = File::open(path).expect("Cannot open kernel file");
+        let mut kernel_file = File::open(PATH).expect("Cannot open kernel file");
 
         #[cfg(target_arch = "x86_64")]
         let entry_addr = linux_loader::loader::elf::Elf::load(
-            vm_memory,
-            Some(GuestAddress(arch::get_kernel_start())),
+            vm_memory_ext,
+            Some(GuestAddress(crate::arch::get_kernel_start())),
             &mut kernel_file,
-            Some(GuestAddress(arch::get_kernel_start())),
+            Some(GuestAddress(crate::arch::get_kernel_start())),
         )
         .map_err(StartMicrovmError::KernelLoader);
         #[cfg(target_arch = "aarch64")]
         let entry_addr =
-            linux_loader::loader::pe::PE::load(vm_memory, None, &mut kernel_file, None)
+            linux_loader::loader::pe::PE::load(vm_memory_ext, None, &mut kernel_file, None)
                 .map_err(StartMicrovmError::KernelLoader);
         entry_addr.unwrap().kernel_load
     }
@@ -942,7 +940,7 @@ mod tests {
     fn test_set_mmio_bus() {
         let (_, mut vcpu, _) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.mmio_bus.is_none());
-        vcpu.set_mmio_bus(devices::Bus::new());
+        vcpu.set_mmio_bus(crate::devices::Bus::new());
         assert!(vcpu.kvm_vcpu.mmio_bus.is_some());
     }
 

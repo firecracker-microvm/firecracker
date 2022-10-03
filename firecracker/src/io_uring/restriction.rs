@@ -12,8 +12,8 @@
 
 use std::convert::From;
 
-use crate::bindings;
-use crate::operation::OpCode;
+use super::bindings;
+use super::operation::OpCode;
 
 /// Adds support for restricting the operations allowed by io_uring.
 pub enum Restriction {

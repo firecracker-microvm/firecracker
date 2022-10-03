@@ -26,7 +26,7 @@ pub use aarch64::{
 pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
-pub use crate::x86_64::{
+pub use x86_64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
     layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
     MMIO_MEM_START,
@@ -53,7 +53,7 @@ pub enum DeviceType {
 /// Type for passing information about the initrd in the guest memory.
 pub struct InitrdConfig {
     /// Load address of initrd in guest memory
-    pub address: vm_memory::GuestAddress,
+    pub address: crate::vm_memory_ext::GuestAddress,
     /// Size of initrd in guest memory
     pub size: usize,
 }

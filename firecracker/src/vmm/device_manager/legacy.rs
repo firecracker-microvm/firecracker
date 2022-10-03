@@ -9,18 +9,19 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
-use logger::METRICS;
 use utils::eventfd::EventFd;
 use vm_superio::Serial;
+
+use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
+use crate::logger::METRICS;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From)]
 pub enum Error {
     /// Cannot add legacy device to Bus.
-    BusError(devices::BusError),
+    BusError(crate::devices::BusError),
     /// Cannot create EventFd.
     EventFd(std::io::Error),
 }
@@ -58,9 +59,9 @@ fn create_serial(com_event: EventFdTrigger) -> Result<Arc<Mutex<SerialDevice>>> 
 /// on an I/O Bus. It currently manages the uart and i8042 devices.
 /// The `LegacyDeviceManger` should be initialized only by using the constructor.
 pub struct PortIODeviceManager {
-    pub io_bus: devices::Bus,
+    pub io_bus: crate::devices::Bus,
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
-    pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
+    pub i8042: Arc<Mutex<crate::devices::legacy::I8042Device>>,
 
     // Communication event on ports 1 & 3.
     pub com_evt_1_3: EventFdTrigger,
@@ -95,7 +96,7 @@ impl PortIODeviceManager {
 
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
     pub fn new(serial: Arc<Mutex<SerialDevice>>, i8042_reset_evfd: EventFd) -> Result<Self> {
-        let io_bus = devices::Bus::new();
+        let io_bus = crate::devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
             .expect("Poisoned lock")
@@ -105,7 +106,7 @@ impl PortIODeviceManager {
         let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK)?;
 
-        let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
+        let i8042 = Arc::new(Mutex::new(crate::devices::legacy::I8042Device::new(
             i8042_reset_evfd,
             kbd_evt.try_clone()?,
         )));
@@ -166,17 +167,16 @@ impl PortIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::GuestAddress;
-
     use super::*;
+    use crate::vm_memory_ext::GuestAddress;
 
     #[test]
     fn test_register_legacy_devices() {
         let guest_mem =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0x0), 0x1000)], false)
+            crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0x0), 0x1000)], false)
                 .unwrap();
-        let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
-        crate::builder::setup_interrupt_controller(&mut vm).unwrap();
+        let mut vm = crate::vmm::builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        crate::vmm::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(
             create_serial(EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap())).unwrap(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),

@@ -9,14 +9,6 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::is_same_model;
-use devices::legacy::serial::ReadableFd;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
-use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
@@ -25,33 +17,43 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use logger::{error, warn, METRICS};
 use seccompiler::BpfThreadMap;
-use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
 #[cfg(target_arch = "aarch64")]
-use crate::construct_kvm_mpidrs;
+use super::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::resources::VmResources;
-use crate::vmm_config::boot_source::BootConfig;
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
-use crate::vstate::system::KvmContext;
-use crate::vstate::vcpu::{Vcpu, VcpuConfig};
-use crate::vstate::vm::Vm;
-use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
+use super::device_manager::legacy::PortIODeviceManager;
+use super::device_manager::mmio::MMIODeviceManager;
+use super::device_manager::persist::MMIODevManagerConstructorArgs;
+use super::persist::{MicrovmState, MicrovmStateError};
+use super::resources::VmResources;
+use super::vmm_config::boot_source::BootConfig;
+use super::vmm_config::instance_info::InstanceInfo;
+use super::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
+use super::vstate::system::KvmContext;
+use super::vstate::vcpu::{Vcpu, VcpuConfig};
+use super::vstate::vm::Vm;
+use super::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
+use crate::arch::InitrdConfig;
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::common::is_same_model;
+use crate::devices::legacy::serial::ReadableFd;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
+use crate::devices::virtio::{
+    Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+};
+use crate::logger::{error, warn, METRICS};
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::{Bytes, GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -59,13 +61,13 @@ pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
-    ConfigureSystem(arch::Error),
+    ConfigureSystem(crate::arch::Error),
     /// Internal errors are due to resource exhaustion.
-    CreateNetDevice(devices::virtio::net::Error),
+    CreateNetDevice(crate::devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
-    GuestMemoryMmap(vm_memory::Error),
+    GuestMemoryMmap(crate::vm_memory_ext::Error),
     /// Cannot load initrd due to an invalid memory configuration.
     InitrdLoad,
     /// Cannot load initrd due to an invalid image.
@@ -248,9 +250,9 @@ fn create_vmm_and_vcpus(
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
     let mmio_device_manager = MMIODeviceManager::new(
-        arch::MMIO_MEM_START,
-        arch::MMIO_MEM_SIZE,
-        (arch::IRQ_BASE, arch::IRQ_MAX),
+        crate::arch::MMIO_MEM_START,
+        crate::arch::MMIO_MEM_SIZE,
+        (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
     )
     .map_err(StartMicrovmError::RegisterMmioDevice)?;
 
@@ -445,7 +447,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not get TSC to check if TSC scaling was required with the snapshot.
     #[cfg(target_arch = "x86_64")]
     #[error("Could not get TSC to check if TSC scaling was required with the snapshot: {0}")]
-    GetTsc(#[from] crate::vstate::vcpu::GetTscError),
+    GetTsc(#[from] super::vstate::vcpu::GetTscError),
     /// Could not set TSC scaling within the snapshot.
     #[cfg(target_arch = "x86_64")]
     #[error("Could not set TSC scaling within the snapshot: {0}")]
@@ -470,7 +472,7 @@ pub enum BuildMicrovmFromSnapshotError {
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs.
     #[error("Failed to restore vCPUs: {0}")]
-    RestoreVcpus(#[from] crate::RestoreVcpusError),
+    RestoreVcpus(#[from] super::RestoreVcpusError),
     /// Failed to apply VMM secccomp filter as none found.
     #[error("Failed to apply VMM secccomp filter as none found.")]
     MissingVmmSeccompFilters,
@@ -597,9 +599,9 @@ pub fn create_guest_memory(
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
-    let arch_mem_regions = arch::arch_memory_regions(mem_size);
+    let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
 
-    vm_memory::create_guest_memory(
+    crate::vm_memory_ext::create_guest_memory(
         &arch_mem_regions
             .iter()
             .map(|(addr, size)| (None, *addr, *size))
@@ -623,14 +625,14 @@ fn load_kernel(
         guest_memory,
         None,
         &mut kernel_file,
-        Some(GuestAddress(arch::get_kernel_start())),
+        Some(GuestAddress(crate::arch::get_kernel_start())),
     )
     .map_err(StartMicrovmError::KernelLoader)?;
 
     #[cfg(target_arch = "aarch64")]
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
-        Some(GuestAddress(arch::get_kernel_start())),
+        Some(GuestAddress(crate::arch::get_kernel_start())),
         &mut kernel_file,
         None,
     )
@@ -641,13 +643,13 @@ fn load_kernel(
 
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
-    vm_memory: &GuestMemoryMmap,
+    vm_memory_ext: &GuestMemoryMmap,
 ) -> std::result::Result<Option<InitrdConfig>, StartMicrovmError> {
     use self::StartMicrovmError::InitrdRead;
 
     Ok(match &boot_cfg.initrd_file {
         Some(f) => Some(load_initrd(
-            vm_memory,
+            vm_memory_ext,
             &mut f.try_clone().map_err(InitrdRead)?,
         )?),
         None => None,
@@ -656,12 +658,12 @@ fn load_initrd_from_config(
 
 /// Loads the initrd from a file into the given memory slice.
 ///
-/// * `vm_memory` - The guest memory the initrd is written to.
+/// * `vm_memory_ext` - The guest memory the initrd is written to.
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
 fn load_initrd<F>(
-    vm_memory: &GuestMemoryMmap,
+    vm_memory_ext: &GuestMemoryMmap,
     image: &mut F,
 ) -> std::result::Result<InitrdConfig, StartMicrovmError>
 where
@@ -685,10 +687,10 @@ where
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
 
     // Get the target address
-    let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
+    let address = crate::arch::initrd_load_addr(vm_memory_ext, size).map_err(|_| InitrdLoad)?;
 
     // Load the image into memory
-    vm_memory
+    vm_memory_ext
         .read_from(GuestAddress(address), image, size)
         .map_err(|_| InitrdLoad)?;
 
@@ -860,11 +862,11 @@ pub fn configure_system_for_boot(
 
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
             vmm.guest_memory(),
-            GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
         )
         .map_err(LoadCommandline)?;
-        arch::x86_64::configure_system(
+        crate::arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
@@ -926,7 +928,7 @@ pub(crate) fn attach_boot_timer_device(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    let boot_timer = devices::pseudo::BootTimer::new(request_ts);
+    let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
         .register_mmio_boot_timer(boot_timer)
@@ -1015,23 +1017,24 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
-    use arch::DeviceType;
-    use devices::virtio::vsock::VSOCK_DEV_ID;
-    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
-    use mmds::data_store::{Mmds, MmdsVersion};
-    use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
-    use vm_memory::GuestMemory;
 
+    use super::super::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
+    use super::super::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+    use super::super::vmm_config::drive::{
+        BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType,
+    };
+    use super::super::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use super::super::vmm_config::vsock::tests::default_config;
+    use super::super::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use super::*;
-    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
-    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
-    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
-
+    use crate::arch::DeviceType;
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
+    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
+    use crate::mmds::data_store::{Mmds, MmdsVersion};
+    use crate::mmds::ns::MmdsNetworkStack;
+    use crate::vm_memory_ext::GuestMemory;
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
@@ -1060,9 +1063,9 @@ pub mod tests {
 
     fn default_mmio_device_manager() -> MMIODeviceManager {
         MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_START,
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap()
     }
@@ -1238,7 +1241,7 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
+        crate::vm_memory_ext::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
@@ -1252,16 +1255,16 @@ pub mod tests {
     #[test]
     // Test that loading the initrd is successful on different archs.
     fn test_load_initrd() {
-        use vm_memory::GuestMemory;
+        use crate::vm_memory_ext::GuestMemory;
         let image = make_test_bin();
 
-        let mem_size: usize = image.len() * 2 + arch::PAGE_SIZE;
+        let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;
 
         #[cfg(target_arch = "x86_64")]
         let gm = create_guest_mem_with_size(mem_size);
 
         #[cfg(target_arch = "aarch64")]
-        let gm = create_guest_mem_with_size(mem_size + arch::aarch64::layout::FDT_MAX_SIZE);
+        let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
         let res = load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_ok());
@@ -1285,7 +1288,10 @@ pub mod tests {
     #[test]
     fn test_load_initrd_unaligned() {
         let image = vec![1, 2, 3, 4];
-        let gm = create_guest_mem_at(GuestAddress(arch::PAGE_SIZE as u64 + 1), image.len() * 2);
+        let gm = create_guest_mem_at(
+            GuestAddress(crate::arch::PAGE_SIZE as u64 + 1),
+            image.len() * 2,
+        );
 
         let res = load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_err());
@@ -1641,39 +1647,40 @@ pub mod tests {
 
     #[test]
     fn test_error_messages() {
-        use crate::builder::StartMicrovmError::*;
-        let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
+        let err = StartMicrovmError::AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(devices::virtio::net::Error::EventFd(
+        let err = StartMicrovmError::CreateNetDevice(crate::devices::virtio::net::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateRateLimiter(io::Error::from_raw_os_error(0));
+        let err = StartMicrovmError::CreateRateLimiter(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = Internal(Error::Serial(io::Error::from_raw_os_error(0)));
+        let err = StartMicrovmError::Internal(Error::Serial(io::Error::from_raw_os_error(0)));
         let _ = format!("{}{:?}", err, err);
 
-        let err = KernelCmdline(String::from("dummy --cmdline"));
+        let err = StartMicrovmError::KernelCmdline(String::from("dummy --cmdline"));
         let _ = format!("{}{:?}", err, err);
 
-        let err = KernelLoader(linux_loader::loader::Error::InvalidKernelStartAddress);
+        let err =
+            StartMicrovmError::KernelLoader(linux_loader::loader::Error::InvalidKernelStartAddress);
         let _ = format!("{}{:?}", err, err);
-        let err = LoadCommandline(linux_loader::loader::Error::CommandLineOverflow);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MissingKernelConfig;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MissingMemSizeConfig;
+        let err =
+            StartMicrovmError::LoadCommandline(linux_loader::loader::Error::CommandLineOverflow);
         let _ = format!("{}{:?}", err, err);
 
-        let err = NetDeviceNotConfigured;
+        let err = StartMicrovmError::MissingKernelConfig;
         let _ = format!("{}{:?}", err, err);
 
-        let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
+        let err = StartMicrovmError::MissingMemSizeConfig;
+        let _ = format!("{}{:?}", err, err);
+
+        let err = StartMicrovmError::NetDeviceNotConfigured;
+        let _ = format!("{}{:?}", err, err);
+
+        let err = StartMicrovmError::OpenBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
     }
 

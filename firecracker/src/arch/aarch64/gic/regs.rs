@@ -10,7 +10,7 @@ use kvm_ioctls::DeviceFd;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::aarch64::gic::{Error, Result};
+use super::{Error, Result};
 
 #[derive(Debug)]
 pub struct GicRegState<T: Versionize> {

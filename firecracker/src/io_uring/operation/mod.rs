@@ -13,7 +13,7 @@ use std::convert::From;
 pub use cqe::Cqe;
 pub(crate) use sqe::Sqe;
 
-use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
+use super::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
 
 /// The index of a registered fd.
 pub type FixedFd = u32;

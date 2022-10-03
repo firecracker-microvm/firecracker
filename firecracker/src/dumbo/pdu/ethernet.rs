@@ -6,9 +6,9 @@
 
 use std::result::Result;
 
+use super::super::MacAddr;
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use crate::MacAddr;
 
 const DST_MAC_OFFSET: usize = 0;
 const SRC_MAC_OFFSET: usize = 6;

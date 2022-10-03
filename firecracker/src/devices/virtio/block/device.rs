@@ -15,22 +15,23 @@ use std::sync::Arc;
 use std::{cmp, result};
 
 use block_io::FileEngine;
-use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use virtio_gen::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
-};
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::GuestMemoryMmap;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
+use super::super::{
+    ActivateResult, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_BLOCK,
+};
 use super::io::async_io;
 use super::request::*;
 use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
-use crate::virtio::{IrqTrigger, IrqType};
+use crate::logger::{error, warn, IncMetric, METRICS};
+use crate::rate_limiter::{BucketUpdate, RateLimiter};
+use crate::virtio_gen::virtio_blk::{
+    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
+};
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -628,28 +629,28 @@ impl Drop for Block {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
     use std::time::Duration;
     use std::{thread, u32};
 
-    use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
-    use vm_memory::{Address, Bytes, GuestAddress};
 
-    use super::*;
-    use crate::check_metric_after_block;
-    use crate::virtio::block::test_utils::{
+    use super::super::super::queue::tests::*;
+    use super::super::super::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use super::super::super::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use super::super::test_utils::{
         default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
         simulate_queue_event,
     };
-    use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
-    use crate::virtio::IO_URING_NUM_ENTRIES;
+    use super::*;
+    use crate::check_metric_after_block;
+    use crate::rate_limiter::TokenType;
+    use crate::vm_memory_ext::{Address, Bytes, GuestAddress};
 
     #[test]
     fn test_disk_backing_file_helper() {
@@ -1652,7 +1653,7 @@ pub(crate) mod tests {
         let mut block = default_block(default_engine_type_for_kv());
         let f = TempFile::new().unwrap();
         let path = f.as_path();
-        let mdata = metadata(&path).unwrap();
+        let mdata = metadata(path).unwrap();
         let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
         let part_id = str_id.as_bytes();

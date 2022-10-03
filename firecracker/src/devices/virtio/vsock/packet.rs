@@ -16,13 +16,12 @@
 /// to temporary buffers, before passing it on to the vsock backend.
 use std::io::{Read, Write};
 
-use vm_memory::{
+use super::super::DescriptorChain;
+use super::{defs, Result, VsockError};
+use crate::vm_memory_ext::{
     self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
     GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
 };
-
-use super::super::DescriptorChain;
-use super::{defs, Result, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -406,14 +405,13 @@ mod tests {
 
     use std::io::Cursor;
 
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
-
+    use super::super::super::test_utils::VirtqDesc as GuestQDesc;
+    use super::super::super::VIRTQ_DESC_F_WRITE;
+    use super::super::defs::MAX_PKT_BUF_SIZE;
+    use super::super::device::{RXQ_INDEX, TXQ_INDEX};
+    use super::super::test_utils::TestContext;
     use super::*;
-    use crate::virtio::test_utils::VirtqDesc as GuestQDesc;
-    use crate::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
-    use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
-    use crate::virtio::vsock::test_utils::TestContext;
-    use crate::virtio::VIRTQ_DESC_F_WRITE;
+    use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
@@ -718,7 +716,7 @@ mod tests {
     fn test_buf_region_addr_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        test_ctx.mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[
                 (GuestAddress(0), 500),
                 (GuestAddress(500), 100),

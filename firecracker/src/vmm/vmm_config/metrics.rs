@@ -5,10 +5,10 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use logger::METRICS;
 use serde::{Deserialize, Serialize};
 
 use super::{open_file_nonblock, FcLineWriter};
+use crate::logger::METRICS;
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]

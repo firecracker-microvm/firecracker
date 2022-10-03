@@ -7,21 +7,21 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use mmds::persist::MmdsNetworkStackState;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
-use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
+use super::super::persist::{Error as VirtioStateError, VirtioDeviceState};
+use super::super::{DeviceState, TYPE_NET};
 use super::device::Net;
 use super::{NUM_QUEUES, QUEUE_SIZE};
-use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
-use crate::virtio::{DeviceState, TYPE_NET};
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::mmds::persist::MmdsNetworkStackState;
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -131,9 +131,9 @@ impl Persist<'_> for Net {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use super::super::super::device::VirtioDevice;
+    use super::super::test_utils::{default_guest_memory, default_net, default_net_no_mmds};
     use super::*;
-    use crate::virtio::device::VirtioDevice;
-    use crate::virtio::net::test_utils::{default_guest_memory, default_net, default_net_no_mmds};
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_guest_memory();

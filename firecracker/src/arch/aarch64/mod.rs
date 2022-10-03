@@ -15,11 +15,11 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+pub use fdt::DeviceInfoForFDT;
+use gic::GICDevice;
 
-pub use self::fdt::DeviceInfoForFDT;
-use self::gic::GICDevice;
-use crate::DeviceType;
+use super::DeviceType;
+use crate::vm_memory_ext::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, derive_more::From)]
@@ -130,17 +130,17 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }

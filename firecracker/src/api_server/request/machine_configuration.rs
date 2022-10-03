@@ -1,12 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
-
 use super::super::VmmAction;
-use crate::parsed_request::{method_to_error, Error, ParsedRequest};
-use crate::request::{Body, Method};
+use crate::api_server::parsed_request::{method_to_error, Error, ParsedRequest};
+use crate::api_server::request::{Body, Method};
+use crate::logger::{IncMetric, METRICS};
+use crate::vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
@@ -45,10 +44,9 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
-
+    use super::super::super::parsed_request::tests::vmm_action_from_request;
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
     fn test_parse_get_machine_config_request() {
@@ -121,7 +119,7 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+            use crate::vmm::vmm_config::machine_config::CpuFeaturesTemplate;
             let expected_config = VmUpdateConfig {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),

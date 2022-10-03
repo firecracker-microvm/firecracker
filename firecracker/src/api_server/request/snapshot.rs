@@ -1,16 +1,16 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
 use serde::de::Error as DeserializeError;
-use vmm::vmm_config::snapshot::{
+
+use super::super::VmmAction;
+use crate::api_server::parsed_request::{Error, ParsedRequest};
+use crate::api_server::request::{Body, Method, StatusCode};
+use crate::logger::{IncMetric, METRICS};
+use crate::vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
     Vm, VmState,
 };
-
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
@@ -109,16 +109,17 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-
+    use super::super::super::parsed_request::tests::{
+        depr_action_from_req, vmm_action_from_request,
+    };
     use super::*;
-    use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
+    use crate::vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     #[test]
     fn test_parse_put_snapshot() {
         use std::path::PathBuf;
 
-        use vmm::vmm_config::snapshot::SnapshotType;
+        use crate::vmm::vmm_config::snapshot::SnapshotType;
 
         let mut body = r#"{
                 "snapshot_type": "Diff",

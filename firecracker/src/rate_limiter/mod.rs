@@ -47,8 +47,9 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
 
-use logger::error;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+
+use crate::logger::error;
 
 pub mod persist;
 

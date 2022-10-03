@@ -17,13 +17,13 @@ use std::os::unix::io::AsRawFd;
 
 use packet::VsockPacket;
 use utils::epoll::EventSet;
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
-use crate::virtio::persist::Error as VirtioStateError;
+use super::persist::Error as VirtioStateError;
+use crate::vm_memory_ext::{GuestMemoryError, GuestMemoryMmap};
 
 mod defs {
     /// Device ID used in MMIO device identification.

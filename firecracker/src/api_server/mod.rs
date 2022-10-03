@@ -14,9 +14,6 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::{fmt, io};
 
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
-};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -24,10 +21,13 @@ pub use micro_http::{
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
-use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
-use vmm::vmm_config::snapshot::SnapshotType;
 
-use crate::parsed_request::{ParsedRequest, RequestAction};
+use crate::api_server::parsed_request::{ParsedRequest, RequestAction};
+use crate::logger::{
+    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
+};
+use crate::vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
+use crate::vmm::vmm_config::snapshot::SnapshotType;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -110,13 +110,14 @@ impl ApiServer {
     /// use std::time::Duration;
     ///
     /// use api_server::ApiServer;
-    /// use logger::ProcessTimeReporter;
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
-    /// use vmm::rpc_interface::VmmData;
-    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
-    /// use vmm::vmm_config::instance_info::InstanceInfo;
-    /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
+    ///
+    /// use crate::loggerProcessTimeReporter;
+    /// use crate::vmm::rpc_interface::VmmData;
+    /// use crate::vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use crate::vmm::vmm_config::instance_info::InstanceInfo;
+    /// use crate::vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -167,7 +168,7 @@ impl ApiServer {
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|err| {
             error!("Error creating the HTTP server: {}", err);
-            std::process::exit(vmm::FcExitCode::GenericError as i32);
+            std::process::exit(crate::vmm::FcExitCode::GenericError as i32);
         });
         // Announce main thread that the socket path was created.
         // As per the doc, "A send operation can only fail if the receiving end of a channel is
@@ -324,17 +325,17 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
-    use vmm::builder::StartMicrovmError;
-    use vmm::rpc_interface::VmmActionError;
-    use vmm::seccomp_filters::{get_filters, SeccompConfig};
-    use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     use super::*;
+    use crate::logger::StoreMetric;
+    use crate::vmm::builder::StartMicrovmError;
+    use crate::vmm::rpc_interface::VmmActionError;
+    use crate::vmm::seccomp_filters::{get_filters, SeccompConfig};
+    use crate::vmm::vmm_config::instance_info::InstanceInfo;
+    use crate::vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     #[test]
     fn test_error_messages() {
@@ -492,7 +493,7 @@ mod tests {
                         PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
-                        vmm::HTTP_MAX_PAYLOAD_SIZE,
+                        crate::vmm::HTTP_MAX_PAYLOAD_SIZE,
                         socket_ready_sender,
                     )
                     .unwrap();

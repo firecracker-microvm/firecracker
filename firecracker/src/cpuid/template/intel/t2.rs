@@ -3,16 +3,16 @@
 
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
-use crate::bit_helper::BitHelper;
-use crate::cpu_leaf::*;
-use crate::template::intel::validate_vendor_id;
-use crate::transformer::*;
+use super::super::super::bit_helper::BitHelper;
+use super::super::super::cpu_leaf::*;
+use super::super::super::template::intel::validate_vendor_id;
+use super::super::super::transformer::*;
 
 pub(crate) fn update_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x1::*;
+    use super::super::super::cpu_leaf::leaf_0x1::*;
 
     entry
         .eax
@@ -66,7 +66,7 @@ pub(crate) fn update_structured_extended_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x7::index0::*;
+    use super::super::super::cpu_leaf::leaf_0x7::index0::*;
 
     if entry.index == 0 {
         entry
@@ -120,7 +120,7 @@ pub(crate) fn update_xsave_features_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0xd::*;
+    use super::super::super::cpu_leaf::leaf_0xd::*;
 
     if entry.index == 0 {
         // MPX is masked out with the current template so the size in bytes of the save
@@ -155,7 +155,7 @@ pub(crate) fn update_extended_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000001::*;
+    use super::super::super::cpu_leaf::leaf_0x80000001::*;
 
     entry.ecx.write_bit(ecx::PREFETCH_BITINDEX, false);
 

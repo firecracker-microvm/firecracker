@@ -8,12 +8,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{error, warn};
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
 
-use super::{ActivateResult, Queue};
-use crate::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::{ActivateResult, AsAny, Queue, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use crate::logger::{error, warn};
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.

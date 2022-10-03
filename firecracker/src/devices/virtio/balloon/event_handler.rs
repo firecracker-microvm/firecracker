@@ -4,12 +4,12 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
-use crate::report_balloon_event_fail;
-use crate::virtio::balloon::device::Balloon;
-use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use super::super::super::report_balloon_event_fail;
+use super::super::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use super::device::Balloon;
+use crate::logger::{debug, error, warn};
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -113,11 +113,11 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use vm_memory::GuestAddress;
 
+    use super::super::super::balloon::test_utils::set_request;
+    use super::super::super::test_utils::{default_mem, VirtQueue};
     use super::*;
-    use crate::virtio::balloon::test_utils::set_request;
-    use crate::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::vm_memory_ext::GuestAddress;
 
     #[test]
     fn test_event_handler() {

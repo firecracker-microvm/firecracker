@@ -11,9 +11,8 @@
 
 use std::net::Ipv4Addr;
 
-use super::bytes::{InnerBytes, NetworkBytes};
-use crate::pdu::bytes::NetworkBytesMut;
-use crate::pdu::{ChecksumProto, Incomplete};
+use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
+use super::{ChecksumProto, Incomplete};
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -117,7 +116,7 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
     /// Computes the checksum of a UDP datagram.
     #[inline]
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
-        crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Udp)
+        super::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Udp)
     }
 }
 
@@ -209,8 +208,8 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
 mod tests {
     use std::fmt;
 
+    use super::super::udp::UdpDatagram;
     use super::*;
-    use crate::pdu::udp::UdpDatagram;
 
     impl<'a, T: NetworkBytes> fmt::Debug for UdpDatagram<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

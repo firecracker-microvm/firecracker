@@ -10,34 +10,34 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::{cmp, mem, result};
 
-use dumbo::pdu::ethernet::EthernetFrame;
 use libc::EAGAIN;
-use logger::{error, warn, IncMetric, METRICS};
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::rand_bytes;
-use virtio_gen::virtio_net::{
+
+use super::super::super::{report_net_event_fail, Error as DeviceError};
+use super::super::net::tap::Tap;
+#[cfg(test)]
+use super::super::net::test_utils::Mocks;
+use super::super::net::{
+    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
+};
+use super::super::{
+    ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
+    TYPE_NET,
+};
+use crate::dumbo::pdu::ethernet::EthernetFrame;
+use crate::logger::{error, warn, IncMetric, METRICS};
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use crate::virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
     VIRTIO_NET_F_MAC,
 };
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
-
-use crate::virtio::net::tap::Tap;
-#[cfg(test)]
-use crate::virtio::net::test_utils::Mocks;
-use crate::virtio::net::{
-    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
-};
-use crate::virtio::{
-    ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
-    TYPE_NET,
-};
-use crate::{report_net_event_fail, Error as DeviceError};
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::vm_memory_ext::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 enum FrontendError {
     AddUsed,
@@ -876,31 +876,30 @@ pub mod tests {
     use std::time::Duration;
     use std::{io, mem, thread};
 
-    use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-    use dumbo::pdu::ethernet::ETHERTYPE_ARP;
-    use logger::{IncMetric, METRICS};
-    use rate_limiter::{RateLimiter, TokenBucket, TokenType};
-    use virtio_gen::virtio_net::{
+    use super::super::super::net::QUEUE_SIZES;
+    use super::super::super::{
+        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
+    };
+    use super::super::device::{
+        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
+    };
+    use super::super::test_utils::test::TestHelper;
+    use super::super::test_utils::{
+        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
+        TapTrafficSimulator,
+    };
+    use super::*;
+    use crate::check_metric_after_block;
+    use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+    use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
+    use crate::logger::{IncMetric, METRICS};
+    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
+    use crate::virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
     };
-    use vm_memory::{Address, GuestMemory};
-
-    use super::*;
-    use crate::check_metric_after_block;
-    use crate::virtio::net::device::{
-        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
-    };
-    use crate::virtio::net::test_utils::test::TestHelper;
-    use crate::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator,
-    };
-    use crate::virtio::net::QUEUE_SIZES;
-    use crate::virtio::{
-        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
-    };
+    use crate::vm_memory_ext::{Address, GuestMemory};
 
     impl Net {
         pub fn read_tap(&mut self) -> io::Result<usize> {

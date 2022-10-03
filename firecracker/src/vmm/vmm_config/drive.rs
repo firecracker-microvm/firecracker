@@ -9,14 +9,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, result};
 
-pub use devices::virtio::block::device::FileEngineType;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-pub use devices::virtio::CacheType;
 use serde::{Deserialize, Serialize};
 
+use super::super::Error as VmmError;
 use super::RateLimiterConfig;
-use crate::Error as VmmError;
+pub use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::Error as BlockError;
+use crate::devices::virtio::Block;
+pub use crate::devices::virtio::CacheType;
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -220,7 +220,7 @@ impl BlockBuilder {
             .map_err(DriveError::CreateRateLimiter)?;
 
         // Create and return the Block device
-        devices::virtio::Block::new(
+        crate::devices::virtio::Block::new(
             block_device_config.drive_id,
             block_device_config.partuuid,
             block_device_config.cache_type,
@@ -245,10 +245,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::rate_limiter::RateLimiter;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {

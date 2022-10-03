@@ -382,19 +382,25 @@ impl IoUring {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::FileExt;
+    use std::os::unix::io::AsRawFd;
+    use std::thread;
+    use std::time::Duration;
 
     use proptest::prelude::*;
     use proptest::strategy::Strategy;
     use proptest::test_runner::{Config, TestRunner};
+    use restriction::Restriction;
+    use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+    use utils::eventfd::EventFd;
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
-    use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
+    use crate::vm_memory_ext::{Bytes, MmapRegion, VolatileMemory};
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {

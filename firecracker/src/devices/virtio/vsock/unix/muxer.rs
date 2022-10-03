@@ -35,9 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
-use vm_memory::GuestMemoryMmap;
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
@@ -48,6 +46,8 @@ use super::super::{
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
 use super::{defs, Error, MuxerConnection, Result};
+use crate::logger::{debug, error, info, warn, IncMetric, METRICS};
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -775,9 +775,9 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::super::super::csm::defs as csm_defs;
+    use super::super::super::device::RXQ_INDEX;
+    use super::super::super::test_utils::TestContext as VsockTestContext;
     use super::*;
-    use crate::virtio::vsock::device::RXQ_INDEX;
-    use crate::virtio::vsock::test_utils::TestContext as VsockTestContext;
 
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;

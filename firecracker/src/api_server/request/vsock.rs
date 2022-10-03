@@ -1,12 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::vsock::VsockDeviceConfig;
-
 use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use crate::api_server::parsed_request::{Error, ParsedRequest};
+use crate::api_server::request::Body;
+use crate::logger::{IncMetric, METRICS};
+use crate::vmm::vmm_config::vsock::VsockDeviceConfig;
 
 pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.vsock_count.inc();
@@ -35,8 +34,8 @@ pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::parsed_request::tests::depr_action_from_req;
     use super::*;
-    use crate::parsed_request::tests::depr_action_from_req;
 
     #[test]
     fn test_parse_put_vsock_request() {

@@ -9,16 +9,17 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiRequest, ApiResponse, ApiServer};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vmm::resources::VmResources;
-use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
-use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::{EventManager, FcExitCode, Vmm};
+
+use crate::api_server::{ApiRequest, ApiResponse, ApiServer};
+use crate::logger::{error, warn, ProcessTimeReporter};
+use crate::vmm::resources::VmResources;
+use crate::vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
+use crate::vmm::vmm_config::instance_info::InstanceInfo;
+use crate::vmm::{EventManager, FcExitCode, Vmm};
 
 struct ApiServerAdapter {
     api_event_fd: EventFd,
@@ -42,7 +43,10 @@ impl ApiServerAdapter {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vm_resources, vmm.clone()),
+            controller: crate::vmm::rpc_interface::RuntimeApiController::new(
+                vm_resources,
+                vmm.clone(),
+            ),
         }));
         event_manager.add_subscriber(api_adapter);
         loop {
@@ -156,17 +160,17 @@ pub(crate) fn run_with_api(
                 socket_ready_sender,
             ) {
                 Ok(_) => (),
-                Err(api_server::Error::Io(inner)) => match inner.kind() {
+                Err(crate::api_server::Error::Io(inner)) => match inner.kind() {
                     std::io::ErrorKind::AddrInUse => panic!(
                         "Failed to open the API socket: {:?}",
-                        api_server::Error::Io(inner)
+                        crate::api_server::Error::Io(inner)
                     ),
                     _ => panic!(
                         "Failed to communicate with the API socket: {:?}",
-                        api_server::Error::Io(inner)
+                        crate::api_server::Error::Io(inner)
                     ),
                 },
-                Err(eventfd_err @ api_server::Error::Eventfd(_)) => {
+                Err(eventfd_err @ crate::api_server::Error::Eventfd(_)) => {
                     panic!("Failed to open the API socket: {:?}", eventfd_err)
                 }
             }

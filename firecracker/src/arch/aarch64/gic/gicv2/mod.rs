@@ -8,7 +8,7 @@ use std::result;
 
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::{Error, GICDevice, GicState};
+use super::{Error, GICDevice, GicState};
 
 type Result<T> = result::Result<T, Error>;
 

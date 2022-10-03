@@ -5,11 +5,11 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use logger::{LevelFilter, LOGGER};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
+use super::instance_info::InstanceInfo;
 use super::{open_file_nonblock, FcLineWriter};
-use crate::vmm_config::instance_info::InstanceInfo;
+use crate::logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -155,13 +155,13 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use devices::pseudo::BootTimer;
-    use devices::BusDevice;
-    use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 
     use super::*;
+    use crate::devices::pseudo::BootTimer;
+    use crate::devices::BusDevice;
+    use crate::logger::warn;
 
     #[test]
     fn test_init_logger() {

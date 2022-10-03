@@ -11,9 +11,10 @@ use std::{fmt, io};
 use aes_gcm::aead::NewAead;
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
-use logger::warn;
 use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
+
+use crate::logger::warn;
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;

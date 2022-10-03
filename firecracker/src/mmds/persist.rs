@@ -6,13 +6,13 @@
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
-use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::ns::MmdsNetworkStack;
-use crate::Mmds;
+use super::Mmds;
+use crate::snapshot::Persist;
 
 /// State of a MmdsNetworkStack.
 #[derive(Clone, Versionize)]

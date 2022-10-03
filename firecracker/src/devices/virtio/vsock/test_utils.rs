@@ -7,15 +7,15 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-use crate::virtio::test_utils::VirtQueue as GuestQ;
-use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
-use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use crate::virtio::{
+use super::super::test_utils::VirtQueue as GuestQ;
+use super::super::{
     VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
+use super::device::{RXQ_INDEX, TXQ_INDEX};
+use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
 type Result<T> = std::result::Result<T, VsockError>;
 
@@ -122,7 +122,7 @@ impl TestContext {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
         let mem =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_SIZE)], false)
+            crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), MEM_SIZE)], false)
                 .unwrap();
         Self {
             cid: CID,

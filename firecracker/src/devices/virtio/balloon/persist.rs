@@ -7,16 +7,15 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
+use super::super::{DeviceState, VirtioDeviceState, TYPE_BALLOON};
+use super::device::{BalloonStats, ConfigSpace};
 use super::*;
-use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};
-use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_BALLOON};
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -162,10 +161,10 @@ impl Persist<'_> for Balloon {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use super::super::super::device::VirtioDevice;
+    use super::super::super::test_utils::default_mem;
+    use super::super::super::TYPE_BALLOON;
     use super::*;
-    use crate::virtio::device::VirtioDevice;
-    use crate::virtio::test_utils::default_mem;
-    use crate::virtio::TYPE_BALLOON;
 
     #[test]
     fn test_persistence() {

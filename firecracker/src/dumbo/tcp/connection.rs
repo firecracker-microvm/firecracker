@@ -11,13 +11,13 @@ use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 use bitflags::bitflags;
 use utils::rand::xor_psuedo_rng_u32;
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
-use crate::pdu::Incomplete;
-use crate::tcp::{
+use super::super::pdu::bytes::NetworkBytes;
+use super::super::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use super::super::pdu::Incomplete;
+use super::super::ByteBuffer;
+use super::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
 };
-use crate::ByteBuffer;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some

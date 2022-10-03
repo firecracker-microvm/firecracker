@@ -8,10 +8,6 @@
 use std::fmt::Formatter;
 use std::{fmt, result};
 
-#[cfg(target_arch = "aarch64")]
-use arch::aarch64::gic::GICDevice;
-#[cfg(target_arch = "aarch64")]
-use arch::aarch64::gic::GicState;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
     kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, CpuId, MsrList,
@@ -22,21 +18,26 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::gic::GICDevice;
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::gic::GicState;
+use crate::vm_memory_ext::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
-    GuestMSRs(arch::x86_64::msr::Error),
+    GuestMSRs(crate::arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
     /// Cannot create the global interrupt controller..
-    VmCreateGIC(arch::aarch64::gic::Error),
+    VmCreateGIC(crate::arch::aarch64::gic::Error),
     /// Cannot open the VM file descriptor.
     VmFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
@@ -60,9 +61,9 @@ pub enum Error {
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    SaveGic(arch::aarch64::gic::Error),
+    SaveGic(crate::arch::aarch64::gic::Error),
     #[cfg(target_arch = "aarch64")]
-    RestoreGic(arch::aarch64::gic::Error),
+    RestoreGic(crate::arch::aarch64::gic::Error),
 }
 
 /// Error type for [`Vm::restore_state`]
@@ -84,7 +85,7 @@ pub enum RestoreStateError {
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
 #[derive(Debug, derive_more::From)]
-pub struct RestoreStateError(arch::aarch64::gic::Error);
+pub struct RestoreStateError(crate::arch::aarch64::gic::Error);
 #[cfg(target_arch = "aarch64")]
 impl fmt::Display for RestoreStateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -164,7 +165,7 @@ impl Vm {
             .map_err(Error::VmFd)?;
         #[cfg(target_arch = "x86_64")]
         let supported_msrs =
-            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+            crate::arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
 
         Ok(Vm {
             fd: vm_fd,
@@ -199,10 +200,10 @@ impl Vm {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
-        self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
+        self.set_kvm_memory_ext_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
+            .set_tss_address(crate::arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
             .map_err(Error::VmSetup)?;
 
         Ok(())
@@ -225,7 +226,7 @@ impl Vm {
     #[cfg(target_arch = "aarch64")]
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
         self.irqchip_handle = Some(
-            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
+            crate::arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
                 .map_err(Error::VmCreateGIC)?,
         );
         Ok(())
@@ -398,16 +399,15 @@ pub struct VmState {
 pub(crate) mod tests {
     use std::os::unix::io::FromRawFd;
 
-    use vm_memory::GuestAddress;
-
+    use super::super::system::KvmContext;
     use super::*;
-    use crate::vstate::system::KvmContext;
+    use crate::vm_memory_ext::GuestAddress;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
         let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
+            crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
                 .unwrap();
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
@@ -444,13 +444,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_vm_memory_init() {
+    fn test_vm_memory_ext_init() {
         let kvm_context = KvmContext::new().unwrap();
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
         let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+            crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
                 .unwrap();
         assert!(vm
             .memory_init(&gm, kvm_context.max_memslots(), true)
@@ -485,22 +485,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_set_kvm_memory_regions() {
+    fn test_set_kvm_memory_ext_regions() {
         let kvm_context = KvmContext::new().unwrap();
         let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+            crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
                 .unwrap();
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let res = vm.set_kvm_memory_ext_regions(&gm, false);
         assert!(res.is_ok());
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.
         let gm =
-            vm_memory::test_utils::create_guest_memory_unguarded(&[(GuestAddress(0), 0x10)], false)
+            crate::vm_memory_ext::create_guest_memory_unguarded(&[(GuestAddress(0), 0x10)], false)
                 .unwrap();
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let res = vm.set_kvm_memory_ext_regions(&gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"

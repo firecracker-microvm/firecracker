@@ -4,9 +4,8 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
-
-use crate::BusDevice;
+use super::super::BusDevice;
+use crate::logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
 pub type RTCDevice = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
@@ -46,10 +45,10 @@ impl BusDevice for RTCDevice {
 mod tests {
     use std::sync::Arc;
 
-    use logger::IncMetric;
     use vm_superio::Rtc;
 
     use super::*;
+    use crate::loggerIncMetric;
 
     #[test]
     fn test_rtc_device() {

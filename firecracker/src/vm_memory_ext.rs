@@ -8,19 +8,19 @@
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;
 
-use vm_memory_upstream::bitmap::AtomicBitmap;
-pub use vm_memory_upstream::bitmap::Bitmap;
-use vm_memory_upstream::mmap::{check_file_offset, NewBitmap};
-pub use vm_memory_upstream::mmap::{MmapRegionBuilder, MmapRegionError};
-pub use vm_memory_upstream::{
+use vm_memory::bitmap::AtomicBitmap;
+pub use vm_memory::bitmap::Bitmap;
+use vm_memory::mmap::{check_file_offset, NewBitmap};
+pub use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
+pub use vm_memory::{
     address, Address, ByteValued, Bytes, Error, FileOffset, GuestAddress, GuestMemory,
     GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
     VolatileMemory, VolatileMemoryError,
 };
 
-pub type GuestMemoryMmap = vm_memory_upstream::GuestMemoryMmap<Option<AtomicBitmap>>;
-pub type GuestRegionMmap = vm_memory_upstream::GuestRegionMmap<Option<AtomicBitmap>>;
-pub type GuestMmapRegion = vm_memory_upstream::MmapRegion<Option<AtomicBitmap>>;
+pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
+pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
+pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 
 const GUARD_PAGE_COUNT: usize = 1;
 

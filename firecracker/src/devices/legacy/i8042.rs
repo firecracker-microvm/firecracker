@@ -8,10 +8,10 @@
 use std::num::Wrapping;
 use std::{fmt, io, result};
 
-use logger::{error, warn, IncMetric, METRICS};
 use utils::eventfd::EventFd;
 
-use crate::bus::BusDevice;
+use super::super::bus::BusDevice;
+use crate::logger::{error, warn, IncMetric, METRICS};
 
 #[derive(Debug)]
 pub enum Error {

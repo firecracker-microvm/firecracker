@@ -5,9 +5,9 @@
 
 use std::u32;
 
-use crate::virtio::test_utils::VirtQueue;
+use super::super::test_utils::VirtQueue;
 #[cfg(test)]
-use crate::virtio::{
+use super::super::{
     balloon::NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
 };
 

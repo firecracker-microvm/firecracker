@@ -114,9 +114,8 @@ pub(crate) fn remove_range(
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::Bytes;
-
     use super::*;
+    use crate::vm_memory_ext::Bytes;
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {
@@ -174,7 +173,7 @@ mod tests {
     #[test]
     fn test_remove_range() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(
             &[(GuestAddress(0), 2 * page_size)],
             false,
         )
@@ -219,7 +218,7 @@ mod tests {
     #[test]
     fn test_remove_range_on_restored() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(
             &[(GuestAddress(0), 2 * page_size)],
             false,
         )

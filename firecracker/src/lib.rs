@@ -26,6 +26,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, panic, process};
 
+use event_manager::SubscriberOps;
+use seccompiler::BpfThreadMap;
+use utils::arg_parser::{ArgParser, Argument};
+use utils::terminal::Terminal;
+use utils::validators::validate_instance_id;
+
 use crate::logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use crate::snapshot::Snapshot;
 use crate::vmm::resources::VmResources;
@@ -36,11 +42,6 @@ use crate::vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 use crate::vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use crate::vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
-use event_manager::SubscriberOps;
-use seccompiler::BpfThreadMap;
-use utils::arg_parser::{ArgParser, Argument};
-use utils::terminal::Terminal;
-use utils::validators::validate_instance_id;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.

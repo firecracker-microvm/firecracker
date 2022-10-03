@@ -6,20 +6,20 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::warn;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
-use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
-use vm_memory::GuestMemoryMmap;
 
+use super::super::persist::VirtioDeviceState;
+use super::super::{DeviceState, TYPE_BLOCK};
+use super::device::FileEngineType;
 use super::*;
-use crate::virtio::block::device::FileEngineType;
-use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_BLOCK};
+use crate::logger::warn;
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
+use crate::snapshot::Persist;
+use crate::virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -207,9 +207,9 @@ mod tests {
 
     use utils::tempfile::TempFile;
 
+    use super::super::super::device::VirtioDevice;
+    use super::super::super::test_utils::default_mem;
     use super::*;
-    use crate::virtio::device::VirtioDevice;
-    use crate::virtio::test_utils::default_mem;
 
     #[test]
     fn test_cache_type_state_from() {

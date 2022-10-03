@@ -5,15 +5,14 @@
 
 use std::collections::HashMap;
 
-use devices::virtio::block::persist::BlockState;
-use devices::virtio::QueueState;
 use lazy_static::lazy_static;
 use versionize::{VersionMap, Versionize};
 
-use crate::device_manager::persist::DeviceStates;
-use crate::persist::VmInfo;
+use super::device_manager::persist::DeviceStates;
 #[cfg(target_arch = "x86_64")]
-use crate::vstate::vcpu::VcpuState;
+use super::vstate::vcpu::VcpuState;
+use crate::devices::virtio::block::persist::BlockState;
+use crate::devices::virtio::QueueState;
 
 /// Snap version for Firecracker v0.23
 #[cfg(target_arch = "x86_64")]

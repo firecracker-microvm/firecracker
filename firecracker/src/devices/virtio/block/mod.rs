@@ -8,11 +8,10 @@ pub mod persist;
 pub mod request;
 pub mod test_utils;
 
-use vm_memory::GuestMemoryError;
-
 pub use self::device::{Block, CacheType};
 pub use self::event_handler::*;
 pub use self::request::*;
+use crate::vm_memory_ext::GuestMemoryError;
 
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const SECTOR_SHIFT: u8 = 9;
@@ -53,5 +52,5 @@ pub enum Error {
     // Error coming from the rate limiter.
     RateLimiter(std::io::Error),
     // Persistence error.
-    Persist(crate::virtio::persist::Error),
+    Persist(super::persist::Error),
 }

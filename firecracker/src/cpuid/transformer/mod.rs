@@ -7,8 +7,8 @@ pub mod intel;
 
 pub use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
-use crate::brand_string::{BrandString, Reg as BsReg};
-use crate::common::get_vendor_id_from_host;
+use super::brand_string::{BrandString, Reg as BsReg};
+use super::common::get_vendor_id_from_host;
 
 /// Structure containing the specifications of the VM
 pub struct VmSpec {

@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use serde_json::{to_vec, Value};
 
-use crate::token::{Error as TokenError, TokenAuthority};
+use super::token::{Error as TokenError, TokenAuthority};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 pub struct Mmds {

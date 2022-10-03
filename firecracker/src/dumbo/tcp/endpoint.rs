@@ -13,15 +13,15 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use logger::{IncMetric, METRICS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::tcp::TcpSegment;
-use crate::pdu::Incomplete;
-use crate::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
-use crate::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use super::super::pdu::bytes::NetworkBytes;
+use super::super::pdu::tcp::TcpSegment;
+use super::super::pdu::Incomplete;
+use super::super::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
+use super::super::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use crate::logger::{IncMetric, METRICS};
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until
@@ -352,10 +352,10 @@ mod tests {
     use std::fmt;
     use std::str::from_utf8;
 
+    use super::super::super::pdu::tcp::Flags as TcpFlags;
+    use super::super::connection::tests::ConnectionTester;
+    use super::super::tests::mock_callback;
     use super::*;
-    use crate::pdu::tcp::Flags as TcpFlags;
-    use crate::tcp::connection::tests::ConnectionTester;
-    use crate::tcp::tests::mock_callback;
 
     impl Endpoint {
         pub fn set_eviction_threshold(&mut self, value: u64) {

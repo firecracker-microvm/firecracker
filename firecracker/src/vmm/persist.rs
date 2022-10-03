@@ -11,38 +11,37 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
-use devices::virtio::TYPE_NET;
-use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
-use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{GuestMemory, GuestMemoryMmap};
 
-use crate::builder::{self, BuildMicrovmFromSnapshotError};
-use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
-use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
-use crate::resources::VmResources;
+use super::builder::{self, BuildMicrovmFromSnapshotError};
+use super::device_manager::persist::{DeviceStates, Error as DevicePersistError};
+use super::memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use super::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
-use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
-use crate::vmm_config::boot_source::BootSourceConfig;
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
-use crate::vmm_config::snapshot::{
+use super::version_map::FC_V0_23_SNAP_VERSION;
+use super::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use super::vmm_config::instance_info::InstanceInfo;
+use super::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use super::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
-use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
-use crate::vstate::vm::VmState;
-use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManager, Vmm};
+use super::vstate::vcpu::{VcpuSendEventError, VcpuState};
+use super::vstate::vm::VmState;
+use super::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManager, Vmm};
+#[cfg(target_arch = "aarch64")]
+use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+use crate::devices::virtio::TYPE_NET;
+use crate::logger::{error, info};
+use crate::snapshot::Snapshot;
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::vm_memory_ext::{GuestMemory, GuestMemoryMmap};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
@@ -191,7 +190,7 @@ pub enum CreateSnapshotError {
     /// Failed to save MicrovmState.
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
-    SerializeMicrovmState(snapshot::Error),
+    SerializeMicrovmState(crate::snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(&'static str, io::Error),
     #[cfg(target_arch = "x86_64")]
@@ -373,10 +372,10 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(cpuid::common::Error),
+    Host(crate::cpuid::common::Error),
     /// Failed to read snapshot vendor.
     #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(cpuid::common::Error),
+    Snapshot(crate::cpuid::common::Error),
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -585,7 +584,7 @@ pub enum SnapshotStateFromFileError {
     Meta(std::io::Error),
     /// Failed to load snapshot state from file.
     #[error("Failed to load snapshot state from file: {0}")]
-    Load(#[from] snapshot::Error),
+    Load(#[from] crate::snapshot::Error),
 }
 
 fn snapshot_state_from_file(
@@ -608,7 +607,7 @@ pub enum GuestMemoryFromFileError {
     File(#[from] std::io::Error),
     /// Failed to restore guest memory.
     #[error("Failed to restore guest memory: {0}")]
-    Restore(#[from] crate::memory_snapshot::Error),
+    Restore(#[from] memory_snapshot::Error),
 }
 
 fn guest_memory_from_file(
@@ -626,7 +625,7 @@ fn guest_memory_from_file(
 pub enum GuestMemoryFromUffdError {
     /// Failed to restore guest memory.
     #[error("Failed to restore guest memory: {0}")]
-    Restore(#[from] crate::memory_snapshot::Error),
+    Restore(#[from] memory_snapshot::Error),
     /// Failed to UFFD object.
     #[error("Failed to UFFD object: {0}")]
     Create(userfaultfd::Error),
@@ -746,24 +745,24 @@ fn validate_fc_version_format(version: &str) -> Result<(), CreateSnapshotError> 
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Persist;
+    use memory_snapshot::SnapshotMemory;
     use utils::errno;
     use utils::tempfile::TempFile;
 
-    use super::*;
-    use crate::builder::tests::{
+    use super::super::builder::tests::{
         default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
         insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
+    use super::super::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
+    use super::super::vmm_config::balloon::BalloonDeviceConfig;
+    use super::super::vmm_config::drive::CacheType;
+    use super::super::vmm_config::net::NetworkInterfaceConfig;
+    use super::super::vmm_config::vsock::tests::default_config;
+    use super::super::Vmm;
+    use super::*;
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
-    use crate::memory_snapshot::SnapshotMemory;
-    use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
-    use crate::vmm_config::balloon::BalloonDeviceConfig;
-    use crate::vmm_config::drive::CacheType;
-    use crate::vmm_config::net::NetworkInterfaceConfig;
-    use crate::vmm_config::vsock::tests::default_config;
-    use crate::Vmm;
+    use crate::snapshot::Persist;
 
     #[cfg(target_arch = "aarch64")]
     const FC_VERSION_0_23_0: &str = "0.23.0";
@@ -913,72 +912,70 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use vm_memory::GuestMemoryError;
+        use crate::vm_memory_ext::GuestMemoryError;
 
-        use crate::persist::CreateSnapshotError::*;
-
-        let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
+        let err =
+            CreateSnapshotError::DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
         let _ = format!("{}{:?}", err, err);
 
-        let err = InvalidVersionFormat;
+        let err = CreateSnapshotError::InvalidVersionFormat;
         let _ = format!("{}{:?}", err, err);
 
-        let err = UnsupportedVersion;
+        let err = CreateSnapshotError::UnsupportedVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = Memory(memory_snapshot::Error::WriteMemory(
+        let err = CreateSnapshotError::Memory(memory_snapshot::Error::WriteMemory(
             GuestMemoryError::HostAddressNotAvailable,
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = MemoryBackingFile("open", io::Error::from_raw_os_error(0));
+        let err = CreateSnapshotError::MemoryBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
+        let err = CreateSnapshotError::MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
+        let err =
+            CreateSnapshotError::SerializeMicrovmState(crate::snapshot::Error::InvalidMagic(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
+        let err = CreateSnapshotError::SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
         #[cfg(target_arch = "x86_64")]
         {
-            let err = TooManyDevices(0);
+            let err = CreateSnapshotError::TooManyDevices(0);
             let _ = format!("{}{:?}", err, err);
         }
     }
 
     #[test]
     fn test_microvm_state_error_display() {
-        use crate::persist::MicrovmStateError::*;
-
-        let err = InvalidInput;
+        let err = MicrovmStateError::InvalidInput;
         let _ = format!("{}{:?}", err, err);
 
-        let err = NotAllowed(String::from(""));
+        let err = MicrovmStateError::NotAllowed(String::from(""));
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreDevices(DevicePersistError::MmioTransport);
+        let err = MicrovmStateError::RestoreDevices(DevicePersistError::MmioTransport);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVcpuState(vstate::vcpu::Error::VcpuTlsInit);
+        let err = MicrovmStateError::RestoreVcpuState(vstate::vcpu::Error::VcpuTlsInit);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVmState(vstate::vm::Error::NotEnoughMemorySlots);
+        let err = MicrovmStateError::RestoreVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVcpuState(vstate::vcpu::Error::VcpuTlsNotPresent);
+        let err = MicrovmStateError::SaveVcpuState(vstate::vcpu::Error::VcpuTlsNotPresent);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
+        let err = MicrovmStateError::SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SignalVcpu(VcpuSendEventError(errno::Error::new(0)));
+        let err = MicrovmStateError::SignalVcpu(VcpuSendEventError(errno::Error::new(0)));
         let _ = format!("{}{:?}", err, err);
 
-        let err = UnexpectedVcpuResponse;
+        let err = MicrovmStateError::UnexpectedVcpuResponse;
         let _ = format!("{}{:?}", err, err);
     }
 }

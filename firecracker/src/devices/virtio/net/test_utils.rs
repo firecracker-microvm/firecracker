@@ -12,18 +12,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, result};
 
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use rate_limiter::RateLimiter;
 use utils::net::mac::MacAddr;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+use super::super::super::Error as DeviceError;
+use super::super::test_utils::VirtQueue;
+use super::super::{Net, Queue, QueueError};
 #[cfg(test)]
-use crate::virtio::net::device::vnet_hdr_len;
-use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
-use crate::virtio::test_utils::VirtQueue;
-use crate::virtio::{Net, Queue, QueueError};
-use crate::Error as DeviceError;
+use super::device::vnet_hdr_len;
+use super::tap::{Error, IfReqBuilder, Tap};
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::rate_limiter::RateLimiter;
+use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
 pub type Result<T> = ::std::result::Result<T, Error>;
 
@@ -293,7 +293,7 @@ pub fn default_guest_mac() -> MacAddr {
 }
 
 pub fn default_guest_memory() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
+    crate::vm_memory_ext::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
         .expect("Cannot initialize memory")
 }
 
@@ -316,20 +316,17 @@ pub mod test {
     use std::{cmp, mem};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
-    use crate::check_metric_after_block;
-    use crate::virtio::net::device::vnet_hdr_len;
-    use crate::virtio::net::test_utils::{
+    use super::super::super::test_utils::{VirtQueue, VirtqDesc};
+    use super::super::super::{IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use super::super::device::vnet_hdr_len;
+    use super::super::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
-    use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::virtio::{
-        IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
-        VIRTQ_DESC_F_WRITE,
-    };
+    use crate::check_metric_after_block;
+    use crate::logger::{IncMetric, METRICS};
+    use crate::vm_memory_ext::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -346,7 +343,7 @@ pub mod test {
         pub fn default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+            let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
                 &[(GuestAddress(0), MAX_BUFFER_SIZE)],
                 false,
             )
@@ -420,7 +417,8 @@ pub mod test {
                 let desc = &queue.dtable[index as usize];
                 desc.set(addr, len, flags, 0);
                 if let Some(&&(next_index, _, _)) = iter.peek() {
-                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
+                    desc.flags
+                        .set(flags | super::super::super::VIRTQ_DESC_F_NEXT);
                     desc.next.set(next_index);
                 }
 
@@ -468,7 +466,11 @@ pub mod test {
             self.add_desc_chain(
                 NetQueue::Rx,
                 0,
-                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
+                &[(
+                    0,
+                    expected_frame.len() as u32,
+                    super::super::super::VIRTQ_DESC_F_WRITE,
+                )],
             );
             check_metric_after_block!(
                 METRICS.net.rx_packets_count,

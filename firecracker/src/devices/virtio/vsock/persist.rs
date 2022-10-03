@@ -6,14 +6,14 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
+use super::super::persist::VirtioDeviceState;
+use super::super::{DeviceState, TYPE_VSOCK};
 use super::*;
-use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_VSOCK};
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -126,14 +126,14 @@ where
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use utils::byte_order;
 
+    use super::super::super::device::VirtioDevice;
+    use super::super::super::vsock::defs::uapi;
+    use super::super::super::vsock::test_utils::{TestBackend, TestContext};
     use super::device::AVAIL_FEATURES;
     use super::*;
-    use crate::virtio::device::VirtioDevice;
-    use crate::virtio::vsock::defs::uapi;
-    use crate::virtio::vsock::test_utils::{TestBackend, TestContext};
 
     impl Persist<'_> for TestBackend {
         type State = VsockBackendState;

@@ -5,8 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::{Display, Formatter};
-use std::result;
+use std::fmt;
 
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
@@ -49,7 +48,7 @@ impl Display for Error {
     }
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// Describes a KVM context that gets attached to the microVM.
 /// It gives access to the functionality of the KVM wrapper as

@@ -3,12 +3,12 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
+use super::super::block::device::Block;
+use super::super::VirtioDevice;
 use super::io::FileEngine;
-use crate::virtio::block::device::Block;
-use crate::virtio::VirtioDevice;
+use crate::logger::{debug, error, warn};
 
 impl Block {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -103,16 +103,15 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
-    use vm_memory::{Bytes, GuestAddress};
 
+    use super::super::super::queue::tests::*;
+    use super::super::super::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use super::super::super::VIRTQ_DESC_F_NEXT;
+    use super::super::device::FileEngineType;
+    use super::super::test_utils::{default_block, set_queue, simulate_async_completion_event};
     use super::*;
-    use crate::virtio::block::device::FileEngineType;
-    use crate::virtio::block::test_utils::{
-        default_block, set_queue, simulate_async_completion_event,
-    };
-    use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use crate::virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
+    use crate::vm_memory_ext::{Bytes, GuestAddress};
 
     #[test]
     fn test_event_handler() {

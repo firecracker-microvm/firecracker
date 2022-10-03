@@ -12,15 +12,13 @@ pub mod token_headers;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
 use serde_json::{Map, Value};
-use token_headers::TokenHeaders;
-
-use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
-use crate::token::PATH_TO_TOKEN;
-use crate::token_headers::REJECTED_HEADER;
+use token::PATH_TO_TOKEN;
+use token_headers::{TokenHeaders, REJECTED_HEADER};
 
 pub enum Error {
     InvalidToken,
@@ -311,8 +309,8 @@ fn respond_to_put_request(
 mod tests {
     use std::time::Duration;
 
+    use super::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
     use super::*;
-    use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
 
     fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{

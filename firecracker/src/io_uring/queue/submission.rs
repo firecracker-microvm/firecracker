@@ -9,11 +9,11 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
-use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
+use super::super::bindings;
+use super::super::operation::Sqe;
 use super::mmap::{mmap, Error as MmapError};
-use crate::bindings;
-use crate::operation::Sqe;
+use crate::vm_memory_ext::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 #[derive(Debug, derive_more::From)]
 /// SQueue Error.

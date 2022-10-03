@@ -3,9 +3,8 @@
 
 use std::result::Result;
 
-use vm_memory::ByteValued;
-
-use crate::bindings::io_uring_cqe;
+use super::super::bindings::io_uring_cqe;
+use crate::vm_memory_ext::ByteValued;
 
 unsafe impl ByteValued for io_uring_cqe {}
 

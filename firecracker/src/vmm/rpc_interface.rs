@@ -5,8 +5,6 @@ use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use logger::*;
-use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
@@ -15,34 +13,35 @@ use tests::{
     MockVmm as Vmm,
 };
 
-use super::Error as VmmError;
+use super::builder::StartMicrovmError;
+use super::persist::{CreateSnapshotError, RestoreFromSnapshotError};
+use super::resources::VmmConfig;
+use super::version_map::VERSION_MAP;
+use super::vmm_config::balloon::{
+    BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
+    BalloonUpdateStatsConfig,
+};
+use super::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use super::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
+use super::vmm_config::instance_info::InstanceInfo;
+use super::vmm_config::logger::{LoggerConfig, LoggerConfigError};
+use super::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use super::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
+use super::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use super::vmm_config::net::{
+    NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
+};
+use super::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use super::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use super::vmm_config::{self, RateLimiterUpdate};
 #[cfg(not(test))]
 use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
-use crate::builder::StartMicrovmError;
-use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
-use crate::resources::VmmConfig;
-use crate::version_map::VERSION_MAP;
-use crate::vmm_config::balloon::{
-    BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
-    BalloonUpdateStatsConfig,
-};
-use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
-use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
-use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
-use crate::vmm_config::net::{
-    NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
-};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
-use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
-use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::{EventManager, FcExitCode};
+use super::{Error as VmmError, EventManager, FcExitCode};
+use crate::logger::*;
+use crate::mmds::data_store::{self, Mmds};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -829,18 +828,18 @@ impl RuntimeApiController {
 mod tests {
     use std::path::PathBuf;
 
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
-    use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
+    use super::super::vmm_config::balloon::BalloonBuilder;
+    use super::super::vmm_config::drive::{CacheType, FileEngineType};
+    use super::super::vmm_config::logger::LoggerLevel;
+    use super::super::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use super::super::vmm_config::vsock::VsockBuilder;
+    use super::super::HTTP_MAX_PAYLOAD_SIZE;
     use super::*;
-    use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::drive::{CacheType, FileEngineType};
-    use crate::vmm_config::logger::LoggerLevel;
-    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-    use crate::vmm_config::vsock::VsockBuilder;
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
+    use crate::devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use crate::devices::virtio::VsockError;
+    use crate::mmds::data_store::MmdsVersion;
 
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
@@ -1059,7 +1058,7 @@ mod tests {
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::I8042Error(
-                    devices::legacy::I8042DeviceError::InternalBufferFull,
+                    crate::devices::legacy::I8042DeviceError::InternalBufferFull,
                 ));
             }
             self.send_ctrl_alt_del_called = true;
@@ -1101,7 +1100,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    super::super::device_manager::mmio::Error::IncorrectDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1111,8 +1110,8 @@ mod tests {
         pub fn update_block_rate_limiter(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             Ok(())
         }
@@ -1120,14 +1119,14 @@ mod tests {
         pub fn update_net_rate_limiters(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    super::super::device_manager::mmio::Error::IncorrectDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -1874,7 +1873,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::InternalVmm(VmmError::I8042Error(
-                devices::legacy::I8042DeviceError::InternalBufferFull,
+                crate::devices::legacy::I8042DeviceError::InternalBufferFull,
             )),
         );
     }
@@ -1964,7 +1963,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::IncorrectDeviceType,
+                super::super::device_manager::mmio::Error::IncorrectDeviceType,
             ))),
         );
     }
@@ -1989,7 +1988,9 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::IncorrectDeviceType),
+                VmmError::DeviceManager(
+                    super::super::device_manager::mmio::Error::IncorrectDeviceType,
+                ),
             )),
         );
     }

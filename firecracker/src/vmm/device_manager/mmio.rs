@@ -9,34 +9,35 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
-#[cfg(target_arch = "aarch64")]
-use arch::aarch64::DeviceInfoForFDT;
-use arch::DeviceType;
-use arch::DeviceType::Virtio;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::SerialDevice;
-use devices::pseudo::BootTimer;
-use devices::virtio::{
-    Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_VSOCK,
-};
-use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
-use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
+
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::DeviceInfoForFDT;
+use crate::arch::DeviceType;
+use crate::arch::DeviceType::Virtio;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::RTCDevice;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::SerialDevice;
+use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::{
+    Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
+    TYPE_VSOCK,
+};
+use crate::devices::BusDevice;
+use crate::logger::info;
 #[cfg(target_arch = "x86_64")]
-use vm_memory::GuestAddress;
+use crate::vm_memory_ext::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
 pub enum Error {
     /// Failed to perform an operation on the bus.
-    Bus(devices::BusError),
+    Bus(crate::devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found.
@@ -118,7 +119,7 @@ impl MMIODeviceManager {
             irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::AllocatorError)?,
             address_allocator: AddressAllocator::new(mmio_base, mmio_size)
                 .map_err(Error::AllocatorError)?,
-            bus: devices::Bus::new(),
+            bus: crate::devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         })
     }
@@ -473,13 +474,13 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
 
-    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use utils::errno;
     use utils::eventfd::EventFd;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
-    use crate::builder;
+    use crate::devices::virtio::{ActivateResult, Queue, VirtioDevice};
+    use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
+    use crate::vmm::builder;
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -488,7 +489,7 @@ mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
-            device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
+            device: Arc<Mutex<dyn crate::devices::virtio::VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64> {
@@ -518,7 +519,7 @@ mod tests {
         }
     }
 
-    impl devices::virtio::VirtioDevice for DummyDevice {
+    impl crate::devices::virtio::VirtioDevice for DummyDevice {
         fn avail_features(&self) -> u64 {
             0
         }
@@ -581,7 +582,7 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vm_memory_ext::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -589,8 +590,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
 
@@ -610,7 +611,7 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vm_memory_ext::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -618,8 +619,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
 
@@ -629,7 +630,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
 
-        for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
+        for _i in crate::arch::IRQ_BASE..=crate::arch::IRQ_MAX {
             device_manager
                 .register_virtio_test_device(
                     vm.fd(),
@@ -685,7 +686,7 @@ mod tests {
             };
             assert!(!msg.is_empty());
         };
-        check_fmt_err(Error::Bus(devices::BusError::Overlap));
+        check_fmt_err(Error::Bus(crate::devices::BusError::Overlap));
         check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
@@ -702,7 +703,7 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vm_memory_ext::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -718,8 +719,8 @@ mod tests {
 
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
@@ -738,7 +739,7 @@ mod tests {
             device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].addr
         );
         assert_eq!(
-            arch::IRQ_BASE,
+            crate::arch::IRQ_BASE,
             device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id)].irqs[0]
         );
 
@@ -772,8 +773,8 @@ mod tests {
     fn test_slot_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
         let device_info = device_manager.allocate_mmio_resources(0).unwrap();
@@ -791,7 +792,7 @@ mod tests {
                 .to_string()
         );
 
-        for i in arch::IRQ_BASE..arch::IRQ_MAX {
+        for i in crate::arch::IRQ_BASE..crate::arch::IRQ_MAX {
             device_manager.irq_allocator.free_id(i).unwrap();
         }
 

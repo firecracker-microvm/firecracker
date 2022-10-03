@@ -9,19 +9,19 @@ use std::fmt::{Display, Formatter};
 use std::result;
 
 use kvm_ioctls::*;
-use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
-use crate::vstate::vcpu::VcpuEmulation;
-use crate::vstate::vm::Vm;
+use super::super::vm::Vm;
+use super::VcpuEmulation;
+use crate::logger::{error, IncMetric, METRICS};
+use crate::vm_memory_ext::{Address, GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
     /// Error configuring the general purpose aarch64 registers.
-    ConfigureRegisters(arch::aarch64::regs::Error),
+    ConfigureRegisters(crate::arch::aarch64::regs::Error),
     /// Cannot open the kvm related file descriptor.
     CreateFd(kvm_ioctls::Error),
     /// Error getting the Vcpu preferred target on Arm.
@@ -29,9 +29,9 @@ pub enum Error {
     /// Error doing Vcpu Init on Arm.
     Init(kvm_ioctls::Error),
     /// Failed to set value for some arm specific register.
-    RestoreState(arch::aarch64::regs::Error),
+    RestoreState(crate::arch::aarch64::regs::Error),
     /// Failed to fetch value for some arm specific register.
-    SaveState(arch::aarch64::regs::Error),
+    SaveState(crate::arch::aarch64::regs::Error),
 }
 
 impl Display for Error {
@@ -64,7 +64,7 @@ pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
 
-    pub mmio_bus: Option<devices::Bus>,
+    pub mmio_bus: Option<crate::devices::Bus>,
 
     mpidr: u64,
 }
@@ -103,7 +103,7 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        arch::aarch64::regs::setup_boot_regs(
+        crate::arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
             kernel_load_addr.raw_value(),
@@ -112,7 +112,7 @@ impl KvmVcpu {
         .map_err(Error::ConfigureRegisters)?;
 
         self.mpidr =
-            arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
+            crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
 
         Ok(())
     }
@@ -141,24 +141,26 @@ impl KvmVcpu {
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
         let mut state = VcpuState {
-            mp_state: arch::regs::get_mpstate(&self.fd).map_err(Error::SaveState)?,
+            mp_state: crate::arch::regs::get_mpstate(&self.fd).map_err(Error::SaveState)?,
             ..Default::default()
         };
 
-        arch::regs::save_core_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
+        crate::arch::regs::save_core_registers(&self.fd, &mut state.regs)
+            .map_err(Error::SaveState)?;
 
-        arch::regs::save_system_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
+        crate::arch::regs::save_system_registers(&self.fd, &mut state.regs)
+            .map_err(Error::SaveState)?;
 
-        state.mpidr = arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::SaveState)?;
+        state.mpidr = crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::SaveState)?;
 
         Ok(state)
     }
 
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
-        arch::regs::restore_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
+        crate::arch::regs::restore_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
 
-        arch::regs::set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
+        crate::arch::regs::set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
 
         Ok(())
     }
@@ -191,9 +193,9 @@ mod tests {
     use std::os::unix::io::AsRawFd;
 
     use kvm_bindings::kvm_one_reg;
-    use vm_memory::GuestMemoryMmap;
 
     use super::*;
+    use crate::vm_memory_ext::GuestMemoryMmap;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -232,12 +234,12 @@ mod tests {
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
         assert!(vcpu
-            .configure(&vm_mem, GuestAddress(arch::get_kernel_start()),)
+            .configure(&vm_mem, GuestAddress(crate::arch::get_kernel_start()),)
             .is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(&vm_mem, GuestAddress(crate::arch::get_kernel_start()));
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
@@ -248,7 +250,7 @@ mod tests {
 
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(&vm_mem, GuestAddress(crate::arch::get_kernel_start()));
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),

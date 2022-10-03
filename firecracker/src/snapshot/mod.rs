@@ -28,11 +28,10 @@
 mod persist;
 use std::io::{Read, Write};
 
+pub use persist::Persist;
 use versionize::crc::{CRC64Reader, CRC64Writer};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-
-pub use crate::persist::Persist;
 
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
@@ -245,6 +244,9 @@ impl Snapshot {
 
 #[cfg(test)]
 mod tests {
+    use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
+    use versionize_derive::Versionize;
+
     use super::*;
 
     #[derive(Clone, Debug, Versionize)]

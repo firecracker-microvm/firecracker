@@ -4,11 +4,11 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
-use crate::virtio::net::device::Net;
-use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+use super::super::{VirtioDevice, RX_INDEX, TX_INDEX};
+use super::device::Net;
+use crate::logger::{debug, error, warn, IncMetric, METRICS};
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -110,9 +110,9 @@ impl MutEventSubscriber for Net {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::virtio::net::test_utils::test::TestHelper;
-    use crate::virtio::net::test_utils::NetQueue;
-    use crate::virtio::net::TX_INDEX;
+    use super::super::test_utils::test::TestHelper;
+    use super::super::test_utils::NetQueue;
+    use super::super::TX_INDEX;
 
     #[test]
     fn test_event_handler() {

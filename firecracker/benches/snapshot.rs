@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use snapshot::Snapshot;
+use firecracker::snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 

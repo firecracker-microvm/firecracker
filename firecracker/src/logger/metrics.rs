@@ -74,7 +74,7 @@ use vm_superio::rtc_pl031::RtcEvents;
 
 use super::extract_guard;
 #[cfg(target_arch = "aarch64")]
-use crate::warn;
+use super::warn;
 
 lazy_static! {
     /// Static instance used for handling metrics.

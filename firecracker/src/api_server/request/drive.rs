@@ -1,12 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
-
 use super::super::VmmAction;
-use crate::parsed_request::{checked_id, Error, ParsedRequest};
-use crate::request::{Body, StatusCode};
+use crate::api_server::parsed_request::{checked_id, Error, ParsedRequest};
+use crate::api_server::request::{Body, StatusCode};
+use crate::logger::{IncMetric, METRICS};
+use crate::vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
 pub(crate) fn parse_put_drive(
     body: &Body,
@@ -86,8 +85,8 @@ pub(crate) fn parse_patch_drive(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::parsed_request::tests::vmm_action_from_request;
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_patch_drive_request() {

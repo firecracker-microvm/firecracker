@@ -21,11 +21,10 @@ use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
-use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
-use crate::vstate::vm::Vm;
+use super::super::super::vmm_config::machine_config::CpuFeaturesTemplate;
+use super::super::super::vstate::vcpu::{VcpuConfig, VcpuEmulation};
+use super::super::super::vstate::vm::Vm;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -37,19 +36,19 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 #[derive(Debug)]
 pub enum Error {
     /// A call to cpuid instruction failed.
-    CpuId(cpuid::Error),
+    CpuId(crate::cpuid::Error),
     /// A FamStructWrapper operation has failed.
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
-    FPUConfiguration(arch::x86_64::regs::Error),
+    FPUConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
-    LocalIntConfiguration(arch::x86_64::interrupts::Error),
+    LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
     /// Error configuring the MSR registers
-    MSRSConfiguration(arch::x86_64::msr::Error),
+    MSRSConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
-    REGSConfiguration(arch::x86_64::regs::Error),
+    REGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Error configuring the special registers
-    SREGSConfiguration(arch::x86_64::regs::Error),
+    SREGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot open the VCPU file descriptor.
     VcpuFd(kvm_ioctls::Error),
     /// Failed to get KVM vcpu debug regs.
@@ -188,11 +187,11 @@ impl std::error::Error for SetTscError {}
 #[derive(Debug, thiserror::Error)]
 pub enum KvmVcpuConfigureError {
     #[error("Failed to create `VmSpec`: {0}")]
-    VmSpec(cpuid::Error),
+    VmSpec(crate::cpuid::Error),
     #[error("Failed to filter CPUID: {0}")]
-    FilterCpuid(cpuid::Error),
+    FilterCpuid(crate::cpuid::Error),
     #[error("Failed to set CPUID entries: {0}")]
-    SetCpuidEntries(cpuid::Error),
+    SetCpuidEntries(crate::cpuid::Error),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to push MSR entry to FamStructWrapper.")]
@@ -214,8 +213,8 @@ pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
 
-    pub pio_bus: Option<devices::Bus>,
-    pub mmio_bus: Option<devices::Bus>,
+    pub pio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<crate::devices::Bus>,
 
     msr_list: HashSet<u32>,
 }
@@ -314,16 +313,16 @@ impl KvmVcpu {
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
-        arch::x86_64::regs::setup_fpu(&self.fd)?;
-        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
-        arch::x86_64::interrupts::set_lint(&self.fd)?;
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
+        crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
+        crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
+        crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
         Ok(())
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
-    pub fn set_pio_bus(&mut self, pio_bus: devices::Bus) {
+    pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.pio_bus = Some(pio_bus);
     }
 
@@ -614,16 +613,14 @@ impl VcpuState {
 
 #[cfg(test)]
 mod tests {
-    extern crate cpuid;
-
     use std::os::unix::io::AsRawFd;
 
-    use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
 
+    use super::super::super::vm::tests::setup_vm;
+    use super::super::super::vm::Vm;
     use super::*;
-    use crate::vstate::vm::tests::setup_vm;
-    use crate::vstate::vm::Vm;
+    use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
 
     impl Default for VcpuState {
         fn default() -> Self {
@@ -674,7 +671,7 @@ mod tests {
         vcpu_config.cpu_template = CpuFeaturesTemplate::T2;
         let t2_res = vcpu.configure(
             &vm_mem,
-            GuestAddress(arch::get_kernel_start()),
+            GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
             vm.supported_cpuid().clone(),
         );

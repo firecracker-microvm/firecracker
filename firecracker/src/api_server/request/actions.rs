@@ -1,14 +1,14 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 
+use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::request::Body;
 use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 #[cfg(target_arch = "aarch64")]
-use crate::request::StatusCode;
+use super::StatusCode;
+use crate::logger::{IncMetric, METRICS};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed

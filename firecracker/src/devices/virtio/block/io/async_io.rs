@@ -5,15 +5,15 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use io_uring::operation::{Cqe, OpCode, Operation};
-use io_uring::restriction::Restriction;
-use io_uring::{Error as IoUringError, IoUring};
-use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
-use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
-use crate::virtio::block::io::UserDataError;
-use crate::virtio::block::IO_URING_NUM_ENTRIES;
+use super::super::io::UserDataError;
+use super::super::IO_URING_NUM_ENTRIES;
+use crate::io_uring::operation::{Cqe, OpCode, Operation};
+use crate::io_uring::restriction::Restriction;
+use crate::io_uring::{Error as IoUringError, IoUring};
+use crate::logger::log_dev_preview_warning;
+use crate::vm_memory_ext::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,7 +22,7 @@ pub enum Error {
     Submit(std::io::Error),
     SyncAll(std::io::Error),
     EventFd(std::io::Error),
-    GuestMemory(vm_memory::GuestMemoryError),
+    GuestMemory(crate::vm_memory_ext::GuestMemoryError),
 }
 
 pub struct AsyncFileEngine<T> {

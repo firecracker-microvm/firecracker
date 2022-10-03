@@ -8,25 +8,26 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use logger::{error, IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
-use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::{
+    ActivateResult, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_BALLOON,
+};
 use super::utils::{compact_page_frame_numbers, remove_range};
 use super::{
-    BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER,
-    MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
-    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
-    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
-    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
-    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
+    Error as BalloonError, BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC,
+    MAX_PAGE_COMPACT_BUFFER, MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX,
+    VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
+    VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
+    VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE,
+    VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN,
+    VIRTIO_BALLOON_S_SWAP_OUT,
 };
-use crate::virtio::balloon::Error as BalloonError;
-use crate::virtio::{IrqTrigger, IrqType};
+use crate::logger::{error, IncMetric, METRICS};
+use crate::virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::vm_memory_ext::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -1026,11 +1027,8 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            vm_memory::test_utils::create_guest_memory_unguarded(
-                &[(GuestAddress(0x0), 0x1)],
-                false,
-            )
-            .unwrap(),
+            crate::vm_memory_ext::create_guest_memory_unguarded(&[(GuestAddress(0x0), 0x1)], false)
+                .unwrap(),
         );
 
         assert_eq!(balloon.num_pages(), 0);

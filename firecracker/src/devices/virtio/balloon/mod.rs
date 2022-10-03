@@ -7,10 +7,9 @@ pub mod persist;
 pub mod test_utils;
 mod utils;
 
-use vm_memory::GuestMemoryError;
-
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 pub use self::event_handler::*;
+use crate::vm_memory_ext::GuestMemoryError;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.

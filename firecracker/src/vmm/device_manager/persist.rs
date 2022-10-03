@@ -6,34 +6,36 @@
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use arch::DeviceType;
-use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
-use devices::virtio::balloon::{Balloon, Error as BalloonError};
-use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use devices::virtio::block::{Block, Error as BlockError};
-use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
-use devices::virtio::net::Net;
-use devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
-use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUdsConstructorArgs};
-use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use devices::virtio::{
-    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
-};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use logger::{error, warn};
-use mmds::data_store::MmdsVersion;
-use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestMemoryMmap;
 
+use super::super::resources::VmResources;
+use super::super::vmm_config::mmds::MmdsConfigError;
+use super::super::EventManager;
 use super::mmio::*;
-use crate::resources::VmResources;
-use crate::vmm_config::mmds::MmdsConfigError;
-use crate::EventManager;
+#[cfg(target_arch = "aarch64")]
+use crate::arch::DeviceType;
+use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
+use crate::devices::virtio::balloon::{Balloon, Error as BalloonError};
+use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
+use crate::devices::virtio::block::{Block, Error as BlockError};
+use crate::devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
+use crate::devices::virtio::vsock::persist::{
+    VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
+};
+use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use crate::devices::virtio::{
+    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
+};
+use crate::logger::{error, warn};
+use crate::mmds::data_store::MmdsVersion;
+use crate::snapshot::Persist;
+use crate::vm_memory_ext::GuestMemoryMmap;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug, derive_more::From)]
@@ -43,7 +45,7 @@ pub enum Error {
     DeviceManager(super::mmio::Error),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
-    Legacy(crate::Error),
+    Legacy(super::super::Error),
     Net(NetError),
     Vsock(VsockError),
     VsockUnixBackend(VsockUnixBackendError),
@@ -326,9 +328,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut dev_manager = MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_START,
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
@@ -338,9 +340,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial = crate::builder::setup_serial_device(
+                    let serial = crate::vmm::builder::setup_serial_device(
                         constructor_args.event_manager,
-                        Box::new(crate::builder::SerialStdin::get()),
+                        Box::new(crate::vmm::builder::SerialStdin::get()),
                         Box::new(std::io::stdout()),
                     )?;
 
@@ -360,7 +362,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {
-                    let rtc = crate::builder::setup_rtc_device();
+                    let rtc = crate::vmm::builder::setup_rtc_device();
                     dev_manager
                         .address_allocator
                         .allocate(
@@ -533,16 +535,16 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use devices::virtio::block::CacheType;
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::builder::tests::*;
-    use crate::resources::VmmConfig;
-    use crate::vmm_config::balloon::BalloonDeviceConfig;
-    use crate::vmm_config::net::NetworkInterfaceConfig;
-    use crate::vmm_config::vsock::VsockDeviceConfig;
+    use crate::devices::virtio::block::CacheType;
+    use crate::vmm::builder::tests::*;
+    use crate::vmm::resources::VmmConfig;
+    use crate::vmm::vmm_config::balloon::BalloonDeviceConfig;
+    use crate::vmm::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm::vmm_config::vsock::VsockDeviceConfig;
 
     impl PartialEq for ConnectedBalloonState {
         fn eq(&self, other: &ConnectedBalloonState) -> bool {
@@ -637,9 +639,12 @@ mod tests {
             let dummy_irq_range = (0, 0);
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
-            let mut clone =
-                MMIODeviceManager::new(dummy_mmio_base, arch::MMIO_MEM_SIZE, dummy_irq_range)
-                    .unwrap();
+            let mut clone = MMIODeviceManager::new(
+                dummy_mmio_base,
+                crate::arch::MMIO_MEM_SIZE,
+                dummy_irq_range,
+            )
+            .unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone

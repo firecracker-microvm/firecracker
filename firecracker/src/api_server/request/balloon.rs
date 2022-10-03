@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use micro_http::StatusCode;
-use vmm::vmm_config::balloon::{
-    BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
-};
 
 use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use crate::api_server::parsed_request::{Error, ParsedRequest};
+use crate::api_server::request::Body;
+use crate::vmm::vmm_config::balloon::{
+    BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
+};
 
 pub(crate) fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
     match path_second_token {
@@ -51,8 +51,8 @@ pub(crate) fn parse_patch_balloon(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::parsed_request::tests::vmm_action_from_request;
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_get_balloon_request() {

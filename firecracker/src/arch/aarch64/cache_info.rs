@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::{fs, io, result};
 
-use logger::warn;
+use crate::loggerwarn;
 
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
@@ -340,7 +340,6 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::aarch64::cache_info::{read_cache_config, CacheEngine, CacheEntry, CacheStore};
 
     #[derive(Debug)]
     struct MockCacheStore {

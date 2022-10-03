@@ -8,11 +8,13 @@
 use std::convert::TryFrom;
 use std::{io, mem, result, slice};
 
-use arch_gen::x86::mpspec;
 use libc::c_char;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
-use crate::IRQ_MAX;
+use super::super::arch_gen::x86::mpspec;
+use super::super::IRQ_MAX;
+use crate::vm_memory_ext::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
+};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -287,9 +289,8 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::Bytes;
-
     use super::*;
+    use crate::vm_memory_ext::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
@@ -305,7 +306,7 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -317,7 +318,7 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)],
             false,
         )
@@ -329,7 +330,7 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -348,7 +349,7 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -381,7 +382,7 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(
                 GuestAddress(MPTABLE_START),
                 compute_mp_size(MAX_SUPPORTED_CPUS as u8),
@@ -421,7 +422,7 @@ mod tests {
     #[test]
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
-        let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        let mem = crate::vm_memory_ext::create_guest_memory_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus as u8))],
             false,
         )

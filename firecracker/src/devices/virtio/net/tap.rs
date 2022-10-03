@@ -12,7 +12,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -191,8 +191,8 @@ pub mod tests {
 
     use net_gen::ETH_HLEN;
 
+    use super::super::test_utils::{enable, if_index, TapTrafficSimulator};
     use super::*;
-    use crate::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;

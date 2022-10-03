@@ -23,19 +23,19 @@ use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
-use super::defs::uapi;
-use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use super::{defs, VsockBackend};
-use crate::virtio::{
+use super::super::{
     ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
     VirtioDevice, VsockError,
 };
+use super::defs::uapi;
+use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use super::{defs, VsockBackend};
+use crate::logger::{debug, error, warn, IncMetric, METRICS};
+use crate::vm_memory_ext::{Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -344,9 +344,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::defs::uapi;
+    use super::super::test_utils::TestContext;
     use super::*;
-    use crate::virtio::vsock::defs::uapi;
-    use crate::virtio::vsock::test_utils::TestContext;
 
     #[test]
     fn test_virtio_device() {

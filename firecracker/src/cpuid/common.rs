@@ -9,8 +9,8 @@ use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::CpuId;
 
-use crate::bit_helper::BitHelper;
-use crate::cpu_leaf::*;
+use super::bit_helper::BitHelper;
+use super::cpu_leaf::*;
 
 /// Intel brand string.
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
@@ -180,7 +180,7 @@ macro_rules! cpuid_is_feature_set {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::common::*;
+    use super::super::common::*;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_topoext_fn() -> u32 {
