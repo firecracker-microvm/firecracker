@@ -4,9 +4,6 @@
 
 from gitlint.rules import CommitRule, RuleViolation
 
-# Too few public methods (1/2) (too-few-public-methods)
-# pylint: disable=R0903
-
 
 class EndsSigned(CommitRule):
     """Checks commit message body formatting.
@@ -131,13 +128,13 @@ class EndsSigned(CommitRule):
                 break
 
             return rtn(
-                (f"Non '{co_auth}' or '{sig}' string found " f"following 1st '{sig}'"),
+                f"Non '{co_auth}' or '{sig}' string found " f"following 1st '{sig}'",
                 i,
             )
 
         # Checks lines following co-author are only additional co-authors.
         for i, line in message_iter:
-            if not line.startswith(co_auth):
+            if line and not line.startswith(co_auth):
                 return rtn(
                     f"Non '{co_auth}' string found after 1st '{co_auth}'",
                     i,
