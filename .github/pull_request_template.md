@@ -27,4 +27,4 @@ the terms of the Apache 2.0 license.
 - [ ] This functionality can be added in [`rust-vmm`][1].
 
 [1]: https://github.com/rust-vmm
-[2]: ../docs/api-change-runbook.md
+[2]: https://github.com/firecracker-microvm/firecracker/blob/main/docs/api-change-runbook.md
