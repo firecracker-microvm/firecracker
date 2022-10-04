@@ -13,3 +13,4 @@ thiserror = "1.0.32"
 
 utils = { path = "../utils"}
 arch = { path = "../arch" }
+arch_gen = { path = "../arch_gen" }

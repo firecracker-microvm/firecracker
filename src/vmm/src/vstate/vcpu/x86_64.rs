@@ -11,7 +11,7 @@ use std::{fmt, result};
 use arch::x86_64::interrupts;
 use arch::x86_64::msr::SetMSRsError;
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use cpuid::{c3, filter_cpuid, t2, t2s, VmSpec};
+use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, MsrList, Msrs,
@@ -267,6 +267,7 @@ impl KvmVcpu {
             })
             .map_err(KvmVcpuConfigureError::FilterCpuid)?;
 
+        // Update the CPUID based on the template
         match vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
@@ -281,9 +282,33 @@ impl KvmVcpu {
             .set_cpuid2(&cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
-        // Set MSRs
+        // Initialize some architectural MSRs that will be set for boot.
         let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
 
+        // By this point the Guest CPUID is established. Some CPU features require MSRs
+        // to configure and interact with those features. If a MSR is writable from
+        // inside the Guest, or is changed by KVM or Firecracker on behalf of the Guest,
+        // then we will need to save it every time we take a snapshot, and restore its
+        // value when we restore the microVM since the Guest may need that value.
+        // Since CPUID tells us what features are enabled for the Guest, we can infer
+        // the extra MSRs that we need to save based on a dependency map.
+        let extra_msrs =
+            msrs_to_save_by_cpuid(&cpuid).map_err(KvmVcpuConfigureError::FilterCpuid)?;
+        for msr in extra_msrs {
+            self.msr_list
+                .push(msr)
+                .map_err(KvmVcpuConfigureError::PushMsrEntries)?;
+        }
+
+        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
+        // be implemented. For now we define known dependencies statically in the CPU
+        // templates.
+
+        // Depending on which CPU template the user selected, we may need to initialize
+        // additional MSRs for boot to correctly enable some CPU features. As stated in
+        // the previous comment, we get from the template a static list of MSRs we need
+        // to save at snapshot as well.
+        // C3 and T2 currently don't have extra MSRs to save/set
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
             for msr in t2s::msr_entries_to_save() {
                 self.msr_list
@@ -292,6 +317,9 @@ impl KvmVcpu {
             }
             t2s::update_msr_entries(&mut msr_boot_entries);
         }
+        // By this point we know that at snapshot, the list of MSRs we need to
+        // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
+        // MSRs defined by the template`
 
         arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
