@@ -242,6 +242,7 @@ name = "cpuid"
 version = "0.1.0"
 dependencies = [
  "arch",
+ "arch_gen",
  "derive_more",
  "kvm-bindings",
  "kvm-ioctls",

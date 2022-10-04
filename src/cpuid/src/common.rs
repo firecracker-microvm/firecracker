@@ -159,6 +159,25 @@ pub fn is_same_model(cpuid: &CpuId) -> bool {
     true
 }
 
+/// Scans through the CPUID and determines if a feature bit is set.
+// TODO: This currently involves a linear search which would be improved
+//       when we'll refactor the cpuid crate.
+#[macro_export]
+macro_rules! cpuid_is_feature_set {
+    ($cpuid:ident, $leaf:expr, $index:expr, $reg:tt, $feature_bit:expr) => {{
+        let mut res = false;
+        for entry in $cpuid.as_slice().iter() {
+            if entry.function == $leaf && entry.index == $index {
+                if entry.$reg & (1 << $feature_bit) != 0 {
+                    res = true;
+                    break;
+                }
+            }
+        }
+        res
+    }};
+}
+
 #[cfg(test)]
 pub mod tests {
     use crate::common::*;
