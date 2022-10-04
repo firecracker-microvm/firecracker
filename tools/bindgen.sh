@@ -116,3 +116,5 @@ for crate in src/net_gen; do
         (cd $crate; patch -p1) <$patch
     done
 done
+
+echo "Bindings created correctly! You might want to run ./tools/test_bindings.py to test for ABI incompatibilities"
