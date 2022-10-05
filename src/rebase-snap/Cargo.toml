@@ -1,6 +1,6 @@
 [package]
 name = "rebase-snap"
-version = "1.1.1"
+version = "1.1.2"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 build = "../../build.rs"
