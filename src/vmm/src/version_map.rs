@@ -55,6 +55,8 @@ lazy_static! {
 
         // v1.2 state change mappings.
         version_map.new_version().set_type_version(VmInfo::type_id(), 2);
+        #[cfg(target_arch = "x86_64")]
+        version_map.set_type_version(VcpuState::type_id(), 3);
 
         // v1.3 state change mappings.
         version_map.new_version().set_type_version(BlockState::type_id(), 4);
