@@ -123,6 +123,7 @@ Contributors to the Firecracker repository:
 * Masatoshi Higuchi <matt9ucci@gmail.com>
 * Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 * Matt Wilson <msw@amazon.com>
+* Matthew Schlebusch <schlebus@amazon.com>
 * Mehrdad Arshad Rad <arshad.rad@gmail.com>
 * Michael Jarrett <1077485+EmeraldShift@users.noreply.github.com>
 * Michael Saah <msaah@linode.com>
