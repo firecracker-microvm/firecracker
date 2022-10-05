@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
@@ -32,6 +32,9 @@
   interface MAC address incorrectly as `null`, and post snapshot restore as
   `00:00:00:00:00:00`. It now correctly reports the code generated MAC address
   when queried in both cases.
+- Fixed a self-DoS scenario in the virtio-queue code by reporting and
+  terminating execution when the number of available descriptors reported
+  by the driver is higher than the queue size.
 
 ## [1.1.0]
 
