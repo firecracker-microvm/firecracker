@@ -137,7 +137,7 @@ class EndsSigned(CommitRule):
 
         # Checks lines following co-author are only additional co-authors.
         for i, line in message_iter:
-            if not line.startswith(co_auth):
+            if not line.startswith(co_auth) and line.strip():
                 return rtn(
                     f"Non '{co_auth}' string found after 1st '{co_auth}'",
                     i,
