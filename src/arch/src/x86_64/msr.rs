@@ -247,8 +247,8 @@ static ALLOWED_MSR_RANGES: &[MsrRange] = &[
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
 pub fn msr_should_serialize(index: u32) -> bool {
-    // Denied MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
-    if index == MSR_IA32_FEATURE_CONTROL || index == MSR_IA32_MCG_CTL {
+    // Denied MSR not exported by Linux: IA32_MCG_CTL
+    if index == MSR_IA32_MCG_CTL {
         return false;
     };
     ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
@@ -349,7 +349,7 @@ mod tests {
     fn test_msr_allowlist() {
         for range in ALLOWED_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
-                let should = !matches!(msr, MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL);
+                let should = !matches!(msr, MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
             }
         }
