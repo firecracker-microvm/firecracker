@@ -238,7 +238,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Versionize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,
