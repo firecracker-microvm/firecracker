@@ -48,7 +48,7 @@ use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManag
 const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
-#[derive(Clone, Debug, Default, PartialEq, Versionize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Versionize, Serialize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
