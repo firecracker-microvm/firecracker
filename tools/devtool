@@ -99,12 +99,12 @@ KERNEL_DIR="${FC_ROOT_DIR}/.kernel"
 # because we want to persist the cargo registry across container invocations.
 # Otherwise, any rust crates from crates.io would be downloaded again each time
 # we build or test.
-CARGO_REGISTRY_DIR="${FC_ROOT_DIR}/cargo_registry"
+CARGO_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_registry"
 
 # Full path to the cargo git registry on the host. This serves the same purpose
 # as CARGO_REGISTRY_DIR, for crates downloaded from GitHub repos instead of
 # crates.io.
-CARGO_GIT_REGISTRY_DIR="${FC_ROOT_DIR}/cargo_git_registry"
+CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
 
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_ROOT_DIR}/target"
@@ -113,7 +113,11 @@ CARGO_TARGET_DIR="${FC_ROOT_DIR}/target"
 CTR_FC_ROOT_DIR="/firecracker"
 
 # Full path to the build dir, as bind-mounted in the container.
-CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/target"
+CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
+
+# Full path to the cargo target dir, as bind-mounted in the container.
+CTR_FC_TARGET_DIR="${CTR_FC_ROOT_DIR}/target"
+
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="${CTR_FC_ROOT_DIR}/img"
 
@@ -264,7 +268,7 @@ cmd_fix_perms() {
     # is a dirty hack.
     run_devctr \
         -- \
-        chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"
+        chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR" "$CTR_FC_TARGET_DIR"
 }
 
 # Builds the development container from its Dockerfile.
@@ -738,6 +742,7 @@ cmd_build() {
 
     # Check prerequisites
     ensure_devctr
+    ensure_build_dir
 
     say "Starting build ($profile, $libc) ..."
 
