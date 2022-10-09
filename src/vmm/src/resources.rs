@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
-use std::fs::File;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use logger::info;
@@ -21,6 +20,7 @@ use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig}
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
+use crate::vmm_config::snapshot::MemBackendConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::vcpu::VcpuConfig;
 
@@ -118,8 +118,8 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
-    /// When backed by a memory file, this should be set
-    pub backing_memory_file: Option<Arc<File>>,
+    /// When backed by a memory on boot, this should be set
+    pub memory_backend: Option<MemBackendConfig>,
 }
 
 impl VmResources {
@@ -240,13 +240,13 @@ impl VmResources {
     }
 
     /// Returns the config for the backing memory file
-    pub fn backing_memory_file(&self) -> Option<Arc<File>> {
-        self.backing_memory_file.clone()
+    pub fn memory_backend(&self) -> Option<MemBackendConfig> {
+        self.memory_backend.clone()
     }
 
     /// Sets the backing memory file
-    pub fn set_backing_memory_file(&mut self, backing_mem_file: Arc<File>) {
-        self.backing_memory_file.get_or_insert(backing_mem_file);
+    pub fn set_memory_backend(&mut self, backing_mem_file: MemBackendConfig) {
+        self.memory_backend.get_or_insert(backing_mem_file);
     }
 
     /// Returns the VmConfig.
@@ -588,7 +588,7 @@ mod tests {
             mmds: None,
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
-            backing_memory_file: None,
+            memory_backend: None,
         }
     }
 

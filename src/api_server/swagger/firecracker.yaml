@@ -351,22 +351,22 @@ paths:
           schema:
             $ref: "#/definitions/Error"
   
-  /memory-backing-file:
+  /memory-backend:
     put:
-      summary: Configures a memory backing file to sync the memory changes to during the runtime of the vm
-      operationId: putMemoryBackingFile
+      summary: Configures a memory backend to sync the memory changes from during the runtime of the vm
+      operationId: putMemoryBackend
       parameters:
         - name: body
           in: body
-          description: Path to memory backing file
+          description: The memory backend to use
           required: true
           schema:
-            $ref: "#/definitions/MemoryBackingFile"
+            $ref: "#/definitions/MemoryBackend"
       responses:
         204:
-          description: Memory backing file configured
+          description: Memory backend configured
         400:
-          description: Memory backing file failed
+          description: Memory backend failed
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -1069,14 +1069,6 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
-
-  MemoryBackingFile:
-    type: object
-    required: 
-      - path
-    properties:
-      path:
-        type: string
 
   PartialDrive:
     type: object

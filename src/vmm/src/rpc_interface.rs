@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
+use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::{fs, result};
 
 use logger::*;
 use mmds::data_store::{self, Mmds};
@@ -34,13 +34,14 @@ use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, Drive
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
-use crate::vmm_config::memory_backing_file::{MemoryBackingFileConfig, MemoryBackingFileError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, SnapshotType,
+};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{EventManager, FcExitCode};
@@ -100,9 +101,9 @@ pub enum VmmAction {
     /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
     /// has booted.
     SetBalloonDevice(BalloonDeviceConfig),
-    /// Set the memory backing file for the VM. The VM will use this backing file to store its
+    /// Set the memory backend for the VM. The VM will use this backend to handle its
     /// memory. This action can only be called before the microVM has booted.
-    SetMemoryBackingFile(MemoryBackingFileConfig),
+    SetMemoryBackend(MemBackendConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
@@ -134,8 +135,6 @@ pub enum VmmAction {
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
     BalloonConfig(BalloonConfigError),
-    /// The action `SetMemoryBackingFile` failed because of bad user input.
-    MemoryBackingFile(MemoryBackingFileError),
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
@@ -188,7 +187,6 @@ impl Display for VmmActionError {
             match self {
                 BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
-                MemoryBackingFile(err) => err.to_string(),
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
@@ -429,7 +427,7 @@ impl<'a> PrebootApiController<'a> {
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
-            SetMemoryBackingFile(config) => self.set_backing_memory_file(config),
+            SetMemoryBackend(config) => self.set_memory_backend(config),
             StartMicroVm => self.start_microvm(),
             UpdateVmConfiguration(config) => self.update_vm_config(config),
             // Operations not allowed pre-boot.
@@ -455,19 +453,9 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::BalloonConfig)
     }
 
-    fn set_backing_memory_file(&mut self, cfg: MemoryBackingFileConfig) -> ActionResult {
+    fn set_memory_backend(&mut self, cfg: MemBackendConfig) -> ActionResult {
         self.boot_path = true;
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(cfg.path)
-            .map(Arc::new)
-            .map_err(|e| {
-                VmmActionError::MemoryBackingFile(MemoryBackingFileError::CreateFile(e))
-            })?;
-
-        self.vm_resources.backing_memory_file = Some(file);
+        self.vm_resources.memory_backend = Some(cfg);
 
         Ok(VmmData::Empty)
     }
@@ -679,7 +667,7 @@ impl RuntimeApiController {
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
             | SetBalloonDevice(_)
-            | SetMemoryBackingFile(_)
+            | SetMemoryBackend(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | StartMicroVm
@@ -888,7 +876,7 @@ mod tests {
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
-        pub backing_memory_file: Option<Arc<File>>,
+        pub memory_backend: Option<MemBackendConfig>,
     }
 
     impl MockVmRes {

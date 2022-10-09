@@ -17,7 +17,7 @@ use crate::request::logger::parse_put_logger;
 use crate::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use crate::request::memory_backing_file::parse_put_memory_backing_file;
+use crate::request::memory_backend::parse_put_memory_backend;
 use crate::request::metrics::parse_put_metrics;
 use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use crate::request::net::{parse_patch_net, parse_put_net};
@@ -113,7 +113,7 @@ impl ParsedRequest {
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
-            (Method::Put, "memory-backing-file", Some(body)) => parse_put_memory_backing_file(body),
+            (Method::Put, "memory-backend", Some(body)) => parse_put_memory_backend(body),
             (Method::Put, "shutdown-internal", None) => {
                 Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
             }

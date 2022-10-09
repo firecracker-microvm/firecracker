@@ -8,7 +8,7 @@ pub mod drive;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
-pub mod memory_backing_file;
+pub mod memory_backend;
 pub mod metrics;
 pub mod mmds;
 pub mod net;

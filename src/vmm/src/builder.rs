@@ -4,12 +4,18 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::convert::TryFrom;
+use std::ffi::CString;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::net::UnixStream;
+use std::os::unix::prelude::FromRawFd;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
-use vm_memory::FileOffset;
+use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
+use utils::sock_ctrl_msg::ScmSocket;
+use vm_memory::{FileOffset, GuestMemory, GuestMemoryRegion};
 
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
@@ -44,7 +50,7 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::persist::{MemoryDescriptor, MicrovmState, MicrovmStateError};
+use crate::persist::{GuestRegionUffdMapping, MemoryDescriptor, MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -59,7 +65,7 @@ use crate::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObs
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
-    /// Unable to create the memory backing file.
+    /// Unable to create/open the memory backing file.
     BackingMemoryFile(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
     ConfigureSystem(arch::Error),
@@ -97,6 +103,17 @@ pub enum StartMicrovmError {
     RestoreMicrovmState(MicrovmStateError),
     /// Unable to set VmResources.
     SetVmResources(VmConfigError),
+    /// Failed to create an UFFD Builder.
+    CreateUffdBuilder(userfaultfd::Error),
+    /// Unable to connect to UDS in order to send information regarding
+    /// handling guest memory page-fault events.
+    UdsConnection(io::Error),
+    /// Failed to register guest memory regions to UFFD.
+    UffdMemoryRegionsRegister(userfaultfd::Error),
+    /// Failed to send guest memory layout and path to user fault FD used to handle
+    /// guest memory page faults. This information is sent to a UDS where a custom
+    /// page-fault handler process is listening.
+    UffdSend(kvm_ioctls::Error),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -183,6 +200,12 @@ impl Display for StartMicrovmError {
             }
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
             SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
+            CreateUffdBuilder(err) => write!(f, "Cannot create uffd socket. Error: {}", err),
+            UdsConnection(err) => write!(f, "Cannot connect to uffd socket. Error: {}", err),
+            UffdMemoryRegionsRegister(err) => {
+                write!(f, "Cannot uffd memory region register. Error: {}", err)
+            }
+            UffdSend(err) => write!(f, "Cannot send to uffd. Error: {}", err),
         }
     }
 }
@@ -336,22 +359,53 @@ pub fn build_microvm_for_boot(
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
 
-    let backing_memory_file = if let Some(ref file) = vm_resources.backing_memory_file {
-        file.set_len((vm_resources.vm_config().mem_size_mib * 1024 * 1024) as u64)
-            .map_err(|e| {
-                error!("Failed to set backing memory file size: {}", e);
-                StartMicrovmError::BackingMemoryFile(e)
-            })?;
+    let (guest_memory, memory_descriptor) =
+        if let Some(ref backend_config) = vm_resources.memory_backend {
+            match backend_config.backend_type {
+                crate::vmm_config::snapshot::MemBackendType::File => {
+                    let file = OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&backend_config.backend_path)
+                        .map_err(BackingMemoryFile)?;
+                    file.set_len((vm_resources.vm_config().mem_size_mib * 1024 * 1024) as u64)
+                        .map_err(|e| {
+                            error!("Failed to set backing memory file size: {}", e);
+                            StartMicrovmError::BackingMemoryFile(e)
+                        })?;
 
-        Some(file.clone())
-    } else {
-        None
-    };
-    let guest_memory = create_guest_memory(
-        vm_resources.vm_config().mem_size_mib,
-        backing_memory_file.clone(),
-        track_dirty_pages,
-    )?;
+                    let file = Arc::new(file);
+
+                    (
+                        create_guest_memory(
+                            vm_resources.vm_config().mem_size_mib,
+                            Some(file.clone()),
+                            track_dirty_pages,
+                        )?,
+                        Some(MemoryDescriptor::File(file)),
+                    )
+                }
+                crate::vmm_config::snapshot::MemBackendType::Uffd => {
+                    let (mem, uffd) = create_uffd_guest_memory(
+                        vm_resources.vm_config().mem_size_mib,
+                        backend_config.backend_path.as_path(),
+                        track_dirty_pages,
+                    )?;
+
+                    (mem, Some(MemoryDescriptor::Uffd(uffd)))
+                }
+            }
+        } else {
+            (
+                create_guest_memory(
+                    vm_resources.vm_config().mem_size_mib,
+                    None,
+                    track_dirty_pages,
+                )?,
+                None,
+            )
+        };
+
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
@@ -383,7 +437,7 @@ pub fn build_microvm_for_boot(
         instance_info,
         event_manager,
         guest_memory,
-        backing_memory_file.map(MemoryDescriptor::File),
+        memory_descriptor,
         track_dirty_pages,
         vcpu_config.vcpu_count,
     )?;
@@ -624,6 +678,111 @@ pub fn create_guest_memory(
         track_dirty_pages,
     )
     .map_err(StartMicrovmError::GuestMemoryMmap)
+}
+
+/// Creates GuestMemory of `mem_size_mib` MiB in size.
+pub fn create_uffd_guest_memory(
+    mem_size_mib: usize,
+    uds_socket_path: &Path,
+    track_dirty_pages: bool,
+) -> std::result::Result<(GuestMemoryMmap, Uffd), StartMicrovmError> {
+    use StartMicrovmError::{
+        BackingMemoryFile, CreateUffdBuilder, UdsConnection, UffdMemoryRegionsRegister, UffdSend,
+    };
+    let mem_size = mem_size_mib << 20;
+    let arch_mem_regions = arch::arch_memory_regions(mem_size);
+
+    let backing_memory_file = unsafe {
+        let mem_name = CString::new("vm-memory").expect("CString::new failed");
+        Arc::new(File::from_raw_fd(libc::memfd_create(mem_name.as_ptr(), 0)))
+    };
+    backing_memory_file
+        .set_len(mem_size as u64)
+        .map_err(BackingMemoryFile)?;
+
+    let mut offset = 0_u64;
+    let guest_memory = vm_memory::create_guest_memory(
+        &arch_mem_regions
+            .iter()
+            .map(|(addr, size)| {
+                let file_offset = Some(FileOffset::from_arc(backing_memory_file.clone(), offset));
+                offset += *size as u64;
+
+                (file_offset, *addr, *size)
+            })
+            .collect::<Vec<_>>()[..],
+        track_dirty_pages,
+    )
+    .map_err(StartMicrovmError::GuestMemoryMmap)?;
+
+    let mut uffd_builder = UffdBuilder::new();
+    uffd_builder.require_features(FeatureFlags::EVENT_REMOVE | FeatureFlags::PAGEFAULT_FLAG_WP);
+
+    let uffd = uffd_builder
+        .close_on_exec(true)
+        .non_blocking(true)
+        .create()
+        .map_err(CreateUffdBuilder)?;
+
+    let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
+    let mut offset = 0;
+    for mem_region in guest_memory.iter() {
+        let host_base_addr = mem_region.as_ptr();
+        let size = mem_region.size();
+
+        uffd.register(host_base_addr as _, size as _)
+            .map_err(UffdMemoryRegionsRegister)?;
+        backend_mappings.push(GuestRegionUffdMapping {
+            base_host_virt_addr: host_base_addr as u64,
+            size,
+            offset,
+        });
+        offset += mem_region.len();
+    }
+
+    // This is safe to unwrap() because we control the contents of the vector
+    // (i.e GuestRegionUffdMapping entries).
+    let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
+
+    let socket = UnixStream::connect(uds_socket_path).map_err(UdsConnection)?;
+    socket
+        .send_with_fd(
+            backend_mappings.as_bytes(),
+            // In the happy case we can close the fd since the other process has it open and is
+            // using it to serve us pages.
+            //
+            // The problem is that if other process crashes/exits, firecracker guest memory
+            // will simply revert to anon-mem behavior which would lead to silent errors and
+            // undefined behavior.
+            //
+            // To tackle this scenario, the page fault handler can notify Firecracker of any
+            // crashes/exits. There is no need for Firecracker to explicitly send its process ID.
+            // The external process can obtain Firecracker's PID by calling `getsockopt` with
+            // `libc::SO_PEERCRED` option like so:
+            //
+            // let mut val = libc::ucred { pid: 0, gid: 0, uid: 0 };
+            // let mut ucred_size: u32 = mem::size_of::<libc::ucred>() as u32;
+            // libc::getsockopt(
+            //      socket.as_raw_fd(),
+            //      libc::SOL_SOCKET,
+            //      libc::SO_PEERCRED,
+            //      &mut val as *mut _ as *mut _,
+            //      &mut ucred_size as *mut libc::socklen_t,
+            // );
+            //
+            // Per this linux man page: https://man7.org/linux/man-pages/man7/unix.7.html,
+            // `SO_PEERCRED` returns the credentials (PID, UID and GID) of the peer process
+            // connected to this socket. The returned credentials are those that were in effect
+            // at the time of the `connect` call.
+            //
+            // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
+            // page fault handler process does not tear down Firecracker when necessary, the
+            // uffd will still be alive but with no one to serve faults, leading to guest freeze.
+            uffd.as_raw_fd(),
+        )
+        .map_err(UffdSend)?;
+
+    Ok((guest_memory, uffd))
 }
 
 fn load_kernel(

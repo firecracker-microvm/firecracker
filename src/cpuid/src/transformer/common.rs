@@ -75,7 +75,7 @@ const KVM_FEATURE_ASYNC_PF_INT_BIT: u32 = 14;
 
 pub fn disable_kvm_feature_async_pf(
     entry: &mut kvm_cpuid_entry2,
-    vm_spec: &VmSpec,
+    _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
     entry.eax.write_bit(KVM_FEATURE_ASYNC_PF_INT_BIT, false);
 

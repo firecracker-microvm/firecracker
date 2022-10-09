@@ -3,19 +3,23 @@
 
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
+use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::os::unix::prelude::FromRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use devices::virtio::TYPE_NET;
+use libc::memfd_create;
 use logger::{error, info};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
@@ -29,7 +33,7 @@ use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
-use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::memory_snapshot::{mem_dump_dirty, GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
@@ -325,52 +329,84 @@ fn snapshot_memory_to_file(
     snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
-    if OpenOptions::new().read(true).open(mem_file_path).is_ok()
-        && snapshot_type == &SnapshotType::Diff
-    {
-        // // The memory file already exists.
-        // // We're going to use the msync behaviour
-        // for region in vmm.guest_memory().iter() {
-        //     info!("msyncing memory region");
-        //     unsafe {
-        //         if libc::msync(region.as_ptr() as _, region.len() as _, libc::MS_SYNC) == -1 {
-        //             return Err(CreateSnapshotError::Memory(
-        //                 memory_snapshot::Error::CreateRegion(vm_memory::MmapRegionError::Mmap(
-        //                     std::io::Error::last_os_error(),
-        //                 )),
-        //             ));
-        //         }
-        //     };
-        // }
+    // if OpenOptions::new().read(true).open(mem_file_path).is_ok()
+    //     && snapshot_type == &SnapshotType::Diff
+    // {
+    //     // The memory file already exists.
+    //     // We're going to use the msync behaviour
+    //     for region in vmm.guest_memory().iter() {
+    //         info!("msyncing memory region");
+    //         unsafe {
+    //             if libc::msync(region.as_ptr() as _, region.len() as _, libc::MS_SYNC) == -1 {
+    //                 return Err(CreateSnapshotError::Memory(
+    //                     memory_snapshot::Error::CreateRegion(vm_memory::MmapRegionError::Mmap(
+    //                         std::io::Error::last_os_error(),
+    //                     )),
+    //                 ));
+    //             }
+    //         };
+    //     }
 
-        return Ok(());
-    }
+    //     return Ok(());
+    // }
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(mem_file_path)
-        .map_err(|err| MemoryBackingFile("open", err))?;
+    eprintln!("snapshot_memory_to_file");
+    eprintln!("{}", mem_file_path.to_string_lossy());
+    let start = Instant::now();
+    let mut file = if mem_file_path.to_string_lossy() == "memfd" {
+        let fd = unsafe {
+            let memfd_name = CString::new("diff").unwrap();
+            memfd_create(memfd_name.as_ptr(), 0)
+        };
+        if fd == -1 {
+            return Err(MemoryBackingFile(
+                "memfd_create",
+                std::io::Error::last_os_error(),
+            ));
+        }
+
+        unsafe { File::from_raw_fd(fd) }
+    } else {
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(mem_file_path)
+            .map_err(|err| MemoryBackingFile("open", err))?
+    };
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
+    // // Set the length of the file to the full size of the memory area.
+    // memory_file
+    //     .set_len((mem_size_mib * 1024 * 1024) as u64)
+    //     .map_err(|err| MemoryBackingFile("set_length", err))?;
+
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
         .map_err(|err| MemoryBackingFile("set_length", err))?;
 
     match snapshot_type {
         SnapshotType::Diff => {
             let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory()
-                .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(Memory)
+
+            mem_dump_dirty(
+                vmm.guest_memory(),
+                file.as_raw_fd(),
+                (mem_size_mib * 1024 * 1024) as usize,
+                &dirty_bitmap,
+            )
+            .map_err(Memory)
+
+            // vmm.guest_memory()
+            //     .dump_dirty(&mut memory_file, &dirty_bitmap)
+            //     .map_err(Memory)
         }
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }?;
-    file.flush()
-        .map_err(|err| MemoryBackingFile("flush", err))?;
-    file.sync_all()
-        .map_err(|err| MemoryBackingFile("sync_all", err))
+
+    eprintln!("snapshot_memory_to_file took {:?}", start.elapsed());
+
+    Ok(())
 }
 
 /// Validate the microVM version and translate it to its corresponding snapshot data format.
@@ -596,25 +632,41 @@ fn guest_memory_from_file(
     ))
 }
 
-fn guest_memory_from_uffd(
+pub(crate) fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     enable_balloon: bool,
 ) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), LoadSnapshotError> {
     use self::LoadSnapshotError::{
-        CreateUffdBuilder, DeserializeMemory, UdsConnection, UffdMemoryRegionsRegister, UffdSend,
+        CreateUffdBuilder, DeserializeMemory, MemoryBackingFile, UdsConnection,
+        UffdMemoryRegionsRegister, UffdSend,
     };
 
+    let backing_memory_file = unsafe {
+        let mem_name = CString::new("vm-memory").expect("CString::new failed");
+        File::from_raw_fd(libc::memfd_create(mem_name.as_ptr(), 0))
+    };
+    backing_memory_file
+        .set_len(
+            mem_state
+                .regions
+                .iter()
+                .map(|region| region.size)
+                .sum::<usize>() as u64,
+        )
+        .map_err(MemoryBackingFile)?;
+
     let guest_memory =
-        GuestMemoryMmap::restore(None, mem_state, track_dirty_pages).map_err(DeserializeMemory)?;
+        GuestMemoryMmap::restore(Some(&backing_memory_file), mem_state, track_dirty_pages)
+            .map_err(DeserializeMemory)?;
 
     let mut uffd_builder = UffdBuilder::new();
 
     if enable_balloon {
         // We enable this so that the page fault handler can add logic
         // for treating madvise(MADV_DONTNEED) events triggerd by balloon inflation.
-        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
+        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE | FeatureFlags::PAGEFAULT_FLAG_WP);
     }
 
     let uffd = uffd_builder

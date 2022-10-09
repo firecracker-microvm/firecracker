@@ -262,6 +262,18 @@
                 ]
             },
             {
+                "syscall": "memfd_create",
+                "comment": "Used to create a memory backed file descriptor that can be used to save memory to"
+            },
+            {
+                "syscall": "nanosleep",
+                "comment": "Debugging sleep"
+            },
+            {
+                "syscall": "copy_file_range",
+                "comment": "debugging"
+            },
+            {
                 "syscall": "rt_sigaction",
                 "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
                 "args": [
