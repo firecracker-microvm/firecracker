@@ -61,7 +61,7 @@ pub struct ConnectedBalloonState {
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
-    pub mmio_slot: MMIODeviceInfo,
+    pub device_info: MMIODeviceInfo,
 }
 
 #[derive(Clone, Versionize)]
@@ -75,7 +75,7 @@ pub struct ConnectedBlockState {
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
-    pub mmio_slot: MMIODeviceInfo,
+    pub device_info: MMIODeviceInfo,
 }
 
 #[derive(Clone, Versionize)]
@@ -89,7 +89,7 @@ pub struct ConnectedNetState {
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
-    pub mmio_slot: MMIODeviceInfo,
+    pub device_info: MMIODeviceInfo,
 }
 
 #[derive(Clone, Versionize)]
@@ -103,7 +103,7 @@ pub struct ConnectedVsockState {
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
-    pub mmio_slot: MMIODeviceInfo,
+    pub device_info: MMIODeviceInfo,
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -113,7 +113,7 @@ pub struct ConnectedLegacyState {
     /// Device identifier.
     pub type_: DeviceType,
     /// VmmResources.
-    pub mmio_slot: MMIODeviceInfo,
+    pub device_info: MMIODeviceInfo,
 }
 
 /// Holds the MMDS data store version.
@@ -219,7 +219,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             legacy_devices: Vec::new(),
             mmds_version: None,
         };
-        let _: Result<(), ()> = self.for_each_device(|devtype, devid, devinfo, bus_dev| {
+        let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
             if *devtype == arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
                 return Ok(());
@@ -230,7 +230,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if *devtype == DeviceType::Serial || *devtype == DeviceType::Rtc {
                     states.legacy_devices.push(ConnectedLegacyState {
                         type_: *devtype,
-                        mmio_slot: devinfo.clone(),
+                        device_info: device_info.clone(),
                     });
                     return Ok(());
                 }
@@ -257,7 +257,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: balloon_state,
                         transport_state,
-                        mmio_slot: devinfo.clone(),
+                        device_info: device_info.clone(),
                     });
                 }
                 TYPE_BLOCK => {
@@ -267,7 +267,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: block.save(),
                         transport_state,
-                        mmio_slot: devinfo.clone(),
+                        device_info: device_info.clone(),
                     });
                 }
                 TYPE_NET => {
@@ -283,7 +283,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: net.save(),
                         transport_state,
-                        mmio_slot: devinfo.clone(),
+                        device_info: device_info.clone(),
                     });
                 }
                 TYPE_VSOCK => {
@@ -310,7 +310,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: vsock_state,
                         transport_state,
-                        mmio_slot: devinfo.clone(),
+                        device_info: device_info.clone(),
                     });
                 }
                 _ => unreachable!(),
@@ -349,11 +349,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .allocate(
                             MMIO_LEN,
                             MMIO_LEN,
-                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                            AllocPolicy::ExactMatch(state.device_info.addr),
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
-                    dev_manager.register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))?;
+                    dev_manager.register_mmio_serial(
+                        vm,
+                        serial,
+                        Some(state.device_info.clone()),
+                    )?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device();
@@ -362,10 +366,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .allocate(
                             MMIO_LEN,
                             MMIO_LEN,
-                            AllocPolicy::ExactMatch(state.mmio_slot.addr),
+                            AllocPolicy::ExactMatch(state.device_info.addr),
                         )
                         .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
-                    dev_manager.register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))?;
+                    dev_manager.register_mmio_rtc(rtc, Some(state.device_info.clone()))?;
                 }
             }
         }
@@ -374,7 +378,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
-                                  slot: &MMIODeviceInfo,
+                                  device_info: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
             let restore_args = MmioTransportConstructorArgs {
@@ -396,10 +400,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             dev_manager
                 .address_allocator
-                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::ExactMatch(slot.addr))
+                .allocate(
+                    MMIO_LEN,
+                    MMIO_LEN,
+                    AllocPolicy::ExactMatch(device_info.addr),
+                )
                 .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
-            dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, slot)?;
+            dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, device_info)?;
 
             event_manager.add_subscriber(as_subscriber);
             Ok(())
@@ -421,7 +429,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
-                &balloon_state.mmio_slot,
+                &balloon_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -442,7 +450,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &block_state.device_id,
                 &block_state.transport_state,
-                &block_state.mmio_slot,
+                &block_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -487,7 +495,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &net_state.device_id,
                 &net_state.transport_state,
-                &net_state.mmio_slot,
+                &net_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -515,7 +523,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
-                &vsock_state.mmio_slot,
+                &vsock_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -539,7 +547,7 @@ mod tests {
     impl PartialEq for ConnectedBalloonState {
         fn eq(&self, other: &ConnectedBalloonState) -> bool {
             // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state && self.mmio_slot == other.mmio_slot
+            self.transport_state == other.transport_state && self.device_info == other.device_info
         }
     }
 
@@ -547,8 +555,8 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(
                 f,
-                "ConnectedBalloonDevice {{ transport_state: {:?}, mmio_slot: {:?} }}",
-                self.transport_state, self.mmio_slot
+                "ConnectedBalloonDevice {{ transport_state: {:?}, device_info: {:?} }}",
+                self.transport_state, self.device_info
             )
         }
     }
@@ -556,7 +564,7 @@ mod tests {
     impl PartialEq for ConnectedBlockState {
         fn eq(&self, other: &ConnectedBlockState) -> bool {
             // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state && self.mmio_slot == other.mmio_slot
+            self.transport_state == other.transport_state && self.device_info == other.device_info
         }
     }
 
@@ -564,8 +572,8 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(
                 f,
-                "ConnectedBlockDevice {{ transport_state: {:?}, mmio_slot: {:?} }}",
-                self.transport_state, self.mmio_slot
+                "ConnectedBlockDevice {{ transport_state: {:?}, device_info: {:?} }}",
+                self.transport_state, self.device_info
             )
         }
     }
@@ -573,7 +581,7 @@ mod tests {
     impl PartialEq for ConnectedNetState {
         fn eq(&self, other: &ConnectedNetState) -> bool {
             // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state && self.mmio_slot == other.mmio_slot
+            self.transport_state == other.transport_state && self.device_info == other.device_info
         }
     }
 
@@ -581,8 +589,8 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(
                 f,
-                "ConnectedNetDevice {{ transport_state: {:?}, mmio_slot: {:?} }}",
-                self.transport_state, self.mmio_slot
+                "ConnectedNetDevice {{ transport_state: {:?}, device_info: {:?} }}",
+                self.transport_state, self.device_info
             )
         }
     }
@@ -590,7 +598,7 @@ mod tests {
     impl PartialEq for ConnectedVsockState {
         fn eq(&self, other: &ConnectedVsockState) -> bool {
             // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state && self.mmio_slot == other.mmio_slot
+            self.transport_state == other.transport_state && self.device_info == other.device_info
         }
     }
 
@@ -598,8 +606,8 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(
                 f,
-                "ConnectedVsockDevice {{ transport_state: {:?}, mmio_slot: {:?} }}",
-                self.transport_state, self.mmio_slot
+                "ConnectedVsockDevice {{ transport_state: {:?}, device_info: {:?} }}",
+                self.transport_state, self.device_info
             )
         }
     }
