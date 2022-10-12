@@ -1250,6 +1250,7 @@ cmd_test() {
 
     # If we got to here, we've got all we need to continue.
     say "$(date -u +'%F %H:%M:%S %Z')"
+    say "Kernel version: $(uname -r)"
     say "Starting test run ..."
 
     if [[ $ramdisk = true ]]; then
@@ -1285,6 +1286,9 @@ cmd_test() {
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
     cmd_fix_perms
+
+    # Log CPU information
+    say "$(lscpu)"
 
     return $ret
 }
