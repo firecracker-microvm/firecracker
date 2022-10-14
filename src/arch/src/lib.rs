@@ -15,7 +15,7 @@ pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
+    arch_memory_regions, configure_system, get_kernel_start, get_rsdp_addr, initrd_load_addr,
     layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, regs, Error, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
@@ -26,9 +26,9 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::x86_64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
-    MMIO_MEM_START,
+    arch_memory_regions, configure_system, get_kernel_start, get_rsdp_addr, initrd_load_addr,
+    layout::APIC_DEFAULT_PHYS_BASE, layout::CMDLINE_MAX_SIZE, layout::IO_APIC_DEFAULT_PHYS_BASE,
+    layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE, MMIO_MEM_START,
 };
 
 /// Type for returning public functions outcome.
@@ -64,4 +64,12 @@ impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+// Currently only supported for x86
+/// Returns the first address and the size of the region
+/// used for boot data
+#[cfg(target_arch = "x86_64")]
+pub fn boot_data_region() -> (u64, u64) {
+    (x86_64::layout::EBDA_START, x86_64::layout::EBDA_SIZE)
 }

@@ -22,6 +22,8 @@ TUNTAP_LICENSE = (
 )
 ALIBABA_COPYRIGHT = "Copyright (C) 2019 Alibaba Cloud Computing. All rights reserved."
 ALIBABA_LICENSE = "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
+INTEL_COPYRIGHT = "Copyright © 2019 Intel Corporation"
+INTEL_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 
 EXCLUDE = ["build", ".kernel", ".git"]
 
@@ -74,11 +76,17 @@ def _validate_license(filename):
             ALIBABA_COPYRIGHT in copyright_info
             and _look_for_license(file, ALIBABA_LICENSE)
         )
+
+        has_intel_copyright = INTEL_COPYRIGHT in copyright_info and _look_for_license(
+            file, INTEL_LICENSE
+        )
+
         return (
             has_amazon_copyright
             or has_chromium_copyright
             or has_tuntap_copyright
             or has_alibaba_copyright
+            or has_intel_copyright
         )
     return True
 

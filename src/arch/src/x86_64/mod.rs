@@ -39,8 +39,6 @@ pub enum Error {
     InitrdAddress,
 }
 
-// Where BIOS/VGA magic would live on a real PC.
-const EBDA_START: u64 = 0x9fc00;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
@@ -70,6 +68,11 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
+}
+
+/// Returns the address of the RSDP ACPI pointer
+pub const fn get_rsdp_addr() -> u64 {
+    layout::RSDP_ADDR
 }
 
 /// Returns the memory address where the initrd could be loaded.
@@ -129,7 +132,7 @@ pub fn configure_system(
         params.hdr.ramdisk_size = initrd_config.size as u32;
     }
 
-    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
@@ -162,6 +165,8 @@ pub fn configure_system(
             )?;
         }
     }
+
+    params.acpi_rsdp_addr = get_rsdp_addr();
 
     LinuxBootConfigurator::write_bootparams(
         &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),

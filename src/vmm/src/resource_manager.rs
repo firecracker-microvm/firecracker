@@ -17,6 +17,7 @@ pub type Result<T> = std::result::Result<T, vm_allocator::Error>;
 pub struct ResourceManager {
     gsi_allocator: IdAllocator,
     mmio_address_allocator: AddressAllocator,
+    acpi_address_allocator: AddressAllocator,
 }
 
 impl ResourceManager {
@@ -37,12 +38,15 @@ impl ResourceManager {
 
     /// Create a new manager
     pub fn new() -> Result<Self> {
+        #[cfg(target_arch = "x86_64")]
+        let (acpi_start, acpi_size) = arch::boot_data_region();
         Ok(Self {
             gsi_allocator: IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?,
             mmio_address_allocator: AddressAllocator::new(
                 arch::MMIO_MEM_START,
                 arch::MMIO_MEM_SIZE,
             )?,
+            acpi_address_allocator: AddressAllocator::new(acpi_start, acpi_size)?,
         })
     }
 
@@ -105,6 +109,18 @@ impl ResourceManager {
     ) -> Result<u64> {
         Ok(self
             .mmio_address_allocator
+            .allocate(size, alignment, policy)?
+            .start())
+    }
+
+    pub fn allocate_acpi_addresses(
+        &mut self,
+        size: u64,
+        alignment: u64,
+        policy: AllocPolicy,
+    ) -> Result<u64> {
+        Ok(self
+            .acpi_address_allocator
             .allocate(size, alignment, policy)?
             .start())
     }

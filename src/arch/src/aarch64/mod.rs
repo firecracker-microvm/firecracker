@@ -76,6 +76,11 @@ pub fn get_kernel_start() -> u64 {
     layout::DRAM_MEM_START
 }
 
+/// Returns the address of the RSDP ACPI pointer
+pub const fn get_rsdp_addr() -> u64 {
+    todo!()
+}
+
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
     let round_to_pagesize = |size| (size + (super::PAGE_SIZE - 1)) & !(super::PAGE_SIZE - 1);

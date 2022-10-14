@@ -37,6 +37,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
+use crate::acpi::{AcpiConfig, AcpiConfigError};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
@@ -97,6 +98,8 @@ pub enum StartMicrovmError {
     SetVmResources(VmConfigError),
     /// ResourceAllocator errors
     ResourceAllocator(vm_allocator::Error),
+    /// ACPI tables configuration errors
+    AcpiConfiguration(AcpiConfigError),
 }
 impl std::error::Error for StartMicrovmError {}
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -181,6 +184,7 @@ impl Display for StartMicrovmError {
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
             SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
             ResourceAllocator(err) => write!(f, "ResourceAllocator error: {}", err),
+            AcpiConfiguration(err) => write!(f, "ACPI configuration error: {}", err),
         }
     }
 }
@@ -293,6 +297,8 @@ fn create_vmm_and_vcpus(
         setup_interrupt_controller(&mut vm, vcpu_count)?;
     }
 
+    let acpi_config = AcpiConfig::new();
+
     let vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
         instance_info: instance_info.clone(),
@@ -306,6 +312,7 @@ fn create_vmm_and_vcpus(
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
+        acpi_config,
     };
 
     Ok((vmm, vcpus))
@@ -362,6 +369,7 @@ pub fn build_microvm_for_boot(
     let init_params = init_and_regular.get(1);
 
     boot_cmdline.insert_str(boot_args)?;
+    boot_cmdline.insert_str(format!("acpi_rsdp={:#04x}", arch::get_rsdp_addr()))?;
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
@@ -406,8 +414,13 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
+    // At the moment, we support ACPI only on x86
+    vmm.acpi_config
+        .create_acpi_tables(&mut vmm.resource_manager, &vmm.guest_memory, vcpus.len())
+        .map_err(AcpiConfiguration)?;
+
     configure_system_for_boot(
-        &vmm,
+        &mut vmm,
         vcpus.as_mut(),
         vcpu_config,
         entry_addr,
@@ -851,7 +864,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
 /// Configures the system for booting Linux.
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 pub fn configure_system_for_boot(
-    vmm: &Vmm,
+    vmm: &mut Vmm,
     vcpus: &mut [Vcpu],
     vcpu_config: VcpuConfig,
     entry_addr: GuestAddress,
@@ -1139,6 +1152,7 @@ pub mod tests {
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
+            acpi_config: AcpiConfig::new(),
         }
     }
 

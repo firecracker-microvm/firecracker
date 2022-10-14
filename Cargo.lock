@@ -3,6 +3,16 @@
 version = 3
 
 [[package]]
+name = "acpi"
+version = "0.1.0"
+dependencies = [
+ "arch",
+ "logger",
+ "thiserror",
+ "vm-memory 0.3.0",
+]
+
+[[package]]
 name = "aead"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1267,6 +1277,7 @@ checksum = "a4b5231d334edbc03b22704caa1a022e4c07491d6df736593f26094df8b04a51"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
+ "acpi",
  "arch",
  "cpuid",
  "criterion",
