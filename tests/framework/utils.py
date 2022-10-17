@@ -566,7 +566,7 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
-    Will return sucessfully if the process
+    Will return successfully if the process
     got indeed killed or raises an exception if the process
     is still alive after retrying several times.
     """
@@ -586,8 +586,8 @@ def get_firecracker_version_from_toml():
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
 
-    rc, stdout, _ = run_cmd(cmd)
-    assert rc == 0
+    rc, stdout, stderr = run_cmd(cmd)
+    assert rc == 0, stderr
 
     return stdout
 

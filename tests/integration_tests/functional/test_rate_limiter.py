@@ -13,7 +13,7 @@ IPERF_BINARY = "iperf3"
 IPERF_TRANSMIT_TIME = 4
 
 # Use a fixed-size TCP window so we get constant flow
-IPERF_TCP_WINDOW = "1000K"
+IPERF_TCP_WINDOW = "256K"
 
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
@@ -486,11 +486,14 @@ def _process_iperf_line(line):
 def _process_iperf_output(iperf_out):
     """Parse iperf3 output and return average test time and bandwidth."""
     iperf_out_lines = iperf_out.splitlines()
+    send_time = 0
+    rcv_time = 0
     for line in iperf_out_lines:
         if line.find("sender") != -1:
             send_time, send_bw = _process_iperf_line(line)
         if line.find("receiver") != -1:
             rcv_time, rcv_bw = _process_iperf_line(line)
+    assert send_time > 0 and rcv_time > 0
     iperf_out_time = (send_time + rcv_time) / 2.0
     iperf_out_bw = (send_bw + rcv_bw) / 2.0
     return float(iperf_out_time), float(iperf_out_bw)

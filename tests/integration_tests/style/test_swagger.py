@@ -19,12 +19,12 @@ def check_yaml_style(yaml_spec):
 
 def validate_swagger(swagger_spec):
     """Fail if OpenApi spec is not followed."""
-    validate_cmd = "swagger-cli validate {}".format(swagger_spec)
-    retcode, stdout, _ = utils.run_cmd(validate_cmd)
+    validate_cmd = "openapi-spec-validator {}".format(swagger_spec)
+    retcode, stdout, stderr = utils.run_cmd(validate_cmd)
 
     # Verify validity.
-    assert "is valid" in stdout
-    assert retcode == 0
+    assert stdout.strip() == "OK", stderr
+    assert retcode == 0, stderr
 
 
 def test_firecracker_swagger():

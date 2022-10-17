@@ -303,11 +303,7 @@ def change_net_config_space_bin(test_fc_session_root_path):
     change_net_config_space_bin = os.path.join(
         test_fc_session_root_path, "change_net_config_space"
     )
-    _gcc_compile(
-        "host_tools/change_net_config_space.c",
-        change_net_config_space_bin,
-        extra_flags="",
-    )
+    _gcc_compile("host_tools/change_net_config_space.c", change_net_config_space_bin)
     yield change_net_config_space_bin
 
 

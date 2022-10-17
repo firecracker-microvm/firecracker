@@ -15,6 +15,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 
 # pylint: disable=global-statement
 PAYLOAD_DATA_SIZE = 20
+PYTHON_BINARY = "python3"
 
 
 def test_net_change_mac_address(
@@ -97,8 +98,8 @@ def test_net_change_mac_address(
     cmd = cmd.format(net_addr_base, mac_hex)
 
     # This should be executed successfully.
-    exit_code, stdout, _ = ssh_connection_ctl.execute_command(cmd)
-    assert exit_code == 0
+    exit_code, stdout, stderr = ssh_connection_ctl.execute_command(cmd)
+    assert exit_code == 0, stderr.read()
     assert stdout.read() == mac
 
     # Discard any parasite data exchange which might've been
@@ -144,8 +145,8 @@ def _create_server(jailer, host_ip, port, iterations):
         "s.close()"
     )
 
-    cmd = 'python -c "{}"'.format(
-        script.format(host_ip, port, iterations, PAYLOAD_DATA_SIZE)
+    cmd = '{} -c "{}"'.format(
+        PYTHON_BINARY, script.format(host_ip, port, iterations, PAYLOAD_DATA_SIZE)
     )
     netns_cmd = jailer.netns_cmd_prefix() + cmd
     exit_code = subprocess.call(netns_cmd, shell=True)
@@ -180,8 +181,8 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
 
     # Wait server to initialize.
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
-    # If this assert fails, a connection refused happened.
-    assert exit_code == 0
+    # If this assertion fails, a connection refusal happened.
+    assert exit_code == 0, stderr.read()
     assert stderr.read() == ""
 
 

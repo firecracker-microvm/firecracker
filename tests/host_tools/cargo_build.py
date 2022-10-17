@@ -115,9 +115,9 @@ def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     if basic:
         cmd += " --basic"
 
-    rc, _, _ = utils.run_cmd(cmd)
+    rc, _, stderr = utils.run_cmd(cmd)
 
-    assert rc == 0
+    assert rc == 0, stderr
 
 
 def run_rebase_snap_bin(base_snap, diff_snap):
@@ -134,6 +134,6 @@ def run_rebase_snap_bin(base_snap, diff_snap):
         cargo_target, base_snap, diff_snap
     )
 
-    rc, _, _ = utils.run_cmd(cmd)
+    rc, _, stderr = utils.run_cmd(cmd)
 
-    assert rc == 0
+    assert rc == 0, stderr
