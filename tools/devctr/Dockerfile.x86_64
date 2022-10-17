@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 
 # TODO: use a multi-stage build to reduce the download size when updating this container.
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
@@ -32,7 +32,7 @@ RUN apt-get update \
         build-essential \
         zlib1g-dev \
         libncurses5-dev \
-        libgdbm-dev  \
+        libgdbm-dev \
         libnss3-dev \
         libreadline-dev \
         libffi-dev \
@@ -43,7 +43,6 @@ RUN apt-get update \
         file \
         g++ \
         gcc \
-        gcc-aarch64-linux-gnu \
         git \
         iperf3 \
         iproute2 \
@@ -58,8 +57,7 @@ RUN apt-get update \
         net-tools \
         openssh-client \
         pkgconf \
-        python \
-        python3 \
+        python3.10 \
         python3-dev \
         python3-pip \
         python3-venv \
@@ -71,36 +69,16 @@ RUN apt-get update \
         bc \
         flex \
         bison \
-    && python3 -m pip install \
-        setuptools \
-        wheel \
-    && python3 -m pip install --upgrade pip \ 
+    && python3 -m pip install --upgrade pip \
+    && python3 -m pip install openapi-spec-validator \
     && gem install chef-utils:16.6.14 mdl
-
-# Update Python to 3.10
-# This method isn't ideal, compiling from source can be dropped
-# once the container definition is based on ubuntu:22.04
-RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
-    && tar -xf Python-3.10.4.tgz \
-    && cd ./Python-3.10.4 \
-    && ./configure --enable-optimizations \
-    && make -j 8 \
-    && make install
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
 COPY tools/devctr/pyproject.toml $POETRY_LOCK_PATH "$TMP_POETRY_DIR/"
 RUN cd "$TMP_POETRY_DIR" \
     &&  poetry config virtualenvs.create false \
-    &&  poetry install --no-dev --no-interaction
-
-# We need to install node and npm from source because of this issue with the
-# ubuntu repository:
-# https://bugs.launchpad.net/ubuntu/+source/nodejs/+bug/1794589
-RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
-    && apt-get install -y nodejs \
-    && npm install -g @apidevtools/swagger-cli \
-    && rm -rf /var/lib/apt/lists/*
+    &&  poetry install --only main --no-interaction
 
 # Install the Rust toolchain
 #
