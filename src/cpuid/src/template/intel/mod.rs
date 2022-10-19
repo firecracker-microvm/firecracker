@@ -50,6 +50,40 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &CpuId) -> HashSet<u32> {
         leaf_0x7::index0::ebx::MPX_BITINDEX,
         [MSR_IA32_BNDCFGS]
     );
+
+    // IA32_MTRR_PHYSBASEn, IA32_MTRR_PHYSMASKn
+    cpuid_msr_dep!(0x1, 0, edx, leaf_0x1::edx::MTRR_BITINDEX, 0x200..0x210);
+
+    // Other MTRR MSRs
+    cpuid_msr_dep!(
+        0x1,
+        0,
+        edx,
+        leaf_0x1::edx::MTRR_BITINDEX,
+        [
+            0x250, // IA32_MTRR_FIX64K_00000
+            0x258, // IA32_MTRR_FIX16K_80000
+            0x259, // IA32_MTRR_FIX16K_A0000
+            0x268, // IA32_MTRR_FIX4K_C0000
+            0x269, // IA32_MTRR_FIX4K_C8000
+            0x26a, // IA32_MTRR_FIX4K_D0000
+            0x26b, // IA32_MTRR_FIX4K_D8000
+            0x26c, // IA32_MTRR_FIX4K_E0000
+            0x26d, // IA32_MTRR_FIX4K_E8000
+            0x26e, // IA32_MTRR_FIX4K_F0000
+            0x26f, // IA32_MTRR_FIX4K_F8000
+            0x277, // IA32_PAT
+            0x2ff  // IA32_MTRR_DEF_TYPE
+        ]
+    );
+
+    // MCE MSRs
+    // We are saving 32 MCE banks here as this is the maximum number supported by KVM
+    // and configured by default.
+    // The physical number of the MCE banks depends on the CPU.
+    // The number of emulated MCE banks can be configured via KVM_X86_SETUP_MCE.
+    cpuid_msr_dep!(0x1, 0, edx, leaf_0x1::edx::MCE_BITINDEX, 0x400..0x480);
+
     msrs
 }
 
