@@ -35,9 +35,9 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &CpuId) -> HashSet<u32> {
 
     // Macro used for easy definition of CPUID-MSR dependencies.
     macro_rules! cpuid_msr_dep {
-        ($leaf:expr, $index:expr, $reg:tt, $feature_bit:expr, [$($msr:expr),+]) => {
+        ($leaf:expr, $index:expr, $reg:tt, $feature_bit:expr, $msr:expr) => {
             if cpuid_is_feature_set!(cpuid, $leaf, $index, $reg, $feature_bit) {
-                msrs.extend(&[$($msr),*]);
+                msrs.extend($msr)
             }
         };
     }
