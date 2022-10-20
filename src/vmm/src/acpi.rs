@@ -25,12 +25,14 @@ type Result<T> = std::result::Result<T, AcpiConfigError>;
 /// At the moment, this does not store any information but in the future
 /// we might want to store state so that we can modify it at runtime
 /// (for example memory / CPU hotplugging)
-pub(crate) struct AcpiConfig {}
+pub(crate) struct AcpiConfig {
+    devices: Vec<u8>,
+}
 
 impl AcpiConfig {
     /// Create a new ACPI configuration object
     pub(crate) fn new() -> Self {
-        Self {}
+        Self { devices: vec![] }
     }
 
     // Allocate some guest memory and write a table to it
@@ -53,7 +55,7 @@ impl AcpiConfig {
 
     // Build the DSDT data of the microVM
     fn create_dsdt_data(&self) -> Vec<u8> {
-        let dsdt_data = aml::Scope::new(
+        let mut dsdt_data = aml::Scope::new(
             "\\".into(),
             vec![&aml::Name::new(
                 "_S5_".into(),
@@ -62,7 +64,14 @@ impl AcpiConfig {
         )
         .to_aml_bytes();
 
+        dsdt_data.extend(&self.devices);
+
         dsdt_data
+    }
+
+    /// Add devices in ACPI configuration
+    pub(crate) fn add_device(&mut self, device: &dyn Aml) {
+        device.append_aml_bytes(&mut self.devices);
     }
 
     /// Create the ACPI tables and write them to guest

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
+use acpi::aml;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
@@ -24,13 +25,15 @@ use devices::virtio::{
 };
 use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
-use linux_loader::cmdline as kernel_cmdline;
+#[cfg(target_arch = "aarch64")]
+use linux_loader::loader::Cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-#[cfg(target_arch = "x86_64")]
+#[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
 
+use crate::acpi::AcpiConfig;
 use crate::resource_manager::{AllocPolicy, ResourceManager};
 
 /// Errors for MMIO device manager.
@@ -82,7 +85,7 @@ impl fmt::Display for Error {
 
 type Result<T> = ::std::result::Result<T, Error>;
 
-/// This represents the size of the mmio device specified to the kernel as a cmdline option
+/// This represents the size of the mmio device specified to the kernel through ACPI
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
 /// Currently hardcoded to 4K.
@@ -104,6 +107,7 @@ pub struct MMIODeviceInfo {
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
+    num_devices: u8,
 }
 
 impl MMIODeviceManager {
@@ -112,6 +116,7 @@ impl MMIODeviceManager {
         Ok(MMIODeviceManager {
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
+            num_devices: 0,
         })
     }
 
@@ -145,6 +150,27 @@ impl MMIODeviceManager {
             .map_err(Error::Bus)?;
         self.id_to_dev_info.insert(identifier, device_info);
         Ok(())
+    }
+
+    fn register_acpi_device(&self, acpi_config: &mut AcpiConfig, device_info: &MMIODeviceInfo) {
+        acpi_config.add_device(&aml::Device::new(
+            format!("_SB_.VR{:02}", self.num_devices).as_str().into(),
+            vec![
+                &aml::Name::new("_HID".into(), &"LNRO0005"),
+                &aml::Name::new("_UID".into(), &self.num_devices),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Memory32Fixed::new(
+                            true,
+                            device_info.addr as u32,
+                            device_info.len as u32,
+                        ),
+                        &aml::Interrupt::new(true, true, false, false, device_info.irqs[0]),
+                    ]),
+                ),
+            ],
+        ))
     }
 
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
@@ -182,41 +208,19 @@ impl MMIODeviceManager {
         )
     }
 
-    /// Append a registered virtio-over-MMIO device to the kernel cmdline.
-    #[cfg(target_arch = "x86_64")]
-    pub fn add_virtio_device_to_cmdline(
-        cmdline: &mut kernel_cmdline::Cmdline,
-        device_info: &MMIODeviceInfo,
-    ) -> Result<()> {
-        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
-        cmdline
-            .add_virtio_mmio_device(
-                device_info.len,
-                GuestAddress(device_info.addr),
-                device_info.irqs[0],
-                None,
-            )
-            .map_err(Error::Cmdline)
-    }
-
-    /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
-    /// to the boot cmdline.
-    pub fn register_mmio_virtio_for_boot(
+    /// Allocate slot and register an already created virtio-over-MMIO device.
+    pub(crate) fn register_mmio_virtio_for_boot(
         &mut self,
         resource_manager: &mut ResourceManager,
+        acpi_config: &mut AcpiConfig,
         vm: &VmFd,
         device_id: String,
         mmio_device: MmioTransport,
-        _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<MMIODeviceInfo> {
         let device_info = Self::allocate_mmio_resources(resource_manager, 1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
-        #[cfg(target_arch = "x86_64")]
-        Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+        self.num_devices += 1;
+        self.register_acpi_device(acpi_config, &device_info);
         Ok(device_info)
     }
 
@@ -251,7 +255,7 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Append the registered early console to the kernel cmdline.
-    pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut kernel_cmdline::Cmdline) -> Result<()> {
+    pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut Cmdline) -> Result<()> {
         let device_info = self
             .id_to_dev_info
             .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
@@ -478,6 +482,7 @@ mod tests {
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
+    use crate::acpi::AcpiConfig;
     use crate::builder;
 
     const QUEUE_SIZES: &[u16] = &[64];
@@ -488,17 +493,17 @@ mod tests {
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
             resource_manager: &mut ResourceManager,
+            acpi_config: &mut AcpiConfig,
             device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
-            cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64> {
             let mmio_device = MmioTransport::new(guest_mem, device);
             let device_info = self.register_mmio_virtio_for_boot(
                 resource_manager,
+                acpi_config,
                 vm,
                 dev_id.to_string(),
                 mmio_device,
-                cmdline,
             )?;
             Ok(device_info.addr)
         }
@@ -594,8 +599,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new().unwrap();
         let mut resource_manager = ResourceManager::new().unwrap();
+        let mut acpi_config = AcpiConfig::new();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
@@ -607,8 +612,8 @@ mod tests {
                 vm.fd(),
                 guest_mem,
                 &mut resource_manager,
+                &mut acpi_config,
                 dummy,
-                &mut cmdline,
                 "dummy"
             )
             .is_ok());
@@ -626,8 +631,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new().unwrap();
         let mut resource_manager = ResourceManager::new().unwrap();
+        let mut acpi_config = AcpiConfig::new();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
         #[cfg(target_arch = "aarch64")]
@@ -639,8 +644,8 @@ mod tests {
                     vm.fd(),
                     guest_mem.clone(),
                     &mut resource_manager,
+                    &mut acpi_config,
                     Arc::new(Mutex::new(DummyDevice::new())),
-                    &mut cmdline,
                     "dummy1",
                 )
                 .unwrap();
@@ -653,8 +658,8 @@ mod tests {
                         vm.fd(),
                         guest_mem,
                         &mut resource_manager,
+                        &mut acpi_config,
                         Arc::new(Mutex::new(DummyDevice::new())),
-                        &mut cmdline,
                         "dummy2"
                     )
                     .unwrap_err()
@@ -724,7 +729,7 @@ mod tests {
 
         let mut device_manager = MMIODeviceManager::new().unwrap();
         let mut resource_manager = ResourceManager::new().unwrap();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut acpi_config = AcpiConfig::new();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
         let type_id = dummy.lock().unwrap().device_type();
@@ -734,8 +739,8 @@ mod tests {
                 vm.fd(),
                 guest_mem,
                 &mut resource_manager,
+                &mut acpi_config,
                 dummy,
-                &mut cmdline,
                 &id,
             )
             .unwrap();
@@ -763,8 +768,8 @@ mod tests {
                 vm.fd(),
                 mem_clone,
                 &mut resource_manager,
+                &mut acpi_config,
                 dummy2,
-                &mut cmdline,
                 &id2,
             )
             .unwrap();

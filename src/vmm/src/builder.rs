@@ -260,6 +260,8 @@ fn create_vmm_and_vcpus(
     let mmio_device_manager =
         MMIODeviceManager::new().map_err(StartMicrovmError::RegisterMmioDevice)?;
 
+    let mut acpi_config = AcpiConfig::new();
+
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
@@ -283,7 +285,7 @@ fn create_vmm_and_vcpus(
             .try_clone()
             .map_err(Error::EventFd)
             .map_err(Internal)?;
-        create_pio_dev_manager_with_legacy_devices(&vm, serial_device, reset_evt)
+        create_pio_dev_manager_with_legacy_devices(&vm, &mut acpi_config, serial_device, reset_evt)
             .map_err(Internal)?
     };
 
@@ -296,8 +298,6 @@ fn create_vmm_and_vcpus(
         vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
         setup_interrupt_controller(&mut vm, vcpu_count)?;
     }
-
-    let acpi_config = AcpiConfig::new();
 
     let vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
@@ -388,7 +388,7 @@ pub fn build_microvm_for_boot(
     }
 
     if let Some(balloon) = vm_resources.balloon.get() {
-        attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
+        attach_balloon_device(&mut vmm, balloon, event_manager)?;
     }
 
     attach_block_devices(
@@ -397,14 +397,9 @@ pub fn build_microvm_for_boot(
         vm_resources.block.list.iter(),
         event_manager,
     )?;
-    attach_net_devices(
-        &mut vmm,
-        &mut boot_cmdline,
-        vm_resources.net_builder.iter(),
-        event_manager,
-    )?;
+    attach_net_devices(&mut vmm, vm_resources.net_builder.iter(), event_manager)?;
     if let Some(unix_vsock) = vm_resources.vsock.get() {
-        attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
+        attach_unixsock_vsock_device(&mut vmm, unix_vsock, event_manager)?;
     }
 
     if let Some(init) = init_params {
@@ -807,13 +802,14 @@ pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
 #[cfg(target_arch = "x86_64")]
 fn create_pio_dev_manager_with_legacy_devices(
     vm: &Vm,
+    acpi_config: &mut AcpiConfig,
     serial: Arc<Mutex<SerialDevice>>,
     i8042_reset_evfd: EventFd,
 ) -> std::result::Result<PortIODeviceManager, super::Error> {
     let mut pio_dev_mgr =
         PortIODeviceManager::new(serial, i8042_reset_evfd).map_err(Error::CreateLegacyDevice)?;
     pio_dev_mgr
-        .register_devices(vm.fd())
+        .register_devices(vm.fd(), acpi_config)
         .map_err(Error::LegacyIOBus)?;
     Ok(pio_dev_mgr)
 }
@@ -935,7 +931,6 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
     vmm: &mut Vmm,
     id: String,
     device: Arc<Mutex<T>>,
-    cmdline: &mut LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -943,8 +938,15 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device);
+
     vmm.mmio_device_manager
-        .register_mmio_virtio_for_boot(&mut vmm.resource_manager, vmm.vm.fd(), id, device, cmdline)
+        .register_mmio_virtio_for_boot(
+            &mut vmm.resource_manager,
+            &mut vmm.acpi_config,
+            vmm.vm.fd(),
+            id,
+            device,
+        )
         .map_err(RegisterMmioDevice)
         .map(|_| ())
 }
@@ -987,45 +989,42 @@ fn attach_block_devices<'a>(
             locked.id().clone()
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+        attach_virtio_device(event_manager, vmm, id, block.clone())?;
     }
     Ok(())
 }
 
 fn attach_net_devices<'a>(
     vmm: &mut Vmm,
-    cmdline: &mut LoaderKernelCmdline,
     net_devices: impl Iterator<Item = &'a Arc<Mutex<Net>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline)?;
+        attach_virtio_device(event_manager, vmm, id, net_device.clone())?;
     }
     Ok(())
 }
 
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
-    cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone())
 }
 
 fn attach_balloon_device(
     vmm: &mut Vmm,
-    cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, balloon.clone())
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
@@ -1058,7 +1057,6 @@ pub mod tests {
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
@@ -1191,20 +1189,18 @@ pub mod tests {
 
     pub(crate) fn insert_net_device(
         vmm: &mut Vmm,
-        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         net_config: NetworkInterfaceConfig,
     ) {
         let mut net_builder = NetBuilder::new();
         net_builder.build(net_config).unwrap();
 
-        let res = attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager);
+        let res = attach_net_devices(vmm, net_builder.iter(), event_manager);
         assert!(res.is_ok());
     }
 
     pub(crate) fn insert_net_device_with_mmds(
         vmm: &mut Vmm,
-        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         net_config: NetworkInterfaceConfig,
         mmds_version: MmdsVersion,
@@ -1219,12 +1215,11 @@ pub mod tests {
             Arc::new(Mutex::new(mmds)),
         );
 
-        attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
+        attach_net_devices(vmm, net_builder.iter(), event_manager).unwrap();
     }
 
     pub(crate) fn insert_vsock_device(
         vmm: &mut Vmm,
-        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         vsock_config: VsockDeviceConfig,
     ) {
@@ -1232,7 +1227,7 @@ pub mod tests {
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
-        assert!(attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).is_ok());
+        assert!(attach_unixsock_vsock_device(vmm, &vsock, event_manager).is_ok());
 
         assert!(vmm
             .mmio_device_manager
@@ -1242,7 +1237,6 @@ pub mod tests {
 
     pub(crate) fn insert_balloon_device(
         vmm: &mut Vmm,
-        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         balloon_config: BalloonDeviceConfig,
     ) {
@@ -1250,7 +1244,7 @@ pub mod tests {
         assert!(builder.set(balloon_config).is_ok());
         let balloon = builder.get().unwrap();
 
-        assert!(attach_balloon_device(vmm, cmdline, balloon, event_manager).is_ok());
+        assert!(attach_balloon_device(vmm, balloon, event_manager).is_ok());
 
         assert!(vmm
             .mmio_device_manager
@@ -1374,13 +1368,7 @@ pub mod tests {
             tx_rate_limiter: None,
         };
 
-        let mut cmdline = default_kernel_cmdline();
-        insert_net_device(
-            &mut vmm,
-            &mut cmdline,
-            &mut event_manager,
-            network_interface.clone(),
-        );
+        insert_net_device(&mut vmm, &mut event_manager, network_interface.clone());
 
         // We can not attach it once more.
         let mut net_builder = NetBuilder::new();
@@ -1494,13 +1482,6 @@ pub mod tests {
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), "third")
                 .is_some());
-
-            // Check if these three block devices are inserted in kernel_cmdline.
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            assert!(cmdline.as_str().contains(
-                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 \
-                 virtio_mmio.device=4K@0xd0002000:7"
-            ));
         }
 
         // Use case 5: root block device is rw.
@@ -1575,44 +1556,6 @@ pub mod tests {
             .mmio_device_manager
             .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())
             .is_some());
-    }
-
-    #[test]
-    fn test_attach_balloon_device() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let mut vmm = default_vmm();
-
-        let balloon_config = BalloonDeviceConfig {
-            amount_mib: 0,
-            deflate_on_oom: false,
-            stats_polling_interval_s: 0,
-        };
-
-        let mut cmdline = default_kernel_cmdline();
-        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
-        // Check if the vsock device is described in kernel_cmdline.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert!(cmdline
-            .as_str()
-            .contains("virtio_mmio.device=4K@0xd0000000:5"));
-    }
-
-    #[test]
-    fn test_attach_vsock_device() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let mut vmm = default_vmm();
-
-        let mut tmp_sock_file = TempFile::new().unwrap();
-        tmp_sock_file.remove().unwrap();
-        let vsock_config = default_config(&tmp_sock_file);
-
-        let mut cmdline = default_kernel_cmdline();
-        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
-        // Check if the vsock device is described in kernel_cmdline.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert!(cmdline
-            .as_str()
-            .contains("virtio_mmio.device=4K@0xd0000000:5"));
     }
 
     #[test]

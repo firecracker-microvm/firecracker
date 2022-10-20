@@ -9,6 +9,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use acpi::aml;
 use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
@@ -16,6 +17,7 @@ use logger::METRICS;
 use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
+use crate::acpi::AcpiConfig;
 use crate::resource_manager::ResourceManager;
 
 /// Errors corresponding to the `PortIODeviceManager`.
@@ -112,7 +114,11 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<()> {
+    pub(crate) fn register_devices(
+        &mut self,
+        vm_fd: &VmFd,
+        acpi_config: &mut AcpiConfig,
+    ) -> Result<()> {
         let serial_2_4 = create_serial(self.com_evt_2_4.try_clone()?)?;
         let serial_1_3 = create_serial(self.com_evt_1_3.try_clone()?)?;
         self.io_bus.insert(
@@ -120,26 +126,55 @@ impl PortIODeviceManager {
             Self::SERIAL_PORT_ADDRESSES[0],
             Self::SERIAL_PORT_SIZE,
         )?;
+        self.add_serial_acpi(
+            acpi_config,
+            "COM1",
+            Self::SERIAL_PORT_ADDRESSES[0] as u16,
+            ResourceManager::serial_1_3_gsi(),
+        );
         self.io_bus.insert(
             serial_2_4.clone(),
             Self::SERIAL_PORT_ADDRESSES[1],
             Self::SERIAL_PORT_SIZE,
         )?;
+        self.add_serial_acpi(
+            acpi_config,
+            "COM2",
+            Self::SERIAL_PORT_ADDRESSES[1] as u16,
+            ResourceManager::serial_2_4_gsi(),
+        );
         self.io_bus.insert(
             serial_1_3.clone(),
             Self::SERIAL_PORT_ADDRESSES[2],
             Self::SERIAL_PORT_SIZE,
         )?;
+        self.add_serial_acpi(
+            acpi_config,
+            "COM3",
+            Self::SERIAL_PORT_ADDRESSES[2] as u16,
+            ResourceManager::serial_1_3_gsi(),
+        );
         self.io_bus.insert(
             serial_2_4,
             Self::SERIAL_PORT_ADDRESSES[3],
             Self::SERIAL_PORT_SIZE,
         )?;
+        self.add_serial_acpi(
+            acpi_config,
+            "COM4",
+            Self::SERIAL_PORT_ADDRESSES[3] as u16,
+            ResourceManager::serial_2_4_gsi(),
+        );
         self.io_bus.insert(
             self.i8042.clone(),
             Self::I8042_KDB_DATA_REGISTER_ADDRESS,
             Self::I8042_KDB_DATA_REGISTER_SIZE,
         )?;
+        self.add_i8042_acpi(
+            acpi_config,
+            Self::I8042_KDB_DATA_REGISTER_ADDRESS as u16,
+            ResourceManager::i8042_gsi(),
+        );
 
         vm_fd
             .register_irqfd(&self.com_evt_1_3, ResourceManager::serial_1_3_gsi())
@@ -150,8 +185,50 @@ impl PortIODeviceManager {
         vm_fd
             .register_irqfd(&self.kbd_evt, ResourceManager::i8042_gsi())
             .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
-
         Ok(())
+    }
+
+    fn add_serial_acpi(
+        &self,
+        acpi_config: &mut AcpiConfig,
+        serial_name: &str,
+        io_addr: u16,
+        gsi: u32,
+    ) {
+        acpi_config.add_device(&aml::Device::new(
+            format!("_SB_.{}", serial_name).as_str().into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                &aml::Name::new("_UID".into(), &aml::ZERO),
+                &aml::Name::new("_DDN".into(), &serial_name.to_owned()),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Interrupt::new(true, true, false, false, gsi),
+                        &aml::Io::new(io_addr, io_addr, 1, Self::SERIAL_PORT_SIZE as u8),
+                    ]),
+                ),
+            ],
+        ));
+    }
+
+    fn add_i8042_acpi(&self, acpi_config: &mut AcpiConfig, i8042_addr: u16, gsi: u32) {
+        acpi_config.add_device(&aml::Device::new(
+            "_SB_.PS2_".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0303")),
+                &aml::Method::new("_STA".into(), 0, false, vec![&aml::Return::new(&0x0Fu8)]),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Io::new(i8042_addr, i8042_addr, 1u8, 1u8),
+                        // Fake a command port so Linux stops complaining
+                        &aml::Io::new(0x0064, 0x0064, 1u8, 1u8),
+                        &aml::Interrupt::new(true, true, false, false, gsi),
+                    ]),
+                ),
+            ],
+        ))
     }
 }
 
@@ -173,6 +250,7 @@ mod tests {
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap();
-        assert!(ldm.register_devices(vm.fd()).is_ok());
+        let mut acpi_config = AcpiConfig::new();
+        assert!(ldm.register_devices(vm.fd(), &mut acpi_config).is_ok());
     }
 }
