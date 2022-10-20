@@ -52,3 +52,47 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &CpuId) -> HashSet<u32> {
     );
     msrs
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_msrs_to_save_by_cpuid_empty() {
+        // No CPUID entries are provided.
+        let entrs = [];
+        let cpuid = CpuId::from_entries(&entrs).unwrap();
+
+        let msrs = msrs_to_save_by_cpuid(&cpuid);
+
+        // No MSRs are expected to match the CPUID features.
+        assert!(msrs.is_empty());
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_msrs_to_save_by_cpuid_one() {
+        use kvm_bindings::kvm_cpuid_entry2;
+
+        use crate::cpu_leaf::leaf_0x7;
+
+        // One CPUID entry with MPX feature flag is provided
+        // that causes MSR_IA32_BNDCFGS to be pulled in.
+        let entrs = [kvm_cpuid_entry2 {
+            function: 0x7,
+            index: 0x0,
+            ebx: 1 << leaf_0x7::index0::ebx::MPX_BITINDEX,
+            ..Default::default()
+        }];
+        let cpuid = CpuId::from_entries(&entrs).unwrap();
+
+        let msrs = msrs_to_save_by_cpuid(&cpuid);
+
+        // One MSR is expected to be pulled in by the CPUID feature provided.
+        assert_eq!(msrs.len(), 1);
+
+        // The expected MSR is MSR_IA32_BNDCFGS.
+        assert!(msrs.contains(&MSR_IA32_BNDCFGS));
+    }
+}
