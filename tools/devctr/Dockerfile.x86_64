@@ -75,7 +75,9 @@ RUN apt-get update \
         setuptools \
         wheel \
     && python3 -m pip install --upgrade pip \ 
-    && gem install chef-utils:16.6.14 mdl
+    && gem install \
+        chef-utils:16.6.14 \
+        mdl:0.11.0
 
 # Update Python to 3.10
 # This method isn't ideal, compiling from source can be dropped
