@@ -296,12 +296,12 @@ def _test_cpu_rdmsr(context):
     if context.kernel.name() == "vmlinux-5.10.bin":
         guest_msrs_5_10 = {
             # See https://github.com/torvalds/linux/commit/1db2a6e1e29ff994443a9eef7cf3d26104c777a7
-            "0x3a": "1",  # MSR_IA32_FEAT_CTL
+            "0x3a": "0x1",  # MSR_IA32_FEAT_CTL
             # See https://github.com/torvalds/linux/commit/229b969b3d38bc28bcd55841ee7ca9a9afb922f3
-            "0x808": "10",  # IA32_X2APIC_TPR
-            "0x80a": "10",  # IA32_X2APIC_PPR
+            "0x808": "0x10",  # IA32_X2APIC_TPR
+            "0x80a": "0x10",  # IA32_X2APIC_PPR
             # `arch/x86/include/asm/irq_vectors.h` to see how LOCAL_TIMER_VECTOR changed
-            "0x832": "400ec",  # IA32_X2APIC_LVT_TIMER
+            "0x832": "0x400ec",  # IA32_X2APIC_LVT_TIMER
         }
 
         for key, value in guest_msrs_5_10.items():
