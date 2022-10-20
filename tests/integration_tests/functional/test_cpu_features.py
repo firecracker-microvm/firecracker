@@ -2,11 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the CPU topology emulation feature."""
 
+# pylint: disable=too-many-lines
+
+from difflib import unified_diff
 from pathlib import Path
 import platform
 import os
 import shutil
 import re
+import sys
 import pytest
 import pandas as pd
 
@@ -329,6 +333,7 @@ def _test_cpu_rdmsr(context):
 SNAPSHOT_RESTORE_SHARED_NAMES = {
     "cpu_templates":                     [None, "T2S"],
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
+    "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
     "rootfs_fname":                      "rootfs_rw",
     "msr_reader_host_fname":             "../resources/tests/msr/msr_reader.sh",
     "msr_reader_guest_fname":            "/bin/msr_reader.sh",
@@ -401,6 +406,7 @@ def _test_cpu_wrmsr_snapshot(context):
         / context.kernel.base_name()
         / (cpu_template if cpu_template else "none")
     )
+    shutil.rmtree(snapshot_artifacts_dir, ignore_errors=True)
     os.makedirs(snapshot_artifacts_dir)
 
     msrs_before_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
@@ -472,10 +478,6 @@ def test_cpu_wrmsr_snapshot(bin_cloner_path, cpu_template):
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
     assert len(disk_artifacts) == 1
-
-    snapshot_artifacts_root_dir = shared_names["snapshot_artifacts_root_dir_wrmsr"]
-    shutil.rmtree(snapshot_artifacts_root_dir, ignore_errors=True)
-    os.makedirs(snapshot_artifacts_root_dir)
 
     test_context = TestContext()
     test_context.custom = {
@@ -675,6 +677,268 @@ def test_cpu_wrmsr_restore(microvm_factory, cpu_template):
         artifact_sets=[kernel_artifacts, disk_artifacts],
     )
     test_matrix.run_test(_test_cpu_wrmsr_restore)
+
+
+def dump_cpuid_to_file(dump_fname, ssh_conn):
+    """
+    Read CPUID via SSH and dump it into a file.
+    """
+    _, stdout, stderr = ssh_conn.execute_command("cpuid --one-cpu")
+    assert stderr.read() == ""
+
+    with open(dump_fname, "w", encoding="UTF-8") as file:
+        file.write(stdout.read())
+
+
+def _test_cpu_cpuid_snapshot(context):
+    shared_names = context.custom["shared_names"]
+    root_disk = context.disk.copy(file_name=shared_names["rootfs_fname"])
+    vm_builder = context.custom["builder"]
+    cpu_template = context.custom["cpu_template"]
+
+    vm_instance = vm_builder.build(
+        kernel=context.kernel,
+        disks=[root_disk],
+        ssh_key=context.disk.ssh_key(),
+        config=context.microvm,
+        diff_snapshots=True,
+        cpu_template=cpu_template,
+    )
+
+    vm = vm_instance.vm
+    vm.start()
+
+    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
+
+    # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
+    cpu_template_dir = cpu_template if cpu_template else "none"
+    snapshot_artifacts_dir = (
+        Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
+        / context.kernel.base_name()
+        / cpu_template_dir
+    )
+    os.makedirs(snapshot_artifacts_dir)
+
+    cpuid_before_fname = (
+        Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"]
+    )
+
+    dump_cpuid_to_file(cpuid_before_fname, ssh_connection)
+
+    # Take a snapshot
+    vm.pause_to_snapshot(
+        mem_file_path=shared_names["mem_fname"],
+        snapshot_path=shared_names["snapshot_fname"],
+        diff=True,
+    )
+
+    # Copy snapshot files to be published to S3 for the 2nd part of the test
+    chroot_dir = vm.chroot()
+    shutil.copyfile(
+        Path(chroot_dir) / shared_names["mem_fname"],
+        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
+    )
+    shutil.copyfile(
+        Path(chroot_dir) / shared_names["snapshot_fname"],
+        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
+    )
+    shutil.copyfile(
+        root_disk.local_path(),
+        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
+    )
+
+
+@pytest.mark.skipif(
+    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
+)
+@pytest.mark.skipif(
+    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
+    reason="CPU templates are only available on Intel.",
+)
+@pytest.mark.skipif(
+    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
+    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+)
+@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
+@pytest.mark.timeout(900)
+@pytest.mark.nonci
+def test_cpu_cpuid_snapshot(bin_cloner_path, cpu_template):
+    """
+    This is the first part of the test verifying
+    that CPUID remains the same after restoring from a snapshot.
+
+    Before taking a snapshot, CPUID is dumped into a text file.
+    After restoring from the snapshot on another instance, the CPUID is
+    dumped again and its content is compared to previous.
+
+    This part of the test is responsible for taking a snapshot and publishing
+    its files along with the `before` CPUID dump.
+
+    @type: functional
+    """
+    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    microvm_artifacts = ArtifactSet(
+        artifacts.microvms(keyword=shared_names["microvm_keyword"])
+    )
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
+    assert len(disk_artifacts) == 1
+
+    test_context = TestContext()
+    test_context.custom = {
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "cpu_template": cpu_template,
+        "shared_names": shared_names,
+    }
+
+    test_matrix = TestMatrix(
+        context=test_context,
+        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    )
+    test_matrix.run_test(_test_cpu_cpuid_snapshot)
+
+
+def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_name):
+    """
+    Checks that CPUID dumps in the files are equal.
+    """
+    with open(before_cpuid_fname, "r", encoding="UTF-8") as file:
+        before = file.readlines()
+    with open(after_cpuid_fname, "r", encoding="UTF-8") as file:
+        after = file.readlines()
+
+    diff = sys.stdout.writelines(unified_diff(before, after))
+
+    assert not diff, f"\n{guest_kernel_name}:\n\n{diff}"
+
+
+def _test_cpu_cpuid_restore(context):
+    shared_names = context.custom["shared_names"]
+    microvm_factory = context.custom["microvm_factory"]
+    cpu_template = context.custom["cpu_template"]
+
+    vm = microvm_factory.build()
+    vm.spawn()
+
+    iface = NetIfaceConfig()
+
+    vm.create_tap_and_ssh_config(
+        host_ip=iface.host_ip,
+        guest_ip=iface.guest_ip,
+        netmask_len=iface.netmask,
+        tapname=iface.tap_name,
+    )
+
+    ssh_arti = context.disk.ssh_key()
+    ssh_arti.download(vm.path)
+    vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
+    os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
+
+    cpu_template_dir = cpu_template if cpu_template else "none"
+    snapshot_artifacts_dir = (
+        Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
+        / context.kernel.base_name()
+        / cpu_template_dir
+    )
+
+    # Bring snapshot files from the 1st part of the test into the jail
+    chroot_dir = vm.chroot()
+    tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / context.kernel.base_name()
+    shutil.rmtree(tmp_snapshot_artifacts_dir, ignore_errors=True)
+    os.makedirs(tmp_snapshot_artifacts_dir)
+
+    mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
+    snapshot_fname_in_jail = (
+        Path(tmp_snapshot_artifacts_dir) / shared_names["snapshot_fname"]
+    )
+    rootfs_fname_in_jail = (
+        Path(tmp_snapshot_artifacts_dir) / shared_names["rootfs_fname"]
+    )
+
+    shutil.copyfile(
+        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
+        mem_fname_in_jail,
+    )
+    shutil.copyfile(
+        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
+        snapshot_fname_in_jail,
+    )
+    shutil.copyfile(
+        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
+        rootfs_fname_in_jail,
+    )
+
+    # Restore from the snapshot
+    vm.restore_from_snapshot(
+        snapshot_mem=mem_fname_in_jail,
+        snapshot_vmstate=snapshot_fname_in_jail,
+        snapshot_disks=[rootfs_fname_in_jail],
+        snapshot_is_diff=True,
+    )
+
+    # Dump CPUID to a file for further comparison
+    cpuid_after_fname = Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"]
+    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
+
+    dump_cpuid_to_file(cpuid_after_fname, ssh_connection)
+
+    # Compare the two lists of MSR values and assert they are equal
+    check_cpuid_is_equal(
+        Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"],
+        Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"],
+        context.kernel.base_name(),  # this is to annotate the assertion output
+    )
+
+
+@pytest.mark.skipif(
+    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
+)
+@pytest.mark.skipif(
+    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
+    reason="CPU templates are only available on Intel.",
+)
+@pytest.mark.skipif(
+    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
+    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+)
+@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
+@pytest.mark.timeout(900)
+@pytest.mark.nonci
+def test_cpu_cpuid_restore(microvm_factory, cpu_template):
+    """
+    This is the second part of the test verifying
+    that CPUID remains the same after restoring from a snapshot.
+
+    Before taking a snapshot, CPUID is dumped into a text file.
+    After restoring from the snapshot on another instance, the CPUID is
+    dumped again and compared to previous.
+
+    This part of the test is responsible for restoring from a snapshot and
+    comparing two CPUIDs.
+
+    @type: functional
+    """
+
+    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
+
+    test_context = TestContext()
+    test_context.custom = {
+        "microvm_factory": microvm_factory,
+        "cpu_template": cpu_template,
+        "shared_names": shared_names,
+    }
+
+    test_matrix = TestMatrix(
+        context=test_context,
+        artifact_sets=[kernel_artifacts, disk_artifacts],
+    )
+    test_matrix.run_test(_test_cpu_cpuid_restore)
 
 
 @pytest.mark.skipif(
