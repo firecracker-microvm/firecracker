@@ -100,10 +100,8 @@ RUN cd "$TMP_POETRY_DIR" \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
-        && rustup component add clippy \
+        && rustup component add clippy llvm-tools-preview \
         && cd "$TMP_BUILD_DIR" \
-                    && cargo install cargo-kcov \
-                    && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
         && rm -rf "$CARGO_HOME/git" \

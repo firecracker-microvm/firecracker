@@ -109,14 +109,12 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add x86_64-unknown-linux-musl \
-        && rustup component add rustfmt clippy clippy-preview \
+        && rustup component add rustfmt clippy clippy-preview llvm-tools-preview \
         && rustup install --profile minimal "stable" \
         && cd "$TMP_BUILD_DIR" \
-            && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
             # Fix a version that does not require cargo edition 2021.
             && cargo install --locked cargo-deny --version '^0.9.1' \
-            && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
         && rm -rf "$CARGO_HOME/git" \
