@@ -35,10 +35,10 @@ MICROVM_KERNEL_RELPATH = "kernel/"
 MICROVM_FSFILES_RELPATH = "fsfiles/"
 
 # The s3 bucket that holds global Firecracker specifications
-SPEC_S3_BUCKET = "spec.ccfc.min"
+SPEC_S3_BUCKET = "spec.ccfc.min.restored"
 
 # The default s3 bucket that holds Firecracker microvm test images
-DEFAULT_TEST_IMAGES_S3_BUCKET = "spec.ccfc.min"
+DEFAULT_TEST_IMAGES_S3_BUCKET = "spec.ccfc.min.restored"
 
 # Global directory for any of the pytest tests temporary files
 ENV_TEST_IMAGES_S3_BUCKET = "TEST_MICROVM_IMAGES_S3_BUCKET"
