@@ -102,7 +102,8 @@ const CPU_FEATURE_FPU: u32 = 0x001;
 
 fn compute_checksum<T: Copy>(v: &T) -> u8 {
     // Safe because we are only reading the bytes within the size of the `T` reference `v`.
-    let v_slice = unsafe { slice::from_raw_parts(v as *const T as *const u8, mem::size_of::<T>()) };
+    let v_slice =
+        unsafe { slice::from_raw_parts((v as *const T).cast::<u8>(), mem::size_of::<T>()) };
     let mut checksum: u8 = 0;
     for i in v_slice.iter() {
         checksum = checksum.wrapping_add(*i);

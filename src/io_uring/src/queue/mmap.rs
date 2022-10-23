@@ -25,6 +25,6 @@ pub(crate) fn mmap(size: usize, fd: RawFd, offset: i64) -> Result<MmapRegion, Er
 
     // Safe because the mmap did not return error.
     unsafe {
-        MmapRegion::build_raw(ptr as *mut u8, size, prot, flags).map_err(Error::BuildMmapRegion)
+        MmapRegion::build_raw(ptr.cast::<u8>(), size, prot, flags).map_err(Error::BuildMmapRegion)
     }
 }

@@ -164,14 +164,17 @@ impl BrandString {
         // This is actually safe, because self.reg_buf has a fixed, known size,
         // and also there's no risk of misalignment, since we're downgrading
         // alignment constraints from dword to byte.
-        unsafe { slice::from_raw_parts(self.reg_buf.as_ptr() as *const u8, Self::REG_BUF_SIZE * 4) }
+        unsafe { slice::from_raw_parts(self.reg_buf.as_ptr().cast::<u8>(), Self::REG_BUF_SIZE * 4) }
     }
 
     /// Gets a mutable `u8` slice view into the brand string buffer.
     #[inline]
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
-            slice::from_raw_parts_mut(self.reg_buf.as_mut_ptr() as *mut u8, Self::REG_BUF_SIZE * 4)
+            slice::from_raw_parts_mut(
+                self.reg_buf.as_mut_ptr().cast::<u8>(),
+                Self::REG_BUF_SIZE * 4,
+            )
         }
     }
 

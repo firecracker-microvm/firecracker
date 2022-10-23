@@ -493,7 +493,8 @@ mod tests {
             let host_addr = self
                 .mem
                 .get_host_address(GuestAddress(self.mut_hdr_desc().addr.get()))
-                .unwrap() as *mut _;
+                .unwrap()
+                .cast();
             unsafe { &mut *host_addr }
         }
 
