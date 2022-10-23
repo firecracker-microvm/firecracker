@@ -109,7 +109,7 @@ impl Tap {
             // Open calls are safe because we give a constant null-terminated
             // string and verify the result.
             libc::open(
-                b"/dev/net/tun\0".as_ptr() as *const c_char,
+                b"/dev/net/tun\0".as_ptr().cast::<c_char>(),
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
