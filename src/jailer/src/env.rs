@@ -365,7 +365,7 @@ impl Env {
             .map_err(|err| Error::Chmod(path_buf.clone(), err))?;
 
         #[cfg(target_arch = "x86_64")]
-        let folder_bytes_ptr = folder.as_ptr() as *const i8;
+        let folder_bytes_ptr = folder.as_ptr().cast::<i8>();
         #[cfg(target_arch = "aarch64")]
         let folder_bytes_ptr = folder.as_ptr();
         SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
@@ -548,7 +548,7 @@ impl Env {
             Some(
                 SyscallReturnCode(unsafe {
                     libc::open(
-                        DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
+                        DEV_NULL_WITH_NUL.as_ptr().cast::<libc::c_char>(),
                         libc::O_RDWR,
                     )
                 })

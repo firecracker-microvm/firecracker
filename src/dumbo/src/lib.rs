@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
 pub mod pdu;
