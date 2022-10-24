@@ -81,6 +81,14 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     exclude_region = "'mod tests {'"
     target = "{}-unknown-linux-musl".format(platform.machine())
 
+    # Temporarily modify PATH so that "rustc" resolved to our wrapper script
+    # This is required as cargo kcov parses cargo's verbose output, and looking for lines starting
+    # with "Running `rustc":
+    # https://github.com/kennytm/cargo-kcov/blob/master/src/target_finder.rs#L44
+    # However, if we use the RUSTC_WRAPPER environment variable to make cargo run out script, the
+    # output will contain the lines "Running /firecracker/tests/rustc", and thus cargo kcov will
+    # fail to resolve the paths of the binaries compiled.
+    os.environ["PATH"] = "/firecracker/tests" + os.pathsep + os.environ["PATH"]
     cmd = (
         'CARGO_WRAPPER="kcov" RUSTFLAGS="{}" CARGO_TARGET_DIR={} '
         "cargo kcov --all "

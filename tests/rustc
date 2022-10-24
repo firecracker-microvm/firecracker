@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# We have to fully qualify the path to rustc here, as we modified $PATH in a way that this script is founds before
+# the actual rust executable.
+# Then we invoke normal rustc, but force the 'link-dead-code' codegen option. This option is required for gathering
+# coverage reports on proc-macros during cross-compilation, as the 'RUSTFLAGS' environment variable is ignored by cargo
+# for build-scripts, plugins and proc-macros in this case.
+# See also https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags
+/usr/local/rust/bin/rustc $@ -Clink-dead-code
