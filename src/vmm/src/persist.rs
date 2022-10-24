@@ -35,7 +35,7 @@ use crate::version_map::FC_V0_23_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -55,13 +55,6 @@ pub struct VmInfo {
     /// smt information
     #[version(start = 2, default_fn = "def_smt", ser_fn = "ser_smt")]
     pub smt: bool,
-    /// CPU template type
-    #[version(
-        start = 2,
-        default_fn = "def_cpu_template",
-        ser_fn = "ser_cpu_template"
-    )]
-    pub cpu_template: CpuFeaturesTemplate,
     /// Boot source information.
     #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
     pub boot_source: BootSourceConfig,
@@ -76,17 +69,6 @@ impl VmInfo {
     fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include smt info.
         warn!("Saving to older snapshot version, SMT information will not be saved.");
-        Ok(())
-    }
-
-    fn def_cpu_template(_: u16) -> CpuFeaturesTemplate {
-        warn!("CPU template field not found in snapshot.");
-        CpuFeaturesTemplate::None
-    }
-
-    fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not include cpu template info.
-        warn!("Saving to older snapshot version, CPU template information will not be saved.");
         Ok(())
     }
 

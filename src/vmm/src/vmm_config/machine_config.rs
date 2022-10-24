@@ -3,8 +3,6 @@
 use std::fmt;
 
 use serde::{de, Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -238,7 +236,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,

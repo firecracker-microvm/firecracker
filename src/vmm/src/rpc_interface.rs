@@ -747,7 +747,6 @@ impl RuntimeApiController {
         let vm_info = VmInfo {
             mem_size_mib: vm_cfg.mem_size_mib as u64,
             smt: vm_cfg.smt,
-            cpu_template: vm_cfg.cpu_template,
             boot_source: self.vm_resources.boot_source_config().clone(),
         };
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);

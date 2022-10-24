@@ -530,7 +530,7 @@ pub fn build_microvm_from_snapshot(
         vcpu_count: Some(vcpu_count),
         mem_size_mib: Some(microvm_state.vm_info.mem_size_mib as usize),
         smt: Some(microvm_state.vm_info.smt),
-        cpu_template: Some(microvm_state.vm_info.cpu_template),
+        cpu_template: None,
         track_dirty_pages: Some(track_dirty_pages),
     })?;
 
