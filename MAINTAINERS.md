@@ -3,9 +3,7 @@
 Firecracker is maintained by a dedicated team within Amazon:
 
 - Alexandra Iordache <aghecen@amazon.com>
-- Alexandru-Cezar Sardan <alsardan@amazon.com>
 - Andrei-Cristian Traistaru <atc@amazon.com>
-- Anton Fabian Patras <patrsap@amazon.com>
 - Babis Chalios <bchalios@amazon.com>
 - Diana Popa <dpopa@amazon.com>
 - Jonathan Woollett-Light <jcawl@amazon.com>
