@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 mod api_server_adapter;
 mod metrics;
@@ -45,6 +46,10 @@ pub fn enable_ssbd_mitigation() {
     const PR_SPEC_STORE_BYPASS: u64 = 0;
     const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
 
+    // SAFETY: Parameters are valid since they are copied verbatim
+    // from the kernel's UAPI.
+    // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
+    // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
             PR_SET_SPECULATION_CTRL,

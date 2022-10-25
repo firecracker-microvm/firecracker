@@ -102,6 +102,7 @@ impl Default for ConfigSpace {
     }
 }
 
+// SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
 pub struct Net {

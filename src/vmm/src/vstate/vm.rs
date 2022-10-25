@@ -365,7 +365,7 @@ impl Vm {
                     flags,
                 };
 
-                // Safe because the fd is a valid KVM file descriptor.
+                // SAFETY: Safe because the fd is a valid KVM file descriptor.
                 unsafe { self.fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::SetUserMemoryRegion)?;
@@ -396,6 +396,7 @@ pub struct VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::FromRawFd;
 
     use vm_memory::GuestAddress;

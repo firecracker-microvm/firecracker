@@ -17,7 +17,8 @@ const CURRENT_DIR_NUL_TERMINATED: &[u8] = b".\0";
 // This uses switching to a new mount namespace + pivot_root(), together with the regular chroot,
 // to provide a hardened jail (at least compared to only relying on chroot).
 pub fn chroot(path: &Path) -> Result<()> {
-    // We unshare into a new mount namespace. The call is safe because we're invoking a C library
+    // We unshare into a new mount namespace.
+    // SAFETY: The call is safe because we're invoking a C library
     // function with valid parameters.
     SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWNS) })
         .into_empty_result()
@@ -27,7 +28,8 @@ pub fn chroot(path: &Path) -> Result<()> {
         CStr::from_bytes_with_nul(ROOT_DIR_NUL_TERMINATED).map_err(Error::FromBytesWithNul)?;
 
     // Recursively change the propagation type of all the mounts in this namespace to SLAVE, so
-    // we can call pivot_root. Safe because we provide valid parameters.
+    // we can call pivot_root.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe {
         libc::mount(
             null(),
@@ -45,7 +47,8 @@ pub fn chroot(path: &Path) -> Result<()> {
 
     // Bind mount the jail root directory over itself, so we can go around a restriction
     // imposed by pivot_root, which states that the new root and the old root should not
-    // be on the same filesystem. Safe because we provide valid parameters.
+    // be on the same filesystem.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe {
         libc::mount(
             chroot_dir.as_ptr(),
@@ -66,8 +69,8 @@ pub fn chroot(path: &Path) -> Result<()> {
     let old_root_dir = CStr::from_bytes_with_nul(OLD_ROOT_DIR_NAME_NUL_TERMINATED)
         .map_err(Error::FromBytesWithNul)?;
 
-    // Create the old_root folder we're going to use for pivot_root, using a relative path. The call
-    // is safe because we provide valid arguments.
+    // Create the old_root folder we're going to use for pivot_root, using a relative path.
+    // SAFETY: The call is safe because we provide valid arguments.
     SyscallReturnCode(unsafe { libc::mkdir(old_root_dir.as_ptr(), libc::S_IRUSR | libc::S_IWUSR) })
         .into_empty_result()
         .map_err(Error::MkdirOldRoot)?;
@@ -76,7 +79,8 @@ pub fn chroot(path: &Path) -> Result<()> {
         CStr::from_bytes_with_nul(CURRENT_DIR_NUL_TERMINATED).map_err(Error::FromBytesWithNul)?;
 
     // We are now ready to call pivot_root. We have to use sys_call because there is no libc
-    // wrapper for pivot_root. Safe because we provide valid parameters.
+    // wrapper for pivot_root.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe {
         libc::syscall(libc::SYS_pivot_root, cwd.as_ptr(), old_root_dir.as_ptr())
     } as libc::c_int)
@@ -84,18 +88,20 @@ pub fn chroot(path: &Path) -> Result<()> {
     .map_err(Error::PivotRoot)?;
 
     // pivot_root doesn't guarantee that we will be in "/" at this point, so switch to "/"
-    // explicitly. Safe because we provide valid parameters.
+    // explicitly.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe { libc::chdir(root_dir.as_ptr()) })
         .into_empty_result()
         .map_err(Error::ChdirNewRoot)?;
 
     // Umount the old_root, thus isolating the process from everything outside the jail root folder.
-    // Safe because we provide valid parameters.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe { libc::umount2(old_root_dir.as_ptr(), libc::MNT_DETACH) })
         .into_empty_result()
         .map_err(Error::UmountOldRoot)?;
 
     // Remove the no longer necessary old_root directory.
+    // SAFETY: Safe because we provide valid parameters.
     SyscallReturnCode(unsafe { libc::rmdir(old_root_dir.as_ptr()) })
         .into_empty_result()
         .map_err(Error::RmOldRootDir)

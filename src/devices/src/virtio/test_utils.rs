@@ -240,6 +240,7 @@ pub struct VirtqUsedElem {
     pub len: u32,
 }
 
+// SAFETY: `VirtqUsedElem` is a POD and contains no padding.
 unsafe impl vm_memory::ByteValued for VirtqUsedElem {}
 
 pub type VirtqAvail<'a> = VirtqRing<'a, u16>;

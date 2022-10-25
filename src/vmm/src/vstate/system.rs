@@ -119,6 +119,7 @@ impl KvmContext {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::fs::File;
 
     use super::*;

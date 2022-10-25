@@ -59,6 +59,7 @@ struct Descriptor {
     next: u16,
 }
 
+// SAFETY: `Descriptor` is a POD and contains no padding.
 unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.

@@ -24,7 +24,7 @@ fn exit_with_code(exit_code: FcExitCode) {
     if let Err(err) = METRICS.write() {
         error!("Failed to write metrics while stopping: {}", err);
     }
-    // Safe because we're terminating the process anyway.
+    // SAFETY: Safe because we're terminating the process anyway.
     unsafe { libc::_exit(exit_code as i32) };
 }
 
@@ -32,8 +32,9 @@ macro_rules! generate_handler {
     ($fn_name:ident ,$signal_name:ident, $exit_code:ident, $signal_metric:expr, $body:ident) => {
         #[inline(always)]
         extern "C" fn $fn_name(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
-            // Safe because we're just reading some fields from a supposedly valid argument.
+            // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
             let si_signo = unsafe { (*info).si_signo };
+            // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
             let si_code = unsafe { (*info).si_code };
 
             if num != si_signo || num != $signal_name {
@@ -63,7 +64,7 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
         exit_with_code(FcExitCode::UnexpectedError);
     }
 
-    // Other signals which might do async unsafe things incompatible with the rest of this
+    // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
     error!(
@@ -134,8 +135,9 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
     // Just record the metric and allow the process to continue, the EPIPE error needs
     // to be handled at caller level.
 
-    // Safe because we're just reading some fields from a supposedly valid argument.
+    // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
+    // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
     let si_code = unsafe { (*info).si_code };
 
     if num != si_signo || num != SIGPIPE {
@@ -170,6 +172,7 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::{env, process, thread};
 
     use libc::syscall;

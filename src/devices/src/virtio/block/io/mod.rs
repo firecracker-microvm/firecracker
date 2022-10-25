@@ -173,6 +173,7 @@ impl<T> FileEngine<T> {
 
 #[cfg(test)]
 pub mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 

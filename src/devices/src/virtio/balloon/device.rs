@@ -48,7 +48,7 @@ pub(crate) struct ConfigSpace {
     pub actual_pages: u32,
 }
 
-// Safe because ConfigSpace only contains plain data.
+// SAFETY: Safe because ConfigSpace only contains plain data.
 unsafe impl ByteValued for ConfigSpace {}
 
 // This structure needs the `packed` attribute, otherwise Rust will assume
@@ -60,7 +60,7 @@ struct BalloonStat {
     pub val: u64,
 }
 
-// Safe because BalloonStat only contains plain data.
+// SAFETY: Safe because BalloonStat only contains plain data.
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
