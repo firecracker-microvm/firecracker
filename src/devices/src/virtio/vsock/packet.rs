@@ -79,6 +79,7 @@ pub struct VsockPacketHeader {
 /// The vsock packet header struct size (the struct is packed).
 pub const VSOCK_PKT_HDR_SIZE: usize = 44;
 
+// SAFETY: `VsockPacketHeader` is a POD and contains no padding.
 unsafe impl ByteValued for VsockPacketHeader {}
 
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:

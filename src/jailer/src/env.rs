@@ -59,7 +59,7 @@ const PID_FILE_EXTENSION: &str = ".pid";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
-    // This is safe because we are using a library function with valid parameters.
+    // SAFETY: This is safe because we are using a library function with valid parameters.
     SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
         .into_empty_result()
         .map_err(Error::Dup2)
@@ -73,12 +73,14 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int> {
     // Clone parameters order is different between x86_64 and aarch64.
     #[cfg(target_arch = "x86_64")]
+    // SAFETY: This is safe because we are using a library function with valid parameters.
     return SyscallReturnCode(unsafe {
         libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
     })
     .into_result()
     .map_err(Error::Clone);
     #[cfg(target_arch = "aarch64")]
+    // SAFETY: This is safe because we are using a library function with valid parameters.
     return SyscallReturnCode(unsafe {
         libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
     })
@@ -299,6 +301,7 @@ impl Env {
                 // Save the PID of the process running the exec file provided
                 // inside <chroot_exec_file>.pid file.
                 self.save_exec_file_pid(child_pid, chroot_exec_file)?;
+                // SAFETY: This is safe because 0 is valid input to exit.
                 unsafe { libc::exit(0) }
             }
         }
@@ -333,6 +336,7 @@ impl Env {
         // S_IWUSR -> write permission, owner
         // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
         // more clarity.
+        // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
@@ -348,6 +352,7 @@ impl Env {
             )
         })?;
 
+        // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             // Safe to unwrap as we provided valid file names.
@@ -368,6 +373,7 @@ impl Env {
         let folder_bytes_ptr = folder.as_ptr().cast::<i8>();
         #[cfg(target_arch = "aarch64")]
         let folder_bytes_ptr = folder.as_ptr();
+        // SAFETY: This is safe because folder was checked for a null-terminator.
         SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|err| Error::ChangeFileOwner(path_buf, err))
@@ -403,13 +409,14 @@ impl Env {
             .map_err(|err| Error::FileOpen(PathBuf::from(path), err))?
             .into_raw_fd();
 
-        // Safe because we are passing valid parameters.
+        // SAFETY: Safe because we are passing valid parameters.
         SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
             .into_empty_result()
             .map_err(Error::SetNetNs)?;
 
         // Since we have ownership here, we also have to close the fd after joining the
-        // namespace. Safe because we are passing valid parameters.
+        // namespace.
+        // SAFETY: Safe because we are passing valid parameters.
         SyscallReturnCode(unsafe { libc::close(netns_fd) })
             .into_empty_result()
             .map_err(Error::CloseNetNsFd)
@@ -480,6 +487,7 @@ impl Env {
 
                 // We now change the permissions.
                 let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                // SAFETY: Safe because dest_path_cstr is null-terminated.
                 SyscallReturnCode(unsafe {
                     libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
                 })
@@ -510,6 +518,7 @@ impl Env {
 
         // Change the permissions.
         let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
+        // SAFETY: Safe because `dest_path_cstr` is null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|err| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
@@ -544,8 +553,9 @@ impl Env {
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
-            // Safe because we use a constant null-terminated string and verify the result.
             Some(
+                // SAFETY: Safe because we use a constant null-terminated string and verify the
+                // result.
                 SyscallReturnCode(unsafe {
                     libc::open(
                         DEV_NULL_WITH_NUL.as_ptr().cast::<libc::c_char>(),
@@ -597,7 +607,8 @@ impl Env {
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
-            // Call setsid(). Safe because it's a library function.
+            // Call setsid().
+            // SAFETY: Safe because it's a library function.
             SyscallReturnCode(unsafe { libc::setsid() })
                 .into_empty_result()
                 .map_err(Error::SetSid)?;
@@ -607,7 +618,7 @@ impl Env {
             dup2(fd, STDOUT_FILENO)?;
             dup2(fd, STDERR_FILENO)?;
 
-            // Safe because we are passing valid parameters, and checking the result.
+            // SAFETY: Safe because we are passing valid parameters, and checking the result.
             SyscallReturnCode(unsafe { libc::close(fd) })
                 .into_empty_result()
                 .map_err(Error::CloseDevNullFd)?;
@@ -624,6 +635,8 @@ impl Env {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::os::linux::fs::MetadataExt;
     use std::os::unix::ffi::OsStrExt;
 

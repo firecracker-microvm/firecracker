@@ -126,6 +126,8 @@ pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Kvm;

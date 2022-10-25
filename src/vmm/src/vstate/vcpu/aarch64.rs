@@ -188,6 +188,7 @@ pub struct VcpuState {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
     use kvm_bindings::kvm_one_reg;

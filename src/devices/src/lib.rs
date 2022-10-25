@@ -6,6 +6,8 @@
 // found in the THIRD-PARTY file.
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+
 //! Emulates virtual and hardware devices.
 use std::io;
 

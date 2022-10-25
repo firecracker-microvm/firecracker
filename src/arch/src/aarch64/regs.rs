@@ -84,6 +84,8 @@ const NR_FP_VREGS: usize = 32;
 // Same as bindgen offset tests.
 macro_rules! offset__of {
     ($container:ty, $field:ident) => {
+        // SAFETY: The implementation closely matches that of the memoffset crate,
+        // which have been under extensive review.
         unsafe {
             let uninit = std::mem::MaybeUninit::<$container>::uninit();
             let ptr = uninit.as_ptr();
@@ -451,6 +453,7 @@ pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use kvm_ioctls::Kvm;
 
     use super::*;
