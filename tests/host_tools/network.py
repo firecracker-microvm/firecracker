@@ -5,6 +5,8 @@
 import os
 import socket
 import struct
+import random
+import string
 from io import StringIO
 from nsenter import Namespace
 from retry import retry
@@ -295,6 +297,12 @@ def get_guest_net_if_name(ssh_connection, guest_ip):
     return if_name if if_name != "" else None
 
 
+def random_str(k):
+    """Create a random string of length `k`."""
+    symbols = string.ascii_lowercase + string.digits
+    return "".join(random.choices(symbols, k=k))
+
+
 class Tap:
     """Functionality for creating a tap and cleaning up after it."""
 
@@ -305,13 +313,15 @@ class Tap:
         stay on the host as long as the object obtained by instantiating this
         class will be in scope. Once it goes out of scope, its destructor will
         get called and the tap interface will get removed.
-        The function also moves the interface to the specified
-        namespace.
+        The function also moves the interface to the specified namespace.
         """
-        utils.run_cmd("ip tuntap add mode tap name " + name)
-        utils.run_cmd("ip link set {} netns {}".format(name, netns))
+        # Avoid a conflict if two tests want to create the same tap device tap0
+        # in the host before moving it into its own netns
+        temp_name = "tap" + random_str(k=8)
+        utils.run_cmd(f"ip tuntap add mode tap name {temp_name}")
+        utils.run_cmd(f"ip link set {temp_name} name {name} netns {netns}")
         if ip:
-            utils.run_cmd("ip netns exec {} ifconfig {} {} up".format(netns, name, ip))
+            utils.run_cmd(f"ip netns exec {netns} ifconfig {name} {ip} up")
         self._name = name
         self._netns = netns
 
@@ -332,3 +342,6 @@ class Tap:
                 self.netns, self.name, tx_queue_len
             )
         )
+
+    def __repr__(self):
+        return f"<Tap name={self.name} netns={self.netns}>"
