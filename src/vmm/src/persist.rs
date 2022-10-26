@@ -511,8 +511,8 @@ pub enum RestoreFromSnapshotError {
     /// Failed to load guest memory
     #[error("Failed to load guest memory: {0}")]
     GuestMemory(#[from] RestoreFromSnapshotGuestMemoryError),
-    /// Failed build micro-VM from snapshot.
-    #[error("Failed build micro-VM from snapshot: {0}")]
+    /// Failed to build microVM from snapshot.
+    #[error("Failed to build microVM from snapshot: {0}")]
     Build(#[from] BuildMicrovmFromSnapshotError),
 }
 /// Sub-Error type for [`restore_from_snapshot`] to contain either [`GuestMemoryFromFileError`] or
