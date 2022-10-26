@@ -447,8 +447,8 @@ pub fn build_microvm_for_boot(
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error)]
 pub enum BuildMicrovmFromSnapshotError {
-    /// Failed to create micro-VM and vCPUs.
-    #[error("Failed to create micro-VM and vCPUs: {0}")]
+    /// Failed to create microVM and vCPUs.
+    #[error("Failed to create microVM and vCPUs: {0}")]
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Only 255 vCPU state are supported, but {0} states where given.
     #[error("Only 255 vCPU state are supported, but {0} states where given.")]
@@ -474,11 +474,11 @@ pub enum BuildMicrovmFromSnapshotError {
     #[cfg(target_arch = "x86_64")]
     #[error("Could not set TSC scaling within the snapshot: {0}")]
     SetTsc(#[from] crate::vstate::vcpu::SetTscError),
-    /// Failed to restore micro-VM state.
-    #[error("Failed to restore micro-VM state: {0}")]
+    /// Failed to restore microVM state.
+    #[error("Failed to restore microVM state: {0}")]
     RestoreState(#[from] crate::vstate::vm::RestoreStateError),
-    /// Failed to update micr-VM configuration.
-    #[error("Failed to update micr-VM configuration: {0}")]
+    /// Failed to update microVM configuration.
+    #[error("Failed to update microVM configuration: {0}")]
     VmUpdateConfig(#[from] VmConfigError),
     /// Failed to restore MMIO device.
     #[error("Failed to restore MMIO device: {0}")]
@@ -486,11 +486,11 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to emulate MMIO serial.
     #[error("Failed to emulate MMIO serial: {0}")]
     EmulateSerialInit(#[from] crate::EmulateSerialInitError),
-    /// Failed start vCPUs as no vCPU seccomp filter found.
-    #[error("Failed start vCPUs as no vCPU seccomp filter found.")]
+    /// Failed to start vCPUs as no vCPU seccomp filter found.
+    #[error("Failed to start vCPUs as no vCPU seccomp filter found.")]
     MissingVcpuSeccompFilters,
-    /// Failed start vCPUs.
-    #[error("Failed start vCPUs: {0}")]
+    /// Failed to start vCPUs.
+    #[error("Failed to start vCPUs: {0}")]
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs.
     #[error("Failed to restore vCPUs: {0}")]
