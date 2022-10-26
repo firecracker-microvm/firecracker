@@ -86,6 +86,7 @@ import sys
 import tempfile
 import uuid
 import json
+from pathlib import Path
 
 import pytest
 
@@ -99,6 +100,7 @@ from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.scheduler import PytestScheduler
 from framework.utils import get_firecracker_version_from_toml
+from framework.with_filelock import with_filelock
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
@@ -272,10 +274,13 @@ def results_file_dumper(request):
     return NopResultsDumper()
 
 
+@with_filelock
 def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
     """Build a source file with gcc."""
-    compile_cmd = "gcc {} -o {} {}".format(src_file, output_file, extra_flags)
-    utils.run_cmd(compile_cmd)
+    output_file = Path(output_file)
+    if not output_file.exists():
+        compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
+        utils.run_cmd(compile_cmd)
 
 
 @pytest.fixture(scope="session")
