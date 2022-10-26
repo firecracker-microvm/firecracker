@@ -1,6 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::ptr_as_ptr)]
+
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
@@ -103,7 +105,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    &mut cursor as *mut u64 as *mut i64,
+                    (&mut cursor as *mut u64).cast::<i64>(),
                     block_end.saturating_sub(cursor) as usize,
                 )
             };

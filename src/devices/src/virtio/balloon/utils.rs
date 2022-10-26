@@ -86,7 +86,7 @@ pub(crate) fn remove_range(
         if restored {
             let ret = unsafe {
                 libc::mmap(
-                    phys_address as *mut _,
+                    phys_address.cast(),
                     range_len as usize,
                     libc::PROT_READ | libc::PROT_WRITE,
                     libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
@@ -100,13 +100,8 @@ pub(crate) fn remove_range(
         };
 
         // Madvise the region in order to mark it as not used.
-        let ret = unsafe {
-            libc::madvise(
-                phys_address as *mut _,
-                range_len as usize,
-                libc::MADV_DONTNEED,
-            )
-        };
+        let ret =
+            unsafe { libc::madvise(phys_address.cast(), range_len as usize, libc::MADV_DONTNEED) };
         if ret < 0 {
             return Err(RemoveRegionError::MadviseFail(io::Error::last_os_error()));
         }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
 //! High-level interface over Linux io_uring.
 //!
 //! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
@@ -250,7 +251,7 @@ impl IoUring {
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
                 bindings::IORING_REGISTER_ENABLE_RINGS,
-                std::ptr::null() as *const libc::c_void,
+                std::ptr::null::<libc::c_void>(),
                 0,
             )
         } as libc::c_int)
@@ -323,7 +324,7 @@ impl IoUring {
                     .map(bindings::io_uring_restriction::from)
                     .collect::<Vec<_>>()
                     .as_mut_slice()
-                    .as_mut_ptr() as *mut _,
+                    .as_mut_ptr(),
                 restrictions.len(),
             )
         } as libc::c_int)
@@ -418,12 +419,12 @@ mod tests {
 
         unsafe {
             // Use the raw version because we want to unmap memory ourselves.
-            MmapRegion::build_raw(ptr as *mut u8, len, PROT, FLAGS).unwrap()
+            MmapRegion::build_raw(ptr.cast::<u8>(), len, PROT, FLAGS).unwrap()
         }
     }
 
     fn free_mem_region(region: MmapRegion) {
-        unsafe { libc::munmap(region.as_ptr() as *mut libc::c_void, region.len()) };
+        unsafe { libc::munmap(region.as_ptr().cast::<libc::c_void>(), region.len()) };
     }
 
     fn read_entire_mem_region(region: &MmapRegion) -> Vec<u8> {
@@ -538,8 +539,10 @@ mod tests {
                             OpCode::Read => SyscallReturnCode(unsafe {
                                 libc::pread(
                                     file_sync.as_raw_fd(),
-                                    sync_read_mem_region.as_ptr().add(operation.addr.unwrap())
-                                        as *mut libc::c_void,
+                                    sync_read_mem_region
+                                        .as_ptr()
+                                        .add(operation.addr.unwrap())
+                                        .cast::<libc::c_void>(),
                                     operation.len.unwrap() as usize,
                                     operation.offset.unwrap() as i64,
                                 ) as libc::c_int
