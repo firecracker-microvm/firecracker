@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::ptr_as_ptr)]
+
 pub mod data_store;
 pub mod ns;
 pub mod persist;
