@@ -22,8 +22,6 @@ from framework.utils import is_io_uring_supported
 from framework.artifacts import (
     ArtifactCollection,
     NetIfaceConfig,
-    DEFAULT_DEV_NAME,
-    DEFAULT_TAP_NAME,
     SnapshotType,
 )
 from framework.builder import MicrovmBuilder, SnapshotBuilder
@@ -1236,7 +1234,7 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     setup_cfg["metrics"] = None
     setup_cfg["mmds-config"] = {
         "version": "V1",
-        "network_interfaces": [DEFAULT_DEV_NAME],
+        "network_interfaces": [net_iface.dev_name],
     }
 
     response = test_microvm.mmds.put_config(json=setup_cfg["mmds-config"])
@@ -1252,14 +1250,14 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     }
 
     response = test_microvm.network.patch(
-        iface_id=DEFAULT_DEV_NAME, tx_rate_limiter=tx_rl
+        iface_id=net_iface.dev_name, tx_rate_limiter=tx_rl
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     setup_cfg["network-interfaces"] = [
         {
             "guest_mac": net_tools.mac_from_ip(net_iface.guest_ip),
-            "iface_id": DEFAULT_DEV_NAME,
-            "host_dev_name": DEFAULT_TAP_NAME,
+            "iface_id": net_iface.dev_name,
+            "host_dev_name": net_iface.tap_name,
             "rx_rate_limiter": None,
             "tx_rate_limiter": tx_rl,
         }
@@ -1289,7 +1287,7 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     expected_cfg["mmds-config"] = {
         "version": "V1",
         "ipv4_address": "169.254.169.254",
-        "network_interfaces": [DEFAULT_DEV_NAME],
+        "network_interfaces": [net_iface.dev_name],
     }
 
     # Validate full vm configuration post-restore.
