@@ -1,6 +1,6 @@
-# Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Implement the DataParser for snapshot restore performance tests."""
+"""Implement the DataParser for network latency performance tests."""
 
 import statistics
 import math
@@ -12,35 +12,30 @@ from providers.types import DataParser
 # that were not caught while gathering baselines. This provides
 # slightly better reliability, while not affecting regression
 # detection.
-DELTA_EXTRA_MARGIN = 6
+DELTA_EXTRA_MARGIN = 0.1
 
 
 # pylint: disable=R0903
-class SnapshotRestoreDataParser(DataParser):
-    """Parse the data provided by the snapshot restore performance tests."""
+class LatencyDataParser(DataParser):
+    """Parse the data provided by the network latency performance tests."""
 
     # pylint: disable=W0102
     def __init__(self, data_provider: Iterator):
         """Initialize the data parser."""
         super().__init__(
             data_provider,
-            [
-                "latency/P50",
-                "latency/P90",
-            ],
+            ["latency/Avg", "pkt_loss/Avg"],
         )
 
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
-        min_ = min(data)
-        max_ = max(data)
-
-        min_delta = 100 * abs(avg - min_) / avg
-        max_delta = 100 * abs(avg - max_) / avg
-        delta = max(max_delta, min_delta)
-
+        stddev = statistics.stdev(data)
+        if math.isclose(0.0, avg):
+            delta_percentage = 0.0
+        else:
+            delta_percentage = math.ceil(3 * stddev / avg * 100)
         return {
             "target": round(avg, 3),
-            "delta_percentage": math.ceil(delta) + DELTA_EXTRA_MARGIN,
+            "delta_percentage": delta_percentage + DELTA_EXTRA_MARGIN,
         }

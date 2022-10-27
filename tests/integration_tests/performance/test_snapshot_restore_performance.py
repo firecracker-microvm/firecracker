@@ -9,8 +9,11 @@ import tempfile
 
 import pytest
 from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet, \
-    create_net_devices_configuration
+from framework.artifacts import (
+    ArtifactCollection,
+    ArtifactSet,
+    create_net_devices_configuration,
+)
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
@@ -25,10 +28,10 @@ from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "snap_restore_performance"
-CONFIG_NAME_REL = "test_{}_config_{}.json".format(
-    TEST_ID, get_kernel_version(level=1))
+CONFIG_NAME_REL = "test_{}_config_{}.json"\
+    .format(TEST_ID, get_kernel_version(level=1))
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
+CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 DEBUG = False
 BASE_VCPU_COUNT = 1
@@ -38,7 +41,7 @@ BASE_BLOCK_COUNT = 1
 USEC_IN_MSEC = 1000
 
 # Measurements tags.
-RESTORE_LATENCY = "restore_latency"
+RESTORE_LATENCY = "latency"
 
 # Define 4 net device configurations.
 net_ifaces = create_net_devices_configuration(4)
@@ -53,18 +56,21 @@ scratch_drives = []
 class SnapRestoreBaselinesProvider(BaselineProvider):
     """Baselines provider for snapshot restore latency."""
 
-    def __init__(self, env_id):
+    def __init__(self, env_id, workload):
         """Snapshot baseline provider initialization."""
         cpu_model_name = get_cpu_model_name()
-        baselines = list(filter(
-            lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"]))
+        baselines = list(
+            filter(
+                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
+                CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"],
+            )
+        )
 
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
-        self._tag = "baselines/{}/" + env_id + "/{}"
+        self._tag = "baselines/{}/" + env_id + "/{}/" + workload
 
     def get(self, ms_name: str, st_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
@@ -84,33 +90,35 @@ def construct_scratch_drives():
     """Create an array of scratch disks."""
     scratchdisks = ["vdb", "vdc", "vdd", "vde"]
     disk_files = [
-        drive_tools.FilesystemFile(tempfile.mktemp(), size=64)
-        for _ in scratchdisks
+        drive_tools.FilesystemFile(
+            tempfile.mktemp(), size=64
+        ) for _ in scratchdisks
     ]
     return list(zip(scratchdisks, disk_files))
 
 
-def default_lambda_consumer(env_id):
+def default_lambda_consumer(env_id, workload):
     """Create a default lambda consumer for the snapshot restore test."""
     return st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
             CONFIG_DICT["measurements"],
-            SnapRestoreBaselinesProvider(env_id)
+            SnapRestoreBaselinesProvider(env_id, workload)
         ),
         func=consume_output,
-        func_kwargs={})
+        func_kwargs={},
+    )
 
 
 def get_snap_restore_latency(
-        context,
-        vcpus,
-        mem_size,
-        nets=1,
-        blocks=1,
-        all_devices=False,
-        iterations=10):
+    context, vcpus, mem_size, nets=1, blocks=1, all_devices=False,
+    iterations=10
+):
     """Restore snapshots with various configs to measure latency."""
-    vm_builder = context.custom['builder']
+    vm_builder = context.custom["builder"]
+    logger = context.custom["logger"]
+    balloon = vsock = 1 if all_devices else 0
+    microvm_spec = f"{vcpus}vcpu_{mem_size}mb_{nets}net_{blocks}\
+        block_{vsock}vsock_{balloon}balloon"
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -128,7 +136,9 @@ def get_snap_restore_latency(
         ssh_key=ssh_key,
         config=context.microvm,
         net_ifaces=ifaces,
-        use_ramdisk=True)
+        use_ramdisk=True,
+        io_engine="Sync",
+    )
     basevm = vm_instance.vm
     response = basevm.machine_cfg.put(
         vcpu_count=vcpus,
@@ -138,28 +148,31 @@ def get_snap_restore_latency(
 
     extra_disk_paths = []
     if blocks > 1:
-        for (name, diskfile) in scratch_drives[:(blocks - 1)]:
-            basevm.add_drive(name, diskfile.path, use_ramdisk=True)
+        for (name, diskfile) in scratch_drives[: (blocks - 1)]:
+            basevm.add_drive(
+                name, diskfile.path, use_ramdisk=True, io_engine="Sync"
+            )
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0
 
     if all_devices:
         response = basevm.balloon.put(
-            amount_mib=0,
-            deflate_on_oom=True,
-            stats_polling_interval_s=1
+            amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
         )
         assert basevm.api_session.is_status_no_content(response.status_code)
 
         response = basevm.vsock.put(
-            vsock_id="vsock0",
-            guest_cid=3,
-            uds_path="/v.sock"
+            vsock_id="vsock0", guest_cid=3, uds_path="/v.sock"
         )
         assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
 
+    logger.info(
+        'Testing with microvm: "{}", kernel {}, disk {}'.format(
+            microvm_spec, context.kernel.name(), context.disk.name()
+        )
+    )
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
     full_snapshot = snapshot_builder.create(
@@ -167,15 +180,13 @@ def get_snap_restore_latency(
         ssh_key,
         SnapshotType.FULL,
         net_ifaces=ifaces,
-        use_ramdisk=True
+        use_ramdisk=True,
     )
     basevm.kill()
     values = []
     for _ in range(iterations):
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
-            full_snapshot,
-            resume=True,
-            use_ramdisk=True
+            full_snapshot, resume=True, use_ramdisk=True
         )
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
@@ -188,7 +199,7 @@ def get_snap_restore_latency(
         metrics = microvm.get_all_metrics(metrics_fifo)
         for data_point in metrics:
             metrics = json.loads(data_point)
-            cur_value = metrics['latencies_us']['load_snapshot']
+            cur_value = metrics["latencies_us"]["load_snapshot"]
             if cur_value > 0:
                 value = cur_value / USEC_IN_MSEC
                 break
@@ -215,9 +226,7 @@ def consume_output(cons, result):
 @pytest.mark.nonci
 @pytest.mark.timeout(300 * 1000)  # 1.40 hours
 @pytest.mark.parametrize(
-    'results_file_dumper',
-    [CONFIG_NAME_ABS],
-    indirect=True
+    "results_file_dumper", [CONFIG_NAME_ABS], indirect=True
 )
 def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
     """
@@ -236,62 +245,70 @@ def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'logger': logger,
-        'name': TEST_ID,
-        'results_file_dumper': results_file_dumper
+        "builder": MicrovmBuilder(bin_cloner_path),
+        "logger": logger,
+        "name": TEST_ID,
+        "results_file_dumper": results_file_dumper,
+        "workload": "restore",
     }
 
-    test_matrix = TestMatrix(context=test_context,
-                             artifact_sets=[
-                                 microvm_artifacts,
-                                 kernel_artifacts,
-                                 disk_artifacts
-                             ])
+    test_matrix = TestMatrix(
+        context=test_context,
+        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    )
     test_matrix.run_test(snapshot_workload)
 
 
 def snapshot_scaling_vcpus(context, st_core, vcpu_count=10):
     """Restore snapshots with variable vcpu count."""
+    workload = context.custom["workload"]
     for i in range(vcpu_count):
-        env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+        env_id = (
+            f"{context.kernel.name()}/{context.disk.name()}/"
             f"{BASE_VCPU_COUNT + i}vcpu_{BASE_MEM_SIZE_MIB}mb"
+        )
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
             func_kwargs={
                 "context": context,
                 "vcpus": BASE_VCPU_COUNT + i,
-                "mem_size": BASE_MEM_SIZE_MIB
-            }
+                "mem_size": BASE_MEM_SIZE_MIB,
+            },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_mem(context, st_core, mem_exponent=9):
     """Restore snapshots with variable memory size."""
+    workload = context.custom["workload"]
     for i in range(1, mem_exponent):
-        env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+        env_id = (
+            f"{context.kernel.name()}/{context.disk.name()}/"
             f"{BASE_VCPU_COUNT}vcpu_{BASE_MEM_SIZE_MIB * (2 ** i)}mb"
+        )
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
             func_kwargs={
                 "context": context,
                 "vcpus": BASE_VCPU_COUNT,
-                "mem_size": BASE_MEM_SIZE_MIB * (2 ** i)
-            }
+                "mem_size": BASE_MEM_SIZE_MIB * (2**i),
+            },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_net(context, st_core, net_count=4):
     """Restore snapshots with variable net device count."""
+    workload = context.custom["workload"]
     for i in range(1, net_count):
-        env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+        env_id = (
+            f"{context.kernel.name()}/{context.disk.name()}/"
             f"{BASE_NET_COUNT + i}net_dev"
+        )
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
@@ -299,22 +316,25 @@ def snapshot_scaling_net(context, st_core, net_count=4):
                 "context": context,
                 "vcpus": BASE_VCPU_COUNT,
                 "mem_size": BASE_MEM_SIZE_MIB,
-                "nets": BASE_NET_COUNT + i
-            }
+                "nets": BASE_NET_COUNT + i,
+            },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_scaling_block(context, st_core, block_count=4):
     """Restore snapshots with variable block device count."""
     # pylint: disable=W0603
+    workload = context.custom["workload"]
     global scratch_drives
     scratch_drives = construct_scratch_drives()
 
     for i in range(1, block_count):
-        env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+        env_id = (
+            f"{context.kernel.name()}/{context.disk.name()}/"
             f"{BASE_BLOCK_COUNT + i}block_dev"
+        )
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
@@ -322,29 +342,28 @@ def snapshot_scaling_block(context, st_core, block_count=4):
                 "context": context,
                 "vcpus": BASE_VCPU_COUNT,
                 "mem_size": BASE_MEM_SIZE_MIB,
-                "blocks": BASE_BLOCK_COUNT + i
-            }
+                "blocks": BASE_BLOCK_COUNT + i,
+            },
         )
-        st_cons = default_lambda_consumer(env_id)
-        st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+        st_cons = default_lambda_consumer(env_id, workload)
+        st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_all_devices(context, st_core):
     """Restore snapshots with one of each devices."""
-    env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-        f"all_dev"
-
+    workload = context.custom["workload"]
+    env_id = f"{context.kernel.name()}/{context.disk.name()}/" f"all_dev"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
             "context": context,
             "vcpus": BASE_VCPU_COUNT,
             "mem_size": BASE_MEM_SIZE_MIB,
-            "all_devices": True
-        }
+            "all_devices": True,
+        },
     )
-    st_cons = default_lambda_consumer(env_id)
-    st_core.add_pipe(st_prod, st_cons, f"{env_id}/restore_latency")
+    st_cons = default_lambda_consumer(env_id, workload)
+    st_core.add_pipe(st_prod, st_cons, f"{env_id}/{workload}")
 
 
 def snapshot_workload(context):
@@ -352,8 +371,7 @@ def snapshot_workload(context):
     file_dumper = context.custom["results_file_dumper"]
 
     st_core = core.Core(
-        name=TEST_ID,
-        iterations=1,
+        name=TEST_ID, iterations=1,
         custom={"cpu_model_name": get_cpu_model_name()}
     )
 
