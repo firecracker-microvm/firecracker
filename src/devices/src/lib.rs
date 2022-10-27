@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 //! Emulates virtual and hardware devices.
 use std::io;
 

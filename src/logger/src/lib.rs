@@ -3,6 +3,7 @@
 
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.
 
