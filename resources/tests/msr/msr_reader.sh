@@ -8,9 +8,9 @@
 print_msr() {
     local msr_hex=$(printf "%#x" $1)
     if output=$(rdmsr $msr_hex 2>> /dev/null); then
-        echo "$msr_hex,implemented,$output"
+        echo "$msr_hex,implemented,0x$output"
     else
-        echo "$msr_hex,unimplemented,NaN"
+        echo "$msr_hex,unimplemented,0x0"
     fi
 }
 
