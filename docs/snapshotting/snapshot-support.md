@@ -8,7 +8,7 @@
   - [Overview](#overview)
   - [Snapshot files management](#snapshot-files-management)
   - [Performance](#performance)
-  - [Known issues and limitations](#known-issues-and-limitations)
+  - [Known issues](#known-issues)
 - [Firecracker Snapshotting characteristics](#firecracker-snapshotting-characteristics)
 - [Snapshot versioning](#snapshot-versioning)
 - [Snapshot API](#snapshot-api)
@@ -23,8 +23,7 @@
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
-- [Known Issues](#known-issues)
-  - [Vsock device limitation](#vsock-device-limitation)
+- [Vsock device limitation](#vsock-device-limitation)
 
 ## About microVM snapshotting
 
@@ -84,7 +83,7 @@ resumed microVM.
 The Firecracker snapshot design offers a very simple interface to interact with
 snapshots but provides no functionality to package or manage them on the host.
 Using snapshots in production is currently not recommended as there are open
-[Known issues and limitations](#known-issues-and-limitations).
+[Known issues](#known-issues).
 
 The [threat containment model](../design.md#threat-containment) states
 that the host, host/API communication and snapshot files are trusted by Firecracker.
@@ -111,7 +110,7 @@ The baseline for snapshot resume latency target on Intel is under **8ms** with
 5ms p90, and on ARM is under **3ms** for a microVM with the following specs:
 2vCPU/512MB/1 block/1 net device.
 
-### Known issues and limitations
+### Known issues
 
 - High snapshot latency on 5.4+ host kernels - [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
 - Guest network connectivity is not guaranteed to be preserved after resume.
@@ -138,6 +137,10 @@ The baseline for snapshot resume latency target on Intel is under **8ms** with
   creation. The disk contents are _not_ explicitly flushed to their backing files.
 - The API calls exposing the snapshotting functionality have clear **Prerequisites**
   that describe the requirements on when/how they should be used.
+- The Firecracker microVM's MMDS config is included in the snapshot. However, the
+  data store is not persisted across snapshots.
+- Configuration information for metrics and logs are not saved to the snapshot.
+  These need to be reconfigured on the restored microVM.
 
 ## Snapshot versioning
 
@@ -573,9 +576,7 @@ properties are preserved and guaranteed before resuming the workload.
 We've started a discussion on how the Linux operating system might securely
 handle being snapshotted [here](https://lkml.org/lkml/2020/10/16/629).
 
-## Known Issues
-
-### Vsock device limitation
+## Vsock device limitation
 
 Vsock must be inactive during snapshot. Vsock device can break if snapshotted
 while having active connections. Firecracker snapshots do not capture any
