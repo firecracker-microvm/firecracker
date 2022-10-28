@@ -22,12 +22,12 @@ NSEC_IN_MSEC = 1000000
 BASELINES = {
     "Intel": {
         "serialize": {
-            "no-crc": {"target": 0.215, "delta": 0.020},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.205, "delta": 0.050},  # milliseconds  # milliseconds
             "crc": {"target": 0.244, "delta": 0.44},  # milliseconds  # milliseconds
         },
         "deserialize": {
             "no-crc": {"target": 0.056, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.046, "delta": 0.035},  # milliseconds  # milliseconds
+            "crc": {"target": 0.075, "delta": 0.030},  # milliseconds  # milliseconds
         },
     },
     "AMD": {
