@@ -133,7 +133,7 @@ registers incompatibility.
   <tr>
     <th>Load snapshot on host 4.15</th>
     <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">unsuccessful due to mismatch in MSRs</td>
   </tr>
   <tr>
     <th>Load snapshot on host 5.10</th>
