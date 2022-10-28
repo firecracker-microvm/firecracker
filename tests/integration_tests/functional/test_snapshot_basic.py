@@ -309,9 +309,9 @@ def test_5_inc_snapshots(
     # Testing matrix:
     # - Guest kernel: All supported ones
     # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 4096 MB RAM
+    # - Microvm: 2vCPU with 512MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_4096mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
