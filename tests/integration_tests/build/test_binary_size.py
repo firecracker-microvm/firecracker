@@ -6,39 +6,19 @@ import os
 import platform
 import pytest
 
-import host_tools.cargo_build as host
+from framework import utils
 
 MACHINE = platform.machine()
 """ Platform definition used to select the correct size target"""
 
-SIZES_DICT = {
-    "x86_64": {
-        "FC_BINARY_SIZE_TARGET": 2285800,
-        "JAILER_BINARY_SIZE_TARGET": 850224,
-        "FC_BINARY_SIZE_LIMIT": 2400090,
-        "JAILER_BINARY_SIZE_LIMIT": 892735,
-    },
-    "aarch64": {
-        "FC_BINARY_SIZE_TARGET": 2322392,
-        "JAILER_BINARY_SIZE_TARGET": 851152,
-        "FC_BINARY_SIZE_LIMIT": 2438511,
-        "JAILER_BINARY_SIZE_LIMIT": 893709,
-    },
-}
+if MACHINE == "x86_64":
+    SIZE_TARGETS = {"firecracker": 2012944, "jailer": 1087192}
+elif MACHINE == "aarch64":
+    SIZE_TARGETS = {"firecracker": 2322392, "jailer": 851152}
+else:
+    raise Exception(f"Unsupported processor model ({PROC_MODEL})")
 
-FC_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_TARGET"]
-"""Firecracker target binary size in bytes"""
-
-FC_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_LIMIT"]
-"""Firecracker maximum binary size in bytes"""
-
-JAILER_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_TARGET"]
-"""Jailer target binary size in bytes"""
-
-JAILER_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_LIMIT"]
-"""Jailer maximum binary size in bytes"""
-
-BINARY_SIZE_TOLERANCE = 0.05
+MAX_DELTA = 0.05
 """Tolerance of 5% allowed for binary size"""
 
 
@@ -49,20 +29,7 @@ def test_firecracker_binary_size():
 
     @type: build
     """
-    fc_binary, _ = host.get_firecracker_binaries()
-
-    result = check_binary_size(
-        "firecracker",
-        fc_binary,
-        FC_BINARY_SIZE_TARGET,
-        BINARY_SIZE_TOLERANCE,
-        FC_BINARY_SIZE_LIMIT,
-    )
-
-    return (
-        f"{result} B",
-        f"{FC_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
-    )
+    check_binary_size("firecracker")
 
 
 @pytest.mark.timeout(500)
@@ -72,60 +39,36 @@ def test_jailer_binary_size():
 
     @type: build
     """
-    _, jailer_binary = host.get_firecracker_binaries()
-
-    result = check_binary_size(
-        "jailer",
-        jailer_binary,
-        JAILER_BINARY_SIZE_TARGET,
-        BINARY_SIZE_TOLERANCE,
-        JAILER_BINARY_SIZE_LIMIT,
-    )
-
-    return (
-        f"{result} B",
-        f"{JAILER_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
-    )
+    check_binary_size("jailer")
 
 
-def check_binary_size(name, binary_path, size_target, tolerance, limit):
+def check_binary_size(name):
     """Check if the specified binary falls within the expected range."""
-    # Get the size of the release binary.
-    binary_size = os.path.getsize(binary_path)
 
-    # Get the name of the variable that needs updating.
-    namespace = globals()
-    size_target_name = [name for name in namespace if namespace[name] is size_target][0]
-
-    # Compute concrete binary size difference.
-    delta_size = size_target - binary_size
-
-    binary_low_msg = (
-        "Current {} binary size of {} bytes is below the target"
-        " of {} bytes with {} bytes.\n"
-        "Update the {} threshold".format(
-            name, binary_size, size_target, delta_size, size_target_name
-        )
+    build_target = f"{MACHINE}-unknown-linux-musl"
+    # Build release binary
+    utils.run_cmd(
+        f"(cd .. && exec cargo build --all --release --target {build_target})"
     )
+    # Strip symbols from binary
+    utils.run_cmd(f"(cd .. && exec strip ./target/{build_target}/release/{name})")
 
-    assert binary_size > size_target * (1 - tolerance), binary_low_msg
+    # Get size of release binary.
+    size = os.path.getsize(f"../target/{build_target}/release/{name}")
 
-    binary_high_msg = (
-        "Current {} binary size of {} bytes is above the target"
-        " of {} bytes with {} bytes.\n".format(
-            name, binary_size, size_target, -delta_size
-        )
-    )
+    # Get target
+    size_target = SIZE_TARGETS[name]
 
-    assert binary_size < size_target * (1 + tolerance), binary_high_msg
+    # Calculate upper and lower bounds.
+    lower_bound = size_target * (1.0 - MAX_DELTA)
+    upper_bound = size_target * (1.0 + MAX_DELTA)
 
-    binary_limit_msg = (
-        "Current {} binary size of {} bytes is above the limit"
-        " of {} bytes with {} bytes.\n".format(
-            name, binary_size, limit, binary_size - limit
-        )
-    )
-
-    assert binary_size < limit, binary_limit_msg
-
-    return binary_size
+    # Compare target to bounds.
+    assert (
+        size >= lower_bound
+    ), f"Current binary size ({size}) is more than {MAX_DELTA:.2f}% below \
+            the target ({size_target})"
+    assert (
+        size <= upper_bound
+    ), f"Current binary size ({size}) is more than {MAX_DELTA:.2f}% above \
+            the target ({size_target})"
