@@ -51,6 +51,11 @@ fn main() {
 
 // Run seccompiler with the given arguments.
 fn run_seccompiler_bin(json_path: &str, out_path: &str) {
+    // We have a global `target` directive in our .cargo/config file specifying x86_64 architecture.
+    // However, seccompiler-bin has to be compiled for the host architecture. Without this, cargo
+    // would produce a x86_64 binary on aarch64 host, causing this compilation step to fail as such
+    // a binary would not be executable.
+    let host_arch = env::var("HOST").expect("Could not determine compilation host");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
     // Command for running seccompiler-bin
@@ -60,6 +65,8 @@ fn run_seccompiler_bin(json_path: &str, out_path: &str) {
         "-p",
         "seccompiler",
         "--verbose",
+        "--target",
+        &host_arch,
         // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
