@@ -34,8 +34,7 @@ pub enum NextSegmentStatus {
 
 /// Represents the configuration of the sequence number and `ACK` number fields for outgoing
 /// `RST` segments.
-#[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RstConfig {
     /// The `RST` segment will carry the specified sequence number, and will not have
     /// the `ACK` flag set.

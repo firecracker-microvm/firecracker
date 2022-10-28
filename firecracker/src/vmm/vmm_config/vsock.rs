@@ -124,10 +124,10 @@ impl VsockBuilder {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use devices::virtio::vsock::VSOCK_DEV_ID;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
 
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {

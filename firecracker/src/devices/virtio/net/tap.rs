@@ -19,6 +19,7 @@ use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub enum Error {
     /// Unable to create tap interface.
@@ -89,10 +90,10 @@ impl IfReqBuilder {
     pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
         // ioctl is safe. Called with a valid socket fd, and we check the return.
         let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
+
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
-
         Ok(self.0)
     }
 }

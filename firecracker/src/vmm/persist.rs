@@ -25,8 +25,9 @@ use super::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use super::version_map::FC_V0_23_SNAP_VERSION;
 use super::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use super::vmm_config::boot_source::BootSourceConfig;
 use super::vmm_config::instance_info::InstanceInfo;
-use super::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use super::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
 use super::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -69,35 +70,35 @@ pub struct VmInfo {
 
 impl VmInfo {
     fn def_smt(_: u16) -> bool {
-        warn!("SMT field not found in snapshot.");
+        log::warn!("SMT field not found in snapshot.");
         false
     }
 
     fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include smt info.
-        warn!("Saving to older snapshot version, SMT information will not be saved.");
+        log::warn!("Saving to older snapshot version, SMT information will not be saved.");
         Ok(())
     }
 
     fn def_cpu_template(_: u16) -> CpuFeaturesTemplate {
-        warn!("CPU template field not found in snapshot.");
+        log::warn!("CPU template field not found in snapshot.");
         CpuFeaturesTemplate::None
     }
 
     fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include cpu template info.
-        warn!("Saving to older snapshot version, CPU template information will not be saved.");
+        log::warn!("Saving to older snapshot version, CPU template information will not be saved.");
         Ok(())
     }
 
     fn def_boot_source(_: u16) -> BootSourceConfig {
-        warn!("Boot source information not found in snapshot.");
+        log::warn!("Boot source information not found in snapshot.");
         BootSourceConfig::default()
     }
 
     fn ser_boot_source(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include boot source info.
-        warn!("Saving to older snapshot version, boot source information will not be saved.");
+        log::warn!("Saving to older snapshot version, boot source information will not be saved.");
         Ok(())
     }
 }
@@ -753,6 +754,8 @@ mod tests {
         default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
         insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
+    #[cfg(target_arch = "aarch64")]
+    use super::super::construct_kvm_mpidrs;
     use super::super::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use super::super::vmm_config::balloon::BalloonDeviceConfig;
     use super::super::vmm_config::drive::CacheType;
@@ -760,8 +763,6 @@ mod tests {
     use super::super::vmm_config::vsock::tests::default_config;
     use super::super::Vmm;
     use super::*;
-    #[cfg(target_arch = "aarch64")]
-    use crate::construct_kvm_mpidrs;
     use crate::snapshot::Persist;
 
     #[cfg(target_arch = "aarch64")]

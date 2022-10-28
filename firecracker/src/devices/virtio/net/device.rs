@@ -89,7 +89,7 @@ fn generate_mac_address() -> MacAddr {
     MacAddr::from_bytes_unchecked(&random_mac)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct ConfigSpace {
     pub guest_mac: [u8; MAC_ADDR_LEN],
 }
@@ -104,6 +104,7 @@ impl Default for ConfigSpace {
 
 unsafe impl ByteValued for ConfigSpace {}
 
+#[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
 

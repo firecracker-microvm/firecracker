@@ -7,6 +7,7 @@
 //! collecting.
 
 mod init;
+#[allow(clippy::module_inception)]
 mod logger;
 mod metrics;
 

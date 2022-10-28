@@ -9,22 +9,21 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::{fmt, result};
 
-use arch::x86_64::interrupts;
-use arch::x86_64::msr::SetMSRsError;
-use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_memory::Address;
 
 use super::super::super::vmm_config::machine_config::CpuFeaturesTemplate;
 use super::super::super::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use super::super::super::vstate::vm::Vm;
+use crate::arch::x86_64::interrupts;
+use crate::cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2s, VmSpec};
+use crate::logger::{error, warn, IncMetric, METRICS};
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -197,13 +196,13 @@ pub enum KvmVcpuConfigureError {
     #[error("Failed to push MSR entry to FamStructWrapper.")]
     PushMsrEntries(utils::fam::Error),
     #[error("Failed to set MSRs: {0}")]
-    SetMsrs(#[from] SetMSRsError),
+    SetMsrs(#[from] crate::arch::x86_64::msr::SetMSRsError),
     #[error("Failed to setup registers: {0}")]
-    SetupRegisters(#[from] SetupRegistersError),
+    SetupRegisters(#[from] crate::arch::x86_64::regs::SetupRegistersError),
     #[error("Failed to setup FPU: {0}")]
-    SetupFpu(#[from] SetupFpuError),
+    SetupFpu(#[from] crate::arch::x86_64::regs::SetupFpuError),
     #[error("Failed to setup special registers: {0}")]
-    SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
+    SetupSpecialRegisters(#[from] crate::arch::x86_64::regs::SetupSpecialRegistersError),
     #[error("Faiuled to configure LAPICs: {0}")]
     SetLint(#[from] interrupts::Error),
 }
@@ -248,8 +247,8 @@ impl KvmVcpu {
     /// * `cpuid` - The capabilities exposed by this vCPU.
     pub fn configure(
         &mut self,
-        guest_mem: &GuestMemoryMmap,
-        kernel_start_addr: GuestAddress,
+        guest_mem: &crate::vm_memory_ext::GuestMemoryMmap,
+        kernel_start_addr: crate::vm_memory_ext::GuestAddress,
         vcpu_config: &VcpuConfig,
         mut cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
@@ -283,7 +282,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
         // Initialize some architectural MSRs that will be set for boot.
-        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
+        let mut msr_boot_entries = crate::arch::x86_64::msr::create_boot_msr_entries();
 
         // By this point the Guest CPUID is established. Some CPU features require MSRs
         // to configure and interact with those features. If a MSR is writable from
@@ -641,7 +640,7 @@ mod tests {
         }
     }
 
-    fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
+    fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, crate::vm_memory_ext::GuestMemoryMmap) {
         let (vm, vm_mem) = setup_vm(mem_size);
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
@@ -650,6 +649,7 @@ mod tests {
 
     #[test]
     fn test_configure_vcpu() {
+        use crate::vm_memory_ext::GuestAddress;
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
         let mut vcpu_config = VcpuConfig {

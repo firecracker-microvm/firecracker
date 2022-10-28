@@ -11,12 +11,12 @@ pub mod t2s;
 
 use std::collections::HashSet;
 
-use arch_gen::x86::msr_index::*;
 use kvm_bindings::CpuId;
 
-use crate::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
+use super::super::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
+use super::super::transformer::Error;
+use crate::arch::arch_gen::x86::msr_index::*;
 use crate::cpuid_is_feature_set;
-use crate::transformer::Error;
 
 pub fn validate_vendor_id() -> Result<(), Error> {
     let vendor_id = get_vendor_id_from_host()?;
@@ -29,7 +29,7 @@ pub fn validate_vendor_id() -> Result<(), Error> {
 
 /// Returns MSRs to be saved based on the Intel CPUID features that are enabled.
 pub(crate) fn msrs_to_save_by_cpuid(cpuid: &CpuId) -> HashSet<u32> {
-    use crate::cpu_leaf::*;
+    use super::super::cpu_leaf::*;
 
     let mut msrs = HashSet::new();
 
@@ -109,7 +109,7 @@ pub mod tests {
     fn test_msrs_to_save_by_cpuid_one() {
         use kvm_bindings::kvm_cpuid_entry2;
 
-        use crate::cpu_leaf::leaf_0x7;
+        use crate::cpuid::cpu_leaf::leaf_0x7;
 
         // One CPUID entry with MPX feature flag is provided
         // that causes MSR_IA32_BNDCFGS to be pulled in.

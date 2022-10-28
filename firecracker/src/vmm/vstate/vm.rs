@@ -344,7 +344,7 @@ impl Vm {
             .map_err(RestoreStateError)
     }
 
-    pub(crate) fn set_kvm_memory_regions(
+    pub(crate) fn set_kvm_memory_ext_regions(
         &self,
         guest_mem: &GuestMemoryMmap,
         track_dirty_pages: bool,

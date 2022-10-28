@@ -10,7 +10,6 @@ use std::{fmt, fs, mem, result, u32};
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
-use vm_memory::GuestMemoryMmap;
 
 use super::get_fdt_addr;
 
@@ -196,7 +195,7 @@ pub fn setup_boot_regs(
     vcpu: &VcpuFd,
     cpu_id: u8,
     boot_ip: u64,
-    mem: &GuestMemoryMmap,
+    mem: &crate::vm_memory_ext::GuestMemoryMmap,
 ) -> Result<()> {
     let kreg_off = offset__of!(kvm_regs, regs);
 
@@ -462,7 +461,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vm_memory_ext::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);

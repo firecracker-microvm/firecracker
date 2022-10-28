@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![doc(hidden)]
+#![allow(dead_code)]
 
 #[cfg(test)]
 use std::thread;

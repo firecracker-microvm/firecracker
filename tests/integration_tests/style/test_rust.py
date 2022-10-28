@@ -12,8 +12,11 @@ def test_rust_style():
     @type: style
     """
 
+    # Ensure cargo-fmt component available.
+    utils.run_cmd("rustup component add rustfmt")
+
     # Check that the output is empty.
-    _, stdout, _ = utils.run_cmd(f"cargo fmt --check")
+    _, stdout, _ = utils.run_cmd("cargo fmt --all --check")
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout

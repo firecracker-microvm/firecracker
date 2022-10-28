@@ -16,6 +16,7 @@ use crate::vm_memory_ext::GuestMemoryMmap;
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
+#[derive(Debug)]
 pub enum DeviceState {
     Inactive,
     Activated(GuestMemoryMmap),
@@ -45,6 +46,7 @@ pub enum IrqType {
 }
 
 /// Helper struct that is responsible for triggering guest IRQs
+#[derive(Debug)]
 pub struct IrqTrigger {
     pub(crate) irq_status: Arc<AtomicUsize>,
     pub(crate) irq_evt: EventFd,

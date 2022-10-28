@@ -40,6 +40,7 @@ const RCV_BUF_MAX_SIZE: usize = 2500;
 
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
+#[derive(Debug)]
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
@@ -349,7 +350,6 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
     use std::str::from_utf8;
 
     use super::super::super::pdu::tcp::Flags as TcpFlags;
@@ -360,12 +360,6 @@ mod tests {
     impl Endpoint {
         pub fn set_eviction_threshold(&mut self, value: u64) {
             self.eviction_threshold = value;
-        }
-    }
-
-    impl fmt::Debug for Endpoint {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Endpoint)")
         }
     }
 

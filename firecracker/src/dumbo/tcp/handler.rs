@@ -81,8 +81,7 @@ pub enum WriteNextError {
 // Generally speaking, a TCP/IPv4 connection is identified using the four-tuple (src_addr, src_port,
 // dst_addr, dst_port). However, the IPv4 address and TCP port of the MMDS endpoint are fixed, so
 // we can get away with uniquely identifying connections using just the remote address and port.
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 struct ConnectionTuple {
     remote_addr: Ipv4Addr,
     remote_port: u16,
@@ -121,6 +120,7 @@ impl ConnectionTuple {
 /// [`receive_packet`]: ../handler/struct.TcpIPv4Handler.html#method.receive_packet
 /// [`write_next_packet`]: ../handler/struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`next_segment_status`]: ../handler/struct.TcpIPv4Handler.html#method.next_segment_status
+#[derive(Debug)]
 pub struct TcpIPv4Handler {
     // Handler IPv4 address used for every connection.
     local_ipv4_addr: Ipv4Addr,

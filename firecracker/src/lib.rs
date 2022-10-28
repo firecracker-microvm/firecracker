@@ -32,7 +32,7 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 
-use crate::logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
+use crate::logger::{error, info, StoreMetric, LOGGER, METRICS};
 use crate::snapshot::Snapshot;
 use crate::vmm::resources::VmResources;
 use crate::vmm::seccomp_filters::{get_filters, SeccompConfig};
@@ -327,7 +327,7 @@ fn main_exitable() -> FcExitCode {
         };
     }
 
-    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
+    let seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
@@ -338,6 +338,8 @@ fn main_exitable() -> FcExitCode {
             return generic_error_exit(&format!("Seccomp error: {}", err));
         }
     };
+    #[cfg(not(test))]
+    let mut seccomp_filters = seccomp_filters;
 
     let vmm_config_json = arguments
         .single_value("config-file")
@@ -350,6 +352,7 @@ fn main_exitable() -> FcExitCode {
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
+    #[cfg(not(test))]
     let api_enabled = !arguments.flag_present("no-api");
     let api_payload_limit = arg_parser
         .arguments()
@@ -394,8 +397,11 @@ fn main_exitable() -> FcExitCode {
                 .expect("'parent-cpu-time-us' parameter expected to be of 'u64' type.")
         });
 
-        let process_time_reporter =
-            ProcessTimeReporter::new(start_time_us, start_time_cpu_us, parent_cpu_time_us);
+        let process_time_reporter = crate::logger::ProcessTimeReporter::new(
+            start_time_us,
+            start_time_cpu_us,
+            parent_cpu_time_us,
+        );
         return api_server_adapter::run_with_api(
             &mut seccomp_filters,
             vmm_config_json,

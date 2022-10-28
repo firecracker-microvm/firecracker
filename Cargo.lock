@@ -192,19 +192,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpuid"
-version = "0.1.0"
-dependencies = [
- "arch",
- "arch_gen",
- "derive_more",
- "kvm-bindings",
- "kvm-ioctls",
- "thiserror",
- "utils",
-]
-
-[[package]]
 name = "crc64"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -558,7 +545,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8242360c7d79a7713a28043c994b815e9820b0e97e44b228ec9bd913c16bdfe"
 dependencies = [
- "vm-memory 0.9.0",
+ "vm-memory",
 ]
 
 [[package]]
@@ -1134,15 +1121,6 @@ name = "vm-fdt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd986f4fdf949ab2181c7b4fedb03fb0e9de6b0aa788fff247b2608701ce3457"
-
-[[package]]
-name = "vm-memory"
-version = "0.3.0"
-dependencies = [
- "libc",
- "utils",
- "vm-memory 0.9.0",
-]
 
 [[package]]
 name = "vm-memory"

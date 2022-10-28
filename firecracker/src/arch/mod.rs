@@ -4,11 +4,13 @@
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
 //! Implements platform specific functionality.
-//! Supported platforms: x86_64 and aarch64.
+//! Supported platforms: x86_64 and aarch64.#
 use std::{fmt, result};
 
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
+
+pub mod arch_gen;
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]

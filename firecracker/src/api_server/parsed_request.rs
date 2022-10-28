@@ -30,7 +30,7 @@ pub(crate) enum RequestAction {
 }
 
 #[derive(Default)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(crate) struct ParsingInfo {
     deprecation_message: Option<String>,
 }

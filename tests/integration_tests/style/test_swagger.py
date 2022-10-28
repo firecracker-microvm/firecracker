@@ -34,7 +34,9 @@ def test_firecracker_swagger():
     @type: style
     """
     swagger_spec = os.path.normpath(
-        os.path.join(os.getcwd(), "../src/api_server/swagger/firecracker.yaml")
+        os.path.join(
+            os.getcwd(), "../firecracker/src/api_server/swagger/firecracker.yaml"
+        )
     )
     check_yaml_style(swagger_spec)
     validate_swagger(swagger_spec)

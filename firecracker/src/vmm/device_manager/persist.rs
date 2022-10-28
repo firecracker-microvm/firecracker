@@ -222,7 +222,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             mmds_version: None,
         };
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
-            if *devtype == arch::DeviceType::BootTimer {
+            if *devtype == crate::arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
                 return Ok(());
             }

@@ -35,6 +35,7 @@ pub type ApiRequest = Box<VmmAction>;
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Errors thrown when binding the API server to the socket path.
+#[allow(dead_code)]
 #[derive(thiserror::Error)]
 pub enum Error {
     /// IO related error.

@@ -196,8 +196,8 @@ mod tests {
 
     use super::*;
     use crate::vm_memory_ext::GuestMemoryMmap;
-    use crate::vstate::vm::tests::setup_vm;
-    use crate::vstate::vm::Vm;
+    use crate::vmm::vstate::vm::tests::setup_vm;
+    use crate::vmm::vstate::vm::Vm;
 
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);

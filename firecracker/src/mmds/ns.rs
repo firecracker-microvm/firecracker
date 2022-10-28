@@ -52,6 +52,7 @@ enum WritePacketError {
     WriteNext(WriteNextError),
 }
 
+#[derive(Debug)]
 pub struct MmdsNetworkStack {
     // Network interface MAC address used by frames/packets heading to MMDS server.
     remote_mac_addr: MacAddr,

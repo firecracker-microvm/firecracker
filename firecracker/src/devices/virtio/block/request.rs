@@ -190,6 +190,7 @@ pub struct RequestHeader {
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
+    #[cfg(test)]
     pub fn new(request_type: u32, sector: u64) -> RequestHeader {
         RequestHeader {
             request_type,
@@ -398,7 +399,6 @@ impl Request {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::queue::tests::*;
     use super::super::super::test_utils::{VirtQueue, VirtqDesc};
     use super::super::super::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use super::*;

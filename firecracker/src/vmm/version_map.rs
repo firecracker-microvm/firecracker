@@ -11,6 +11,7 @@ use versionize::{VersionMap, Versionize};
 use super::device_manager::persist::DeviceStates;
 #[cfg(target_arch = "x86_64")]
 use super::vstate::vcpu::VcpuState;
+use super::VmInfo;
 use crate::devices::virtio::block::persist::BlockState;
 use crate::devices::virtio::QueueState;
 

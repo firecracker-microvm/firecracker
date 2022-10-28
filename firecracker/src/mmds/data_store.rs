@@ -10,6 +10,7 @@ use serde_json::{to_vec, Value};
 use super::token::{Error as TokenError, TokenAuthority};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
+#[derive(Debug)]
 pub struct Mmds {
     data_store: Value,
     // None when MMDS V1 is configured, Some for MMDS V2.

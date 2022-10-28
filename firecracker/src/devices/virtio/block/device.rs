@@ -639,7 +639,6 @@ pub mod tests {
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
 
-    use super::super::super::queue::tests::*;
     use super::super::super::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use super::super::super::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use super::super::test_utils::{

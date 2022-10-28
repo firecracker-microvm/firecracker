@@ -103,7 +103,7 @@ impl fmt::Display for NetworkInterfaceError {
 type Result<T> = result::Result<T, NetworkInterfaceError>;
 
 /// Builder for a list of network devices.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct NetBuilder {
     net_devices: Vec<Arc<Mutex<Net>>>,
 }

@@ -282,6 +282,15 @@ impl TokenAuthority {
     }
 }
 
+impl fmt::Debug for TokenAuthority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenAuthority")
+            .field("num_encrypted_tokens", &self.num_encrypted_tokens)
+            .field("entropy_pool", &self.entropy_pool)
+            .field("aad", &self.aad)
+            .finish()
+    }
+}
 /// Structure for token information.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct Token {

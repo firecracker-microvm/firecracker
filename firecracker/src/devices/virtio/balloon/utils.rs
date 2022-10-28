@@ -3,10 +3,9 @@
 
 use std::io;
 
-use logger::error;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
-
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use crate::logger::error;
+use crate::vm_memory_ext::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector

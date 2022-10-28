@@ -53,6 +53,7 @@ impl VmSpec {
 }
 
 /// Errors associated with processing the CPUID leaves.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// A FamStructWrapper operation has failed

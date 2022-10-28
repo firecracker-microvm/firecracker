@@ -163,6 +163,7 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     }
 
     /// Returns the target hardware address.
+    #[cfg(test)]
     #[inline]
     pub fn tha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET])
@@ -219,6 +220,7 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
 
     /// Attempts to write an ARP request to `buf`, based on the specified hardware and protocol
     /// addresses.
+    #[cfg(test)]
     #[inline]
     pub fn write_request(
         buf: T,

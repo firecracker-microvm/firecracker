@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn test_display_error() {
         assert_eq!(
-            format!("{}", Error::TxBufFull),
+            Error::TxBufFull.to_string(),
             "Attempted to push data to a full TX buffer"
         );
 

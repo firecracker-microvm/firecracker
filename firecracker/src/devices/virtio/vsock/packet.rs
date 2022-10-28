@@ -19,8 +19,8 @@ use std::io::{Read, Write};
 use super::super::DescriptorChain;
 use super::{defs, Result, VsockError};
 use crate::vm_memory_ext::{
-    self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
-    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
+    GuestRegionMmap, MemoryRegionAddress,
 };
 
 // The vsock packet header is defined by the C struct:

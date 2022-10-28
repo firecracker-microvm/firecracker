@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use kvm_bindings::CpuId;
 
-use crate::common::{get_vendor_id_from_cpuid, VENDOR_ID_INTEL};
-use crate::transformer::Error;
+use super::common::{get_vendor_id_from_cpuid, VENDOR_ID_INTEL};
+use super::transformer::Error;
 
 /// Returns MSRs to be saved based on CPUID features that are enabled.
 pub fn msrs_to_save_by_cpuid(cpuid: &CpuId) -> Result<HashSet<u32>, Error> {

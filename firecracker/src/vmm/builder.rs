@@ -40,7 +40,7 @@ use super::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use super::vstate::system::KvmContext;
 use super::vstate::vcpu::{Vcpu, VcpuConfig};
 use super::vstate::vm::Vm;
-use super::{device_manager, mem_size_mib, Error, EventManager, Vmm, VmmEventsObserver};
+use super::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use crate::cpuid::common::is_same_model;
@@ -451,10 +451,10 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not set TSC scaling within the snapshot.
     #[cfg(target_arch = "x86_64")]
     #[error("Could not set TSC scaling within the snapshot: {0}")]
-    SetTsc(#[from] crate::vstate::vcpu::SetTscError),
+    SetTsc(#[from] super::vstate::vcpu::SetTscError),
     /// Failed to restore microVM state.
     #[error("Failed to restore microVM state: {0}")]
-    RestoreState(#[from] crate::vstate::vm::RestoreStateError),
+    RestoreState(#[from] super::vstate::vm::RestoreStateError),
     /// Failed to update microVM configuration.
     #[error("Failed to update microVM configuration: {0}")]
     VmUpdateConfig(#[from] VmConfigError),
@@ -463,13 +463,13 @@ pub enum BuildMicrovmFromSnapshotError {
     RestoreMmioDevice(#[from] MicrovmStateError),
     /// Failed to emulate MMIO serial.
     #[error("Failed to emulate MMIO serial: {0}")]
-    EmulateSerialInit(#[from] crate::EmulateSerialInitError),
+    EmulateSerialInit(#[from] super::EmulateSerialInitError),
     /// Failed to start vCPUs as no vCPU seccomp filter found.
     #[error("Failed to start vCPUs as no vCPU seccomp filter found.")]
     MissingVcpuSeccompFilters,
     /// Failed to start vCPUs.
     #[error("Failed to start vCPUs: {0}")]
-    StartVcpus(#[from] crate::StartVcpusError),
+    StartVcpus(#[from] super::StartVcpusError),
     /// Failed to restore vCPUs.
     #[error("Failed to restore vCPUs: {0}")]
     RestoreVcpus(#[from] super::RestoreVcpusError),
@@ -860,7 +860,7 @@ pub fn configure_system_for_boot(
             .as_cstring()
             .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
 
-        linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
+        linux_loader::loader::load_cmdline::<crate::vm_memory_ext::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
@@ -868,7 +868,7 @@ pub fn configure_system_for_boot(
         .map_err(LoadCommandline)?;
         crate::arch::x86_64::configure_system(
             &vmm.guest_memory,
-            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            vm_memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
             initrd,
             vcpus.len() as u8,
@@ -1035,6 +1035,7 @@ pub mod tests {
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::vm_memory_ext::GuestMemory;
+
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
@@ -1090,8 +1091,11 @@ pub mod tests {
     }
 
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, arch::CMDLINE_MAX_SIZE)
-            .unwrap()
+        linux_loader::cmdline::Cmdline::try_from(
+            DEFAULT_KERNEL_CMDLINE,
+            crate::arch::CMDLINE_MAX_SIZE,
+        )
+        .unwrap()
     }
 
     pub(crate) fn default_vmm() -> Vmm {

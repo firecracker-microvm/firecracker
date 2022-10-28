@@ -112,9 +112,6 @@ CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 # Full path to the seccompiler cargo target dir on the host.
 CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
 
-# Full path to the rebase-snap cargo target dir on the host.
-CARGO_REBASE_SNAP_TARGET_DIR="${FC_BUILD_DIR}/rebase-snap"
-
 # Full path to the Firecracker sources dir, as bind-mounted in the container.
 CTR_FC_ROOT_DIR="/firecracker"
 
@@ -256,7 +253,7 @@ build_seccomp_bin_path() {
 build_rebase_snap_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
+    echo "$CARGO_TARGET_DIR/$target/$profile/rebase-snap"
 }
 
 ensure_release_binaries_exist() {
@@ -935,8 +932,8 @@ cmd_strip() {
     [ $ret -eq 0 ] && {
         say "Stripping was successful."
         say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
-        say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
-        say "Stripped rebase-snap binary placed under $CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile."
+        say "Stripped seccompiler-bin binary placed under $CARGO_TARGET_DIR/$target/$profile."
+        say "Stripped rebase-snap binary placed under $CARGO_TARGET_DIR/$target/$profile."
     }
 
     return $ret

@@ -428,8 +428,8 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::super::gic::create_gic;
+    use super::super::{arch_memory_regions, layout};
     use super::*;
-    use crate::super::{arch_memory_regions, layout};
 
     const LEN: u64 = 4096;
 

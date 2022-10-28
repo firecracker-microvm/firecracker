@@ -584,7 +584,7 @@ def get_firecracker_version_from_toml():
     Usually different from the output of `./firecracker --version`, if
     the code has not been released.
     """
-    cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
+    cmd = "cd ../firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
 
     rc, stdout, _ = run_cmd(cmd)
     assert rc == 0

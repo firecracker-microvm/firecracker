@@ -532,7 +532,7 @@ impl Queue {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
 
     use super::super::test_utils::VirtQueue;
     use super::super::QueueError::{DescIndexOutOfBounds, UsedRing};

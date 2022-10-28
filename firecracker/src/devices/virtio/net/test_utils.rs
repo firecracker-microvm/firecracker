@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![doc(hidden)]
+#![allow(dead_code)]
 
 use std::fs::File;
 use std::os::raw::c_ulong;
@@ -71,6 +72,7 @@ pub fn default_net_no_mmds() -> Net {
     net
 }
 
+#[derive(Debug)]
 pub enum ReadTapMock {
     Failure,
     MockFrame(Vec<u8>),
@@ -87,6 +89,7 @@ impl ReadTapMock {
 }
 
 // Used to simulate tap read fails in tests.
+#[derive(Debug)]
 pub struct Mocks {
     pub(crate) read_tap: ReadTapMock,
 }
@@ -303,7 +306,7 @@ pub fn set_mac(net: &mut Net, mac: MacAddr) {
 }
 
 // Assigns "guest virtio driver" activated queues to the net device.
-pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
+fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
     net.queues.clear();
     net.queues.push(rxq);
     net.queues.push(txq);

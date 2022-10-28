@@ -43,7 +43,7 @@ fn pages_to_mib(amount_pages: u32) -> u32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ConfigSpace {
     pub num_pages: u32,
     pub actual_pages: u32,
@@ -585,26 +585,26 @@ impl VirtioDevice for Balloon {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::u32;
 
-    use vm_memory::GuestAddress;
-
-    use super::super::CONFIG_SPACE_SIZE;
-    use super::*;
-    use crate::virtio::balloon::test_utils::{
+    use super::super::super::test_utils::{default_mem, VirtQueue};
+    use super::super::super::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use super::super::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
-    use crate::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::{check_metric_after_block, report_balloon_event_fail};
+    use super::super::CONFIG_SPACE_SIZE;
+    use super::*;
+    use crate::check_metric_after_block;
+    use crate::devices::report_balloon_event_fail;
+    use crate::vm_memory_ext::GuestAddress;
 
     impl Balloon {
-        pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
+        pub fn set_queue(&mut self, idx: usize, q: Queue) {
             self.queues[idx] = q;
         }
 
-        pub(crate) fn actual_pages(&self) -> u32 {
+        pub fn actual_pages(&self) -> u32 {
             self.config_space.actual_pages
         }
 
@@ -687,7 +687,7 @@ pub(crate) mod tests {
                 assert_eq!(balloon.device_type(), TYPE_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
-                    | ((if *deflate_on_oom { 1 } else { 0 }) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
+                    | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
                     | ((*stats_interval as u64) << VIRTIO_BALLOON_F_STATS_VQ);
 
                 assert_eq!(balloon.avail_features_by_page(0), features as u32);

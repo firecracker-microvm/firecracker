@@ -19,14 +19,14 @@ mod queue;
 pub mod test_utils;
 pub mod vsock;
 
-pub use self::balloon::*;
-pub use self::block::*;
-pub use self::device::*;
-pub use self::mmio::*;
-pub use self::net::*;
-pub use self::persist::*;
-pub use self::queue::*;
-pub use self::vsock::*;
+pub use balloon::*;
+pub use block::*;
+pub use device::*;
+pub use mmio::*;
+pub use net::*;
+pub use persist::*;
+pub use queue::*;
+pub use vsock::*;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.

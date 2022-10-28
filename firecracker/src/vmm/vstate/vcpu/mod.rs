@@ -834,15 +834,14 @@ mod tests {
 
     impl fmt::Debug for VcpuResponse {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use crate::VcpuResponse::*;
             match self {
-                Paused => write!(f, "VcpuResponse::Paused"),
-                Resumed => write!(f, "VcpuResponse::Resumed"),
-                Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
-                RestoredState => write!(f, "VcpuResponse::RestoredState"),
-                SavedState(_) => write!(f, "VcpuResponse::SavedState"),
-                Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
-                NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
+                Self::Paused => write!(f, "VcpuResponse::Paused"),
+                Self::Resumed => write!(f, "VcpuResponse::Resumed"),
+                Self::Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
+                Self::RestoredState => write!(f, "VcpuResponse::RestoredState"),
+                Self::SavedState(_) => write!(f, "VcpuResponse::SavedState"),
+                Self::Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
+                Self::NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
             }
         }
     }

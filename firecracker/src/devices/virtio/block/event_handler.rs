@@ -104,7 +104,6 @@ pub mod tests {
 
     use event_manager::{EventManager, SubscriberOps};
 
-    use super::super::super::queue::tests::*;
     use super::super::super::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use super::super::super::VIRTQ_DESC_F_NEXT;
     use super::super::device::FileEngineType;

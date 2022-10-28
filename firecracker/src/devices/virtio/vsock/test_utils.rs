@@ -8,13 +8,16 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 
+#[cfg(test)]
 use super::super::test_utils::VirtQueue as GuestQ;
-use super::super::{
-    VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
-    VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-};
+use super::super::{Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError};
+#[cfg(test)]
+use super::super::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+#[cfg(test)]
 use super::device::{RXQ_INDEX, TXQ_INDEX};
-use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use super::packet::VsockPacket;
+#[cfg(test)]
+use super::packet::VSOCK_PKT_HDR_SIZE;
 use crate::vm_memory_ext::{GuestAddress, GuestMemoryMmap};
 
 type Result<T> = std::result::Result<T, VsockError>;
@@ -41,13 +44,15 @@ impl TestBackend {
             evset: None,
         }
     }
-
+    #[cfg(test)]
     pub fn set_rx_err(&mut self, err: Option<VsockError>) {
         self.rx_err = err;
     }
+    #[cfg(test)]
     pub fn set_tx_err(&mut self, err: Option<VsockError>) {
         self.tx_err = err;
     }
+    #[cfg(test)]
     pub fn set_pending_rx(&mut self, prx: bool) {
         self.pending_rx = prx;
     }
@@ -132,6 +137,7 @@ impl TestContext {
         }
     }
 
+    #[cfg(test)]
     pub fn create_event_handler_context(&self) -> EventHandlerContext {
         const QSIZE: u16 = 256;
 
@@ -175,16 +181,17 @@ impl Default for TestContext {
         Self::new()
     }
 }
-
+#[cfg(test)]
 pub struct EventHandlerContext<'a> {
     pub device: Vsock<TestBackend>,
     pub guest_rxvq: GuestQ<'a>,
     pub guest_txvq: GuestQ<'a>,
     pub guest_evvq: GuestQ<'a>,
 }
-
+#[cfg(test)]
 impl<'a> EventHandlerContext<'a> {
     pub fn mock_activate(&mut self, mem: GuestMemoryMmap) {
+        use crate::devices::virtio::device::VirtioDevice;
         // Artificially activate the device.
         self.device.activate(mem).unwrap();
     }
@@ -193,6 +200,7 @@ impl<'a> EventHandlerContext<'a> {
         self.device.queue_events[TXQ_INDEX].write(1).unwrap();
         self.device.handle_txq_event(EventSet::IN);
     }
+
     pub fn signal_rxq_event(&mut self) {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
         self.device.handle_rxq_event(EventSet::IN);

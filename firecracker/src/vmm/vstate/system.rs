@@ -21,18 +21,16 @@ pub enum Error {
     Initialization(KvmIoctlsError),
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ApiVersion(v) => write!(
+            Self::ApiVersion(v) => write!(
                 f,
                 "The host kernel reports an invalid KVM API version: {}",
                 v
             ),
-            Capabilities(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
-            Initialization(err) => {
+            Self::Capabilities(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            Self::Initialization(err) => {
                 if err.errno() == libc::EACCES {
                     write!(
                         f,

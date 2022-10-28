@@ -151,7 +151,7 @@ pub enum WriteNextError {
 /// timestamps must be non-decreasing, and are mainly used for retransmission timeouts.
 ///
 /// [`close`]: #method.close
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Clone)]
 pub struct Connection {
     // The sequence number to ACK at the next opportunity. This is 1 + the highest received
     // in-order sequence number.
@@ -1013,19 +1013,11 @@ impl Connection {
 // the rougher edges around the current implementation, and deciding its scope relative to an
 // actual TCP implementation.
 #[cfg(test)]
-pub(crate) mod tests {
-    use std::fmt;
-
+pub mod tests {
     use super::*;
 
     // A segment without options or a payload is 20 bytes long.
     const BASIC_SEGMENT_SIZE: usize = 20;
-
-    impl fmt::Debug for Connection {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(connection)")
-        }
-    }
 
     pub struct ConnectionTester {
         buf: [u8; 2000],

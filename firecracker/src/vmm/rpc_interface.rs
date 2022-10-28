@@ -39,7 +39,7 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
-use super::{Error as VmmError, EventManager, FcExitCode};
+use super::{Error as VmmError, EventManager, FcExitCode, VmInfo};
 use crate::logger::*;
 use crate::mmds::data_store::{self, Mmds};
 

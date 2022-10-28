@@ -34,6 +34,7 @@ use crate::logger::info;
 use crate::vm_memory_ext::GuestAddress;
 
 /// Errors for MMIO device manager.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub enum Error {
     /// Failed to perform an operation on the bus.
@@ -102,7 +103,7 @@ pub struct MMIODeviceInfo {
 
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
-    pub(crate) bus: devices::Bus,
+    pub(crate) bus: crate::devices::Bus,
     pub(crate) irq_allocator: IdAllocator,
     pub(crate) address_allocator: AddressAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
@@ -175,7 +176,7 @@ impl MMIODeviceManager {
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
-                    device_info.addr + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
+                    device_info.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
                 );
                 vm.register_ioevent(queue_evt, &io_addr, i as u32)
                     .map_err(Error::RegisterIoEvent)?;
@@ -780,12 +781,12 @@ mod tests {
         let device_info = device_manager.allocate_mmio_resources(0).unwrap();
         assert_eq!(device_info.irqs.len(), 0);
         let device_info = device_manager.allocate_mmio_resources(1).unwrap();
-        assert_eq!(device_info.irqs[0], arch::IRQ_BASE);
+        assert_eq!(device_info.irqs[0], crate::arch::IRQ_BASE);
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE + 1)
+                    .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
             "failed to allocate requested resource: The requested resource is not available."
@@ -797,9 +798,9 @@ mod tests {
         }
 
         let device_info = device_manager
-            .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE - 1)
+            .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE - 1)
             .unwrap();
-        assert_eq!(device_info.irqs[16], arch::IRQ_BASE + 16);
+        assert_eq!(device_info.irqs[16], crate::arch::IRQ_BASE + 16);
         assert_eq!(
             format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
             "failed to allocate requested resource: The requested resource is not available."

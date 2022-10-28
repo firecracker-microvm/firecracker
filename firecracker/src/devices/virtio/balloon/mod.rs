@@ -14,6 +14,7 @@ use crate::vm_memory_ext::GuestMemoryError;
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
+#[allow(dead_code)]
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 3;
@@ -92,5 +93,5 @@ pub enum RemoveRegionError {
     MmapFail(std::io::Error),
     RegionNotFound,
 }
-
+#[allow(dead_code)]
 pub type Result<T> = std::result::Result<T, Error>;

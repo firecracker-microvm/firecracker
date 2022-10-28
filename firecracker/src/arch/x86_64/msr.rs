@@ -10,8 +10,9 @@ use kvm_ioctls::{Kvm, VcpuFd};
 
 use super::super::arch_gen::x86::msr_index::*;
 
-#[derive(Debug)]
 /// MSR related errors.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug)]
 pub enum Error {
     /// A FamStructWrapper operation has failed.
     Fam(utils::fam::Error),

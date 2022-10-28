@@ -1,24 +1,43 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(not(test))]
 use std::io::prelude::*;
 use std::os::unix::io::AsRawFd;
+#[cfg(not(test))]
 use std::os::unix::net::UnixStream;
+#[cfg(not(test))]
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+#[cfg(not(test))]
+use std::sync::mpsc::channel;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+#[cfg(not(test))]
 use std::sync::{Arc, Mutex};
+#[cfg(not(test))]
 use std::thread;
 
-use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
+#[cfg(not(test))]
+use event_manager::SubscriberOps;
+use event_manager::{EventOps, Events, MutEventSubscriber};
+#[cfg(not(test))]
 use seccompiler::BpfThreadMap;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 
-use crate::api_server::{ApiRequest, ApiResponse, ApiServer};
-use crate::logger::{error, warn, ProcessTimeReporter};
+#[cfg(not(test))]
+use crate::api_server::ApiServer;
+use crate::api_server::{ApiRequest, ApiResponse};
+#[cfg(not(test))]
+use crate::logger::ProcessTimeReporter;
+use crate::logger::{error, warn};
+#[cfg(not(test))]
 use crate::vmm::resources::VmResources;
-use crate::vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
+#[cfg(not(test))]
+use crate::vmm::rpc_interface::PrebootApiController;
+use crate::vmm::rpc_interface::{RuntimeApiController, VmmAction};
+#[cfg(not(test))]
 use crate::vmm::vmm_config::instance_info::InstanceInfo;
+#[cfg(not(test))]
 use crate::vmm::{EventManager, FcExitCode, Vmm};
 
 struct ApiServerAdapter {
@@ -31,6 +50,7 @@ struct ApiServerAdapter {
 impl ApiServerAdapter {
     /// Runs the vmm to completion, while any arising control events are deferred
     /// to a `RuntimeApiController`.
+    #[cfg(not(test))]
     fn run_microvm(
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
@@ -118,6 +138,7 @@ impl MutEventSubscriber for ApiServerAdapter {
     }
 }
 
+#[cfg(not(test))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_api(
     seccomp_filters: &mut BpfThreadMap,
