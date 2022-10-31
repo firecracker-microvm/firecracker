@@ -5,8 +5,6 @@
 This module defines `Microvm`, which can be used to create, test drive, and
 destroy microvms.
 
-# TODO
-
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
@@ -80,6 +78,7 @@ class Microvm:
         monitor_memory=True,
         bin_cloner_path=None,
     ):
+        # pylint: disable=too-many-statements
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
@@ -130,6 +129,7 @@ class Microvm:
         self.actions = None
         self.balloon = None
         self.boot = None
+        self.cpu_cfg = None
         self.desc_inst = None
         self.drive = None
         self.full_cfg = None
