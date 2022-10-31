@@ -10,7 +10,6 @@
   and mitigations, the Guest vCPU will apear to look like a Skylake CPU,
   making it safe to snapshot uVMs running on a newer host CPU (Cascade Lake)
   and restore on a host that has a Skylake CPU.
-
 - Added a new CLI option `--metrics-path PATH`. It accepts a file parameter
   where metrics will be sent to.
 - A MAC address is generated if one is not explicitly specified while adding
