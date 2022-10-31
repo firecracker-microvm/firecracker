@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use arch::x86_64::interrupts;
@@ -15,7 +16,7 @@ use kvm_bindings::{
     kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, warn, IncMetric, METRICS};
+use logger::{error, log_dev_preview_warning, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
@@ -243,7 +244,7 @@ pub struct KvmVcpu {
     pub pio_bus: Option<devices::Bus>,
     pub mmio_bus: Option<devices::Bus>,
 
-    msr_list: std::collections::HashSet<u32>,
+    msr_list: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -281,10 +282,19 @@ impl KvmVcpu {
         cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         // If a template is specified, get the CPUID template, else use `cpuid`.
-        let mut config_cpuid = match vcpu_config.cpu_template {
+        let mut config_cpuid = match &vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2 => cpuid_templates::t2(),
             CpuFeaturesTemplate::T2S => cpuid_templates::t2s(),
             CpuFeaturesTemplate::C3 => cpuid_templates::c3(),
+            CpuFeaturesTemplate::CUSTOM(cpu_config) => {
+                log_dev_preview_warning(
+                    "User-defined CPU configuration",
+                    Some(String::from(
+                        "Configuring guest vCPU with user-defined CPU template",
+                    )),
+                );
+                cpu_config.base_arch_config.to_owned()
+            }
             // If a template is not supplied we use the given `cpuid` as the base.
             CpuFeaturesTemplate::T2CL | CpuFeaturesTemplate::T2A | CpuFeaturesTemplate::None => {
                 cpuid::Cpuid::try_from(cpuid::RawCpuid::from(cpuid))

@@ -1,537 +1,539 @@
 {
+  "base_arch_config": {
     "Amd": {
-        "cpuid_tree": {
-            "{\"leaf\":0,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":16,
-                    "ebx":1752462657,
-                    "ecx":1145913699,
-                    "edx":1769238117
-                }
-            },
-            "{\"leaf\":1,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":8785665,
-                    "ebx":84936704,
-                    "ecx":1995977219,
-                    "edx":126614527
-                }
-            },
-            "{\"leaf\":2,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":3,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":4,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":5,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":6,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":4,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":7,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":563872171,
-                    "ecx":4194308,
-                    "edx":2885681152
-                }
-            },
-            "{\"leaf\":8,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":9,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":10,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":11,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":1,
-                    "ebx":2,
-                    "ecx":256,
-                    "edx":5
-                }
-            },
-            "{\"leaf\":11,\"subleaf\":1}": {
-                "flags":1,
-                "result": {
-                    "eax":7,
-                    "ebx":16,
-                    "ecx":513,
-                    "edx":5
-                }
-            },
-            "{\"leaf\":11,\"subleaf\":2}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":2,
-                    "edx":5
-                }
-            },
-            "{\"leaf\":12,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":13,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":7,
-                    "ebx":832,
-                    "ecx":832,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":13,\"subleaf\":1}": {
-                "flags":1,
-                "result": {
-                    "eax":15,
-                    "ebx":832,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":13,\"subleaf\":2}": {
-                "flags":1,
-                "result": {
-                    "eax":256,
-                    "ebx":576,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":14,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":15,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":16,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":1073741824,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":1073741825,
-                    "ebx":1263359563,
-                    "ecx":1447775574,
-                    "edx":77
-                }
-            },
-            "{\"leaf\":1073741825,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":16809723,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483648,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":2147483679,
-                    "ebx":1752462657,
-                    "ecx":1145913699,
-                    "edx":1769238117
-                }
-            },
-            "{\"leaf\":2147483649,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":8785665,
-                    "ebx":0,
-                    "ecx":12583927,
-                    "edx":802421759
-                }
-            },
-            "{\"leaf\":2147483650,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483651,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483652,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483653,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483654,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":1207985152,
-                    "ebx":1744856064,
-                    "ecx":33579328,
-                    "edx":4231488
-                }
-            },
-            "{\"leaf\":2147483655,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":256
-                }
-            },
-            "{\"leaf\":2147483656,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":12336,
-                    "ebx":50385413,
-                    "ecx":28687,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483657,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483658,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":1,
-                    "ebx":8,
-                    "ecx":0,
-                    "edx":268435465
-                }
-            },
-            "{\"leaf\":2147483659,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483660,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483661,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483662,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483663,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483664,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483665,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483666,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483667,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483668,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483669,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483670,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483671,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483672,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483673,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":4030787648,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483674,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":6,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483675,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483676,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483677,\"subleaf\":0}": {
-                "flags":1,
-                "result": {
-                    "eax":16673,
-                    "ebx":29360191,
-                    "ecx":63,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483677,\"subleaf\":1}": {
-                "flags":1,
-                "result": {
-                    "eax":16674,
-                    "ebx":29360191,
-                    "ecx":63,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483677,\"subleaf\":2}": {
-                "flags":1,
-                "result": {
-                    "eax":16707,
-                    "ebx":29360191,
-                    "ecx":1023,
-                    "edx":2
-                }
-            },
-            "{\"leaf\":2147483677,\"subleaf\":3}": {
-                "flags":1,
-                "result": {
-                    "eax":115043,
-                    "ebx":62914623,
-                    "ecx":4095,
-                    "edx":1
-                }
-            },
-            "{\"leaf\":2147483677,\"subleaf\":4}": {
-                "flags":1,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483678,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":5,
-                    "ebx":258,
-                    "ecx":0,
-                    "edx":0
-                }
-            },
-            "{\"leaf\":2147483679,\"subleaf\":0}": {
-                "flags":0,
-                "result": {
-                    "eax":0,
-                    "ebx":0,
-                    "ecx":0,
-                    "edx":0
-                }
-            }
+      "cpuid_tree": {
+        "{\"leaf\":0,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 16,
+            "ebx": 1752462657,
+            "ecx": 1145913699,
+            "edx": 1769238117
+          }
+        },
+        "{\"leaf\":1,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 8785665,
+            "ebx": 84936704,
+            "ecx": 1995977219,
+            "edx": 126614527
+          }
+        },
+        "{\"leaf\":2,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":3,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":4,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":5,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":6,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 4,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":7,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 563872171,
+            "ecx": 4194308,
+            "edx": 2885681152
+          }
+        },
+        "{\"leaf\":8,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":9,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":10,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":11,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 1,
+            "ebx": 2,
+            "ecx": 256,
+            "edx": 5
+          }
+        },
+        "{\"leaf\":11,\"subleaf\":1}": {
+          "flags": 1,
+          "result": {
+            "eax": 7,
+            "ebx": 16,
+            "ecx": 513,
+            "edx": 5
+          }
+        },
+        "{\"leaf\":11,\"subleaf\":2}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 2,
+            "edx": 5
+          }
+        },
+        "{\"leaf\":12,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":13,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 7,
+            "ebx": 832,
+            "ecx": 832,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":13,\"subleaf\":1}": {
+          "flags": 1,
+          "result": {
+            "eax": 15,
+            "ebx": 832,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":13,\"subleaf\":2}": {
+          "flags": 1,
+          "result": {
+            "eax": 256,
+            "ebx": 576,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":14,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":15,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":16,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":1073741824,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 1073741825,
+            "ebx": 1263359563,
+            "ecx": 1447775574,
+            "edx": 77
+          }
+        },
+        "{\"leaf\":1073741825,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 16809723,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483648,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 2147483679,
+            "ebx": 1752462657,
+            "ecx": 1145913699,
+            "edx": 1769238117
+          }
+        },
+        "{\"leaf\":2147483649,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 8785665,
+            "ebx": 0,
+            "ecx": 12583927,
+            "edx": 802421759
+          }
+        },
+        "{\"leaf\":2147483650,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483651,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483652,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483653,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483654,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 1207985152,
+            "ebx": 1744856064,
+            "ecx": 33579328,
+            "edx": 4231488
+          }
+        },
+        "{\"leaf\":2147483655,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 256
+          }
+        },
+        "{\"leaf\":2147483656,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 12336,
+            "ebx": 50385413,
+            "ecx": 28687,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483657,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483658,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 1,
+            "ebx": 8,
+            "ecx": 0,
+            "edx": 268435465
+          }
+        },
+        "{\"leaf\":2147483659,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483660,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483661,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483662,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483663,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483664,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483665,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483666,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483667,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483668,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483669,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483670,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483671,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483672,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483673,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 4030787648,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483674,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 6,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483675,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483676,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483677,\"subleaf\":0}": {
+          "flags": 1,
+          "result": {
+            "eax": 16673,
+            "ebx": 29360191,
+            "ecx": 63,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483677,\"subleaf\":1}": {
+          "flags": 1,
+          "result": {
+            "eax": 16674,
+            "ebx": 29360191,
+            "ecx": 63,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483677,\"subleaf\":2}": {
+          "flags": 1,
+          "result": {
+            "eax": 16707,
+            "ebx": 29360191,
+            "ecx": 1023,
+            "edx": 2
+          }
+        },
+        "{\"leaf\":2147483677,\"subleaf\":3}": {
+          "flags": 1,
+          "result": {
+            "eax": 115043,
+            "ebx": 62914623,
+            "ecx": 4095,
+            "edx": 1
+          }
+        },
+        "{\"leaf\":2147483677,\"subleaf\":4}": {
+          "flags": 1,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483678,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 5,
+            "ebx": 258,
+            "ecx": 0,
+            "edx": 0
+          }
+        },
+        "{\"leaf\":2147483679,\"subleaf\":0}": {
+          "flags": 0,
+          "result": {
+            "eax": 0,
+            "ebx": 0,
+            "ecx": 0,
+            "edx": 0
+          }
         }
+      }
     }
+  }
 }

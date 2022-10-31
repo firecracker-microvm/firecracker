@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 pub mod balloon;
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
+/// Wrapper for configuring vCPU feature flags.
+// pub mod cpuid::
 /// Wrapper for configuring the block devices.
 pub mod drive;
 /// Wrapper over the microVM general information attached to the microVM.

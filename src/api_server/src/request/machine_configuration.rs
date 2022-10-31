@@ -178,7 +178,8 @@ mod tests {
 
         // 2. Check currently supported fields that can be patched.
         let body = r#"{
-                "track_dirty_pages": true
+                "track_dirty_pages": true,
+                "cpu_template": "T2"
               }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 

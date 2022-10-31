@@ -200,6 +200,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    test_microvm.cpu_cfg.put("framework/resources/cpu_template_config_x86_64_t2s.json")
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
     response = test_microvm.machine_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     response_json = response.json()

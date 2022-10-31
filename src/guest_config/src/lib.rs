@@ -5,9 +5,6 @@ use cpuid::Cpuid;
 use logger::{debug, error, info};
 use serde::{Deserialize, Serialize};
 
-/// Contains types used to configure guest vCPUs.
-pub mod cpu;
-
 /// Contains all CPU feature configuration in binary format
 /// Currently only contains CPUID configuration (x86).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -21,11 +18,11 @@ pub struct CustomCpuConfiguration {
 #[derive(Debug, thiserror::Error)]
 pub enum GuestConfigurationError {
     /// Error while configuring CPU features via CPUID.
-    #[error("Failed to configure CPU (CPUID) features \n [{0}]")]
+    #[error("Failed to configure CPU (CPUID) features\n[{0}]")]
     CpuId(String),
-    /// Error while configuration model-specific registers.
-    #[error("Error while configuring CPU features via model-specific registers")]
-    MSR,
+    /// Internal error.
+    #[error("Internal error processing guest configuration\n[{0}]")]
+    InternalError(String),
     /// JSON library(serde) error processing JSON data.
     #[error("Error processing guest configuration in JSON format - [{0}]")]
     JsonError(serde_json::Error),

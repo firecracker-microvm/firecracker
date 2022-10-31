@@ -195,6 +195,32 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /cpu-config:
+    put:
+      summary: Configures CPU features flags for the vCPUs of the guest VM. Pre-boot only.
+      description:
+        Provides configuration to the Firecracker process to specify vCPU resource configuration prior to
+        launching the guest machine.
+      operationId: putCpuConfiguration
+      parameters:
+        - name: body
+          in: body
+          description: CPU configuration request
+          schema:
+            $ref: "#/definitions/CustomCpuConfiguration"
+      responses:
+        204:
+          description: CPU configuration set
+        400:
+          description: CPU configuration cannot be updated due to invalid input format
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+
   /drives/{drive_id}:
     put:
       summary: Creates or updates a drive. Pre-boot only.
@@ -785,8 +811,18 @@ definitions:
       - T2S
       - T2CL
       - T2A
+      - CUSTOM
       - None
     default: "None"
+
+  CustomCpuConfiguration:
+    type: string
+    description:
+      The CPU configuration defines a set of flags to be disabled/enabled for the microvm.
+    properties:
+      base_arch_config:
+        type: string
+        description: JSON serialized data to configure the guest's CPU
 
   Drive:
     type: object

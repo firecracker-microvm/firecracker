@@ -24,6 +24,7 @@ thiserror = "1.0.32"
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
+guest_config = { path = "../guest_config" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 rate_limiter = { path = "../rate_limiter" }
@@ -39,6 +40,7 @@ cpuid-templates = { path = "../cpuid-templates" }
 
 [dev-dependencies]
 criterion = "0.4.0"
+tempfile = "3.3.0"
 
 [[bench]]
 name = "main"

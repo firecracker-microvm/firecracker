@@ -13,6 +13,7 @@ serde_json = "1.0.78"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 thiserror = "1.0.32"
 
+guest_config = { path = "../guest_config" }
 logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
 mmds = { path = "../mmds" }
@@ -21,4 +22,7 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
+kvm-bindings = { version = "0.6.0", features = ["fam-wrappers"] }
+kvm-ioctls = "0.12.0"
 libc = "0.2.117"
+cpuid = { path = "../cpuid" }

@@ -11,6 +11,7 @@ use super::VmmData;
 use crate::request::actions::parse_put_actions;
 use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
+use crate::request::cpu_configuration::parse_put_cpu_config;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
 use crate::request::instance_info::parse_get_instance_info;
 use crate::request::logger::parse_put_logger;
@@ -104,6 +105,7 @@ impl ParsedRequest {
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
+            (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
@@ -309,6 +311,10 @@ pub(crate) mod tests {
     use std::os::unix::net::UnixStream;
     use std::str::FromStr;
 
+    use cpuid::{Cpuid, RawCpuid};
+    use guest_config::CustomCpuConfiguration;
+    use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
+    use kvm_ioctls::Kvm;
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
     use vmm::resources::VmmConfig;
@@ -952,6 +958,30 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_try_from_put_cpu_config() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        let cpu_config = supported_cpu_config();
+        let cpu_config_json_result = serde_json::to_string(&cpu_config);
+        assert!(
+            cpu_config_json_result.is_ok(),
+            "Unable to serialize CustomCpuConfiguration"
+        );
+        let cpu_config_json = cpu_config_json_result.unwrap();
+        // let cpu_config_json = "{\"base_arch_config\":{\"Amd\":{\"cpuid_tree\":{\"{\\\"leaf\\\":0,\\\"subleaf\\\":0}\":{\"flags\":0,\"result\":{\"eax\":16,\"ebx\":1752462657,\"ecx\":1145913699,\"edx\":1769238117}}}}}}";
+        let result =
+            sender.write_all(http_request("PUT", "/cpu-config", Some(&cpu_config_json)).as_bytes());
+        assert!(result.is_ok());
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let request_result = ParsedRequest::try_from_request(&req);
+        assert!(request_result.is_ok(), "{}", request_result.err().unwrap());
+        #[cfg(target_arch = "aarch64")]
+        assert!(ParsedRequest::try_from_request(&req).is_err());
+    }
+
+    #[test]
     fn test_try_from_patch_mmds() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
@@ -974,5 +1004,30 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    fn supported_cpu_config() -> CustomCpuConfiguration {
+        let kvm_result = Kvm::new();
+        assert!(kvm_result.is_ok(), "Unable to access KVM");
+
+        // Create descriptor KVM resource's file descriptor
+        let vm_fd_result = kvm_result.as_ref().unwrap().create_vm();
+        assert!(vm_fd_result.is_ok(), "{}", vm_fd_result.unwrap_err());
+
+        let kvm_cpuid_result = kvm_result
+            .unwrap()
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES);
+        assert!(
+            kvm_cpuid_result.is_ok(),
+            "{}",
+            kvm_cpuid_result.unwrap_err()
+        );
+        let kvm_cpuid = kvm_cpuid_result.unwrap();
+        let raw_cpuid = RawCpuid::from(kvm_cpuid);
+        let cpuid_result = Cpuid::try_from(raw_cpuid);
+        assert!(cpuid_result.is_ok(), "{}", cpuid_result.unwrap_err());
+        CustomCpuConfiguration {
+            base_arch_config: cpuid_result.unwrap(),
+        }
     }
 }

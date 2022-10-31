@@ -56,7 +56,11 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 name = "api_server"
 version = "0.1.0"
 dependencies = [
+ "cpuid",
  "derive_more",
+ "guest_config",
+ "kvm-bindings",
+ "kvm-ioctls",
  "libc",
  "logger",
  "micro_http",
@@ -1677,6 +1681,7 @@ dependencies = [
  "derive_more",
  "devices",
  "event-manager",
+ "guest_config",
  "kvm-bindings",
  "kvm-ioctls",
  "lazy_static",
@@ -1689,6 +1694,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapshot",
+ "tempfile",
  "thiserror",
  "userfaultfd",
  "utils",

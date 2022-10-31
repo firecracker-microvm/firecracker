@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::fmt;
 
+use guest_config::CustomCpuConfiguration;
 use serde::{de, Deserialize, Serialize};
 
 /// The default memory size of the VM, in MiB.
@@ -236,7 +237,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,
@@ -244,12 +245,14 @@ pub enum CpuFeaturesTemplate {
     T2,
     /// T2S Template.
     T2S,
-    /// No CPU template is used.
-    None,
     /// T2CL Template.
     T2CL,
     /// T2A Template.
     T2A,
+    /// User-specified CPU configuration
+    CUSTOM(CustomCpuConfiguration),
+    /// No CPU template is used.
+    None,
 }
 
 /// Utility methods for handling CPU template types
@@ -267,6 +270,7 @@ impl fmt::Display for CpuFeaturesTemplate {
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
             CpuFeaturesTemplate::T2CL => write!(f, "T2CL"),
             CpuFeaturesTemplate::T2A => write!(f, "T2A"),
+            CpuFeaturesTemplate::CUSTOM(config) => write!(f, "Custom:{:#?}", config),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
     }
