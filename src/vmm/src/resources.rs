@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
-use crate::guest_config::templates::CpuConfigurationType;
+use crate::guest_config::templates::{CpuConfigurationType, CpuTemplate};
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -238,8 +238,14 @@ impl VmResources {
     }
 
     /// Returns the VmConfig.
-    pub fn vm_config(&self) -> &VmConfig {
-        &self.vm_config.config
+    pub fn vm_config(&self) -> VmConfig {
+        self.vm_config.build()
+    }
+
+    /// Add a custom CPU template to the VM resources
+    /// to configure vCPUs.
+    pub fn set_cpu_template(&mut self, cpu_template: CpuTemplate) {
+        self.vm_config.custom_cpu_template = Some(cpu_template);
     }
 
     /// Update the machine configuration of the microVM.
@@ -1272,7 +1278,7 @@ mod tests {
         let vm_resources = default_vm_resources();
         let expected_vm_cfg = VmConfig::default();
 
-        assert_eq!(vm_resources.vm_config(), &expected_vm_cfg);
+        assert_eq!(vm_resources.vm_config(), expected_vm_cfg);
     }
 
     #[test]
