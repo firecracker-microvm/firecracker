@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use crate::guest_config::templates::CpuTemplate;
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
@@ -81,6 +82,10 @@ impl MockVmResources {
         let machine_config = VmUpdateConfig::from(vm_config);
         self.0.update_vm_config(&machine_config).unwrap();
         self
+    }
+
+    pub fn set_cpu_template(&mut self, cpu_template: CpuTemplate) {
+        self.0.vm_config.custom_cpu_template = Some(cpu_template);
     }
 }
 
