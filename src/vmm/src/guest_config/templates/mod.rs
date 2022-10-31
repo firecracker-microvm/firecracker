@@ -153,6 +153,7 @@ pub mod x86_64 {
 
     /// Wrapper type to containing x86_64 CPU config modifiers.
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    #[serde(deny_unknown_fields)]
     pub struct CpuTemplate {
         /// Modifiers for CPUID configuration.
         #[serde(default)]
@@ -486,8 +487,10 @@ pub mod aarch64 {
 
     /// Wrapper type to containing aarch64 CPU config modifiers.
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    #[serde(deny_unknown_fields)]
     pub struct CpuTemplate {
         /// Modifiers for registers on Aarch64 CPUs.
+        #[serde(default)]
         pub reg_modifiers: Vec<RegisterModifier>,
     }
 
@@ -863,7 +866,6 @@ mod tests {
             assert_eq!(5, cpu_config.cpuid_modifiers.len());
             assert_eq!(4, cpu_config.msr_modifiers.len());
         }
-
         #[cfg(target_arch = "aarch64")]
         {
             assert_eq!(2, cpu_config.reg_modifiers.len());
