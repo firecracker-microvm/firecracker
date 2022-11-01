@@ -5,20 +5,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::{fmt, result};
 
 use arch::x86_64::interrupts;
 use arch::x86_64::msr::SetMSRsError;
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use cpuid::{c3, filter_cpuid, t2, t2s, VmSpec};
+use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, MsrList, Msrs,
+    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
-use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
@@ -38,7 +39,7 @@ pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
@@ -85,6 +86,8 @@ pub enum Error {
     VcpuSetMpState(kvm_ioctls::Error),
     /// Failed to set KVM vcpu msrs.
     VcpuSetMsrs(kvm_ioctls::Error),
+    /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
+    VcpuSetMSRSIncomplete,
     /// Failed to set KVM vcpu regs.
     VcpuSetRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu sregs.
@@ -122,7 +125,7 @@ impl Display for Error {
             SREGSConfiguration(err) => {
                 write!(f, "Error configuring the special registers: {:?}", err)
             }
-            FamError(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
+            Fam(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
             FPUConfiguration(err) => write!(
                 f,
                 "Error configuring the floating point related registers: {:?}",
@@ -145,6 +148,10 @@ impl Display for Error {
             VcpuSetLapic(err) => write!(f, "Failed to set KVM vcpu lapic: {}", err),
             VcpuSetMpState(err) => write!(f, "Failed to set KVM vcpu mp state: {}", err),
             VcpuSetMsrs(err) => write!(f, "Failed to set KVM vcpu msrs: {}", err),
+            VcpuSetMSRSIncomplete => write!(
+                f,
+                "Failed to set all KVM MSRs for this vCPU. Only a partial write was done."
+            ),
             VcpuSetRegs(err) => write!(f, "Failed to set KVM vcpu regs: {}", err),
             VcpuSetSregs(err) => write!(f, "Failed to set KVM vcpu sregs: {}", err),
             VcpuSetVcpuEvents(err) => write!(f, "Failed to set KVM vcpu event: {}", err),
@@ -210,7 +217,7 @@ pub struct KvmVcpu {
     pub pio_bus: Option<devices::Bus>,
     pub mmio_bus: Option<devices::Bus>,
 
-    msr_list: MsrList,
+    msr_list: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -228,7 +235,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             pio_bus: None,
             mmio_bus: None,
-            msr_list: vm.supported_msrs().clone(),
+            msr_list: vm.supported_msrs().as_slice().iter().copied().collect(),
         })
     }
 
@@ -261,6 +268,7 @@ impl KvmVcpu {
             })
             .map_err(KvmVcpuConfigureError::FilterCpuid)?;
 
+        // Update the CPUID based on the template
         match vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
@@ -275,17 +283,36 @@ impl KvmVcpu {
             .set_cpuid2(&cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
-        // Set MSRs
+        // Initialize some architectural MSRs that will be set for boot.
         let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
 
+        // By this point the Guest CPUID is established. Some CPU features require MSRs
+        // to configure and interact with those features. If a MSR is writable from
+        // inside the Guest, or is changed by KVM or Firecracker on behalf of the Guest,
+        // then we will need to save it every time we take a snapshot, and restore its
+        // value when we restore the microVM since the Guest may need that value.
+        // Since CPUID tells us what features are enabled for the Guest, we can infer
+        // the extra MSRs that we need to save based on a dependency map.
+        let extra_msrs =
+            msrs_to_save_by_cpuid(&cpuid).map_err(KvmVcpuConfigureError::FilterCpuid)?;
+        self.msr_list.extend(extra_msrs);
+
+        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
+        // be implemented. For now we define known dependencies statically in the CPU
+        // templates.
+
+        // Depending on which CPU template the user selected, we may need to initialize
+        // additional MSRs for boot to correctly enable some CPU features. As stated in
+        // the previous comment, we get from the template a static list of MSRs we need
+        // to save at snapshot as well.
+        // C3 and T2 currently don't have extra MSRs to save/set
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
-            for msr in t2s::msr_entries_to_save() {
-                self.msr_list
-                    .push(*msr)
-                    .map_err(KvmVcpuConfigureError::PushMsrEntries)?;
-            }
+            self.msr_list.extend(t2s::msr_entries_to_save());
             t2s::update_msr_entries(&mut msr_boot_entries);
         }
+        // By this point we know that at snapshot, the list of MSRs we need to
+        // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
+        // MSRs defined by the template`
 
         arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
@@ -333,17 +360,24 @@ impl KvmVcpu {
         // GET_MSRS requires a pre-populated data structure to do something
         // meaningful. For SET_MSRS it will then contain good data.
 
-        // Build the list of MSRs we want to save.
-        let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
-        let mut msrs = Msrs::new(num_msrs).map_err(Error::FamError)?;
-        {
-            let indices = self.msr_list.as_slice();
+        // Build the list of MSRs we want to save. Sometimes we need to save
+        // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
+        // to allow an unlimited number.
+        let mut all_msrs: Vec<Msrs> = Vec::new();
+        let msr_list: Vec<&u32> = self.msr_list.iter().collect();
+
+        // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
+        // them up into `Msrs` so it's easy to pass to the ioctl.
+        for chunk in msr_list.chunks(KVM_MAX_MSR_ENTRIES) {
+            let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
             let msr_entries = msrs.as_mut_slice();
-            assert_eq!(indices.len(), msr_entries.len());
-            for (pos, index) in indices.iter().enumerate() {
-                msr_entries[pos].index = *index;
+            assert_eq!(chunk.len(), msr_entries.len());
+            for (pos, index) in chunk.iter().enumerate() {
+                msr_entries[pos].index = **index;
             }
+            all_msrs.push(msrs);
         }
+
         let mp_state = self.fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
         let regs = self.fd.get_regs().map_err(Error::VcpuGetRegs)?;
         let sregs = self.fd.get_sregs().map_err(Error::VcpuGetSregs)?;
@@ -358,9 +392,12 @@ impl KvmVcpu {
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
-        let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
-        if nmsrs != num_msrs {
-            return Err(Error::VcpuGetMSRSIncomplete);
+        for msrs in all_msrs.iter_mut() {
+            let expected_nmsrs = msrs.as_slice().len();
+            let nmsrs = self.fd.get_msrs(msrs).map_err(Error::VcpuGetMsrs)?;
+            if nmsrs != expected_nmsrs {
+                return Err(Error::VcpuGetMSRSIncomplete);
+            }
         }
         let vcpu_events = self
             .fd
@@ -372,7 +409,8 @@ impl KvmVcpu {
                 .fd
                 .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
                 .map_err(Error::VcpuGetCpuid)?,
-            msrs,
+            saved_msrs: all_msrs,
+            msrs: Msrs::new(0).map_err(Error::Fam)?,
             debug_regs,
             lapic,
             mp_state,
@@ -406,8 +444,7 @@ impl KvmVcpu {
 
     // Scale the TSC frequency of this vCPU to the one provided as a parameter.
     pub fn set_tsc_khz(&self, tsc_freq: u32) -> std::result::Result<(), SetTscError> {
-        let res = self.fd.set_tsc_khz(tsc_freq)?;
-        Ok(res)
+        self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
 
     /// Use provided state to populate KVM internal state.
@@ -453,7 +490,12 @@ impl KvmVcpu {
         self.fd
             .set_lapic(&state.lapic)
             .map_err(Error::VcpuSetLapic)?;
-        self.fd.set_msrs(&state.msrs).map_err(Error::VcpuSetMsrs)?;
+        for msrs in &state.saved_msrs {
+            let nmsrs = self.fd.set_msrs(msrs).map_err(Error::VcpuSetMsrs)?;
+            if nmsrs < msrs.as_fam_struct_ref().nmsrs as usize {
+                return Err(Error::VcpuSetMSRSIncomplete);
+            }
+        }
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(Error::VcpuSetVcpuEvents)?;
@@ -498,7 +540,10 @@ impl KvmVcpu {
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {
     pub cpuid: CpuId,
+    #[version(end = 3, default_fn = "default_msrs")]
     msrs: Msrs,
+    #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
+    saved_msrs: Vec<Msrs>,
     debug_regs: kvm_debugregs,
     lapic: kvm_lapic_state,
     mp_state: kvm_mp_state,
@@ -522,12 +567,48 @@ impl VcpuState {
         warn!(
             "Saving to older snapshot version, TSC freq {}",
             self.tsc_khz
-                .clone()
                 .map(|freq| freq.to_string() + "KHz not included in snapshot.")
                 .unwrap_or_else(|| "not available.".to_string())
         );
 
         Ok(())
+    }
+
+    fn default_msrs(_source_version: u16) -> Msrs {
+        // Safe to unwrap since Msrs::new() only returns an error if the number
+        // of elements exceeds KVM_MAX_MSR_ENTRIES
+        Msrs::new(0).unwrap()
+    }
+
+    fn de_saved_msrs(&mut self, source_version: u16) -> VersionizeResult<()> {
+        if source_version < 3 {
+            self.saved_msrs.push(self.msrs.clone());
+        }
+        Ok(())
+    }
+
+    fn ser_saved_msrs(&mut self, target_version: u16) -> VersionizeResult<()> {
+        match self.saved_msrs.len() {
+            0 => Err(VersionizeError::Serialize(
+                "Cannot serialize MSRs because the MSR list is empty".to_string(),
+            )),
+            1 => {
+                if target_version < 3 {
+                    self.msrs = self.saved_msrs[0].clone();
+                    Ok(())
+                } else {
+                    Err(VersionizeError::Serialize(format!(
+                        "Cannot serialize MSRs to target version {}",
+                        target_version
+                    )))
+                }
+            }
+            _ => Err(VersionizeError::Serialize(
+                "Cannot serialize MSRs. The uVM state needs to save
+                 more MSRs than the target snapshot version supports."
+                    .to_string(),
+            )),
+        }
     }
 }
 
@@ -549,6 +630,7 @@ mod tests {
             VcpuState {
                 cpuid: CpuId::new(1).unwrap(),
                 msrs: Msrs::new(1).unwrap(),
+                saved_msrs: vec![Msrs::new(1).unwrap()],
                 debug_regs: Default::default(),
                 lapic: Default::default(),
                 mp_state: Default::default(),

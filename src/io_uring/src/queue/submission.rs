@@ -139,7 +139,7 @@ impl SubmissionQueue {
                 self.to_submit,
                 min_complete,
                 flags,
-                std::ptr::null() as *const libc::sigset_t,
+                std::ptr::null::<libc::sigset_t>(),
             )
         } as libc::c_int)
         .into_result()?
@@ -193,7 +193,7 @@ impl SubmissionQueue {
 impl Drop for SubmissionQueue {
     fn drop(&mut self) {
         // Safe because parameters are valid.
-        unsafe { libc::munmap(self.ring.as_ptr() as *mut libc::c_void, self.ring.size()) };
-        unsafe { libc::munmap(self.sqes.as_ptr() as *mut libc::c_void, self.sqes.size()) };
+        unsafe { libc::munmap(self.ring.as_ptr().cast::<libc::c_void>(), self.ring.size()) };
+        unsafe { libc::munmap(self.sqes.as_ptr().cast::<libc::c_void>(), self.sqes.size()) };
     }
 }

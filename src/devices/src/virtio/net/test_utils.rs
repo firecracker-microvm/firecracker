@@ -142,7 +142,7 @@ impl TapTrafficSimulator {
         let ret = unsafe {
             libc::bind(
                 socket.as_raw_fd(),
-                send_addr_ptr as *const _,
+                send_addr_ptr.cast(),
                 mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
             )
         };
@@ -158,7 +158,7 @@ impl TapTrafficSimulator {
 
         Self {
             socket,
-            send_addr: unsafe { *(send_addr_ptr as *const _) },
+            send_addr: unsafe { *(send_addr_ptr.cast()) },
         }
     }
 
@@ -166,10 +166,10 @@ impl TapTrafficSimulator {
         let res = unsafe {
             libc::sendto(
                 self.socket.as_raw_fd(),
-                buf.as_ptr() as *const _,
+                buf.as_ptr().cast(),
                 buf.len(),
                 0,
-                (&self.send_addr as *const libc::sockaddr_ll) as *const _,
+                (&self.send_addr as *const libc::sockaddr_ll).cast(),
                 mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
             )
         };
@@ -185,7 +185,7 @@ impl TapTrafficSimulator {
                 buf.as_ptr() as *mut _,
                 buf.len(),
                 0,
-                (&mut mem::zeroed() as *mut libc::sockaddr_storage) as *mut _,
+                (&mut mem::zeroed() as *mut libc::sockaddr_storage).cast(),
                 &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
             )
         };
@@ -229,7 +229,7 @@ pub fn if_index(tap: &Tap) -> i32 {
         .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
         .unwrap();
 
-    unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() }
+    unsafe { ifreq.ifr_ifru.ifru_ivalue }
 }
 
 /// Enable the tap interface.
@@ -480,7 +480,7 @@ pub mod test {
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len() as u32);
-            self.rxq.dtable[0].check_data(&expected_frame);
+            self.rxq.dtable[0].check_data(expected_frame);
         }
 
         // Generates a frame of `frame_len` and writes it to the provided descriptor chain.

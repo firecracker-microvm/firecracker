@@ -61,6 +61,8 @@ pub mod leaf_0x1 {
     }
 
     pub mod edx {
+        pub const MCE_BITINDEX: u32 = 7; // Memory Check Exception
+        pub const MTRR_BITINDEX: u32 = 12; // Memory Type Range Registers
         pub const PSN_BITINDEX: u32 = 18; // Processor Serial Number
         pub const SSE42_BITINDEX: u32 = 20; // SSE 4.2
         pub const DS_BITINDEX: u32 = 21; // Debug Store.

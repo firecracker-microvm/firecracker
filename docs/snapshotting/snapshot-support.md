@@ -24,7 +24,7 @@
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
 - [Known Issues](#known-issues)
-  - [Vsock device limitations](#vsock-device-limitations)
+  - [Vsock device limitation](#vsock-device-limitation)
 
 ## About microVM snapshotting
 
@@ -118,7 +118,7 @@ The baseline for snapshot resume latency target on Intel is under **8ms** with
   For recommendations related to guest network connectivity for clones please
   see [Network connectivity for clones](network-for-clones.md).
 - Vsock device does not have full snapshotting support.
-  Please see [Vsock device limitations](#vsock-device-limitations).
+  Please see [Vsock device limitation](#vsock-device-limitation).
 - Poor entropy and replayable randomness when resuming multiple microvms which
   deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.

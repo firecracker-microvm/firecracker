@@ -1227,4 +1227,4 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
-        description: This parameter has been deprecated since v1.1.0.
+        description: This parameter has been deprecated since v1.0.0.

@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::ptr_as_ptr)]
+
 pub mod data_store;
 pub mod ns;
 pub mod persist;
@@ -46,7 +48,7 @@ impl fmt::Display for Error {
                  specify the token's lifetime."
             ),
             Error::ResourceNotFound(ref uri) => {
-                write!(f, "{}", format!("Resource not found: {}.", uri))
+                write!(f, "Resource not found: {uri}.")
             }
         }
     }
@@ -615,7 +617,7 @@ mod tests {
         // Test GET request with invalid tokens.
         // `valid_token` will become invalid after one second, when it expires.
         let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
-        let invalid_token = std::iter::repeat("a").take(58).collect::<String>();
+        let invalid_token = "a".repeat(58);
         let tokens = [invalid_token, valid_token];
         for token in tokens.iter() {
             let request_bytes = format!(

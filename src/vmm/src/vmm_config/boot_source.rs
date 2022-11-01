@@ -24,7 +24,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 825
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Versionize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.
@@ -98,13 +98,12 @@ impl BootConfig {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
-        let mut cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        let boot_args = match cfg.boot_args.as_ref() {
+
+        let cmdline_str = match cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
         };
-        cmdline
-            .insert_str(boot_args)
+        let cmdline = linux_loader::cmdline::Cmdline::try_from(cmdline_str, arch::CMDLINE_MAX_SIZE)
             .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
@@ -134,6 +133,9 @@ pub(crate) mod tests {
 
         let boot_cfg = BootConfig::new(&boot_src_cfg).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
-        assert_eq!(boot_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+        assert_eq!(
+            boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
+            [DEFAULT_KERNEL_CMDLINE.as_bytes(), &[b'\0']].concat()
+        );
     }
 }

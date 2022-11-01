@@ -10,12 +10,12 @@
   and mitigations, the Guest vCPU will apear to look like a Skylake CPU,
   making it safe to snapshot uVMs running on a newer host CPU (Cascade Lake)
   and restore on a host that has a Skylake CPU.
-
 - Added a new CLI option `--metrics-path PATH`. It accepts a file parameter
   where metrics will be sent to.
 - A MAC address is generated if one is not explicitly specified while adding
   network interfaces. This address can be obtained as part of the GET
   `/vm/config`.
+- Added baselines for m6i.metal for all long running performance tests.
 
 ### Changed
 
@@ -35,6 +35,9 @@
 - Fixed a self-DoS scenario in the virtio-queue code by reporting and
   terminating execution when the number of available descriptors reported
   by the driver is higher than the queue size.
+- Fixed the bad handling of kernel cmdline parameters when init arguments
+  where provided in the `boot_args` field of the JSON body of the
+  PUT `/boot-source` request.
 
 ## [1.1.0]
 

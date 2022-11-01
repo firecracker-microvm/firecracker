@@ -46,26 +46,27 @@ fn main() {
     // Run seccompiler-bin, getting the default, advanced filter.
     let mut bpf_out_path = PathBuf::from(&out_dir);
     bpf_out_path.push(ADVANCED_BINARY_FILTER_FILE_NAME);
-    run_seccompiler_bin(
-        &target,
-        json_path,
-        bpf_out_path.to_str().expect("Invalid bytes."),
-    );
+    run_seccompiler_bin(json_path, bpf_out_path.to_str().expect("Invalid bytes."));
 }
 
 // Run seccompiler with the given arguments.
-fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
+fn run_seccompiler_bin(json_path: &str, out_path: &str) {
+    // We have a global `target` directive in our .cargo/config file specifying x86_64 architecture.
+    // However, seccompiler-bin has to be compiled for the host architecture. Without this, cargo
+    // would produce a x86_64 binary on aarch64 host, causing this compilation step to fail as such
+    // a binary would not be executable.
+    let host_arch = env::var("HOST").expect("Could not determine compilation host");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
     // Command for running seccompiler-bin
     let mut command = Command::new("cargo");
-    command.args(&[
+    command.args([
         "run",
         "-p",
         "seccompiler",
         "--verbose",
         "--target",
-        &cargo_target,
+        &host_arch,
         // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
@@ -73,7 +74,7 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
         SECCOMPILER_BUILD_DIR,
         "--",
         "--input-file",
-        &json_path,
+        json_path,
         "--target-arch",
         &target_arch,
         "--output-file",

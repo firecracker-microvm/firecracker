@@ -29,7 +29,7 @@ pub(crate) fn update_feature_info_entry(
         // Stepping = 2
         .write_bits_in_range(&eax::STEPPING_BITRANGE, 2);
 
-    // Disable Features
+    // Enable/disable Features
     entry
         .ecx
         .write_bit(ecx::DTES64_BITINDEX, false)
@@ -48,6 +48,8 @@ pub(crate) fn update_feature_info_entry(
 
     entry
         .edx
+        .write_bit(edx::MCE_BITINDEX, true)
+        .write_bit(edx::MTRR_BITINDEX, true)
         .write_bit(edx::PSN_BITINDEX, false)
         .write_bit(edx::SSE42_BITINDEX, false)
         .write_bit(edx::DS_BITINDEX, false)

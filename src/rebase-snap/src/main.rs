@@ -1,6 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::ptr_as_ptr)]
+
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
@@ -103,7 +105,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    &mut cursor as *mut u64 as *mut i64,
+                    (&mut cursor as *mut u64).cast::<i64>(),
                     block_end.saturating_sub(cursor) as usize,
                 )
             };
@@ -282,7 +284,7 @@ mod tests {
 
             // 4. The diff file is bigger
             let mut diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
-            diff_file.write_all(&diff_block.as_bytes()).unwrap();
+            diff_file.write_all(diff_block.as_bytes()).unwrap();
             expected_result.append(unsafe { diff_block.as_mut_vec() });
             // Rebase and check the result
             rebase(&mut base_file, &mut diff_file).unwrap();

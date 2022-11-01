@@ -26,7 +26,7 @@ pub enum Error {
     /// Failed to get a system register.
     GetSysRegister(kvm_ioctls::Error),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(kvm_ioctls::Error, String),
     /// Failed to Set multiprocessor state.
@@ -55,7 +55,7 @@ impl fmt::Display for Error {
             SetMP(ref err) => write!(f, "Failed to set multiprocessor state: {}", err),
             SetRegister(ref err) => write!(f, "Failed to set register: {}", err),
             GetMidrEl1(ref err) => write!(f, "{}", err),
-            FamError(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
+            Fam(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
         }
     }
 }
@@ -80,17 +80,15 @@ const NR_FP_VREGS: usize = 32;
 // The core register are represented by the user_pt_regs structure. Look for it in
 // arch/arm64/include/uapi/asm/ptrace.h.
 
-// This macro gets the offset of a structure (i.e `str`) member (i.e `field`) without having
-// an instance of that structure.
-// It uses a null pointer to retrieve the offset to the field.
-// Inspired by C solution: `#define offsetof(str, f) ((size_t)(&((str *)0)->f))`.
-// Doing `offset__of!(user_pt_regs, pstate)` in our rust code will trigger the following:
-// unsafe { &(*(0 as *const user_pt_regs)).pstate as *const _ as usize }
-// The dereference expression produces an lvalue, but that lvalue is not actually read from,
-// we're just doing pointer math on it, so in theory, it should be safe.
+// Gets offset of a member (`field`) within a struct (`container`).
+// Same as bindgen offset tests.
 macro_rules! offset__of {
-    ($str:ty, $field:ident) => {
-        unsafe { &(*(std::ptr::null::<$str>())).$field as *const _ as usize }
+    ($container:ty, $field:ident) => {
+        unsafe {
+            let uninit = std::mem::MaybeUninit::<$container>::uninit();
+            let ptr = uninit.as_ptr();
+            std::ptr::addr_of!((*ptr).$field) as usize - ptr as usize
+        }
     };
 }
 
@@ -177,18 +175,11 @@ pub fn get_manufacturer_id_from_host() -> Result<u32> {
         &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
 
     let midr_el1 = fs::read_to_string(midr_el1_path).map_err(|err| {
-        Error::GetMidrEl1(format!(
-            "Failed to get MIDR_EL1 from host path: {}",
-            err.to_string()
-        ))
+        Error::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
     let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
-    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16).map_err(|err| {
-        Error::GetMidrEl1(format!(
-            "Invalid MIDR_EL1 found on host: {}",
-            err.to_string()
-        ))
-    })?;
+    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16)
+        .map_err(|err| Error::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {err}",)))?;
 
     Ok(manufacturer_id >> 24)
 }
@@ -401,7 +392,7 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
-    let mut reg_list = RegList::new(500).map_err(Error::FamError)?;
+    let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 
@@ -579,15 +570,15 @@ mod tests {
 
         let res = get_mpstate(&vcpu);
         assert!(res.is_err());
-        &&assert_eq!(
-            format!("{}", res.unwrap_err()),
+        assert_eq!(
+            res.unwrap_err().to_string(),
             "Failed to get multiprocessor state: Bad file descriptor (os error 9)"
         );
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
         assert!(res.is_err());
-        &&assert_eq!(
-            format!("{}", res.unwrap_err()),
+        assert_eq!(
+            res.unwrap_err().to_string(),
             "Failed to set multiprocessor state: Bad file descriptor (os error 9)"
         );
     }

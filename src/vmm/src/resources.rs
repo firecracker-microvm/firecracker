@@ -73,7 +73,7 @@ impl std::fmt::Display for Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -169,7 +169,7 @@ impl VmResources {
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
             resources.locked_mmds_or_default().put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+                serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
             info!("Successfully added metadata to mmds from file");
         }
@@ -199,19 +199,19 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::SharedBlock(block) => {
+            SharedDeviceType::Block(block) => {
                 self.block.add_device(block);
             }
 
-            SharedDeviceType::SharedNetwork(network) => {
+            SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
 
-            SharedDeviceType::SharedBalloon(balloon) => {
+            SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
             }
 
-            SharedDeviceType::SharedVsock(vsock) => {
+            SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
         }
@@ -365,13 +365,13 @@ impl VmResources {
         self.balloon.set(config)
     }
 
-    /// Obtains the boot source hooks (kernel fd, commandline creation and validation).
+    /// Obtains the boot source hooks (kernel fd, command line creation and validation).
     pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
         self.set_boot_source_config(boot_source_cfg);
-        self.boot_source.builder = Some(BootConfig::new(&self.boot_source_config())?);
+        self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
     }
 
@@ -565,8 +565,8 @@ mod tests {
     }
 
     fn default_boot_cfg() -> BootSource {
-        let mut kernel_cmdline = linux_loader::cmdline::Cmdline::new(4096);
-        kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+        let kernel_cmdline =
+            linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
         let tmp_file = TempFile::new().unwrap();
         BootSource {
             config: BootSourceConfig::default(),
@@ -594,7 +594,7 @@ mod tests {
 
     impl PartialEq for BootConfig {
         fn eq(&self, other: &Self) -> bool {
-            self.cmdline.as_str().eq(other.cmdline.as_str())
+            self.cmdline.eq(&other.cmdline)
                 && self.kernel_file.metadata().unwrap().st_ino()
                     == other.kernel_file.metadata().unwrap().st_ino()
                 && self
@@ -1397,7 +1397,14 @@ mod tests {
         let boot_builder = vm_resources.boot_source_builder().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
-        assert_ne!(boot_builder.cmdline.as_str(), cmdline);
+        assert_ne!(
+            boot_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
         assert_ne!(
             boot_builder.kernel_file.metadata().unwrap().st_ino(),
             tmp_ino
@@ -1415,7 +1422,14 @@ mod tests {
 
         vm_resources.build_boot_source(expected_boot_cfg).unwrap();
         let boot_source_builder = vm_resources.boot_source_builder().unwrap();
-        assert_eq!(boot_source_builder.cmdline.as_str(), cmdline);
+        assert_eq!(
+            boot_source_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
         assert_eq!(
             boot_source_builder.kernel_file.metadata().unwrap().st_ino(),
             tmp_ino

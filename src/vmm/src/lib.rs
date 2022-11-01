@@ -74,7 +74,7 @@ pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FcExitCode {
     /// Success exit code.
     Ok = 0,
@@ -118,6 +118,10 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 /// have permissions to open the KVM fd).
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[cfg(target_arch = "aarch64")]
+    #[error("Invalid cmdline")]
+    /// Invalid command line error.
+    Cmdline,
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]

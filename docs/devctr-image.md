@@ -16,6 +16,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    you've ever built Firecracker from source.
 1. Access to both an `x86_64` and `aarch64` machines to build the container
    images.
+1. Ensure `aws --version` is >=1.17.10.
 
 ## Steps
 

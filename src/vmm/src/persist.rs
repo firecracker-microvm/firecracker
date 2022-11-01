@@ -48,7 +48,7 @@ use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManag
 const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
-#[derive(Clone, Debug, Default, PartialEq, Versionize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Versionize, Serialize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
@@ -249,7 +249,7 @@ pub fn create_snapshot(
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     // Fail early from invalid target version.
-    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
+    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, vmm)?;
 
     let microvm_state = vmm
         .save_state(vm_info)
@@ -492,9 +492,9 @@ pub fn snapshot_state_sanity_check(
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_cpu_vendor(&microvm_state)?;
+    validate_cpu_vendor(microvm_state)?;
     #[cfg(target_arch = "aarch64")]
-    validate_cpu_manufacturer_id(&microvm_state)?;
+    validate_cpu_manufacturer_id(microvm_state)?;
 
     Ok(())
 }
@@ -511,8 +511,8 @@ pub enum RestoreFromSnapshotError {
     /// Failed to load guest memory
     #[error("Failed to load guest memory: {0}")]
     GuestMemory(#[from] RestoreFromSnapshotGuestMemoryError),
-    /// Failed build micro-VM from snapshot.
-    #[error("Failed build micro-VM from snapshot: {0}")]
+    /// Failed to build microVM from snapshot.
+    #[error("Failed to build microVM from snapshot: {0}")]
     Build(#[from] BuildMicrovmFromSnapshotError),
 }
 /// Sub-Error type for [`restore_from_snapshot`] to contain either [`GuestMemoryFromFileError`] or

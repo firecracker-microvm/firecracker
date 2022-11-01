@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
 
 //! The library crate that defines common helper functions that are generally used in
 //! conjunction with seccompiler-bin.
@@ -49,7 +50,7 @@ impl Display for DeserializationError {
 }
 
 /// Filter installation errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InstallationError {
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
     FilterTooLarge,

@@ -12,7 +12,7 @@ pub(crate) const BPF_MAX_LEN: usize = 4096;
 /// BPF instruction structure definition.
 /// See /usr/include/linux/filter.h .
 #[repr(C)]
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[doc(hidden)]
 pub struct sock_filter {
     pub code: ::std::os::raw::c_ushort,

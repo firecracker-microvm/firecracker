@@ -13,7 +13,7 @@ use kvm_ioctls::{Kvm, VcpuFd};
 /// MSR related errors.
 pub enum Error {
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// Getting supported MSRs failed.
     GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
     /// Setting up MSRs failed.
@@ -220,7 +220,6 @@ static ALLOWED_MSR_RANGES: &[MsrRange] = &[
     SINGLE_MSR!(MSR_TURBO_ACTIVATION_RATIO),
     SINGLE_MSR!(MSR_IA32_TSCDEADLINE),
     MSR_RANGE!(APIC_BASE_MSR, APIC_MSR_INDEXES),
-    SINGLE_MSR!(MSR_IA32_BNDCFGS),
     SINGLE_MSR!(MSR_KVM_WALL_CLOCK_NEW),
     SINGLE_MSR!(MSR_KVM_SYSTEM_TIME_NEW),
     SINGLE_MSR!(MSR_KVM_ASYNC_PF_EN),
@@ -312,7 +311,7 @@ pub fn set_msrs(
     vcpu: &VcpuFd,
     msr_entries: &[kvm_msr_entry],
 ) -> std::result::Result<(), SetMSRsError> {
-    let msrs = Msrs::from_entries(&msr_entries).map_err(SetMSRsError::Create)?;
+    let msrs = Msrs::from_entries(msr_entries).map_err(SetMSRsError::Create)?;
     vcpu.set_msrs(&msrs)
         .map_err(SetMSRsError::Set)
         .and_then(|msrs_written| {
