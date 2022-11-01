@@ -1689,6 +1689,813 @@
                     }
                 ]
             },
+            "m6i.metal": {
+                "cpus": [
+                    {
+                        "model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz",
+                        "baselines": {
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 3737,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 28887,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 39800,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 3731,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 28227,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 38276,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 3528,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 20589,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 49899,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 3524,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 22168,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 47730,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 6689,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 33460,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 38851,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 6661,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 32959,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 35671,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 5523,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 35527,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 48111,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 5515,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 37036,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 46657,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 5844,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 34764,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 42902,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 5850,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 32965,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 39970,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 3469,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 25526,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 42545,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 3321,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 25342,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 39083,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 3187,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 20115,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 48326,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 3184,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 22177,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 47703,
+                                                    "delta_percentage": 7
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 5261,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 32216,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 39712,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 5240,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 31501,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 36279,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 4903,
+                                                    "delta_percentage": 4
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 26534,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 50682,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 4906,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 30562,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 50376,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 4596,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 36586,
+                                                    "delta_percentage": 11
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 46153,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 4570,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 35636,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 44133,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 59,
+                                                    "delta_percentage": 12
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 119,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 102,
+                                                    "delta_percentage": 14
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 193,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 195,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 178,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 172,
+                                                    "delta_percentage": 7
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 99,
+                                                    "delta_percentage": 5
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 115,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 104,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 192,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 197,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 128,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 198,
+                                                    "delta_percentage": 5
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 121,
+                                                    "delta_percentage": 7
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 57,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 87,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 91,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 57,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 85,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 91,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 39,
+                                                    "delta_percentage": 11
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 49,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 88,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 40,
+                                                    "delta_percentage": 11
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 61,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 92,
+                                                    "delta_percentage": 7
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 72,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 72,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 48,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 84,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 89,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 48,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 91,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 93,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 60,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 87,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 89,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 60,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 86,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 89,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 50,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 77,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 52,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 76,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 90,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 38,
+                                                    "delta_percentage": 11
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 49,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 88,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 38,
+                                                    "delta_percentage": 12
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 62,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 93,
+                                                    "delta_percentage": 8
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-ws16K-g2h": {
+                                                    "target": 59,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-ws256K-g2h": {
+                                                    "target": 85,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "target": 91,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-g2h": {
+                                                    "target": 59,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-pDEFAULT-ws256K-g2h": {
+                                                    "target": 85,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "target": 91,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-h2g": {
+                                                    "target": 45,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-p1024K-ws256K-h2g": {
+                                                    "target": 60,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "target": 93,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-h2g": {
+                                                    "target": 45,
+                                                    "delta_percentage": 10
+                                                },
+                                                "tcp-pDEFAULT-ws256K-h2g": {
+                                                    "target": 80,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "target": 97,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-p1024K-ws16K-bd": {
+                                                    "target": 57,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-p1024K-ws256K-bd": {
+                                                    "target": 92,
+                                                    "delta_percentage": 8
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "target": 94,
+                                                    "delta_percentage": 7
+                                                },
+                                                "tcp-pDEFAULT-ws16K-bd": {
+                                                    "target": 57,
+                                                    "delta_percentage": 9
+                                                },
+                                                "tcp-pDEFAULT-ws256K-bd": {
+                                                    "target": 92,
+                                                    "delta_percentage": 6
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "target": 96,
+                                                    "delta_percentage": 6
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
             "m6g.metal": {
                 "cpus": [
                     {
