@@ -250,7 +250,7 @@ build_jailer_bin_path() {
 build_seccomp_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
 }
 
 build_rebase_snap_bin_path() {
@@ -798,13 +798,13 @@ cmd_build() {
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
 
-    # Build seccompiler-bin.
+    # Build seccompiler.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         ${extra_args} \
         -- \
-        cargo build -p seccompiler --bin seccompiler-bin \
+        cargo build -p seccompiler --bin seccompiler \
             --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
             "${cargo_args[@]}"
     ret=$?
@@ -860,7 +860,7 @@ cmd_build() {
         # messages.
         say "Build successful."
         say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
-        say "Seccompiler-bin binary placed under $seccompiler_bin_dir"
+        say "Seccompiler binary placed under $seccompiler_bin_dir"
         say "Rebase_snap binary placed under $rebase_snap_bin_dir"
     }
 
@@ -928,14 +928,14 @@ cmd_strip() {
       strip $strip_flags\
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
         "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
-        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" \
+        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler" \
         "$CTR_CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
     ret=$?
 
     [ $ret -eq 0 ] && {
         say "Stripping was successful."
         say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
-        say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
+        say "Stripped seccompiler binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
         say "Stripped rebase-snap binary placed under $CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile."
     }
 

@@ -4,7 +4,7 @@
 #![warn(clippy::ptr_as_ptr)]
 
 //! The library crate that defines common helper functions that are generally used in
-//! conjunction with seccompiler-bin.
+//! conjunction with seccompiler.
 
 mod common;
 

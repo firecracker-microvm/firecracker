@@ -1,8 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Module that defines common data structures used by both the library crate
-//! and seccompiler-bin.
+//! Module that defines common data structures used by both the seccompiler
+//! library and executable.
 
 use serde::{Deserialize, Serialize};
 

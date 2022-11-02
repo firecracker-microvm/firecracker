@@ -92,7 +92,7 @@ def get_rustflags():
 
 def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     """
-    Run seccompiler-bin.
+    Run seccompiler.
 
     :param bpf_path: path to the output file
     :param json_path: optional path to json file

@@ -12,7 +12,7 @@ const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
 const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 
 // This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
-// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
+// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
     let target = env::var("TARGET").expect("Missing target.");
@@ -43,7 +43,7 @@ fn main() {
     // Also retrigger the build script on any seccompiler source code change.
     register_seccompiler_src_watchlist(Path::new(SECCOMPILER_SRC_DIR));
 
-    // Run seccompiler-bin, getting the default, advanced filter.
+    // Run seccompiler, getting the default, advanced filter.
     let mut bpf_out_path = PathBuf::from(&out_dir);
     bpf_out_path.push(ADVANCED_BINARY_FILTER_FILE_NAME);
     run_seccompiler_bin(json_path, bpf_out_path.to_str().expect("Invalid bytes."));
@@ -52,13 +52,13 @@ fn main() {
 // Run seccompiler with the given arguments.
 fn run_seccompiler_bin(json_path: &str, out_path: &str) {
     // We have a global `target` directive in our .cargo/config file specifying x86_64 architecture.
-    // However, seccompiler-bin has to be compiled for the host architecture. Without this, cargo
+    // However, seccompiler has to be compiled for the host architecture. Without this, cargo
     // would produce a x86_64 binary on aarch64 host, causing this compilation step to fail as such
     // a binary would not be executable.
     let host_arch = env::var("HOST").expect("Could not determine compilation host");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
-    // Command for running seccompiler-bin
+    // Command for running seccompiler
     let mut command = Command::new("cargo");
     command.args([
         "run",
@@ -67,7 +67,7 @@ fn run_seccompiler_bin(json_path: &str, out_path: &str) {
         "--verbose",
         "--target",
         &host_arch,
-        // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
+        // We need to specify a separate build directory for seccompiler. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
         "--target-dir",
@@ -82,10 +82,10 @@ fn run_seccompiler_bin(json_path: &str, out_path: &str) {
     ]);
 
     match command.output() {
-        Err(error) => panic!("\nSeccompiler-bin error: {:?}\n", error),
+        Err(error) => panic!("\nSeccompiler error: {:?}\n", error),
         Ok(result) if !result.status.success() => {
             panic!(
-                "\nSeccompiler-bin returned non-zero exit code:\nstderr: {}\nstdout: {}\n",
+                "\nSeccompiler returned non-zero exit code:\nstderr: {}\nstdout: {}\n",
                 String::from_utf8(result.stderr).unwrap(),
                 String::from_utf8(result.stdout).unwrap(),
             );

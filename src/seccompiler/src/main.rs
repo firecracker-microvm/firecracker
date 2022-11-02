@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
+//! seccompiler is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
 //! into raw BPF programs, serializing them and outputting them to a file.
 //!
 //! Used in conjunction with the provided library crate, one can deserialize the binary filters
@@ -189,12 +189,12 @@ fn main() {
     }
 
     if arg_parser.arguments().flag_present("help") {
-        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
         println!("{}", arg_parser.formatted_help());
         return;
     }
     if arg_parser.arguments().flag_present("version") {
-        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
         return;
     }
 
@@ -403,7 +403,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler-bin",
+                    "seccompiler",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -429,7 +429,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler-bin",
+                    "seccompiler",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -458,7 +458,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler-bin"]
+                vec!["seccompiler"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -470,7 +470,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler-bin", "--input-file", "foo.txt"]
+                vec!["seccompiler", "--input-file", "foo.txt"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -482,7 +482,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler-bin", "--target-arch", "x86_64"]
+                vec!["seccompiler", "--target-arch", "x86_64"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -495,7 +495,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler-bin",
+                    "seccompiler",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -516,7 +516,7 @@ mod tests {
         assert!(arguments
             .parse(
                 vec![
-                    "seccompiler-bin",
+                    "seccompiler",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",

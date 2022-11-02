@@ -2,28 +2,28 @@
 
 ## Overview
 
-Seccompiler-bin is a tool that compiles seccomp filters expressed as JSON files
+Seccompiler is a tool that compiles seccomp filters expressed as JSON files
 into serialized, binary BPF code that is directly consumed by Firecracker,
 at build or launch time.
 
-Seccompiler-bin uses a custom [JSON file structure](#json-file-format),
+Seccompiler uses a custom [JSON file structure](#json-file-format),
 detailed further below, that the filters must adhere to.
 
-Besides the seccompiler-bin executable, seccompiler also exports a library
+Besides the seccompiler executable, seccompiler also exports a library
 interface, with helper functions for deserializing and installing the binary
 filters.
 
 ## Usage
 
-### Seccompiler-bin
+### Seccompiler
 
-To view the seccompiler-bin command line arguments, pass the `--help` parameter
+To view the seccompiler command line arguments, pass the `--help` parameter
 to the executable.
 
 Example usage:
 
 ```bash
-./seccompiler-bin
+./seccompiler
     --target-arch "x86_64"  # The CPU arch where the BPF program will run.
                             # Supported architectures: x86_64, aarch64.
     --input-file "x86_64_musl.json" # File path of the JSON input.
@@ -45,12 +45,12 @@ workspace. The code is located at `firecracker/src/seccompiler/src`.
 
 ## Supported platforms
 
-Seccompiler-bin is supported on the
+Seccompiler is supported on the
 [same platforms as Firecracker](../README.md#supported-platforms).
 
 ## Release policy
 
-Seccompiler-bin follows Firecracker's [release policy](RELEASE_POLICY.md) and
+Seccompiler follows Firecracker's [release policy](RELEASE_POLICY.md) and
 version (it's released at the same time, with the same version number and
 adheres to the same support window).
 
@@ -133,7 +133,7 @@ In order to allow a syscall with multiple alternatives for the same parameters,
 you can write multiple syscall rule objects at the filter-level, each with its
 own rules.
 
-Note that, when passing the deprecated `--basic` flag to seccompiler-bin, all
+Note that, when passing the deprecated `--basic` flag to seccompiler, all
 `args` fields of the `SeccompRule`s are ignored.
 
 A **condition object** is made up of the following mandatory properties:

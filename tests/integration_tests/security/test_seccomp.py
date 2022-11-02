@@ -114,7 +114,7 @@ def test_seccomp_ls(bin_seccomp_paths):
         _get_basic_syscall_list()
     )
 
-    # Run seccompiler-bin.
+    # Run seccompiler.
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer.
@@ -131,7 +131,7 @@ def test_seccomp_ls(bin_seccomp_paths):
 
 def test_advanced_seccomp(bin_seccomp_paths):
     """
-    Test seccompiler-bin with `demo_jailer`.
+    Test seccompiler with `demo_jailer`.
 
     Test that the demo jailer (with advanced seccomp) allows the harmless demo
     binary, denies the malicious demo binary and that an empty allowlist
@@ -182,7 +182,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
         _get_basic_syscall_list()
     )
 
-    # Run seccompiler-bin.
+    # Run seccompiler.
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer for harmless binary.
@@ -203,7 +203,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
 
     os.unlink(bpf_path)
 
-    # Run seccompiler-bin with `--basic` flag.
+    # Run seccompiler with `--basic` flag.
     bpf_path = _run_seccompiler_bin(json_filter, basic=True)
 
     # Run the mini jailer for malicious binary.
@@ -227,7 +227,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
         }
     }"""
 
-    # Run seccompiler-bin.
+    # Run seccompiler.
     bpf_path = _run_seccompiler_bin(json_filter)
 
     outcome = utils.run_cmd(
@@ -275,7 +275,7 @@ def test_default_seccomp_level(test_microvm_with_api):
 
 def test_seccomp_rust_panic(bin_seccomp_paths):
     """
-    Test seccompiler-bin with `demo_panic`.
+    Test seccompiler with `demo_panic`.
 
     Test that the Firecracker filters allow a Rust panic to run its
     course without triggering a seccomp violation.
