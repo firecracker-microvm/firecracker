@@ -92,11 +92,7 @@ impl DiskProperties {
         cache_type: CacheType,
         file_engine_type: FileEngineType,
     ) -> result::Result<Self, Error> {
-        let custom_flags = if is_disk_direct_io {
-            libc::O_DIRECT
-        } else {
-            0
-        };
+        let custom_flags = if is_disk_direct_io { libc::O_DIRECT } else { 0 };
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)

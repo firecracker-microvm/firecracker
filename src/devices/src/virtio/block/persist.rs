@@ -99,10 +99,7 @@ pub struct BlockState {
     // v1.0 are incompatible with older FC versions (due to incompatible notification suppression
     // feature).
     file_engine_type: FileEngineTypeState,
-    #[version(
-        start = 4,
-        default_fn = "default_is_direct_io"
-    )]
+    #[version(start = 4, default_fn = "default_is_direct_io")]
     is_direct_io: bool,
 }
 
