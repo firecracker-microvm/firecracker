@@ -31,7 +31,8 @@ function fc-bindgen {
     non_upper_case_globals,
     dead_code,
     non_snake_case,
-    clippy::ptr_as_ptr
+    clippy::ptr_as_ptr,
+    clippy::cast_precision_loss
 )]
 
 EOF

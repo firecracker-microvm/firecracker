@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 
 // We use `utils` as a wrapper over `vmm_sys_util` to control the latter
 // dependency easier (i.e. update only in one place `vmm_sys_util` version).

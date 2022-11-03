@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 
 //! The library crate that defines common helper functions that are generally used in
 //! conjunction with seccompiler-bin.

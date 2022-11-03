@@ -3,6 +3,7 @@
 
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 //! High-level interface over Linux io_uring.
 //!
 //! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying

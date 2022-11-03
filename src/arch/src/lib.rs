@@ -3,6 +3,7 @@
 
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 //! Implements platform specific functionality.
 //! Supported platforms: x86_64 and aarch64.
 use std::{fmt, result};

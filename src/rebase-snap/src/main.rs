@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::cast_precision_loss)]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
