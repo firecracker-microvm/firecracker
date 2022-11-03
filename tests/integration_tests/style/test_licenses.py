@@ -31,7 +31,7 @@ ALIBABA_LICENSE = (
     "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
 )
 
-EXCLUDE = ["build", ".kernel", "linux_loader"]
+EXCLUDE = ["build", ".kernel", "linux_loader", ".buildkite"]
 
 
 def _has_amazon_copyright(string):
