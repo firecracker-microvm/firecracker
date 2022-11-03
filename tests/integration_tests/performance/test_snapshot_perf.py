@@ -13,12 +13,17 @@ from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import eager_map, CpuMap, \
-    get_firecracker_version_from_toml, compare_versions, get_kernel_version, \
-    is_io_uring_supported
-from framework.stats import core, consumer, producer, types, criteria,\
-    function
-from integration_tests.performance.utils import handle_failure, \
+from framework.utils import (
+    eager_map,
+    compare_versions,
+    CpuMap,
+    get_firecracker_version_from_toml,
+    get_kernel_version,
+    is_io_uring_supported,
+)
+from framework.utils_cpuid import get_instance_type
+from framework.stats import core, consumer, producer, types, criteria, function
+from integration_tests.performance.utils import handle_failure,\
     dump_test_result
 
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -81,40 +86,82 @@ CREATE_LATENCY_BASELINES = {
 # this is tracked here:
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
+# TODO: we need to actually measure the numbers for m6i
+# since they might be lower.
 LOAD_LATENCY_BASELINES = {
     "x86_64": {
-        "4.14": {
-            "sync": {
-                "2vcpu_256mb.json": {"target": 9},
-                "2vcpu_512mb.json": {"target": 9},
-            }
-        },
-        "5.10": {
-            "sync": {
-                "2vcpu_256mb.json": {"target": 60},
-                "2vcpu_512mb.json": {"target": 60},
+        "m5d.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 9},
+                    "2vcpu_512mb.json": {"target": 9},
+                }
             },
-            "async": {
-                "2vcpu_256mb.json": {"target": 190},
-                "2vcpu_512mb.json": {"target": 190},
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
+            },
+        },
+        "m6a.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 15},
+                    "2vcpu_512mb.json": {"target": 15},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
+            },
+        },
+        "m6i.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 9},
+                    "2vcpu_512mb.json": {"target": 9},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
             },
         },
     },
     "aarch64": {
-        "4.14": {
-            "sync": {
-                "2vcpu_256mb.json": {"target": 2},
-                "2vcpu_512mb.json": {"target": 2},
-            }
-        },
-        "5.10": {
-            "sync": {
-                "2vcpu_256mb.json": {"target": 2},
-                "2vcpu_512mb.json": {"target": 2},
+        "m6g.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                }
             },
-            "async": {
-                "2vcpu_256mb.json": {"target": 125},
-                "2vcpu_512mb.json": {"target": 130},
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 125},
+                    "2vcpu_512mb.json": {"target": 130},
+                },
             },
         },
     }
@@ -142,6 +189,7 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 def snapshot_resume_measurements(vm_type, io_engine):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][
+        get_instance_type()][
         get_kernel_version()
     ][io_engine][vm_type]
 
@@ -353,7 +401,7 @@ def _test_snapshot_resume_latency(context):
     rw_disk = context.disk.copy()
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
+    # Create a fresh microvm from artifacts.
     vm_instance = vm_builder.build(
         kernel=context.kernel,
         disks=[rw_disk],
