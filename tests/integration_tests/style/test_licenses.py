@@ -50,13 +50,13 @@ def _validate_license(filename):
     Python and Rust files should have the licenses on the first 2 lines
     Shell files license is located on lines 3-4 to account for shebang
     """
-    with open(filename, "r+", encoding="utf-8") as file:
-        if filename.endswith(".sh"):
-            # Move iterator to third line without reading file into memory
-            file.readline()
-            file.readline()
-        # The copyright message is always on the first line.
-        copyright_info = file.readline()
+    with open(filename, "r", encoding="utf-8") as file:
+        # Find the copyright line
+        while True:
+            line = file.readline()
+            if line.startswith(("// Copyright", "# Copyright")):
+                copyright_info = line
+                break
 
         has_amazon_copyright = _has_amazon_copyright(
             copyright_info
@@ -104,8 +104,8 @@ def test_for_valid_licenses():
     error_msg = []
     for file in all_files:
         if _validate_license(file) is False:
-            error_msg.append("{}".format(str(file)))
-    assert not error_msg, "Files {} have invalid licenses".format((error_msg))
+            error_msg.append(file)
+    assert not error_msg, f"Files {error_msg} have invalid licenses"
 
 
 if __name__ == "__main__":
