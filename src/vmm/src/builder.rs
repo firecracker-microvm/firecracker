@@ -13,9 +13,9 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::prelude::FromRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
-use vm_memory::{FileOffset, GuestMemory, GuestMemoryRegion};
+use vm_memory::{FileOffset, GuestMemory};
 
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
@@ -114,6 +114,9 @@ pub enum StartMicrovmError {
     /// guest memory page faults. This information is sent to a UDS where a custom
     /// page-fault handler process is listening.
     UffdSend(kvm_ioctls::Error),
+
+    /// Failed to get the memfd from the uffd socket
+    NoMemFdReceived,
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -206,6 +209,7 @@ impl Display for StartMicrovmError {
                 write!(f, "Cannot uffd memory region register. Error: {}", err)
             }
             UffdSend(err) => write!(f, "Cannot send to uffd. Error: {}", err),
+            NoMemFdReceived => write!(f, "No memfd received from uffd."),
         }
     }
 }
@@ -359,13 +363,14 @@ pub fn build_microvm_for_boot(
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
 
-    let (guest_memory, memory_descriptor) =
+    let (guest_memory, memory_descriptor, _file) =
         if let Some(ref backend_config) = vm_resources.memory_backend {
             match backend_config.backend_type {
                 crate::vmm_config::snapshot::MemBackendType::File => {
                     let file = OpenOptions::new()
                         .read(true)
                         .write(true)
+                        .create(true)
                         .open(&backend_config.backend_path)
                         .map_err(BackingMemoryFile)?;
                     file.set_len((vm_resources.vm_config().mem_size_mib * 1024 * 1024) as u64)
@@ -383,16 +388,17 @@ pub fn build_microvm_for_boot(
                             track_dirty_pages,
                         )?,
                         Some(MemoryDescriptor::File(file)),
+                        None,
                     )
                 }
                 crate::vmm_config::snapshot::MemBackendType::Uffd => {
-                    let (mem, uffd) = create_uffd_guest_memory(
+                    let (mem, uffd, file) = create_uffd_guest_memory(
                         vm_resources.vm_config().mem_size_mib,
                         backend_config.backend_path.as_path(),
                         track_dirty_pages,
                     )?;
 
-                    (mem, Some(MemoryDescriptor::Uffd(uffd)))
+                    (mem, Some(MemoryDescriptor::Uffd(uffd)), Some(file))
                 }
             }
         } else {
@@ -402,6 +408,7 @@ pub fn build_microvm_for_boot(
                     None,
                     track_dirty_pages,
                 )?,
+                None,
                 None,
             )
         };
@@ -685,20 +692,21 @@ pub fn create_uffd_guest_memory(
     mem_size_mib: usize,
     uds_socket_path: &Path,
     track_dirty_pages: bool,
-) -> std::result::Result<(GuestMemoryMmap, Uffd), StartMicrovmError> {
-    use StartMicrovmError::{
-        BackingMemoryFile, CreateUffdBuilder, UdsConnection, UffdMemoryRegionsRegister, UffdSend,
-    };
+) -> std::result::Result<(GuestMemoryMmap, Uffd, Arc<File>), StartMicrovmError> {
+    use StartMicrovmError::{CreateUffdBuilder, NoMemFdReceived, UdsConnection, UffdSend};
+
+    let mut socket = UnixStream::connect(uds_socket_path).map_err(UdsConnection)?;
+
+    let mut buf = [0u8; 8];
+    let (_, memfd) = socket.recv_with_fd(&mut buf).map_err(UffdSend)?;
+
+    if memfd.is_none() {
+        return Err(NoMemFdReceived);
+    }
+
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
-
-    let backing_memory_file = unsafe {
-        let mem_name = CString::new("vm-memory").expect("CString::new failed");
-        Arc::new(File::from_raw_fd(libc::memfd_create(mem_name.as_ptr(), 0)))
-    };
-    backing_memory_file
-        .set_len(mem_size as u64)
-        .map_err(BackingMemoryFile)?;
+    let backing_memory_file = Arc::new(memfd.unwrap());
 
     let mut offset = 0_u64;
     let guest_memory = vm_memory::create_guest_memory(
@@ -715,12 +723,17 @@ pub fn create_uffd_guest_memory(
     )
     .map_err(StartMicrovmError::GuestMemoryMmap)?;
 
-    let mut uffd_builder = UffdBuilder::new();
-    uffd_builder.require_features(FeatureFlags::EVENT_REMOVE | FeatureFlags::PAGEFAULT_FLAG_WP);
-
-    let uffd = uffd_builder
-        .close_on_exec(true)
-        .non_blocking(true)
+    let uffd = UffdBuilder::new()
+        .require_features(
+            FeatureFlags::EVENT_REMOVE
+                | FeatureFlags::EVENT_REMAP
+                | FeatureFlags::EVENT_FORK
+                | FeatureFlags::EVENT_UNMAP
+                | FeatureFlags::MISSING_SHMEM
+                | FeatureFlags::MINOR_SHMEM
+                | FeatureFlags::PAGEFAULT_FLAG_WP,
+        )
+        .user_mode_only(false)
         .create()
         .map_err(CreateUffdBuilder)?;
 
@@ -730,21 +743,18 @@ pub fn create_uffd_guest_memory(
         let host_base_addr = mem_region.as_ptr();
         let size = mem_region.size();
 
-        uffd.register(host_base_addr as _, size as _)
-            .map_err(UffdMemoryRegionsRegister)?;
         backend_mappings.push(GuestRegionUffdMapping {
             base_host_virt_addr: host_base_addr as u64,
             size,
             offset,
         });
-        offset += mem_region.len();
+        offset += size as u64;
     }
 
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
 
-    let socket = UnixStream::connect(uds_socket_path).map_err(UdsConnection)?;
     socket
         .send_with_fd(
             backend_mappings.as_bytes(),
@@ -782,7 +792,12 @@ pub fn create_uffd_guest_memory(
         )
         .map_err(UffdSend)?;
 
-    Ok((guest_memory, uffd))
+    // Wait for UFFD to be ready.
+    // TODO: maybe add a timeout?
+    let mut buf = [0; 2];
+    socket.read_exact(&mut buf).map_err(UdsConnection)?;
+
+    Ok((guest_memory, uffd, backing_memory_file))
 }
 
 fn load_kernel(
@@ -883,7 +898,7 @@ pub(crate) fn setup_kvm_vm(
         .map_err(Error::KvmContext)
         .map_err(Internal)?;
     let mut vm = Vm::new(kvm.fd()).map_err(Error::Vm).map_err(Internal)?;
-    vm.memory_init(&guest_memory, kvm.max_memslots(), track_dirty_pages)
+    vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
         .map_err(Error::Vm)
         .map_err(Internal)?;
     Ok(vm)

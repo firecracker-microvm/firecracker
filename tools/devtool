@@ -615,6 +615,7 @@ run_devctr() {
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
+        --mount type=bind,source=/usr/include/linux/userfaultfd.h,target=/usr/include/linux/userfaultfd.h \
         --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"

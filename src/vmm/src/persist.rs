@@ -6,7 +6,7 @@
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::prelude::FromRawFd;
@@ -228,6 +228,8 @@ pub enum LoadSnapshotError {
     /// Unable to connect to UDS in order to send information regarding
     /// handling guest memory page-fault events.
     UdsConnection(io::Error),
+    /// We didn't get the memfd when handshaking with the uffd manager
+    NoMemFdReceived,
     /// Failed to register guest memory regions to UFFD.
     UffdMemoryRegionsRegister(userfaultfd::Error),
     /// Failed to send guest memory layout and path to user fault FD used to handle
@@ -249,6 +251,7 @@ impl Display for LoadSnapshotError {
             }
             InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open the memory file: {}", err),
+            NoMemFdReceived => write!(f, "No memory file descriptor received"),
             ResumeMicroVm(err) => write!(
                 f,
                 "Failed to resume microVM after loading snapshot: {}",
@@ -280,7 +283,7 @@ pub fn create_snapshot(
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     // Fail early from invalid target version.
-    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
+    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, vmm)?;
 
     let microvm_state = vmm
         .save_state()
@@ -293,7 +296,9 @@ pub fn create_snapshot(
         version_map,
     )?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
+    if params.snapshot_type == SnapshotType::Full {
+        snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
+    }
 
     Ok(())
 }
@@ -329,30 +334,7 @@ fn snapshot_memory_to_file(
     snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
-    // if OpenOptions::new().read(true).open(mem_file_path).is_ok()
-    //     && snapshot_type == &SnapshotType::Diff
-    // {
-    //     // The memory file already exists.
-    //     // We're going to use the msync behaviour
-    //     for region in vmm.guest_memory().iter() {
-    //         info!("msyncing memory region");
-    //         unsafe {
-    //             if libc::msync(region.as_ptr() as _, region.len() as _, libc::MS_SYNC) == -1 {
-    //                 return Err(CreateSnapshotError::Memory(
-    //                     memory_snapshot::Error::CreateRegion(vm_memory::MmapRegionError::Mmap(
-    //                         std::io::Error::last_os_error(),
-    //                     )),
-    //                 ));
-    //             }
-    //         };
-    //     }
 
-    //     return Ok(());
-    // }
-
-    eprintln!("snapshot_memory_to_file");
-    eprintln!("{}", mem_file_path.to_string_lossy());
-    let start = Instant::now();
     let mut file = if mem_file_path.to_string_lossy() == "memfd" {
         let fd = unsafe {
             let memfd_name = CString::new("diff").unwrap();
@@ -377,11 +359,7 @@ fn snapshot_memory_to_file(
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    // // Set the length of the file to the full size of the memory area.
-    // memory_file
-    //     .set_len((mem_size_mib * 1024 * 1024) as u64)
-    //     .map_err(|err| MemoryBackingFile("set_length", err))?;
-
+    // Set the length of the file to the full size of the memory area.
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
         .map_err(|err| MemoryBackingFile("set_length", err))?;
 
@@ -396,15 +374,9 @@ fn snapshot_memory_to_file(
                 &dirty_bitmap,
             )
             .map_err(Memory)
-
-            // vmm.guest_memory()
-            //     .dump_dirty(&mut memory_file, &dirty_bitmap)
-            //     .map_err(Memory)
         }
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }?;
-
-    eprintln!("snapshot_memory_to_file took {:?}", start.elapsed());
 
     Ok(())
 }
@@ -575,14 +547,8 @@ pub fn restore_from_snapshot(
             (guest_memory, Some(MemoryDescriptor::File(Arc::new(file))))
         }
         MemBackendType::Uffd => {
-            let (guest_memory, uffd) = guest_memory_from_uffd(
-                mem_backend_path,
-                mem_state,
-                track_dirty_pages,
-                // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
-                // is present in the microVM state.
-                microvm_state.device_states.balloon_device.is_some(),
-            )?;
+            let (guest_memory, uffd) =
+                guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)?;
 
             (guest_memory, uffd.map(MemoryDescriptor::Uffd))
         }
@@ -636,42 +602,34 @@ pub(crate) fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-    enable_balloon: bool,
 ) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), LoadSnapshotError> {
-    use self::LoadSnapshotError::{
-        CreateUffdBuilder, DeserializeMemory, MemoryBackingFile, UdsConnection,
-        UffdMemoryRegionsRegister, UffdSend,
-    };
+    use self::LoadSnapshotError::{CreateUffdBuilder, DeserializeMemory, UdsConnection, UffdSend};
 
-    let backing_memory_file = unsafe {
-        let mem_name = CString::new("vm-memory").expect("CString::new failed");
-        File::from_raw_fd(libc::memfd_create(mem_name.as_ptr(), 0))
-    };
-    backing_memory_file
-        .set_len(
-            mem_state
-                .regions
-                .iter()
-                .map(|region| region.size)
-                .sum::<usize>() as u64,
-        )
-        .map_err(MemoryBackingFile)?;
+    let mut socket = UnixStream::connect(mem_uds_path).map_err(UdsConnection)?;
 
-    let guest_memory =
-        GuestMemoryMmap::restore(Some(&backing_memory_file), mem_state, track_dirty_pages)
-            .map_err(DeserializeMemory)?;
+    let mut buf = [0u8; 8];
+    let (_, memfd) = socket.recv_with_fd(&mut buf).map_err(UffdSend)?;
 
-    let mut uffd_builder = UffdBuilder::new();
-
-    if enable_balloon {
-        // We enable this so that the page fault handler can add logic
-        // for treating madvise(MADV_DONTNEED) events triggerd by balloon inflation.
-        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE | FeatureFlags::PAGEFAULT_FLAG_WP);
+    if memfd.is_none() {
+        return Err(LoadSnapshotError::NoMemFdReceived);
     }
 
-    let uffd = uffd_builder
-        .close_on_exec(true)
-        .non_blocking(true)
+    let memfd = memfd.unwrap();
+
+    let guest_memory = GuestMemoryMmap::restore(Some(&memfd), mem_state, track_dirty_pages)
+        .map_err(DeserializeMemory)?;
+
+    let uffd = UffdBuilder::new()
+        .require_features(
+            FeatureFlags::EVENT_REMOVE
+                | FeatureFlags::EVENT_REMAP
+                | FeatureFlags::EVENT_FORK
+                | FeatureFlags::EVENT_UNMAP
+                | FeatureFlags::MISSING_SHMEM
+                | FeatureFlags::MINOR_SHMEM
+                | FeatureFlags::PAGEFAULT_FLAG_WP,
+        )
+        .user_mode_only(false)
         .create()
         .map_err(CreateUffdBuilder)?;
 
@@ -680,8 +638,6 @@ pub(crate) fn guest_memory_from_uffd(
         let host_base_addr = mem_region.as_ptr();
         let size = mem_region.size();
 
-        uffd.register(host_base_addr as _, size as _)
-            .map_err(UffdMemoryRegionsRegister)?;
         backend_mappings.push(GuestRegionUffdMapping {
             base_host_virt_addr: host_base_addr as u64,
             size,
@@ -693,7 +649,6 @@ pub(crate) fn guest_memory_from_uffd(
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
 
-    let socket = UnixStream::connect(mem_uds_path).map_err(UdsConnection)?;
     socket
         .send_with_fd(
             backend_mappings.as_bytes(),
@@ -730,6 +685,11 @@ pub(crate) fn guest_memory_from_uffd(
             uffd.as_raw_fd(),
         )
         .map_err(UffdSend)?;
+
+    // Wait for UFFD to be ready.
+    // TODO: maybe add a timeout?
+    let mut buf = [0; 2];
+    socket.read_exact(&mut buf).map_err(UdsConnection)?;
 
     Ok((guest_memory, Some(uffd)))
 }

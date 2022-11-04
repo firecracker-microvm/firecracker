@@ -371,9 +371,8 @@ impl Env {
         // a new PathBuf, with something like chroot_dir.join(exec_file_name) ?!
         self.chroot_dir.push(exec_file_name);
 
-        // TODO: hard link instead of copy? This would save up disk space, but hard linking is
-        // not always possible :(
-        fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
+        // We hard link instead of copy for space savings and to retain the capabilities
+        fs::hard_link(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
             Error::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
         })?;
 

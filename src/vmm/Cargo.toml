@@ -14,12 +14,16 @@ libc = ">=0.2.39"
 linux-loader = ">=0.4.0"
 serde = { version = ">=1.0.27", features = ["derive"] }
 serde_json = ">=1.0.9"
-userfaultfd = ">=0.4.0"
+userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5", features = [
+  "linux5_7",
+] }
 versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 vm-superio = ">=0.4.0"
 vm-allocator = "0.1.0"
-derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+derive_more = { version = "0.99.17", default-features = false, features = [
+  "from",
+] }
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
@@ -27,7 +31,7 @@ logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 rate_limiter = { path = "../rate_limiter" }
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot"}
+snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
