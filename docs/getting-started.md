@@ -31,10 +31,10 @@ The generic requirements are explained below:
 - **KVM**
 
   Please make sure that:
-  1. you have KVM enabled in your Linux kernel, and
-  2. you have read/write access to `/dev/kvm`.
-     If you need help setting up access to `/dev/kvm`, you should check out
-     [Appendix A](#appendix-a-setting-up-kvm-access).
+    1. you have KVM enabled in your Linux kernel, and
+    2. you have read/write access to `/dev/kvm`.
+       If you need help setting up access to `/dev/kvm`, you should check out
+       [Appendix A](#appendix-a-setting-up-kvm-access).
 
 To check if your system meets the requirements to run Firecracker, clone
 the repository and execute `tools/devtool checkenv`.
@@ -83,11 +83,11 @@ Next, you will need an uncompressed Linux kernel binary, and an ext4
 file system image (to use as rootfs).
 
 1. To run an `x86_64` guest you can download such resources from:
-    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin)
-    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/rootfs/bionic.rootfs.ext4).
+   [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin)
+   and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/rootfs/bionic.rootfs.ext4).
 1. To run an `aarch64` guest, download them from:
-    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/kernels/vmlinux.bin)
-    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/rootfs/bionic.rootfs.ext4).
+   [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/kernels/vmlinux.bin)
+   and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/rootfs/bionic.rootfs.ext4).
 
 Now, let's open up two shell prompts: one to run Firecracker, and another one
 to control it (by writing to the API socket). For the purpose of this guide,
@@ -363,6 +363,26 @@ not run on an EC2 .metal instance. You can skip performance tests with:
 ```bash
  ./tools/devtool test -- --ignore integration_tests/performance
  ```
+
+## Troubleshooting
+
+### Errors while using `curl` to access the API
+
+Points to check to confirm the API socket is running and accessible:
+
+- Check that the user running the Firecracker process and the user using `curl`
+  have equivalent privileges. For example, if you run Firecracker with **sudo**
+  that you run `curl` with **sudo** as well.
+- [SELinux](https://man7.org/linux/man-pages/man8/selinux.8.html) can regulate
+  access to sockets on RHEL based distributions. How user's permissions are
+  configured is environmentally specific, but for the purposes of
+  troubleshooting you can check if it is enabled in `/etc/selinux/config`.
+- With the Firecracker process running using `--api-sock /tmp/firecracker.socket`,
+  confirm that the socket is open:
+  - `ss -a | grep '/tmp/firecracker.socket'`
+  - If you have socat available, try `socat - UNIX-CONNECT:/tmp/firecracker.socket`
+    This will throw an explicit error if the socket is inaccessible, or it will pause
+    and wait for input to continue.
 
 ## Appendix A: Setting Up KVM Access
 
