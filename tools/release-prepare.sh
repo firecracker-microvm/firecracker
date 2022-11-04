@@ -70,16 +70,24 @@ done
 # `Cargo.lock`.
 say "Updating lockfile..."
 cargo check
+CHANGED=(Cargo.lock)
+
+cd tests/integration_tests/security/demo_seccomp
+cargo check
+cd -
+CHANGED+=(tests/integration_tests/security/demo_seccomp/Cargo.lock)
 
 # Update credits.
 say "Updating credits..."
 $FC_TOOLS_DIR/update-credits.sh
+CHANGED+=(CREDITS.md)
 
 # Update changelog.
 say "Updating changelog..."
 sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
+CHANGED+=(CHANGELOG.md)
 
-git add "${files_to_change[@]}" Cargo.lock CREDITS.md CHANGELOG.md
+git add "${files_to_change[@]}" "${CHANGED[@]}"
 git commit -s -m "Releasing v$version"
 
 
