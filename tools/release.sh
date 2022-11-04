@@ -90,6 +90,12 @@ PROFILE_DIR=$(get-profile-dir "$PROFILE")
 CARGO_TARGET=$ARCH-unknown-linux-$LIBC
 CARGO_TARGET_DIR=build/cargo_target/$CARGO_TARGET/$PROFILE_DIR
 
+if [[ $VERSION =~ "-dirty$" ]]; then
+    say_warn "Building dirty version.. dirty because:"
+    git status -s --untracked-files=no
+    git diff
+fi
+
 CARGO_REGISTRY_DIR="build/cargo_registry"
 CARGO_GIT_REGISTRY_DIR="build/cargo_git_registry"
 for dir in "$CARGO_REGISTRY_DIR" "$CARGO_GIT_REGISTRY_DIR"; do
