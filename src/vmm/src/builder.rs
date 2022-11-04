@@ -4,16 +4,14 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::convert::TryFrom;
-use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::os::unix::prelude::FromRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use vm_memory::{FileOffset, GuestMemory};
 

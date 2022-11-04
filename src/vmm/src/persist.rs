@@ -12,7 +12,6 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::prelude::FromRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
