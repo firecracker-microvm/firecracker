@@ -18,10 +18,13 @@ from framework.artifacts import (
 from framework.builder import MicrovmBuilder
 from framework.defs import FC_WORKSPACE_DIR, DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.utils_vsock import check_vsock_device
-from framework.utils import generate_mmds_session_token, generate_mmds_get_request
+from framework.utils import (
+    generate_mmds_session_token,
+    generate_mmds_get_request,
+    guest_run_fio_iteration,
+)
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_mmds import _populate_data_store
-from integration_tests.functional.test_snapshot_basic import _guest_run_fio_iteration
 from integration_tests.functional.test_balloon import (
     get_stable_rss_mem_by_pid,
     make_guest_dirty_memory,
@@ -184,6 +187,8 @@ def test_snap_restore_from_artifacts(
         )
 
         # Run fio on the guest.
-        _guest_run_fio_iteration(ssh_connection, 0)
+        # TODO: check the result of FIO or use fsck to check that the root device is
+        # not corrupted. No obvious errors will be returned here.
+        guest_run_fio_iteration(ssh_connection, 0)
 
         vm.kill()
