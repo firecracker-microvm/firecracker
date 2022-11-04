@@ -765,3 +765,22 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     run_cmd(flush_cmd.format(session=session_name))
 
     return screen_pid, binary_clone_pid
+
+
+def guest_run_fio_iteration(ssh_connection, iteration):
+    """Start FIO workload into a microVM."""
+    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
+        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
+        --output /tmp/fio{} > /dev/null &""".format(
+        iteration
+    )
+    exit_code, _, stderr = ssh_connection.execute_command(fio)
+    assert exit_code == 0, stderr.read()
+
+
+def check_filesystem(ssh_connection, disk_fmt, disk):
+    """Check for filesystem corruption inside a microVM."""
+    cmd = "fsck.{} -n {}".format(disk_fmt, disk)
+    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    assert exit_code == 0, stderr.read()

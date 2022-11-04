@@ -12,7 +12,10 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.matrix import TestMatrix, TestContext
-from framework.utils import wait_process_termination
+from framework.utils import (
+    wait_process_termination,
+    check_filesystem,
+)
 from framework.utils_vsock import (
     make_blob,
     check_host_connections,
@@ -25,17 +28,6 @@ from framework.utils_vsock import (
 
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
-
-
-def _guest_run_fio_iteration(ssh_connection, iteration):
-    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
-        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
-        --output /tmp/fio{} > /dev/null &""".format(
-        iteration
-    )
-    exit_code, _, _ = ssh_connection.execute_command(fio)
-    assert exit_code == 0
 
 
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
@@ -112,9 +104,6 @@ def _test_seq_snapshots(context):
             snapshot, resume=True, diff_snapshots=diff_snapshots
         )
 
-        # Attempt to connect to resumed microvm.
-        ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -124,8 +113,10 @@ def _test_seq_snapshots(context):
         path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
         check_host_connections(microvm, path, blob_path, blob_hash)
 
-        # Start a new instance of fio on each iteration.
-        _guest_run_fio_iteration(ssh_connection, i)
+        ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+        # Check that the root device is not corrupted.
+        check_filesystem(ssh_connection, "ext4", "/dev/vda")
 
         logger.info("Create snapshot #{}.".format(i + 1))
 
