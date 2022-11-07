@@ -314,6 +314,17 @@ arguments is available via:
 tools/devtool --help
 ```
 
+### Alternative: Building Firecracker without devtool
+
+It is possible to build Firecracker without invoking `devtool` by instead
+running `cargo build`. However, binaries generated like this should not
+be used in production and are considered experimental.
+
+Note that the default target for Firecracker is `x86_64-unknown-linux-musl`
+(set in `.cargo/config`). If you want to build an ARM binary, you need to
+pass `--target aarch64-unknown-linux-musl` to `cargo build`, even if
+compiling on an ARM machine. Otherwise it will try to build an `x86_64` binary.
+
 ### Alternative: Building Firecracker using glibc
 
 The toolchain that Firecracker is tested against and that is recommended for
@@ -331,9 +342,8 @@ arch=`uname -m`
 cargo build --target ${arch}-unknown-linux-gnu
 ```
 
-That being said, Firecracker binaries linked with glibc or built without
-`devtool` are always considered experimental and should not be used in
-production.
+That being said, Firecracker binaries linked with glibc are always considered
+experimental and should not be used in production.
 
 ## Running the Integration Test Suite
 
