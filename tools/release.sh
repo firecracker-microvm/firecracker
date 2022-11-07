@@ -27,7 +27,7 @@ function check_swagger_artifact {
     swagger_path=$1
     version=$2
     swagger_ver=$(get_swagger_version "$swagger_path")
-    if [[ $version =~ v$swagger_ver.* ]]; then
+    if [[ ! $version =~ v$swagger_ver.* ]]; then
         die "Artifact $swagger_path's version: $swagger_ver does not match release version $version."
     fi
 }
