@@ -2,7 +2,7 @@
 name = "seccompiler"
 version = "1.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 description = "Program that compiles multi-threaded seccomp-bpf filters expressed as JSON into raw BPF programs, serializing them and outputting them to a file."
 homepage = "https://firecracker-microvm.github.io/"
