@@ -2,7 +2,7 @@
 name = "firecracker"
 version = "1.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 description = "Firecracker enables you to deploy workloads in lightweight virtual machines, called microVMs, which provide enhanced security and workload isolation over traditional VMs, while enabling the speed and resource efficiency of containers."
 homepage = "https://firecracker-microvm.github.io/"
