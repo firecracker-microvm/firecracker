@@ -357,7 +357,6 @@ pub mod test {
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
-        pub subscriber_id: SubscriberId,
         pub net: Arc<Mutex<Net>>,
         pub mem: GuestMemoryMmap,
         pub rxq: VirtQueue<'a>,
@@ -368,7 +367,7 @@ pub mod test {
         const QUEUE_SIZE: u16 = 16;
 
         pub fn get_default() -> TestHelper<'a> {
-            let mut event_manager = EventManager::new().unwrap();
+            let mut event_manager = EventManager::new(false).unwrap();
             let mut net = default_net();
             let mem = vm_memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0), MAX_BUFFER_SIZE)],
@@ -387,11 +386,10 @@ pub mod test {
             assign_queues(&mut net, rxq.create_queue(), txq.create_queue());
 
             let net = Arc::new(Mutex::new(net));
-            let subscriber_id = event_manager.add_subscriber(net.clone());
+            Net::init(net, &mut event_manager);
 
             Self {
                 event_manager,
-                subscriber_id,
                 net,
                 mem,
                 rxq,
@@ -406,8 +404,7 @@ pub mod test {
         pub fn activate_net(&mut self) {
             self.net.lock().unwrap().activate(self.mem.clone()).unwrap();
             // Process the activate event.
-            let ev_count = self.event_manager.run_with_timeout(100).unwrap();
-            assert_eq!(ev_count, 1);
+            assert_eq!(self.event_manager.wait(Some(100)), Ok(true));
         }
 
         pub fn simulate_event(&mut self, event: NetEvent) {
@@ -473,7 +470,7 @@ pub mod test {
             check_metric_after_block!(
                 METRICS.net.rx_packets_count,
                 0,
-                self.event_manager.run_with_timeout(100).unwrap()
+                self.event_manager.wait(Some(100)).unwrap()
             );
             // Check that the frame has been deferred.
             assert!(self.net().rx_deferred_frame);
@@ -497,7 +494,7 @@ pub mod test {
             check_metric_after_block!(
                 METRICS.net.rx_packets_count,
                 1,
-                self.event_manager.run_with_timeout(100).unwrap()
+                self.event_manager.wait(Some(100)).unwrap()
             );
             // Check that the expected frame was sent to the Rx queue eventually.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);

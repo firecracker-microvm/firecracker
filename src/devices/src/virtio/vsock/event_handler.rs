@@ -25,8 +25,9 @@
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX
 ///     buffers.
 use std::os::unix::io::AsRawFd;
+use std::sync::{Arc, Mutex};
 
-use event_manager::{EventOps, Events, MutEventSubscriber};
+use event_manager::EventManager;
 use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
@@ -36,7 +37,7 @@ use crate::virtio::VirtioDevice;
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: VsockBackend + AsRawFd + 'static,
 {
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
@@ -116,86 +117,129 @@ where
         raise_irq
     }
 
-    fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register rx queue event: {}", err);
+    fn register_runtime_events(vsock: Arc<Mutex<Self>>, ops: &mut EventManager) {
+        {
+            let vsock_clone = vsock.clone();
+            if let Err(err) = ops.add(
+                vsock.lock().unwrap().queue_events[RXQ_INDEX].as_raw_fd(),
+                EventSet::IN,
+                Box::new(move |_: &mut EventManager, evset: EventSet| {
+                    let mut v = vsock_clone.lock().unwrap();
+                    if v.is_activated() {
+                        let raise_irq = v.handle_rxq_event(evset);
+                        if raise_irq {
+                            v.signal_used_queue().unwrap_or_default();
+                        }
+                    } else {
+                        warn!("Vsock: The device is not yet activated. Spurious event received.");
+                    }
+                }),
+            ) {
+                error!("Failed to register rx queue event: {}", err);
+            }
         }
-        if let Err(err) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
-            error!("Failed to register tx queue event: {}", err);
+
+        {
+            let vsock_clone = vsock.clone();
+            if let Err(err) = ops.add(
+                vsock.lock().unwrap().queue_events[TXQ_INDEX].as_raw_fd(),
+                EventSet::IN,
+                Box::new(move |_: &mut EventManager, evset: EventSet| {
+                    let mut v = vsock_clone.lock().unwrap();
+                    if v.is_activated() {
+                        let raise_irq = v.handle_txq_event(evset);
+                        if raise_irq {
+                            v.signal_used_queue().unwrap_or_default();
+                        }
+                    } else {
+                        warn!("Vsock: The device is not yet activated. Spurious event received.");
+                    }
+                }),
+            ) {
+                error!("Failed to register tx queue event: {}", err);
+            }
         }
-        if let Err(err) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
-            error!("Failed to register ev queue event: {}", err);
+
+        {
+            let vsock_clone = vsock.clone();
+            if let Err(err) = ops.add(
+                vsock.lock().unwrap().queue_events[EVQ_INDEX].as_raw_fd(),
+                EventSet::IN,
+                Box::new(move |_: &mut EventManager, evset: EventSet| {
+                    let mut v = vsock_clone.lock().unwrap();
+                    if v.is_activated() {
+                        let raise_irq = v.handle_evq_event(evset);
+                        if raise_irq {
+                            v.signal_used_queue().unwrap_or_default();
+                        }
+                    } else {
+                        warn!("Vsock: The device is not yet activated. Spurious event received.");
+                    }
+                }),
+            ) {
+                error!("Failed to register ev queue event: {}", err);
+            }
         }
-        if let Err(err) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
-            error!("Failed to register vsock backend event: {}", err);
+
+        {
+            let vsock_clone = vsock.clone();
+            if let Err(err) = ops.add(
+                vsock.lock().unwrap().backend.as_raw_fd(),
+                vsock.lock().unwrap().backend.get_polled_evset(),
+                Box::new(move |_: &mut EventManager, evset: EventSet| {
+                    let mut v = vsock_clone.lock().unwrap();
+                    if v.is_activated() {
+                        let raise_irq = v.notify_backend(evset);
+                        if raise_irq {
+                            v.signal_used_queue().unwrap_or_default();
+                        }
+                    } else {
+                        warn!("Vsock: The device is not yet activated. Spurious event received.");
+                    }
+                }),
+            ) {
+                error!("Failed to register vsock backend event: {}", err);
+            }
         }
     }
 
-    fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+    fn register_activate_event(vsock: Arc<Mutex<Self>>, ops: &mut EventManager) {
+        let vsock_clone = vsock.clone();
+        if let Err(err) = ops.add(
+            vsock.lock().unwrap().activate_evt.as_raw_fd(),
+            EventSet::IN,
+            Box::new(move |event_manager: &mut EventManager, _: EventSet| {
+                if vsock_clone.lock().unwrap().is_activated() {
+                    Self::handle_activate_event(vsock_clone.clone(), event_manager);
+                } else {
+                    warn!("Vsock: The device is not yet activated. Spurious event received.");
+                }
+            }),
+        ) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
-    fn handle_activate_event(&self, ops: &mut EventOps) {
+    fn handle_activate_event(vsock: Arc<Mutex<Self>>, ops: &mut EventManager) {
         debug!("vsock: activate event");
-        if let Err(err) = self.activate_evt.read() {
+        if let Err(err) = vsock.lock().unwrap().activate_evt.read() {
             error!("Failed to consume net activate event: {:?}", err);
         }
-        self.register_runtime_events(ops);
-        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+        Self::register_runtime_events(vsock.clone(), ops);
+        if let Err(err) = ops.del(vsock.lock().unwrap().activate_evt.as_raw_fd()) {
             error!("Failed to un-register activate event: {}", err);
         }
     }
-}
-
-impl<B> MutEventSubscriber for Vsock<B>
-where
-    B: VsockBackend + 'static,
-{
-    fn process(&mut self, event: Events, ops: &mut EventOps) {
-        let source = event.fd();
-        let evset = event.event_set();
-        let rxq = self.queue_events[RXQ_INDEX].as_raw_fd();
-        let txq = self.queue_events[TXQ_INDEX].as_raw_fd();
-        let evq = self.queue_events[EVQ_INDEX].as_raw_fd();
-        let backend = self.backend.as_raw_fd();
-        let activate_evt = self.activate_evt.as_raw_fd();
-
-        if self.is_activated() {
-            let mut raise_irq = false;
-            match source {
-                _ if source == rxq => raise_irq = self.handle_rxq_event(evset),
-                _ if source == txq => raise_irq = self.handle_txq_event(evset),
-                _ if source == evq => raise_irq = self.handle_evq_event(evset),
-                _ if source == backend => {
-                    raise_irq = self.notify_backend(evset);
-                }
-                _ if source == activate_evt => {
-                    self.handle_activate_event(ops);
-                }
-                _ => warn!("Unexpected vsock event received: {:?}", source),
-            }
-            if raise_irq {
-                self.signal_used_queue().unwrap_or_default();
-            }
-        } else {
-            warn!(
-                "Vsock: The device is not yet activated. Spurious event received: {:?}",
-                source
-            );
-        }
-    }
-
-    fn init(&mut self, ops: &mut EventOps) {
+    /// Attach to event manager.
+    pub fn init(vsock: Arc<Mutex<Self>>, ops: &mut EventManager) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,
         //  - on device activation (is-activated already true at this point),
         //  - on device restore from snapshot.
-        if self.is_activated() {
-            self.register_runtime_events(ops);
+        if vsock.lock().unwrap().is_activated() {
+            Self::register_runtime_events(vsock, ops);
         } else {
-            self.register_activate_event(ops);
+            Self::register_activate_event(vsock, ops);
         }
     }
 }
@@ -520,7 +564,7 @@ mod tests {
         } = test_ctx.create_event_handler_context();
 
         let vsock = Arc::new(Mutex::new(device));
-        let _id = event_manager.add_subscriber(vsock.clone());
+        let _id = Vsock::init(vsock.clone(), &mut event_manager);
 
         // Push a queue event
         // - the driver has something to send (there's data in the TX queue); and

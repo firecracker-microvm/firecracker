@@ -48,13 +48,11 @@ use devices::virtio::{
     TYPE_BLOCK, TYPE_NET,
 };
 use devices::BusDevice;
-use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
-use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
@@ -67,9 +65,6 @@ use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
 use crate::vstate::vm::Vm;
-
-/// Shorthand type for the EventManager flavour used by Firecracker.
-pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
 // Since the exit code names e.g. `SIGBUS` are most appropriate yet trigger a test error with the
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
@@ -794,6 +789,44 @@ impl Vmm {
         // Break the main event loop, propagating the Vmm exit-code.
         self.shutdown_exit_code = Some(exit_code);
     }
+
+    /// Attach to the event manager.
+    pub fn init(vmm: Arc<Mutex<Self>>, ops: &mut event_manager::EventManager) {
+        let vmm_clone = vmm.clone();
+        if let Err(err) = ops.add(
+            vmm.lock().unwrap().vcpus_exit_evt.as_raw_fd(),
+            utils::epoll::EventSet::IN,
+            Box::new(
+                move |_: &mut event_manager::EventManager, _: utils::epoll::EventSet| {
+                    // Exit event handling should never do anything more than call 'self.stop()'.
+                    let _ = vmm_clone.lock().unwrap().vcpus_exit_evt.read();
+
+                    let mut exit_code = None;
+                    // Query each vcpu for their exit_code.
+                    for handle in &vmm_clone.lock().unwrap().vcpus_handles {
+                        match handle.response_receiver().try_recv() {
+                            Ok(VcpuResponse::Exited(status)) => {
+                                exit_code = Some(status);
+                                // Just use the first encountered exit-code.
+                                break;
+                            }
+                            Ok(_response) => {} // Don't care about these, we are exiting.
+                            Err(TryRecvError::Empty) => {} // Nothing pending in channel
+                            Err(err) => {
+                                panic!("Error while looking for VCPU exit status: {}", err);
+                            }
+                        }
+                    }
+                    vmm_clone
+                        .lock()
+                        .unwrap()
+                        .stop(exit_code.unwrap_or(FcExitCode::Ok));
+                },
+            ),
+        ) {
+            error!("Failed to register vmm exit event: {}", err);
+        }
+    }
 }
 
 /// Process the content of the MPIDR_EL1 register in order to be able to pass it to KVM
@@ -859,45 +892,6 @@ impl Drop for Vmm {
 
         if !self.vcpus_handles.is_empty() {
             error!("Failed to tear down Vmm: the vcpu threads have not finished execution.");
-        }
-    }
-}
-
-impl MutEventSubscriber for Vmm {
-    /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: Events, _: &mut EventOps) {
-        let source = event.fd();
-        let event_set = event.event_set();
-
-        if source == self.vcpus_exit_evt.as_raw_fd() && event_set == EventSet::IN {
-            // Exit event handling should never do anything more than call 'self.stop()'.
-            let _ = self.vcpus_exit_evt.read();
-
-            let mut exit_code = None;
-            // Query each vcpu for their exit_code.
-            for handle in &self.vcpus_handles {
-                match handle.response_receiver().try_recv() {
-                    Ok(VcpuResponse::Exited(status)) => {
-                        exit_code = Some(status);
-                        // Just use the first encountered exit-code.
-                        break;
-                    }
-                    Ok(_response) => {} // Don't care about these, we are exiting.
-                    Err(TryRecvError::Empty) => {} // Nothing pending in channel
-                    Err(err) => {
-                        panic!("Error while looking for VCPU exit status: {}", err);
-                    }
-                }
-            }
-            self.stop(exit_code.unwrap_or(FcExitCode::Ok));
-        } else {
-            error!("Spurious EventManager event for handler: Vmm");
-        }
-    }
-
-    fn init(&mut self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
-            error!("Failed to register vmm exit event: {}", err);
         }
     }
 }

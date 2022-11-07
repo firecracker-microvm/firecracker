@@ -523,11 +523,11 @@ fn run_without_api(
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> FcExitCode {
-    let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+    let mut event_manager = EventManager::new(false).expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
-    event_manager.add_subscriber(firecracker_metrics.clone());
+    metrics::PeriodicMetrics::init(firecracker_metrics.clone(), &mut event_manager);
 
     // Build the microVm. We can ignore VmResources since it's not used without api.
     let (_, vmm) = match build_microvm_from_json(

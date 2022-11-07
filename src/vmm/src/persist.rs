@@ -15,6 +15,7 @@ use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use devices::virtio::TYPE_NET;
+use event_manager::EventManager;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
@@ -41,7 +42,7 @@ use crate::vmm_config::snapshot::{
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManager, Vmm};
+use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, Vmm};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;

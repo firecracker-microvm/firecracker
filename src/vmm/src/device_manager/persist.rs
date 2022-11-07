@@ -20,7 +20,7 @@ use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBacke
 use devices::virtio::{
     MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
 };
-use event_manager::{MutEventSubscriber, SubscriberOps};
+use event_manager::EventManager;
 use kvm_ioctls::VmFd;
 use logger::{error, warn};
 use mmds::data_store::MmdsVersion;
@@ -33,7 +33,6 @@ use vm_memory::GuestMemoryMmap;
 use super::mmio::*;
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
-use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug, derive_more::From)]
@@ -375,11 +374,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
-                                  as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
-                                  device_info: &MMIODeviceInfo,
-                                  event_manager: &mut EventManager|
+                                  device_info: &MMIODeviceInfo|
          -> Result<(), Self::Error> {
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
@@ -408,8 +405,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
 
             dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, device_info)?;
-
-            event_manager.add_subscriber(as_subscriber);
             Ok(())
         };
 
@@ -426,12 +421,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
                 &balloon_state.device_info,
-                constructor_args.event_manager,
             )?;
+            // Attach balloon device to event manager.
+            Balloon::init(device, &mut constructor_args.event_manager);
         }
 
         for block_state in &state.block_devices {
@@ -447,12 +442,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device,
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.device_info,
-                constructor_args.event_manager,
             )?;
+            // Attach block device to event manager.
+            Block::init(device, &mut constructor_args.event_manager);
         }
 
         // If the snapshot has the mmds version persisted, initialise the data store with it.
@@ -492,12 +487,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device,
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.device_info,
-                constructor_args.event_manager,
             )?;
+            // Attach net device to event manager.
+            Net::init(device, &mut constructor_args.event_manager);
         }
 
         if let Some(vsock_state) = &state.vsock_device {
@@ -520,12 +515,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
                 &vsock_state.device_info,
-                constructor_args.event_manager,
             )?;
+            // Attach vsock device to event manager.
+            Vsock::init(device, &mut constructor_args.event_manager);
         }
         Ok(dev_manager)
     }

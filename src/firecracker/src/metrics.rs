@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
-use event_manager::{EventOps, Events, MutEventSubscriber};
+use event_manager::EventManager;
 use logger::{error, warn, IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::epoll::EventSet;
@@ -56,35 +56,19 @@ impl PeriodicMetrics {
             self.flush_counter += 1;
         }
     }
-}
 
-impl MutEventSubscriber for PeriodicMetrics {
-    /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: Events, _: &mut EventOps) {
-        let source = event.fd();
-        let event_set = event.event_set();
-
-        // TODO: also check for errors. Pending high level discussions on how we want
-        // to handle errors in devices.
-        let supported_events = EventSet::IN;
-        if !supported_events.contains(event_set) {
-            warn!(
-                "Received unknown event: {:?} from source: {:?}",
-                event_set, source
-            );
-            return;
-        }
-
-        if source == self.write_metrics_event_fd.as_raw_fd() {
-            self.write_metrics_event_fd.read();
-            self.write_metrics();
-        } else {
-            error!("Spurious METRICS event!");
-        }
-    }
-
-    fn init(&mut self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.write_metrics_event_fd, EventSet::IN)) {
+    /// Attach to event manager.
+    pub fn init(metrics: Arc<Mutex<Self>>, ops: &mut EventManager) {
+        let metrics_clone = metrics.clone();
+        if let Err(err) = ops.add(
+            metrics.lock().unwrap().write_metrics_event_fd,
+            event_manager::IN,
+            Box::new(move |_: &mut EventManager, _: u32| {
+                let m = metrics_clone.lock().unwrap();
+                m.write_metrics_event_fd.read();
+                m.write_metrics();
+            }),
+        ) {
             error!("Failed to register metrics event: {}", err);
         }
     }
@@ -102,7 +86,7 @@ pub mod tests {
     fn test_periodic_metrics() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let metrics = Arc::new(Mutex::new(PeriodicMetrics::new()));
-        event_manager.add_subscriber(metrics.clone());
+        PeriodicMetrics::init(metrics.clone(), &mut event_manager);
 
         let flush_period_ms = 50;
         metrics
@@ -113,9 +97,11 @@ pub mod tests {
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 1);
 
         // Wait for at most 1.5x period.
-        event_manager
-            .run_with_timeout((flush_period_ms + flush_period_ms / 2) as i32)
-            .expect("Metrics event timeout or error.");
+        assert_eq!(
+            event_manager.wait(Some((flush_period_ms + flush_period_ms / 2) as u32)),
+            Ok(true),
+            "Metrics event timeout or error."
+        );
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);
     }

@@ -8,10 +8,10 @@
 //! Implements a wrapper over an UART serial device.
 use std::io::Write;
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{io, result};
 
-use event_manager::{EventOps, Events, MutEventSubscriber};
+use event_manager::EventManager;
 use logger::{error, warn, IncMetric, SerialDeviceMetrics};
 use utils::epoll::EventSet;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
@@ -103,29 +103,7 @@ pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write> {
     pub input: Option<Box<dyn ReadableFd + Send>>,
 }
 
-impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
-    fn handle_ewouldblock(&self, ops: &mut EventOps) {
-        let buffer_ready_fd = self.buffer_ready_evt_fd();
-        let input_fd = self.serial_input_fd();
-        if input_fd < 0 || buffer_ready_fd < 0 {
-            error!("Serial does not have a configured input source.");
-            return;
-        }
-        match ops.add(Events::new(&input_fd, EventSet::IN)) {
-            Err(event_manager::Error::FdAlreadyRegistered) => (),
-            Err(err) => {
-                error!(
-                    "Could not register the serial input to the event manager: {:?}",
-                    err
-                );
-            }
-            Ok(()) => {
-                // Bytes might had come on the unregistered stdin. Try to consume any.
-                self.serial.events().in_buffer_empty()
-            }
-        };
-    }
-
+impl<W: Write + 'static> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
     fn recv_bytes(&mut self) -> io::Result<usize> {
         let avail_cap = self.serial.fifo_capacity();
         if avail_cap == 0 {
@@ -168,77 +146,55 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
             .as_ref()
             .map_or(Ok(0), |buf_ready| buf_ready.read())
     }
-}
 
-/// Type for representing a serial device.
-pub type SerialDevice =
-    SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<dyn io::Write + Send>>;
-
-impl<W: std::io::Write> MutEventSubscriber
-    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, W>
-{
-    /// Handle events on the serial input fd.
-    fn process(&mut self, event: Events, ops: &mut EventOps) {
-        #[inline]
-        fn unregister_source<T: AsRawFd>(ops: &mut EventOps, source: &T) {
-            match ops.remove(Events::new(source, EventSet::IN)) {
-                Ok(_) => (),
-                Err(_) => error!("Could not unregister source fd: {}", source.as_raw_fd()),
-            }
+    #[inline]
+    fn unregister_source<T: AsRawFd + std::fmt::Display>(ops: &mut EventManager, source: T) {
+        if ops.del(source.as_raw_fd()).is_err() {
+            error!("Could not unregister source fd: {}", source);
         }
+    }
 
-        let input_fd = self.serial_input_fd();
-        let buffer_ready_fd = self.buffer_ready_evt_fd();
+    fn serial_input_action(
+        serial: Arc<Mutex<Self>>,
+        ops: &mut EventManager,
+        input_fd: RawFd,
+        buffer_ready_fd: RawFd,
+    ) {
         if input_fd < 0 || buffer_ready_fd < 0 {
             error!("Serial does not have a configured input source.");
             return;
         }
-
-        if buffer_ready_fd == event.fd() {
-            match self.consume_buffer_ready_event() {
-                Ok(_) => (),
-                Err(err) => {
-                    error!(
-                        "Detach serial device input source due to error in consuming the buffer \
-                         ready event: {:?}",
-                        err
-                    );
-                    unregister_source(ops, &input_fd);
-                    unregister_source(ops, &buffer_ready_fd);
-                    return;
-                }
-            }
-        }
-
         // We expect to receive: `EventSet::IN`, `EventSet::HANG_UP` or
         // `EventSet::ERROR`. To process all these events we just have to
         // read from the serial input.
-        match self.recv_bytes() {
+        match serial.lock().unwrap().recv_bytes() {
             Ok(count) => {
                 // Handle EOF if the event came from the input source.
-                if input_fd == event.fd() && count == 0 {
-                    unregister_source(ops, &input_fd);
-                    unregister_source(ops, &buffer_ready_fd);
+                if count == 0 {
+                    Self::unregister_source(ops, input_fd);
+                    Self::unregister_source(ops, buffer_ready_fd);
                     warn!("Detached the serial input due to peer close/error.");
                 }
             }
             Err(err) => {
                 match err.raw_os_error() {
                     Some(errno) if errno == libc::ENOBUFS => {
-                        unregister_source(ops, &input_fd);
+                        Self::unregister_source(ops, input_fd);
                     }
-                    Some(errno) if errno == libc::EWOULDBLOCK => {
-                        self.handle_ewouldblock(ops);
-                    }
+                    // We don't handle the `Some(errno) if errno == libc::EWOULDBLOCK` as this would
+                    // re-add the event which triggered this, previously in this case it checked
+                    // this then did nothing. Here we have more infomation earlier so we can do
+                    // nothing here.
+                    Some(errno) if errno == libc::EWOULDBLOCK => (),
                     Some(errno) if errno == libc::ENOTTY => {
                         error!("The serial device does not have the input source attached.");
-                        unregister_source(ops, &input_fd);
-                        unregister_source(ops, &buffer_ready_fd);
+                        Self::unregister_source(ops, input_fd);
+                        Self::unregister_source(ops, buffer_ready_fd);
                     }
                     Some(_) | None => {
                         // Unknown error, detach the serial input source.
-                        unregister_source(ops, &input_fd);
-                        unregister_source(ops, &buffer_ready_fd);
+                        Self::unregister_source(ops, input_fd);
+                        Self::unregister_source(ops, buffer_ready_fd);
                         warn!("Detached the serial input due to peer close/error.");
                     }
                 }
@@ -246,23 +202,156 @@ impl<W: std::io::Write> MutEventSubscriber
         }
     }
 
+    fn buffer_ready_action(
+        serial: Arc<Mutex<Self>>,
+        ops: &mut EventManager,
+        input_fd: RawFd,
+        buffer_ready_fd: RawFd,
+    ) {
+        if input_fd < 0 || buffer_ready_fd < 0 {
+            error!("Serial does not have a configured input source.");
+            return;
+        }
+        if let Err(err) = serial.lock().unwrap().consume_buffer_ready_event() {
+            error!(
+                "Detach serial device input source due to error in consuming the buffer ready \
+                 event: {:?}",
+                err
+            );
+            Self::unregister_source(ops, input_fd);
+            Self::unregister_source(ops, buffer_ready_fd);
+            return;
+        }
+        // We expect to receive: `EventSet::IN`, `EventSet::HANG_UP` or
+        // `EventSet::ERROR`. To process all these events we just have to
+        // read from the serial input.
+        if let Err(err) = serial.lock().unwrap().recv_bytes() {
+            match err.raw_os_error() {
+                Some(errno) if errno == libc::ENOBUFS => {
+                    Self::unregister_source(ops, input_fd);
+                }
+                // As `handle_ewouldblock` is only used here, we can simply inline the code and
+                // remove un-needed code.
+                Some(errno) if errno == libc::EWOULDBLOCK => {
+                    let serial_clone = serial.clone();
+                    match ops.add(
+                        input_fd,
+                        EventSet::IN,
+                        Box::new(move |ops: &mut EventManager, _: EventSet| {
+                            let serial_clone_two = serial_clone.clone();
+                            match ops.add(
+                                input_fd,
+                                EventSet::IN,
+                                Box::new(move |ops: &mut EventManager, _: EventSet| {
+                                    Self::buffer_ready_action(
+                                        serial_clone_two.clone(),
+                                        ops,
+                                        input_fd,
+                                        buffer_ready_fd,
+                                    );
+                                }),
+                            ) {
+                                Err(libc::EEXIST) => (),
+                                Err(err) => {
+                                    error!(
+                                        "Could not register the serial input to the event \
+                                         manager: {:?}",
+                                        err
+                                    );
+                                }
+                                Ok(()) => {
+                                    // Bytes might had come on the unregistered stdin. Try to
+                                    // consume any.
+                                    serial_clone
+                                        .lock()
+                                        .unwrap()
+                                        .serial
+                                        .events()
+                                        .in_buffer_empty()
+                                }
+                            };
+                        }),
+                    ) {
+                        Err(libc::EEXIST) => (),
+                        Err(err) => {
+                            error!(
+                                "Could not register the serial input to the event manager: {:?}",
+                                err
+                            );
+                        }
+                        Ok(()) => {
+                            // Bytes might had come on the unregistered stdin. Try to consume any.
+                            serial.lock().unwrap().serial.events().in_buffer_empty()
+                        }
+                    };
+                }
+                Some(errno) if errno == libc::ENOTTY => {
+                    error!("The serial device does not have the input source attached.");
+                    Self::unregister_source(ops, input_fd);
+                    Self::unregister_source(ops, buffer_ready_fd);
+                }
+                Some(_) | None => {
+                    // Unknown error, detach the serial input source.
+                    Self::unregister_source(ops, input_fd);
+                    Self::unregister_source(ops, buffer_ready_fd);
+                    warn!("Detached the serial input due to peer close/error.");
+                }
+            }
+        }
+    }
+
     /// Initial registration of pollable objects.
     /// If serial input is present, register the serial input FD as readable.
-    fn init(&mut self, ops: &mut EventOps) {
-        if self.input.is_some() && self.serial.events().buffer_ready_event_fd.is_some() {
-            let serial_fd = self.serial_input_fd();
-            let buf_ready_evt = self.buffer_ready_evt_fd();
+    pub fn init(serial: Arc<Mutex<Self>>, ops: &mut EventManager) {
+        if serial.lock().unwrap().input.is_some()
+            && serial
+                .lock()
+                .unwrap()
+                .serial
+                .events()
+                .buffer_ready_event_fd
+                .is_some()
+        {
+            let serial_fd = serial.lock().unwrap().serial_input_fd();
+            let buf_ready_evt = serial.lock().unwrap().buffer_ready_evt_fd();
             if serial_fd != -1 {
-                if let Err(err) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
+                let serial_clone = serial.clone();
+                if let Err(err) = ops.add(
+                    serial_fd,
+                    EventSet::IN,
+                    Box::new(move |ops: &mut EventManager, _: EventSet| {
+                        Self::serial_input_action(
+                            serial_clone.clone(),
+                            ops,
+                            serial_fd,
+                            buf_ready_evt,
+                        );
+                    }),
+                ) {
                     warn!("Failed to register serial input fd: {}", err);
                 }
             }
-            if let Err(err) = ops.add(Events::new(&buf_ready_evt, EventSet::IN)) {
+            let serial_clone = serial.clone();
+            if let Err(err) = ops.add(
+                buf_ready_evt,
+                EventSet::IN,
+                Box::new(move |inner_ops: &mut EventManager, _: EventSet| {
+                    Self::buffer_ready_action(
+                        serial_clone.clone(),
+                        inner_ops,
+                        serial_fd,
+                        buf_ready_evt,
+                    );
+                }),
+            ) {
                 warn!("Failed to register serial buffer ready event: {}", err);
             }
         }
     }
 }
+
+pub type SerialDevice =
+    SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<dyn io::Write + Send>>;
 
 impl<W: Write + Send + 'static> BusDevice
     for SerialWrapper<EventFdTrigger, SerialEventsWrapper, W>

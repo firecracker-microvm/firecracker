@@ -4,16 +4,18 @@
 
 use std::sync::{Arc, Mutex};
 
+use event_manager::EventManager;
+
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
 use crate::seccomp_filters::{get_filters, SeccompConfig};
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::{EventManager, Vmm};
+use crate::Vmm;
 
 pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
-    let mut event_manager = EventManager::new().unwrap();
+    let mut event_manager = EventManager::default();
     let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
     let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();

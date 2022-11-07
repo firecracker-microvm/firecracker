@@ -18,7 +18,7 @@ use devices::legacy::{
     EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
 };
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
-use event_manager::{MutEventSubscriber, SubscriberOps};
+use event_manager::EventManager;
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 #[cfg(target_arch = "x86_64")]
@@ -52,7 +52,7 @@ use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
+use crate::{device_manager, Error, Vmm, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -416,7 +416,7 @@ pub fn build_microvm_for_boot(
     vmm.resume_vm().map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
-    event_manager.add_subscriber(vmm.clone());
+    Vmm::init(vmm.clone(), &mut event_manager);
 
     Ok(vmm)
 }
@@ -579,7 +579,7 @@ pub fn build_microvm_from_snapshot(
     vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
-    event_manager.add_subscriber(vmm.clone());
+    Vmm::init(vmm.clone(), &mut event_manager);
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
@@ -753,7 +753,8 @@ pub fn setup_serial_device(
         ),
         input: Some(input),
     }));
-    event_manager.add_subscriber(serial.clone());
+    // Attach to event manager.
+    SerialDevice::init(serial.clone(), &mut event_manager);
     Ok(serial)
 }
 
@@ -901,17 +902,14 @@ pub fn configure_system_for_boot(
     Ok(())
 }
 
-/// Attaches a VirtioDevice device to the device manager and event manager.
-fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
-    event_manager: &mut EventManager,
+/// Attaches a VirtioDevice device to the device manager.
+fn attach_virtio_device_mmio<T: 'static + VirtioDevice>(
     vmm: &mut Vmm,
     id: String,
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
-
-    event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device);
@@ -958,8 +956,13 @@ fn attach_block_devices<'a>(
             }
             locked.id().clone()
         };
+
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+        // Attaches the block virtio device to the device manager and event manager.
+        {
+            Block::init(block.clone(), event_manager);
+            attach_virtio_device_mmio(vmm, id, block.clone(), cmdline)?;
+        }
     }
     Ok(())
 }
@@ -973,7 +976,11 @@ fn attach_net_devices<'a>(
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline)?;
+        // Attaches the net virtio device to the device manager and event manager.
+        {
+            Net::init(net_device.clone(), event_manager);
+            attach_virtio_device_mmio(vmm, id, net_device.clone(), cmdline)?;
+        }
     }
     Ok(())
 }
@@ -986,7 +993,11 @@ fn attach_unixsock_vsock_device(
 ) -> std::result::Result<(), StartMicrovmError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
+    // Attaches the vsock virtio device to the device manager and event manager.
+    {
+        Vsock::init(unix_vsock.clone(), event_manager);
+        attach_virtio_device_mmio(vmm, id, unix_vsock.clone(), cmdline)
+    }
 }
 
 fn attach_balloon_device(
@@ -997,7 +1008,11 @@ fn attach_balloon_device(
 ) -> std::result::Result<(), StartMicrovmError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+    // Attaches the balloon virtio device to the device manager and event manager.
+    {
+        Balloon::init(balloon.clone(), event_manager);
+        attach_virtio_device_mmio(vmm, id, balloon.clone(), cmdline)
+    }
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
@@ -1358,7 +1373,7 @@ pub mod tests {
 
     #[test]
     fn test_attach_net_devices() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EventManager::new(false).expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
         let network_interface = NetworkInterfaceConfig {
@@ -1384,7 +1399,7 @@ pub mod tests {
 
     #[test]
     fn test_attach_block_devices() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EventManager::new(false).expect("Unable to create EventManager");
 
         // Use case 1: root block device is not specified through PARTUUID.
         {
@@ -1575,7 +1590,7 @@ pub mod tests {
 
     #[test]
     fn test_attach_balloon_device() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EventManager::new(false).expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
         let balloon_config = BalloonDeviceConfig {
@@ -1596,7 +1611,7 @@ pub mod tests {
 
     #[test]
     fn test_attach_vsock_device() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EventManager::new(false).expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
         let mut tmp_sock_file = TempFile::new().unwrap();
