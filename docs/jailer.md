@@ -52,7 +52,7 @@ jailer --id <id> \
   Supported options are "1" for cgroup-v1 and "2" for cgroup-v2.
 - `cgroup` cgroups can be passed to the jailer to let it set the values
   when the microVM process is spawned. The `--cgroup` argument must follow this format:
-  `<cgroup_file>=<value>` (e.g cpuset.cpus=0). This argument can be used multiple
+  `<cgroup_file>=<value>` (e.g `cpuset.cpus=0`). This argument can be used multiple
   times to set multiple cgroups. This is useful to avoid providing privileged permissions
   to another process for setting the cgroups before or after the jailer is executed.
   The `--cgroup` flag can help as well to set Firecracker process cgroups
