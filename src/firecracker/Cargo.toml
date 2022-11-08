@@ -21,3 +21,7 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+
+[dev-dependencies]
+cargo_toml = "0.13.0"
+regex = "1.5.5"
