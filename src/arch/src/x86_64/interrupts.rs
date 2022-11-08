@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_apic_delivery_mode() {
-        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_psuedo_rng_u32()).collect();
+        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_pseudo_rng_u32()).collect();
 
         v.iter_mut()
             .for_each(|x| *x = set_apic_delivery_mode(*x, 2));

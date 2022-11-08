@@ -414,7 +414,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
 dependencies = [
  "libc",
- "vmm-sys-util 0.9.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -542,7 +542,7 @@ source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-1#e
 dependencies = [
  "versionize",
  "versionize_derive",
- "vmm-sys-util 0.11.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -553,7 +553,7 @@ checksum = "c3a321cabd827642499c77e27314f388dd83a717a5ca716b86476fb947f73ae4"
 dependencies = [
  "kvm-bindings",
  "libc",
- "vmm-sys-util 0.11.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -636,7 +636,7 @@ version = "0.1.0"
 source = "git+https://github.com/firecracker-microvm/micro-http?rev=0a58eb1#0a58eb1ece68e326e68365c4297d0a7c08ecd9bc"
 dependencies = [
  "libc",
- "vmm-sys-util 0.9.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1156,7 +1156,7 @@ dependencies = [
  "net_gen",
  "serde",
  "serde_json",
- "vmm-sys-util 0.9.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1179,7 +1179,7 @@ dependencies = [
  "serde_derive",
  "syn",
  "versionize_derive",
- "vmm-sys-util 0.11.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1256,16 +1256,6 @@ dependencies = [
  "virtio_gen",
  "vm-memory 0.3.0",
  "vm-superio",
-]
-
-[[package]]
-name = "vmm-sys-util"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "733537bded03aaa93543f785ae997727b30d1d9f4a03b7861d23290474242e11"
-dependencies = [
- "bitflags",
- "libc",
 ]
 
 [[package]]
