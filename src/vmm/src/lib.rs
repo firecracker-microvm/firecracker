@@ -76,7 +76,7 @@ pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FcExitCode {
     /// Success exit code.
     Ok = 0,
@@ -120,7 +120,6 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 #[derive(Debug)]
 pub enum Error {
     #[cfg(target_arch = "aarch64")]
-    #[error("Invalid cmdline")]
     /// Invalid command line error.
     Cmdline,
     /// Legacy devices work with Event file descriptors and the creation can fail because
@@ -211,6 +210,8 @@ impl Display for Error {
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
             #[cfg(target_arch = "aarch64")]
             VcpuInit(e) => write!(f, "Error initializing the vcpu: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            Cmdline => write!(f, "Invalid cmdline."),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
             VcpuExit => write!(f, "Failed to exit the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),

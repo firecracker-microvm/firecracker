@@ -103,10 +103,7 @@ fn test_restrictions() {
                 .unwrap()
         };
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-        assert!(
-            matches!(unsafe{ring.pop::<u8>().unwrap().unwrap().result()},
-            Err(e) if e.kind() == std::io::ErrorKind::Other)
-        );
+        assert!(unsafe { ring.pop::<u8>().unwrap().unwrap().result().is_err() });
     }
 }
 

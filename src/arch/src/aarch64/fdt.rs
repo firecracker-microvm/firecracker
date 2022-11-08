@@ -103,7 +103,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     create_timer_node(&mut fdt_writer)?;
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
-    create_devices_node(&mut fdt_writer, &device_info)?;
+    create_devices_node(&mut fdt_writer, device_info)?;
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -112,7 +112,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     let fdt_final = fdt_writer.finish()?;
 
     // Write FDT to memory.
-    let fdt_address = GuestAddress(get_fdt_addr(&guest_mem));
+    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
     guest_mem
         .write_slice(fdt_final.as_slice(), fdt_address)
         .map_err(Error::WriteFdtToMemory)?;
@@ -275,7 +275,7 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()
     // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity description
     // is required.
     fdt.property_u32("#interrupt-cells", 3)?;
-    fdt.property_array_u64("reg", &gic_device.device_properties())?;
+    fdt.property_array_u64("reg", gic_device.device_properties())?;
     fdt.property_u32("phandle", GIC_PHANDLE)?;
     fdt.property_u32("#address-cells", 2)?;
     fdt.property_u32("#size-cells", 2)?;

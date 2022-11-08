@@ -164,7 +164,7 @@ impl Snapshot {
             return Err(Error::Crc64(computed_checksum));
         }
 
-        let mut snapshot_slice: &[u8] = &mut snapshot.as_mut_slice();
+        let mut snapshot_slice: &[u8] = snapshot.as_mut_slice();
         let object: O = Snapshot::unchecked_load(&mut snapshot_slice, version_map)?;
 
         Ok(object)
@@ -415,10 +415,9 @@ mod tests {
 
         assert_eq!(
             restored_state_result.unwrap_err(),
-            Error::Versionize(versionize::VersionizeError::Deserialize(
-                "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
-                    .to_owned()
-            ))
+            Error::Versionize(versionize::VersionizeError::Deserialize(String::from(
+                "Io(Error { kind: UnexpectedEof, message: \"failed to fill whole buffer\" })"
+            )))
         );
     }
 
@@ -560,7 +559,7 @@ mod tests {
     #[test]
     fn test_kvm_bindings_struct() {
         #[repr(C)]
-        #[derive(Debug, PartialEq, Versionize)]
+        #[derive(Debug, PartialEq, Eq, Versionize)]
         pub struct kvm_pit_config {
             pub flags: ::std::os::raw::c_uint,
             pub pad: [::std::os::raw::c_uint; 15usize],

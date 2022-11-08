@@ -78,8 +78,7 @@ pub fn get_kernel_start() -> u64 {
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
     let round_to_pagesize = |size| (size + (super::PAGE_SIZE - 1)) & !(super::PAGE_SIZE - 1);
-    match GuestAddress(get_fdt_addr(&guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64)
-    {
+    match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64) {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
                 Ok(offset.raw_value())

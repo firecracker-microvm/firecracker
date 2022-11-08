@@ -116,7 +116,11 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_1>())).off as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).off) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -127,7 +131,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_1>())).addr2 as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).addr2) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -166,7 +172,11 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_2() {
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_2))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_2>())).addr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).addr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -177,8 +187,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_2>())).splice_off_in as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).splice_off_in) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -229,7 +240,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).rw_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).rw_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -241,7 +254,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).fsync_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fsync_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -253,7 +268,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).poll_events as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).poll_events) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -265,8 +282,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).poll32_events as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).poll32_events) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -278,8 +296,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).sync_range_flags as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sync_range_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -291,7 +310,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).msg_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -303,8 +324,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).timeout_flags as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).timeout_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -316,7 +338,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).accept_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).accept_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -328,7 +352,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).cancel_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cancel_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -340,7 +366,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).open_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).open_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -352,7 +380,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).statx_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).statx_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -364,8 +394,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).fadvise_advice as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fadvise_advice) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -377,7 +408,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_3>())).splice_flags as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_3>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).splice_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -436,8 +469,11 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1() 
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1>()))
-                .buf_index as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<
+                io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1,
+            >::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).buf_index) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -449,8 +485,11 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1() 
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1>()))
-                .buf_group as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<
+                io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1,
+            >::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).buf_group) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -490,8 +529,10 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1>())).personality
-                as *const _ as usize
+            let uninit =
+                ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).personality) as usize - ptr as usize
         },
         2usize,
         concat!(
@@ -503,8 +544,10 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1>())).splice_fd_in
-                as *const _ as usize
+            let uninit =
+                ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_4__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).splice_fd_in) as usize - ptr as usize
         },
         4usize,
         concat!(
@@ -538,7 +581,9 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_sqe__bindgen_ty_4>())).__pad2 as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe__bindgen_ty_4>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__pad2) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -571,7 +616,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         concat!("Alignment of ", stringify!(io_uring_sqe))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).opcode as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).opcode) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -581,7 +630,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -591,7 +644,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).ioprio as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ioprio) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Offset of field: ",
@@ -601,7 +658,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).fd as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fd) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -611,7 +672,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).len) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Offset of field: ",
@@ -621,7 +686,11 @@ fn bindgen_test_layout_io_uring_sqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_sqe>())).user_data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_sqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).user_data) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Offset of field: ",
@@ -684,7 +753,7 @@ pub const IORING_OP_TEE: ::std::os::raw::c_uint = 33;
 pub const IORING_OP_LAST: ::std::os::raw::c_uint = 34;
 pub type _bindgen_ty_2 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_cqe {
     pub user_data: __u64,
     pub res: __s32,
@@ -703,7 +772,11 @@ fn bindgen_test_layout_io_uring_cqe() {
         concat!("Alignment of ", stringify!(io_uring_cqe))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_cqe>())).user_data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_cqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).user_data) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -713,7 +786,11 @@ fn bindgen_test_layout_io_uring_cqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_cqe>())).res as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_cqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).res) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -723,7 +800,11 @@ fn bindgen_test_layout_io_uring_cqe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_cqe>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_cqe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -736,7 +817,7 @@ fn bindgen_test_layout_io_uring_cqe() {
 pub const IORING_CQE_BUFFER_SHIFT: ::std::os::raw::c_uint = 16;
 pub type _bindgen_ty_3 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_sqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -761,7 +842,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         concat!("Alignment of ", stringify!(io_sqring_offsets))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).head as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).head) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -771,7 +856,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).tail as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tail) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -781,7 +870,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).ring_mask as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ring_mask) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -791,7 +884,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).ring_entries as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ring_entries) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -801,7 +898,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Offset of field: ",
@@ -811,7 +912,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).dropped as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dropped) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Offset of field: ",
@@ -821,7 +926,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).array as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).array) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Offset of field: ",
@@ -831,7 +940,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).resv1 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv1) as usize - ptr as usize
+        },
         28usize,
         concat!(
             "Offset of field: ",
@@ -841,7 +954,11 @@ fn bindgen_test_layout_io_sqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).resv2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_sqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv2) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Offset of field: ",
@@ -852,7 +969,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_cqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -877,7 +994,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         concat!("Alignment of ", stringify!(io_cqring_offsets))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).head as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).head) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -887,7 +1008,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).tail as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tail) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -897,7 +1022,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).ring_mask as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ring_mask) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -907,7 +1036,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).ring_entries as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ring_entries) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -917,7 +1050,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).overflow as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).overflow) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Offset of field: ",
@@ -927,7 +1064,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).cqes as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cqes) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Offset of field: ",
@@ -937,7 +1078,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Offset of field: ",
@@ -947,7 +1092,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).resv1 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv1) as usize - ptr as usize
+        },
         28usize,
         concat!(
             "Offset of field: ",
@@ -957,7 +1106,11 @@ fn bindgen_test_layout_io_cqring_offsets() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).resv2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_cqring_offsets>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv2) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Offset of field: ",
@@ -968,7 +1121,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_params {
     pub sq_entries: __u32,
     pub cq_entries: __u32,
@@ -994,7 +1147,11 @@ fn bindgen_test_layout_io_uring_params() {
         concat!("Alignment of ", stringify!(io_uring_params))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_entries as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sq_entries) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -1004,7 +1161,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).cq_entries as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cq_entries) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -1014,7 +1175,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -1024,7 +1189,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_thread_cpu as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sq_thread_cpu) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -1034,7 +1203,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_thread_idle as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sq_thread_idle) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Offset of field: ",
@@ -1044,7 +1217,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).features as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).features) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Offset of field: ",
@@ -1054,7 +1231,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).wq_fd as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).wq_fd) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Offset of field: ",
@@ -1064,7 +1245,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).resv as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv) as usize - ptr as usize
+        },
         28usize,
         concat!(
             "Offset of field: ",
@@ -1074,7 +1259,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_off as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sq_off) as usize - ptr as usize
+        },
         40usize,
         concat!(
             "Offset of field: ",
@@ -1084,7 +1273,11 @@ fn bindgen_test_layout_io_uring_params() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).cq_off as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_params>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cq_off) as usize - ptr as usize
+        },
         80usize,
         concat!(
             "Offset of field: ",
@@ -1110,7 +1303,7 @@ pub const IORING_REGISTER_ENABLE_RINGS: ::std::os::raw::c_uint = 12;
 pub const IORING_REGISTER_LAST: ::std::os::raw::c_uint = 13;
 pub type _bindgen_ty_4 = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_files_update {
     pub offset: __u32,
     pub resv: __u32,
@@ -1129,7 +1322,11 @@ fn bindgen_test_layout_io_uring_files_update() {
         concat!("Alignment of ", stringify!(io_uring_files_update))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_files_update>())).offset as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_files_update>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).offset) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -1139,7 +1336,11 @@ fn bindgen_test_layout_io_uring_files_update() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_files_update>())).resv as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_files_update>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -1149,7 +1350,11 @@ fn bindgen_test_layout_io_uring_files_update() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_files_update>())).fds as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_files_update>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fds) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -1160,7 +1365,7 @@ fn bindgen_test_layout_io_uring_files_update() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct io_uring_probe_op {
     pub op: __u8,
     pub resv: __u8,
@@ -1180,7 +1385,11 @@ fn bindgen_test_layout_io_uring_probe_op() {
         concat!("Alignment of ", stringify!(io_uring_probe_op))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe_op>())).op as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe_op>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).op) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -1190,7 +1399,11 @@ fn bindgen_test_layout_io_uring_probe_op() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe_op>())).resv as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe_op>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -1200,7 +1413,11 @@ fn bindgen_test_layout_io_uring_probe_op() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe_op>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe_op>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Offset of field: ",
@@ -1210,7 +1427,11 @@ fn bindgen_test_layout_io_uring_probe_op() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe_op>())).resv2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe_op>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv2) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -1242,7 +1463,11 @@ fn bindgen_test_layout_io_uring_probe() {
         concat!("Alignment of ", stringify!(io_uring_probe))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe>())).last_op as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).last_op) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -1252,7 +1477,11 @@ fn bindgen_test_layout_io_uring_probe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe>())).ops_len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ops_len) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -1262,7 +1491,11 @@ fn bindgen_test_layout_io_uring_probe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe>())).resv as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Offset of field: ",
@@ -1272,7 +1505,11 @@ fn bindgen_test_layout_io_uring_probe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe>())).resv2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv2) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -1282,7 +1519,11 @@ fn bindgen_test_layout_io_uring_probe() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_probe>())).ops as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_probe>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ops) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Offset of field: ",
@@ -1324,8 +1565,9 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_restriction__bindgen_ty_1>())).register_op as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).register_op) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -1337,8 +1579,9 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_restriction__bindgen_ty_1>())).sqe_op as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sqe_op) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -1350,8 +1593,9 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<io_uring_restriction__bindgen_ty_1>())).sqe_flags as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sqe_flags) as usize - ptr as usize
         },
         0usize,
         concat!(
@@ -1384,7 +1628,11 @@ fn bindgen_test_layout_io_uring_restriction() {
         concat!("Alignment of ", stringify!(io_uring_restriction))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_restriction>())).opcode as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).opcode) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -1394,7 +1642,11 @@ fn bindgen_test_layout_io_uring_restriction() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_restriction>())).resv as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv) as usize - ptr as usize
+        },
         3usize,
         concat!(
             "Offset of field: ",
@@ -1404,7 +1656,11 @@ fn bindgen_test_layout_io_uring_restriction() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_restriction>())).resv2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<io_uring_restriction>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).resv2) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",

@@ -71,7 +71,7 @@ bitflags! {
 }
 
 /// Describes the errors which may occur while handling TCP segments.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,

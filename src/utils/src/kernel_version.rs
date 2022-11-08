@@ -14,7 +14,7 @@ pub enum Error {
     InvalidInt(std::num::ParseIntError),
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, Eq, PartialOrd)]
 #[cfg_attr(test, derive(Debug))]
 pub struct KernelVersion {
     major: u16,
@@ -60,7 +60,7 @@ impl KernelVersion {
         let mut patch = tokens.next().ok_or(Error::InvalidFormat)?;
 
         // Parse the `patch`, since it may contain other tokens as well.
-        if let Some(index) = patch.find(|c: char| !c.is_digit(10)) {
+        if let Some(index) = patch.find(|c: char| !c.is_ascii_digit()) {
             patch = &patch[..index];
         }
 

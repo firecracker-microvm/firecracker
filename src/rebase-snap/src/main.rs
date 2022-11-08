@@ -282,7 +282,7 @@ mod tests {
 
             // 4. The diff file is bigger
             let mut diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
-            diff_file.write_all(&diff_block.as_bytes()).unwrap();
+            diff_file.write_all(diff_block.as_bytes()).unwrap();
             expected_result.append(unsafe { diff_block.as_mut_vec() });
             // Rebase and check the result
             rebase(&mut base_file, &mut diff_file).unwrap();

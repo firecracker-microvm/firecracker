@@ -25,7 +25,7 @@ pub enum IoErr {
     FileEngine(block_io::Error),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RequestType {
     In,
     Out,
@@ -210,7 +210,7 @@ impl RequestHeader {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct Request {
     pub r#type: RequestType,
     pub data_len: u32,
@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn test_parse_generic() {
         let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         // Write only request type descriptor.
         let request_header = RequestHeader::new(100, 114);
@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn test_parse_in() {
         let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
@@ -618,7 +618,7 @@ mod tests {
     #[test]
     fn test_parse_out() {
         let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn test_parse_flush() {
         let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         // Flush request with a data descriptor.
         let request_header = RequestHeader::new(VIRTIO_BLK_T_FLUSH, 50);
@@ -666,7 +666,7 @@ mod tests {
     #[test]
     fn test_parse_get_id() {
         let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_GET_ID, 15);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);

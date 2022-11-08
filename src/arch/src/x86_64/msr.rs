@@ -288,7 +288,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
-    let msrs = Msrs::from_entries(&msr_entries).map_err(Error::FamError)?;
+    let msrs = Msrs::from_entries(msr_entries).map_err(Error::FamError)?;
     vcpu.set_msrs(&msrs)
         .map_err(Error::SetModelSpecificRegisters)
         .and_then(|msrs_written| {

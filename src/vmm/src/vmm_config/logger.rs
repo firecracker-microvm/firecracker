@@ -11,7 +11,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum LoggerLevel {
     /// When the level is set to `Error`, the logger will only contain entries
     /// that come from the `error` macro.
@@ -73,7 +73,7 @@ where
 }
 
 /// Strongly typed structure used to describe the logger.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
@@ -120,7 +120,7 @@ impl Display for LoggerConfigError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::LoggerConfigError::*;
         match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
+            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace('\"', "")),
         }
     }
 }
@@ -237,8 +237,8 @@ mod tests {
             LoggerConfig::new(PathBuf::from("log"), LoggerLevel::Debug, false, true);
         assert_eq!(logger_config.log_path, PathBuf::from("log"));
         assert_eq!(logger_config.level, LoggerLevel::Debug);
-        assert_eq!(logger_config.show_level, false);
-        assert_eq!(logger_config.show_log_origin, true);
+        assert!(!logger_config.show_level);
+        assert!(logger_config.show_log_origin);
     }
 
     #[test]

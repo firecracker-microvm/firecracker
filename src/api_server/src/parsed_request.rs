@@ -384,7 +384,7 @@ pub(crate) mod tests {
         );
         if status_code == 204 {
             // No Content
-            return format!("{}{}", header, "\r\n");
+            format!("{}{}", header, "\r\n")
         } else {
             let content = format!(
                 "Content-Type: application/json\r\n\
@@ -413,7 +413,7 @@ pub(crate) mod tests {
                 body.unwrap()
             );
         }
-        return format!("{}\r\n", req_no_body,);
+        format!("{}\r\n", req_no_body,)
     }
 
     #[test]
@@ -707,7 +707,7 @@ pub(crate) mod tests {
             \"action_type\": \"FlushMetrics\" \
             }";
         sender
-            .write_all(http_request("PUT", "/actions", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/actions", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -724,7 +724,7 @@ pub(crate) mod tests {
             \"stats_polling_interval_s\": 0 \
             }";
         sender
-            .write_all(http_request("PUT", "/balloon", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/balloon", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -740,7 +740,7 @@ pub(crate) mod tests {
             \"boot_args\": \"string\" \
             }";
         sender
-            .write_all(http_request("PUT", "/boot-source", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/boot-source", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -773,7 +773,7 @@ pub(crate) mod tests {
             } \
         }";
         sender
-            .write_all(http_request("PUT", "/drives/string", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/drives/string", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -791,7 +791,7 @@ pub(crate) mod tests {
             \"show_log_origin\": false \
         }";
         sender
-            .write_all(http_request("PUT", "/logger", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/logger", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -807,7 +807,7 @@ pub(crate) mod tests {
             \"mem_size_mib\": 1 \
         }";
         sender
-            .write_all(http_request("PUT", "/machine-config", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/machine-config", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -822,7 +822,7 @@ pub(crate) mod tests {
             \"metrics_path\": \"string\" \
         }";
         sender
-            .write_all(http_request("PUT", "/metrics", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/metrics", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -836,7 +836,7 @@ pub(crate) mod tests {
 
         // `/mmds`
         sender
-            .write_all(http_request("PUT", "/mmds", Some(&"{}")).as_bytes())
+            .write_all(http_request("PUT", "/mmds", Some("{}")).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -844,7 +844,7 @@ pub(crate) mod tests {
 
         let body = "{\"foo\":\"bar\"}";
         sender
-            .write_all(http_request("PUT", "/mmds", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/mmds", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -856,7 +856,7 @@ pub(crate) mod tests {
             \"network_interfaces\": [\"iface0\"] \
         }";
         sender
-            .write_all(http_request("PUT", "/mmds/config", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/mmds/config", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -897,7 +897,7 @@ pub(crate) mod tests {
             } \
         }";
         sender
-            .write_all(http_request("PUT", "/network-interfaces/string", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/network-interfaces/string", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -914,7 +914,7 @@ pub(crate) mod tests {
             \"version\": \"0.23.0\" \
         }";
         sender
-            .write_all(http_request("PUT", "/snapshot/create", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/snapshot/create", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -929,7 +929,7 @@ pub(crate) mod tests {
             \"enable_diff_snapshots\": true \
         }";
         sender
-            .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/snapshot/load", Some(body)).as_bytes())
             .unwrap();
 
         assert!(connection.try_read().is_ok());
@@ -942,7 +942,7 @@ pub(crate) mod tests {
             \"resume_vm\": true \
         }";
         sender
-            .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/snapshot/load", Some(body)).as_bytes())
             .unwrap();
 
         assert!(connection.try_read().is_ok());
@@ -973,7 +973,7 @@ pub(crate) mod tests {
             \"state\": \"Paused\" \
         }";
         sender
-            .write_all(http_request("PATCH", "/vm", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/vm", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -990,7 +990,7 @@ pub(crate) mod tests {
             \"uds_path\": \"string\" \
         }";
         sender
-            .write_all(http_request("PUT", "/vsock", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/vsock", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1003,7 +1003,7 @@ pub(crate) mod tests {
         let mut connection = HttpConnection::new(receiver);
         let body = "{ \"amount_mib\": 1 }";
         sender
-            .write_all(http_request("PATCH", "/balloon", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/balloon", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1012,7 +1012,7 @@ pub(crate) mod tests {
             \"stats_polling_interval_s\": 1 \
         }";
         sender
-            .write_all(http_request("PATCH", "/balloon/statistics", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/balloon/statistics", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1028,7 +1028,7 @@ pub(crate) mod tests {
             \"path_on_host\": \"string\" \
         }";
         sender
-            .write_all(http_request("PATCH", "/drives/string", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/drives/string", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1044,7 +1044,7 @@ pub(crate) mod tests {
             \"mem_size_mib\": 1 \
         }";
         sender
-            .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/machine-config", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1056,7 +1056,7 @@ pub(crate) mod tests {
             \"cpu_template\": \"C3\" \
         }";
         sender
-            .write_all(http_request("PATCH", "/machine-config", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/machine-config", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1071,7 +1071,7 @@ pub(crate) mod tests {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
         sender
-            .write_all(http_request("PATCH", "/mmds", Some(&"{}")).as_bytes())
+            .write_all(http_request("PATCH", "/mmds", Some("{}")).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -1086,7 +1086,7 @@ pub(crate) mod tests {
             \"iface_id\": \"string\" \
         }";
         sender
-            .write_all(http_request("PATCH", "/network-interfaces/string", Some(&body)).as_bytes())
+            .write_all(http_request("PATCH", "/network-interfaces/string", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();

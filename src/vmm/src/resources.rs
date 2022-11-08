@@ -70,7 +70,7 @@ impl std::fmt::Display for Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -181,7 +181,7 @@ impl VmResources {
             resources
                 .locked_mmds_or_default()
                 .put_data(
-                    serde_json::from_str(&data)
+                    serde_json::from_str(data)
                         .expect("MMDS error: metadata provided not valid json"),
                 )
                 .map_err(Error::Mmds)?;
@@ -215,19 +215,19 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::SharedBlock(block) => {
+            SharedDeviceType::Block(block) => {
                 self.block.add_device(block);
             }
 
-            SharedDeviceType::SharedNetwork(network) => {
+            SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
 
-            SharedDeviceType::SharedBalloon(balloon) => {
+            SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
             }
 
-            SharedDeviceType::SharedVsock(vsock) => {
+            SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
         }

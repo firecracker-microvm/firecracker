@@ -45,7 +45,7 @@ use tests::{
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted.
@@ -212,7 +212,7 @@ impl Display for VmmActionError {
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmmData {
     /// The balloon device configuration.
     BalloonConfig(BalloonDeviceConfig),
@@ -345,7 +345,7 @@ impl<'a> PrebootApiController<'a> {
             vm_resources
                 .locked_mmds_or_default()
                 .put_data(
-                    serde_json::from_str(&data)
+                    serde_json::from_str(data)
                         .expect("MMDS error: metadata provided not valid json"),
                 )
                 .map_err(|err| {
@@ -500,8 +500,8 @@ impl<'a> PrebootApiController<'a> {
     fn start_microvm(&mut self) -> ActionResult {
         build_microvm_for_boot(
             &self.instance_info,
-            &self.vm_resources,
-            &mut self.event_manager,
+            self.vm_resources,
+            self.event_manager,
             self.seccomp_filters,
         )
         .map(|vmm| {
@@ -533,7 +533,7 @@ impl<'a> PrebootApiController<'a> {
 
         let result = restore_from_snapshot(
             &self.instance_info,
-            &mut self.event_manager,
+            self.event_manager,
             self.seccomp_filters,
             load_params,
             VERSION_MAP.clone(),
@@ -995,7 +995,7 @@ mod tests {
     }
 
     // Mock `Vmm` used for testing.
-    #[derive(Debug, Default, PartialEq)]
+    #[derive(Debug, Default, PartialEq, Eq)]
     pub struct MockVmm {
         pub balloon_config_called: bool,
         pub latest_balloon_stats_called: bool,
