@@ -12,7 +12,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
