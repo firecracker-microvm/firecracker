@@ -66,7 +66,7 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
         "seccompiler",
         "--verbose",
         "--target",
-        &cargo_target,
+        cargo_target,
         // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
@@ -74,7 +74,7 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
         SECCOMPILER_BUILD_DIR,
         "--",
         "--input-file",
-        &json_path,
+        json_path,
         "--target-arch",
         &target_arch,
         "--output-file",

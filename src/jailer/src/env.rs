@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn test_new_env() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         let good_arg_vals = ArgVals::new();
         let arg_parser = build_arg_parser();
@@ -875,7 +875,7 @@ mod tests {
     #[test]
     fn test_setup_jailed_folder() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
         let env = create_env();
 
         // Error case: non UTF-8 paths.
@@ -925,7 +925,7 @@ mod tests {
         use std::os::unix::fs::FileTypeExt;
 
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
         let env = create_env();
 
         // Ensure path buffers without NULL-termination are handled well.
@@ -951,7 +951,7 @@ mod tests {
 
             // Ensure device's properties.
             let metadata = fs::metadata(dev_str).unwrap();
-            assert_eq!(metadata.file_type().is_char_device(), true);
+            assert!(metadata.file_type().is_char_device());
             assert_eq!(get_major(metadata.st_rdev()), major);
             assert_eq!(get_minor(metadata.st_rdev()), minor);
             assert_eq!(
@@ -978,7 +978,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         // Create tmp resources for `exec_file` and `chroot_base`.
         let some_file = TempFile::new_with_prefix("/tmp/").unwrap();
@@ -1053,7 +1053,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         let good_arg_vals = ArgVals::new();
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         // Cases that should fail
 
@@ -1183,7 +1183,7 @@ mod tests {
         // Check valid cases
         let resources = [FSIZE_ARG, NO_FILE_ARG];
         for resource in resources.iter() {
-            let arg = vec![resource.to_string() + &"=4098".to_string()];
+            let arg = vec![resource.to_string() + "=4098"];
             Env::parse_resource_limits(&mut resource_limits, &*arg).unwrap();
         }
     }
@@ -1192,7 +1192,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     fn test_copy_cache_info() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         let env = create_env();
 
@@ -1219,7 +1219,7 @@ mod tests {
         let pid = 1;
 
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
 
         let mut env = create_env();
         env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))

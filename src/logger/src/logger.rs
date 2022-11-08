@@ -410,7 +410,7 @@ impl Log for Logger {
         let msg = format!(
             "{} {} {}",
             LocalTime::now(),
-            self.create_prefix(&record),
+            self.create_prefix(record),
             record.args()
         );
         self.write_log(msg, record.metadata().level());
@@ -522,8 +522,8 @@ mod tests {
     #[test]
     fn test_default_values() {
         let l = Logger::new();
-        assert_eq!(l.show_line_numbers(), true);
-        assert_eq!(l.show_level(), true);
+        assert!(l.show_line_numbers());
+        assert!(l.show_level());
     }
 
     #[test]
@@ -698,7 +698,7 @@ mod tests {
             })
             .unwrap();
         let r = custom_thread.join();
-        assert_eq!(r.is_ok(), true);
+        assert!(r.is_ok());
     }
 
     #[test]

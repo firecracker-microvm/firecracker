@@ -87,7 +87,7 @@ impl fmt::Display for Error {
             Canonicalize(ref path, ref io_err) => write!(
                 f,
                 "{}",
-                format!("Failed to canonicalize path {:?}: {}", path, io_err).replace("\"", "")
+                format!("Failed to canonicalize path {:?}: {}", path, io_err).replace('\"', "")
             ),
             Chmod(ref path, ref err) => {
                 write!(f, "Failed to change permissions on {:?}: {}", path, err)
@@ -99,7 +99,7 @@ impl fmt::Display for Error {
                     "Failed to inherit cgroups configurations from file {} in path {:?}",
                     filename, path
                 )
-                .replace("\"", "")
+                .replace('\"', "")
             ),
             CgroupLineNotFound(ref proc_mounts, ref controller) => write!(
                 f,
@@ -134,12 +134,12 @@ impl fmt::Display for Error {
             Copy(ref file, ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to copy {:?} to {:?}: {}", file, path, err).replace("\"", "")
+                format!("Failed to copy {:?} to {:?}: {}", file, path, err).replace('\"', "")
             ),
             CreateDir(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to create directory {:?}: {}", path, err).replace("\"", "")
+                format!("Failed to create directory {:?}: {}", path, err).replace('\"', "")
             ),
             CStringParsing(_) => write!(f, "Encountered interior \\0 while parsing a string"),
             Dup2(ref err) => write!(f, "Failed to duplicate fd: {}", err),
@@ -147,12 +147,12 @@ impl fmt::Display for Error {
             FileName(ref path) => write!(
                 f,
                 "{}",
-                format!("Failed to extract filename from path {:?}", path).replace("\"", "")
+                format!("Failed to extract filename from path {:?}", path).replace('\"', "")
             ),
             FileOpen(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to open file {:?}: {}", path, err).replace("\"", "")
+                format!("Failed to open file {:?}: {}", path, err).replace('\"', "")
             ),
             FromBytesWithNul(ref err) => {
                 write!(f, "Failed to decode string from byte array: {}", err)
@@ -163,7 +163,7 @@ impl fmt::Display for Error {
             MissingParent(ref path) => write!(
                 f,
                 "{}",
-                format!("File {:?} doesn't have a parent", path).replace("\"", "")
+                format!("File {:?} doesn't have a parent", path).replace('\"', "")
             ),
             MkdirOldRoot(ref err) => write!(
                 f,
@@ -184,29 +184,29 @@ impl fmt::Display for Error {
             NotAFile(ref path) => write!(
                 f,
                 "{}",
-                format!("{:?} is not a file", path).replace("\"", "")
+                format!("{:?} is not a file", path).replace('\"', "")
             ),
             NotADirectory(ref path) => write!(
                 f,
                 "{}",
-                format!("{:?} is not a directory", path).replace("\"", "")
+                format!("{:?} is not a directory", path).replace('\"', "")
             ),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
             OsStringParsing(ref path, _) => write!(
                 f,
                 "{}",
-                format!("Failed to parse path {:?} into an OsString", path).replace("\"", "")
+                format!("Failed to parse path {:?} into an OsString", path).replace('\"', "")
             ),
             PivotRoot(ref err) => write!(f, "Failed to pivot root: {}", err),
             ReadLine(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to read line from {:?}: {}", path, err).replace("\"", "")
+                format!("Failed to read line from {:?}: {}", path, err).replace('\"', "")
             ),
             ReadToString(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to read file {:?} into a string: {}", path, err).replace("\"", "")
+                format!("Failed to read file {:?} into a string: {}", path, err).replace('\"', "")
             ),
             RegEx(ref err) => write!(f, "Regex failed: {:?}", err),
             ResLimitArgument(ref arg) => write!(f, "Invalid resource argument: {}", arg,),
@@ -235,7 +235,7 @@ impl fmt::Display for Error {
             Write(ref path, ref err) => write!(
                 f,
                 "{}",
-                format!("Failed to write to {:?}: {}", path, err).replace("\"", "")
+                format!("Failed to write to {:?}: {}", path, err).replace('\"', "")
             ),
         }
     }
@@ -347,13 +347,9 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
-    if let Ok(paths) = fs::read_dir("/proc/self/fd") {
-        for maybe_path in paths {
-            if maybe_path.is_err() {
-                continue;
-            }
-
-            let file_name = maybe_path.unwrap().file_name();
+    if let Ok(mut paths) = fs::read_dir("/proc/self/fd") {
+        while let Some(Ok(path)) = paths.next() {
+            let file_name = path.file_name();
             let fd_str = file_name.to_str().unwrap_or("0");
             let fd = fd_str.parse::<i32>().unwrap_or(0);
 
@@ -462,7 +458,7 @@ mod tests {
 
         for fd in fds {
             let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
-            assert_eq!(is_fd_opened, false);
+            assert!(!is_fd_opened);
         }
 
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());

@@ -350,7 +350,7 @@ mod tests {
 
             let guest_memory = create_guest_memory(&regions, false).unwrap();
             guest_memory.iter().for_each(|region| {
-                validate_guard_region(&region);
+                validate_guard_region(region);
                 loop_guard_region_to_sigsegv(region);
             });
         }

@@ -140,11 +140,11 @@ mod tests {
         assert!(rate_limiter
             .ops()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.ops().unwrap()));
+            .partial_eq(restored_rate_limiter.ops().unwrap()));
         assert!(rate_limiter
             .bandwidth()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.bandwidth().unwrap()));
+            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
         assert_eq!(
             restored_rate_limiter.timer_fd.get_state(),
             TimerState::Disarmed
@@ -159,11 +159,11 @@ mod tests {
         assert!(rate_limiter
             .ops()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.ops().unwrap()));
+            .partial_eq(restored_rate_limiter.ops().unwrap()));
         assert!(rate_limiter
             .bandwidth()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.bandwidth().unwrap()));
+            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
         assert_eq!(
             restored_rate_limiter.timer_fd.get_state(),
             TimerState::Disarmed
@@ -177,11 +177,11 @@ mod tests {
         assert!(rate_limiter
             .ops()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.ops().unwrap()));
+            .partial_eq(restored_rate_limiter.ops().unwrap()));
         assert!(rate_limiter
             .bandwidth()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.bandwidth().unwrap()));
+            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
 
         // Test serialization.
         let mut mem = vec![0; 4096];
@@ -199,10 +199,10 @@ mod tests {
         assert!(rate_limiter
             .ops()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.ops().unwrap()));
+            .partial_eq(restored_rate_limiter.ops().unwrap()));
         assert!(rate_limiter
             .bandwidth()
             .unwrap()
-            .partial_eq(&restored_rate_limiter.bandwidth().unwrap()));
+            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
     }
 }

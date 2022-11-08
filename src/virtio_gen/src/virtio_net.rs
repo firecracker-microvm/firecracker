@@ -232,7 +232,11 @@ fn bindgen_test_layout___kernel_fd_set() {
         concat!("Alignment of ", stringify!(__kernel_fd_set))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fd_set>())).fds_bits as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fd_set>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fds_bits) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -282,7 +286,11 @@ fn bindgen_test_layout___kernel_fsid_t() {
         concat!("Alignment of ", stringify!(__kernel_fsid_t))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fsid_t>())).val as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fsid_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).val) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -332,7 +340,11 @@ fn bindgen_test_layout_ethhdr() {
         concat!("Alignment of ", stringify!(ethhdr))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ethhdr>())).h_dest as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ethhdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).h_dest) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -342,7 +354,11 @@ fn bindgen_test_layout_ethhdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ethhdr>())).h_source as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ethhdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).h_source) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Offset of field: ",
@@ -352,7 +368,11 @@ fn bindgen_test_layout_ethhdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ethhdr>())).h_proto as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ethhdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).h_proto) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -383,7 +403,11 @@ fn bindgen_test_layout_virtio_net_config() {
         concat!("Alignment of ", stringify!(virtio_net_config))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_config>())).mac as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_config>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).mac) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -393,7 +417,11 @@ fn bindgen_test_layout_virtio_net_config() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_config>())).status as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_config>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).status) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Offset of field: ",
@@ -404,7 +432,9 @@ fn bindgen_test_layout_virtio_net_config() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<virtio_net_config>())).max_virtqueue_pairs as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_config>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).max_virtqueue_pairs) as usize - ptr as usize
         },
         8usize,
         concat!(
@@ -415,7 +445,11 @@ fn bindgen_test_layout_virtio_net_config() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_config>())).mtu as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_config>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).mtu) as usize - ptr as usize
+        },
         10usize,
         concat!(
             "Offset of field: ",
@@ -449,7 +483,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         concat!("Alignment of ", stringify!(virtio_net_hdr_v1))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -459,7 +497,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).gso_type as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).gso_type) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -469,7 +511,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).hdr_len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).hdr_len) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Offset of field: ",
@@ -479,7 +525,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).gso_size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).gso_size) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -489,7 +539,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).csum_start as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).csum_start) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Offset of field: ",
@@ -499,7 +553,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).csum_offset as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).csum_offset) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -509,7 +567,11 @@ fn bindgen_test_layout_virtio_net_hdr_v1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_v1>())).num_buffers as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_v1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).num_buffers) as usize - ptr as usize
+        },
         10usize,
         concat!(
             "Offset of field: ",
@@ -542,7 +604,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         concat!("Alignment of ", stringify!(virtio_net_hdr))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -552,7 +618,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).gso_type as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).gso_type) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -562,7 +632,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).hdr_len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).hdr_len) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Offset of field: ",
@@ -572,7 +646,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).gso_size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).gso_size) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -582,7 +660,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).csum_start as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).csum_start) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Offset of field: ",
@@ -592,7 +674,11 @@ fn bindgen_test_layout_virtio_net_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr>())).csum_offset as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).csum_offset) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -621,7 +707,11 @@ fn bindgen_test_layout_virtio_net_hdr_mrg_rxbuf() {
         concat!("Alignment of ", stringify!(virtio_net_hdr_mrg_rxbuf))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_hdr_mrg_rxbuf>())).hdr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_mrg_rxbuf>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -632,7 +722,9 @@ fn bindgen_test_layout_virtio_net_hdr_mrg_rxbuf() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<virtio_net_hdr_mrg_rxbuf>())).num_buffers as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_hdr_mrg_rxbuf>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).num_buffers) as usize - ptr as usize
         },
         10usize,
         concat!(
@@ -662,7 +754,11 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
         concat!("Alignment of ", stringify!(virtio_net_ctrl_hdr))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_ctrl_hdr>())).class as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_ctrl_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).class) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -672,7 +768,11 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<virtio_net_ctrl_hdr>())).cmd as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_ctrl_hdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cmd) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Offset of field: ",
@@ -721,7 +821,9 @@ fn bindgen_test_layout_virtio_net_ctrl_mq() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<virtio_net_ctrl_mq>())).virtqueue_pairs as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<virtio_net_ctrl_mq>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).virtqueue_pairs) as usize - ptr as usize
         },
         0usize,
         concat!(

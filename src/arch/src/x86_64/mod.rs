@@ -27,7 +27,7 @@ use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemory
 const E820_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid e820 setup params.
     E820Configuration,

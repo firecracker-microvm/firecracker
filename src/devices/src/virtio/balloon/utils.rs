@@ -135,15 +135,13 @@ mod tests {
 
         // Test single compact range.
         assert_eq!(
-            compact_page_frame_numbers(&mut (0_u32..100_u32).collect::<Vec<u32>>().as_mut_slice()),
+            compact_page_frame_numbers((0_u32..100_u32).collect::<Vec<u32>>().as_mut_slice()),
             vec![(0, 100)]
         );
 
         // `compact_page_frame_numbers` works even when given out of order input.
         assert_eq!(
-            compact_page_frame_numbers(
-                &mut (0_u32..100_u32).rev().collect::<Vec<u32>>().as_mut_slice()
-            ),
+            compact_page_frame_numbers((0_u32..100_u32).rev().collect::<Vec<u32>>().as_mut_slice()),
             vec![(0, 100)]
         );
 
@@ -194,15 +192,12 @@ mod tests {
 
         // Check that the first page is zeroed.
         let mut actual_page = vec![0u8; page_size];
-        mem.read(&mut actual_page.as_mut_slice(), GuestAddress(0))
+        mem.read(actual_page.as_mut_slice(), GuestAddress(0))
             .unwrap();
         assert_eq!(vec![0u8; page_size], actual_page);
         // Check that the second page still contains ones.
-        mem.read(
-            &mut actual_page.as_mut_slice(),
-            GuestAddress(page_size as u64),
-        )
-        .unwrap();
+        mem.read(actual_page.as_mut_slice(), GuestAddress(page_size as u64))
+            .unwrap();
         assert_eq!(vec![1u8; page_size], actual_page);
 
         // Malformed range: the len is too big.
@@ -242,15 +237,12 @@ mod tests {
 
         // Check that the first page is zeroed.
         let mut actual_page = vec![0u8; page_size];
-        mem.read(&mut actual_page.as_mut_slice(), GuestAddress(0))
+        mem.read(actual_page.as_mut_slice(), GuestAddress(0))
             .unwrap();
         assert_eq!(vec![0u8; page_size], actual_page);
         // Check that the second page still contains ones.
-        mem.read(
-            &mut actual_page.as_mut_slice(),
-            GuestAddress(page_size as u64),
-        )
-        .unwrap();
+        mem.read(actual_page.as_mut_slice(), GuestAddress(page_size as u64))
+            .unwrap();
         assert_eq!(vec![1u8; page_size], actual_page);
 
         // Malformed range: the len is too big.

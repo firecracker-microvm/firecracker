@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum CacheType {
     /// Flushing mechanic will be advertised to the guest driver, but
     /// the operation will be a noop.
@@ -52,7 +52,7 @@ impl Default for CacheType {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
     Async,
@@ -130,7 +130,7 @@ impl DiskProperties {
 
     #[cfg(test)]
     pub fn file(&self) -> &File {
-        &self.file_engine.file()
+        self.file_engine.file()
     }
 
     pub fn nsectors(&self) -> u64 {
@@ -1436,25 +1436,25 @@ pub(crate) mod tests {
             // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
             add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             simulate_async_completion_event(&mut block, true);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
 
             // Run scenario that triggers FullSqError : Add sq_size + 10 flush requests.
             add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES + 10);
             simulate_queue_event(&mut block, Some(false));
-            assert_eq!(block.is_io_engine_throttled, true);
+            assert!(block.is_io_engine_throttled);
             // When the async_completion_event is triggered:
             // 1. sq_size requests should be processed processed.
             // 2. is_io_engine_throttled should be set back to false.
             // 3. process_queue() should be called again.
             simulate_async_completion_event(&mut block, true);
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
             // check that process_queue() was called again resulting in the processing of the
             // remaining 10 ops.
             simulate_async_completion_event(&mut block, true);
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
         }
 
@@ -1470,19 +1470,19 @@ pub(crate) mod tests {
             // completion. Then try to push another entry.
             add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             thread::sleep(Duration::from_millis(150));
             add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             thread::sleep(Duration::from_millis(150));
 
             add_flush_requests_batch(&mut block, &mem, &vq, 1);
             simulate_queue_event(&mut block, Some(false));
-            assert_eq!(block.is_io_engine_throttled, true);
+            assert!(block.is_io_engine_throttled);
 
             simulate_async_completion_event(&mut block, true);
-            assert_eq!(block.is_io_engine_throttled, false);
+            assert!(!block.is_io_engine_throttled);
             check_flush_requests_batch(IO_URING_NUM_ENTRIES * 2, &mem, &vq);
         }
     }

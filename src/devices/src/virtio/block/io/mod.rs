@@ -12,13 +12,13 @@ use crate::virtio::block::device::FileEngineType;
 
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct UserDataOk<T> {
     pub user_data: T,
     pub count: u32,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum FileEngineOk<T> {
     Submitted,
     Executed(UserDataOk<T>),
@@ -41,12 +41,13 @@ impl Error {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct UserDataError<T, E> {
     pub user_data: T,
     pub error: E,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum FileEngine<T> {
     #[allow(unused)]
     Async(AsyncFileEngine<T>),

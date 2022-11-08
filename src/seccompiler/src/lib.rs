@@ -50,7 +50,7 @@ impl Display for DeserializationError {
 }
 
 /// Filter installation errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InstallationError {
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
     FilterTooLarge,

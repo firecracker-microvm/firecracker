@@ -164,7 +164,11 @@ fn bindgen_test_layout___kernel_fd_set() {
         concat!("Alignment of ", stringify!(__kernel_fd_set))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fd_set>())).fds_bits as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fd_set>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fds_bits) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -214,7 +218,11 @@ fn bindgen_test_layout___kernel_fsid_t() {
         concat!("Alignment of ", stringify!(__kernel_fsid_t))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fsid_t>())).val as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fsid_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).val) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -265,7 +273,11 @@ fn bindgen_test_layout_vring_desc() {
         concat!("Alignment of ", stringify!(vring_desc))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_desc>())).addr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_desc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).addr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -275,7 +287,11 @@ fn bindgen_test_layout_vring_desc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_desc>())).len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_desc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).len) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -285,7 +301,11 @@ fn bindgen_test_layout_vring_desc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_desc>())).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_desc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Offset of field: ",
@@ -295,7 +315,11 @@ fn bindgen_test_layout_vring_desc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_desc>())).next as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_desc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).next) as usize - ptr as usize
+        },
         14usize,
         concat!(
             "Offset of field: ",
@@ -344,7 +368,11 @@ fn bindgen_test_layout_vring_used_elem() {
         concat!("Alignment of ", stringify!(vring_used_elem))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_used_elem>())).id as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_used_elem>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).id) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -354,7 +382,11 @@ fn bindgen_test_layout_vring_used_elem() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring_used_elem>())).len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring_used_elem>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).len) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Offset of field: ",
@@ -406,7 +438,11 @@ fn bindgen_test_layout_vring() {
         concat!("Alignment of ", stringify!(vring))
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring>())).num as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).num) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Offset of field: ",
@@ -416,7 +452,11 @@ fn bindgen_test_layout_vring() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring>())).desc as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).desc) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Offset of field: ",
@@ -426,7 +466,11 @@ fn bindgen_test_layout_vring() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring>())).avail as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).avail) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Offset of field: ",
@@ -436,7 +480,11 @@ fn bindgen_test_layout_vring() {
         )
     );
     assert_eq!(
-        unsafe { &(*(::std::ptr::null::<vring>())).used as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<vring>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).used) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Offset of field: ",

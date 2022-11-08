@@ -5,7 +5,7 @@ use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error {
     NotSupported,
     Overflow(String),

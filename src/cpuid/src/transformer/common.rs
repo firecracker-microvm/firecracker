@@ -5,7 +5,7 @@ use super::*;
 use crate::bit_helper::BitHelper;
 use crate::common::get_cpuid;
 
-use crate::transformer::Error::FamError;
+use crate::transformer::Error::Fam;
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
 // constants for setting the fields of kvm_cpuid2 structures
@@ -126,7 +126,7 @@ pub fn use_host_cpuid_function(
                 edx: entry.edx,
                 padding: [0, 0, 0],
             })
-            .map_err(FamError)?;
+            .map_err(Fam)?;
 
         count += 1;
     }
@@ -155,7 +155,7 @@ mod tests {
         use crate::cpu_leaf::leaf_0x1::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
             flags: 0,
@@ -166,10 +166,10 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_feature_info_entry(entry, &vm_spec).is_ok());
 
         assert_eq!(entry.edx.read_bit(edx::HTT_BITINDEX), expected_htt);
-        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
+        assert!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX));
     }
 
     fn check_update_cache_parameters_entry(
@@ -181,7 +181,7 @@ mod tests {
         use crate::cpu_leaf::leaf_cache_parameters::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
             flags: 0,
@@ -192,7 +192,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_cache_parameters_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_cache_parameters_entry(entry, &vm_spec).is_ok());
 
         assert!(
             entry
@@ -300,7 +300,7 @@ mod tests {
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
         let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES).unwrap();
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
-            Err(Error::FamError(utils::fam::Error::SizeLimitExceeded)) => {}
+            Err(Error::Fam(utils::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),
         }
     }

@@ -4,7 +4,7 @@ use serde::{ser, Serialize};
 use std::fmt::{self, Display, Formatter};
 
 /// Enumerates microVM runtime states.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VmState {
     /// Vm not started (yet)
     NotStarted,
@@ -40,7 +40,7 @@ impl ser::Serialize for VmState {
 }
 
 /// Serializable struct that contains general information about the microVM.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct InstanceInfo {
     /// The ID of the microVM.
     pub id: String,

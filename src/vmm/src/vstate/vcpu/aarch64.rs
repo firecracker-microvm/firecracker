@@ -288,7 +288,7 @@ mod tests {
                 "Failed to restore the state of the vcpu: Failed to set register: Exec format error (os error 8)".to_string()
             );
 
-        init_vcpu(&vcpu.fd, &vm.fd());
+        init_vcpu(&vcpu.fd, vm.fd());
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
         vcpu.restore_state(&state)

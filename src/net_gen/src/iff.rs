@@ -408,7 +408,11 @@ fn bindgen_test_layout___kernel_fd_set() {
         concat!("Alignment of ", stringify!(__kernel_fd_set))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __kernel_fd_set)).fds_bits as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fd_set>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fds_bits) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -463,7 +467,11 @@ fn bindgen_test_layout___kernel_fsid_t() {
         concat!("Alignment of ", stringify!(__kernel_fsid_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __kernel_fsid_t)).val as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_fsid_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).val) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -515,7 +523,11 @@ fn bindgen_test_layout___kernel_sockaddr_storage() {
         concat!("Alignment of ", stringify!(__kernel_sockaddr_storage))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __kernel_sockaddr_storage)).ss_family as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_sockaddr_storage>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ss_family) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -525,7 +537,11 @@ fn bindgen_test_layout___kernel_sockaddr_storage() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __kernel_sockaddr_storage)).__data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__kernel_sockaddr_storage>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__data) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -582,7 +598,11 @@ fn bindgen_test_layout___fsid_t() {
         concat!("Alignment of ", stringify!(__fsid_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __fsid_t)).__val as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__fsid_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__val) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -675,7 +695,11 @@ fn bindgen_test_layout___sigset_t() {
         concat!("Alignment of ", stringify!(__sigset_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __sigset_t)).__val as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__sigset_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__val) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -710,7 +734,11 @@ fn bindgen_test_layout_timespec() {
         concat!("Alignment of ", stringify!(timespec))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const timespec)).tv_sec as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<timespec>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tv_sec) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -720,7 +748,11 @@ fn bindgen_test_layout_timespec() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const timespec)).tv_nsec as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<timespec>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tv_nsec) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -754,7 +786,11 @@ fn bindgen_test_layout_timeval() {
         concat!("Alignment of ", stringify!(timeval))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const timeval)).tv_sec as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<timeval>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tv_sec) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -764,7 +800,11 @@ fn bindgen_test_layout_timeval() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const timeval)).tv_usec as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<timeval>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).tv_usec) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -799,7 +839,11 @@ fn bindgen_test_layout_fd_set() {
         concat!("Alignment of ", stringify!(fd_set))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fd_set)).__fds_bits as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fd_set>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__fds_bits) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -871,7 +915,11 @@ fn bindgen_test_layout_pthread_attr_t() {
         concat!("Alignment of ", stringify!(pthread_attr_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_attr_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_attr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -881,7 +929,11 @@ fn bindgen_test_layout_pthread_attr_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_attr_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_attr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -915,7 +967,11 @@ fn bindgen_test_layout___pthread_internal_list() {
         concat!("Alignment of ", stringify!(__pthread_internal_list))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __pthread_internal_list)).__prev as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__pthread_internal_list>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__prev) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -925,7 +981,11 @@ fn bindgen_test_layout___pthread_internal_list() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const __pthread_internal_list)).__next as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<__pthread_internal_list>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__next) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -982,7 +1042,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__lock as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__lock) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -992,7 +1056,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__count as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__count) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -1002,7 +1070,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__owner as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__owner) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -1013,7 +1085,9 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__nusers as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__nusers) as usize - ptr as usize
         },
         12usize,
         concat!(
@@ -1024,7 +1098,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__kind as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__kind) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -1034,7 +1112,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__spins as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__spins) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Alignment of field: ",
@@ -1045,7 +1127,9 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__elision as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__elision) as usize - ptr as usize
         },
         22usize,
         concat!(
@@ -1056,7 +1140,11 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__list as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t___pthread_mutex_s>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__list) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1089,7 +1177,11 @@ fn bindgen_test_layout_pthread_mutex_t() {
         concat!("Alignment of ", stringify!(pthread_mutex_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t)).__data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__data) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1099,7 +1191,11 @@ fn bindgen_test_layout_pthread_mutex_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1109,7 +1205,11 @@ fn bindgen_test_layout_pthread_mutex_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutex_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutex_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1144,7 +1244,11 @@ fn bindgen_test_layout_pthread_mutexattr_t() {
         concat!("Alignment of ", stringify!(pthread_mutexattr_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutexattr_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutexattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1154,7 +1258,11 @@ fn bindgen_test_layout_pthread_mutexattr_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_mutexattr_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_mutexattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1202,7 +1310,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(pthread_cond_t__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__lock as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__lock) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1212,7 +1324,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__futex as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__futex) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -1222,7 +1338,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__total_seq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__total_seq) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -1232,7 +1352,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__wakeup_seq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__wakeup_seq) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -1242,7 +1366,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__woken_seq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__woken_seq) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1252,7 +1380,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__mutex as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__mutex) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Alignment of field: ",
@@ -1262,7 +1394,11 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__nwaiters as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__nwaiters) as usize - ptr as usize
+        },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -1273,7 +1409,9 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__broadcast_seq as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__broadcast_seq) as usize - ptr as usize
         },
         44usize,
         concat!(
@@ -1307,7 +1445,11 @@ fn bindgen_test_layout_pthread_cond_t() {
         concat!("Alignment of ", stringify!(pthread_cond_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t)).__data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__data) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1317,7 +1459,11 @@ fn bindgen_test_layout_pthread_cond_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1327,7 +1473,11 @@ fn bindgen_test_layout_pthread_cond_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_cond_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_cond_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1362,7 +1512,11 @@ fn bindgen_test_layout_pthread_condattr_t() {
         concat!("Alignment of ", stringify!(pthread_condattr_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_condattr_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_condattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1372,7 +1526,11 @@ fn bindgen_test_layout_pthread_condattr_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_condattr_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_condattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1426,7 +1584,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(pthread_rwlock_t__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__lock as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__lock) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1437,7 +1599,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__nr_readers as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__nr_readers) as usize - ptr as usize
         },
         4usize,
         concat!(
@@ -1449,7 +1613,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__readers_wakeup as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__readers_wakeup) as usize - ptr as usize
         },
         8usize,
         concat!(
@@ -1461,7 +1627,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__writer_wakeup as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__writer_wakeup) as usize - ptr as usize
         },
         12usize,
         concat!(
@@ -1473,8 +1641,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__nr_readers_queued as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__nr_readers_queued) as usize - ptr as usize
         },
         16usize,
         concat!(
@@ -1486,8 +1655,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__nr_writers_queued as *const _
-                as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__nr_writers_queued) as usize - ptr as usize
         },
         20usize,
         concat!(
@@ -1498,7 +1668,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__writer as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__writer) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1508,7 +1682,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__shared as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__shared) as usize - ptr as usize
+        },
         28usize,
         concat!(
             "Alignment of field: ",
@@ -1519,7 +1697,9 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__rwelision as *const _ as usize
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__rwelision) as usize - ptr as usize
         },
         32usize,
         concat!(
@@ -1530,7 +1710,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad1 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__pad1) as usize - ptr as usize
+        },
         33usize,
         concat!(
             "Alignment of field: ",
@@ -1540,7 +1724,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__pad2) as usize - ptr as usize
+        },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -1550,7 +1738,11 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__flags) as usize - ptr as usize
+        },
         48usize,
         concat!(
             "Alignment of field: ",
@@ -1578,7 +1770,11 @@ fn bindgen_test_layout_pthread_rwlock_t() {
         concat!("Alignment of ", stringify!(pthread_rwlock_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t)).__data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__data) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1588,7 +1784,11 @@ fn bindgen_test_layout_pthread_rwlock_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1598,7 +1798,11 @@ fn bindgen_test_layout_pthread_rwlock_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlock_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlock_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1633,7 +1837,11 @@ fn bindgen_test_layout_pthread_rwlockattr_t() {
         concat!("Alignment of ", stringify!(pthread_rwlockattr_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlockattr_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlockattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1643,7 +1851,11 @@ fn bindgen_test_layout_pthread_rwlockattr_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_rwlockattr_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_rwlockattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1679,7 +1891,11 @@ fn bindgen_test_layout_pthread_barrier_t() {
         concat!("Alignment of ", stringify!(pthread_barrier_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_barrier_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_barrier_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1689,7 +1905,11 @@ fn bindgen_test_layout_pthread_barrier_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_barrier_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_barrier_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1724,7 +1944,11 @@ fn bindgen_test_layout_pthread_barrierattr_t() {
         concat!("Alignment of ", stringify!(pthread_barrierattr_t))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_barrierattr_t)).__size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_barrierattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__size) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1734,7 +1958,11 @@ fn bindgen_test_layout_pthread_barrierattr_t() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const pthread_barrierattr_t)).__align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<pthread_barrierattr_t>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__align) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1768,7 +1996,11 @@ fn bindgen_test_layout_iovec() {
         concat!("Alignment of ", stringify!(iovec))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const iovec)).iov_base as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<iovec>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).iov_base) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1778,7 +2010,11 @@ fn bindgen_test_layout_iovec() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const iovec)).iov_len as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<iovec>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).iov_len) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -1859,7 +2095,11 @@ fn bindgen_test_layout_sockaddr() {
         concat!("Alignment of ", stringify!(sockaddr))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sockaddr)).sa_family as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sockaddr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sa_family) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1869,7 +2109,11 @@ fn bindgen_test_layout_sockaddr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sockaddr)).sa_data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sockaddr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sa_data) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -1903,7 +2147,11 @@ fn bindgen_test_layout_sockaddr_storage() {
         concat!("Alignment of ", stringify!(sockaddr_storage))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sockaddr_storage)).ss_family as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sockaddr_storage>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ss_family) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1913,7 +2161,11 @@ fn bindgen_test_layout_sockaddr_storage() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sockaddr_storage)).__ss_padding as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sockaddr_storage>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__ss_padding) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -1923,7 +2175,11 @@ fn bindgen_test_layout_sockaddr_storage() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sockaddr_storage)).__ss_align as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sockaddr_storage>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).__ss_align) as usize - ptr as usize
+        },
         120usize,
         concat!(
             "Alignment of field: ",
@@ -1982,7 +2238,11 @@ fn bindgen_test_layout_msghdr() {
         concat!("Alignment of ", stringify!(msghdr))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_name as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_name) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1992,7 +2252,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_namelen as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_namelen) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -2002,7 +2266,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_iov as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_iov) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -2012,7 +2280,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_iovlen as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_iovlen) as usize - ptr as usize
+        },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -2022,7 +2294,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_control as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_control) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Alignment of field: ",
@@ -2032,7 +2308,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_controllen as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_controllen) as usize - ptr as usize
+        },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -2042,7 +2322,11 @@ fn bindgen_test_layout_msghdr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const msghdr)).msg_flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<msghdr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).msg_flags) as usize - ptr as usize
+        },
         48usize,
         concat!(
             "Alignment of field: ",
@@ -2112,7 +2396,11 @@ fn bindgen_test_layout_linger() {
         concat!("Alignment of ", stringify!(linger))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const linger)).l_onoff as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<linger>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).l_onoff) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2122,7 +2410,11 @@ fn bindgen_test_layout_linger() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const linger)).l_linger as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<linger>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).l_linger) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2156,7 +2448,11 @@ fn bindgen_test_layout_osockaddr() {
         concat!("Alignment of ", stringify!(osockaddr))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const osockaddr)).sa_family as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<osockaddr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sa_family) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2166,7 +2462,11 @@ fn bindgen_test_layout_osockaddr() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const osockaddr)).sa_data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<osockaddr>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sa_data) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -2342,7 +2642,11 @@ fn bindgen_test_layout_sync_serial_settings() {
         concat!("Alignment of ", stringify!(sync_serial_settings))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sync_serial_settings)).clock_rate as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sync_serial_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).clock_rate) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2352,7 +2656,11 @@ fn bindgen_test_layout_sync_serial_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sync_serial_settings)).clock_type as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sync_serial_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).clock_type) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2362,7 +2670,11 @@ fn bindgen_test_layout_sync_serial_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const sync_serial_settings)).loopback as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<sync_serial_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).loopback) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -2398,7 +2710,11 @@ fn bindgen_test_layout_te1_settings() {
         concat!("Alignment of ", stringify!(te1_settings))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const te1_settings)).clock_rate as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<te1_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).clock_rate) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2408,7 +2724,11 @@ fn bindgen_test_layout_te1_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const te1_settings)).clock_type as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<te1_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).clock_type) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2418,7 +2738,11 @@ fn bindgen_test_layout_te1_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const te1_settings)).loopback as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<te1_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).loopback) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -2428,7 +2752,11 @@ fn bindgen_test_layout_te1_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const te1_settings)).slot_map as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<te1_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).slot_map) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Alignment of field: ",
@@ -2462,7 +2790,11 @@ fn bindgen_test_layout_raw_hdlc_proto() {
         concat!("Alignment of ", stringify!(raw_hdlc_proto))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const raw_hdlc_proto)).encoding as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<raw_hdlc_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).encoding) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2472,7 +2804,11 @@ fn bindgen_test_layout_raw_hdlc_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const raw_hdlc_proto)).parity as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<raw_hdlc_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).parity) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -2511,7 +2847,11 @@ fn bindgen_test_layout_fr_proto() {
         concat!("Alignment of ", stringify!(fr_proto))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).t391 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).t391) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2521,7 +2861,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).t392 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).t392) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2531,7 +2875,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).n391 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).n391) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -2541,7 +2889,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).n392 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).n392) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Alignment of field: ",
@@ -2551,7 +2903,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).n393 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).n393) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -2561,7 +2917,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).lmi as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).lmi) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Alignment of field: ",
@@ -2571,7 +2931,11 @@ fn bindgen_test_layout_fr_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto)).dce as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dce) as usize - ptr as usize
+        },
         22usize,
         concat!(
             "Alignment of field: ",
@@ -2604,7 +2968,11 @@ fn bindgen_test_layout_fr_proto_pvc() {
         concat!("Alignment of ", stringify!(fr_proto_pvc))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto_pvc)).dlci as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto_pvc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dlci) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2639,7 +3007,11 @@ fn bindgen_test_layout_fr_proto_pvc_info() {
         concat!("Alignment of ", stringify!(fr_proto_pvc_info))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto_pvc_info)).dlci as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto_pvc_info>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dlci) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2649,7 +3021,11 @@ fn bindgen_test_layout_fr_proto_pvc_info() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const fr_proto_pvc_info)).master as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<fr_proto_pvc_info>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).master) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2683,7 +3059,11 @@ fn bindgen_test_layout_cisco_proto() {
         concat!("Alignment of ", stringify!(cisco_proto))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const cisco_proto)).interval as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<cisco_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).interval) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2693,7 +3073,11 @@ fn bindgen_test_layout_cisco_proto() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const cisco_proto)).timeout as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<cisco_proto>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).timeout) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -2801,7 +3185,11 @@ fn bindgen_test_layout_ifmap() {
         concat!("Alignment of ", stringify!(ifmap))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).mem_start as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).mem_start) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2811,7 +3199,11 @@ fn bindgen_test_layout_ifmap() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).mem_end as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).mem_end) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -2821,7 +3213,11 @@ fn bindgen_test_layout_ifmap() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).base_addr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).base_addr) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -2831,7 +3227,11 @@ fn bindgen_test_layout_ifmap() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).irq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).irq) as usize - ptr as usize
+        },
         18usize,
         concat!(
             "Alignment of field: ",
@@ -2841,7 +3241,11 @@ fn bindgen_test_layout_ifmap() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).dma as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dma) as usize - ptr as usize
+        },
         19usize,
         concat!(
             "Alignment of field: ",
@@ -2851,7 +3255,11 @@ fn bindgen_test_layout_ifmap() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifmap)).port as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifmap>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).port) as usize - ptr as usize
+        },
         20usize,
         concat!(
             "Alignment of field: ",
@@ -2898,7 +3306,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(if_settings__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).raw_hdlc as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).raw_hdlc) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2908,7 +3320,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).cisco as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cisco) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2918,7 +3334,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).fr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2928,7 +3348,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).fr_pvc as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fr_pvc) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2938,7 +3362,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).fr_pvc_info as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).fr_pvc_info) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2948,7 +3376,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).sync as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).sync) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2958,7 +3390,11 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).te1 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).te1) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2986,7 +3422,11 @@ fn bindgen_test_layout_if_settings() {
         concat!("Alignment of ", stringify!(if_settings))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -2996,7 +3436,11 @@ fn bindgen_test_layout_if_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings)).size as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).size) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -3006,7 +3450,11 @@ fn bindgen_test_layout_if_settings() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const if_settings)).ifs_ifsu as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<if_settings>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifs_ifsu) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -3046,7 +3494,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(ifreq__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_1)).ifrn_name as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_1>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifrn_name) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3093,7 +3545,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         concat!("Alignment of ", stringify!(ifreq__bindgen_ty_2))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_addr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_addr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3103,7 +3559,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_dstaddr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_dstaddr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3113,7 +3573,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_broadaddr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_broadaddr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3123,7 +3587,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_netmask as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_netmask) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3133,7 +3601,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_hwaddr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_hwaddr) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3143,7 +3615,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_flags) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3153,7 +3629,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_ivalue as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_ivalue) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3163,7 +3643,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_mtu as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_mtu) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3173,7 +3657,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_map as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_map) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3183,7 +3671,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_slave as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_slave) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3193,7 +3685,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_newname as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_newname) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3203,7 +3699,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_data as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_data) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3213,7 +3713,11 @@ fn bindgen_test_layout_ifreq__bindgen_ty_2() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq__bindgen_ty_2)).ifru_settings as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq__bindgen_ty_2>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifru_settings) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3241,7 +3745,11 @@ fn bindgen_test_layout_ifreq() {
         concat!("Alignment of ", stringify!(ifreq))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq)).ifr_ifrn as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifr_ifrn) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -3251,7 +3759,11 @@ fn bindgen_test_layout_ifreq() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const ifreq)).ifr_ifru as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<ifreq>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).ifr_ifru) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",

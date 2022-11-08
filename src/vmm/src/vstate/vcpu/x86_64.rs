@@ -38,7 +38,7 @@ pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
@@ -120,7 +120,7 @@ impl Display for Error {
                 e
             ),
             SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
-            FamError(e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
+            Fam(e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
             FPUConfiguration(e) => write!(
                 f,
                 "Error configuring the floating point related registers: {:?}",
@@ -286,7 +286,7 @@ impl KvmVcpu {
 
         // Build the list of MSRs we want to save.
         let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
-        let mut msrs = Msrs::new(num_msrs).map_err(Error::FamError)?;
+        let mut msrs = Msrs::new(num_msrs).map_err(Error::Fam)?;
         {
             let indices = self.msr_list.as_slice();
             let msr_entries = msrs.as_mut_slice();
@@ -470,7 +470,6 @@ impl VcpuState {
         warn!(
             "Saving to older snapshot version, TSC freq {}",
             self.tsc_khz
-                .clone()
                 .map(|freq| freq.to_string() + "KHz not included in snapshot.")
                 .unwrap_or_else(|| "not available.".to_string())
         );

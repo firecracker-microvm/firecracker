@@ -67,7 +67,11 @@ fn bindgen_test_layout_mpf_intel() {
         concat!("Alignment of ", stringify!(mpf_intel))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).signature as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).signature) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -77,7 +81,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).physptr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).physptr) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -87,7 +95,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).length as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).length) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -97,7 +109,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).specification as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).specification) as usize - ptr as usize
+        },
         9usize,
         concat!(
             "Alignment of field: ",
@@ -107,7 +123,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).checksum as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).checksum) as usize - ptr as usize
+        },
         10usize,
         concat!(
             "Alignment of field: ",
@@ -117,7 +137,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).feature1 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).feature1) as usize - ptr as usize
+        },
         11usize,
         concat!(
             "Alignment of field: ",
@@ -127,7 +151,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).feature2 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).feature2) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Alignment of field: ",
@@ -137,7 +165,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).feature3 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).feature3) as usize - ptr as usize
+        },
         13usize,
         concat!(
             "Alignment of field: ",
@@ -147,7 +179,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).feature4 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).feature4) as usize - ptr as usize
+        },
         14usize,
         concat!(
             "Alignment of field: ",
@@ -157,7 +193,11 @@ fn bindgen_test_layout_mpf_intel() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpf_intel)).feature5 as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpf_intel>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).feature5) as usize - ptr as usize
+        },
         15usize,
         concat!(
             "Alignment of field: ",
@@ -200,7 +240,11 @@ fn bindgen_test_layout_mpc_table() {
         concat!("Alignment of ", stringify!(mpc_table))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).signature as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).signature) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -210,7 +254,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).length as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).length) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -220,7 +268,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).spec as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).spec) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Alignment of field: ",
@@ -230,7 +282,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).checksum as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).checksum) as usize - ptr as usize
+        },
         7usize,
         concat!(
             "Alignment of field: ",
@@ -240,7 +296,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).oem as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).oem) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -250,7 +310,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).productid as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).productid) as usize - ptr as usize
+        },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -260,7 +324,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).oemptr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).oemptr) as usize - ptr as usize
+        },
         28usize,
         concat!(
             "Alignment of field: ",
@@ -270,7 +338,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).oemsize as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).oemsize) as usize - ptr as usize
+        },
         32usize,
         concat!(
             "Alignment of field: ",
@@ -280,7 +352,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).oemcount as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).oemcount) as usize - ptr as usize
+        },
         34usize,
         concat!(
             "Alignment of field: ",
@@ -290,7 +366,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).lapic as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).lapic) as usize - ptr as usize
+        },
         36usize,
         concat!(
             "Alignment of field: ",
@@ -300,7 +380,11 @@ fn bindgen_test_layout_mpc_table() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_table)).reserved as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_table>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).reserved) as usize - ptr as usize
+        },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -339,7 +423,11 @@ fn bindgen_test_layout_mpc_cpu() {
         concat!("Alignment of ", stringify!(mpc_cpu))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -349,7 +437,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).apicid as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).apicid) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Alignment of field: ",
@@ -359,7 +451,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).apicver as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).apicver) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -369,7 +465,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).cpuflag as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cpuflag) as usize - ptr as usize
+        },
         3usize,
         concat!(
             "Alignment of field: ",
@@ -379,7 +479,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).cpufeature as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).cpufeature) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -389,7 +493,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).featureflag as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).featureflag) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -399,7 +507,11 @@ fn bindgen_test_layout_mpc_cpu() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_cpu)).reserved as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_cpu>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).reserved) as usize - ptr as usize
+        },
         12usize,
         concat!(
             "Alignment of field: ",
@@ -434,7 +546,11 @@ fn bindgen_test_layout_mpc_bus() {
         concat!("Alignment of ", stringify!(mpc_bus))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_bus)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_bus>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -444,7 +560,11 @@ fn bindgen_test_layout_mpc_bus() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_bus)).busid as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_bus>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).busid) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Alignment of field: ",
@@ -454,7 +574,11 @@ fn bindgen_test_layout_mpc_bus() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_bus)).bustype as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_bus>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).bustype) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -491,7 +615,11 @@ fn bindgen_test_layout_mpc_ioapic() {
         concat!("Alignment of ", stringify!(mpc_ioapic))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_ioapic)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_ioapic>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -501,7 +629,11 @@ fn bindgen_test_layout_mpc_ioapic() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_ioapic)).apicid as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_ioapic>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).apicid) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Alignment of field: ",
@@ -511,7 +643,11 @@ fn bindgen_test_layout_mpc_ioapic() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_ioapic)).apicver as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_ioapic>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).apicver) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -521,7 +657,11 @@ fn bindgen_test_layout_mpc_ioapic() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_ioapic)).flags as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_ioapic>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize
+        },
         3usize,
         concat!(
             "Alignment of field: ",
@@ -531,7 +671,11 @@ fn bindgen_test_layout_mpc_ioapic() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_ioapic)).apicaddr as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_ioapic>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).apicaddr) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -570,7 +714,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         concat!("Alignment of ", stringify!(mpc_intsrc))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -580,7 +728,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).irqtype as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).irqtype) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Alignment of field: ",
@@ -590,7 +742,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).irqflag as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).irqflag) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -600,7 +756,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).srcbus as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).srcbus) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -610,7 +770,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).srcbusirq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).srcbusirq) as usize - ptr as usize
+        },
         5usize,
         concat!(
             "Alignment of field: ",
@@ -620,7 +784,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).dstapic as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dstapic) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Alignment of field: ",
@@ -630,7 +798,11 @@ fn bindgen_test_layout_mpc_intsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_intsrc)).dstirq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_intsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).dstirq) as usize - ptr as usize
+        },
         7usize,
         concat!(
             "Alignment of field: ",
@@ -674,7 +846,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         concat!("Alignment of ", stringify!(mpc_lintsrc))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).type_ as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -684,7 +860,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).irqtype as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).irqtype) as usize - ptr as usize
+        },
         1usize,
         concat!(
             "Alignment of field: ",
@@ -694,7 +874,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).irqflag as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).irqflag) as usize - ptr as usize
+        },
         2usize,
         concat!(
             "Alignment of field: ",
@@ -704,7 +888,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).srcbusid as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).srcbusid) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -714,7 +902,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).srcbusirq as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).srcbusirq) as usize - ptr as usize
+        },
         5usize,
         concat!(
             "Alignment of field: ",
@@ -724,7 +916,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).destapic as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).destapic) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Alignment of field: ",
@@ -734,7 +930,11 @@ fn bindgen_test_layout_mpc_lintsrc() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_lintsrc)).destapiclint as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_lintsrc>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).destapiclint) as usize - ptr as usize
+        },
         7usize,
         concat!(
             "Alignment of field: ",
@@ -771,7 +971,11 @@ fn bindgen_test_layout_mpc_oemtable() {
         concat!("Alignment of ", stringify!(mpc_oemtable))
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_oemtable)).signature as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_oemtable>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).signature) as usize - ptr as usize
+        },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -781,7 +985,11 @@ fn bindgen_test_layout_mpc_oemtable() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_oemtable)).length as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_oemtable>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).length) as usize - ptr as usize
+        },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -791,7 +999,11 @@ fn bindgen_test_layout_mpc_oemtable() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_oemtable)).rev as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_oemtable>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).rev) as usize - ptr as usize
+        },
         6usize,
         concat!(
             "Alignment of field: ",
@@ -801,7 +1013,11 @@ fn bindgen_test_layout_mpc_oemtable() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_oemtable)).checksum as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_oemtable>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).checksum) as usize - ptr as usize
+        },
         7usize,
         concat!(
             "Alignment of field: ",
@@ -811,7 +1027,11 @@ fn bindgen_test_layout_mpc_oemtable() {
         )
     );
     assert_eq!(
-        unsafe { &(*(0 as *const mpc_oemtable)).mpc as *const _ as usize },
+        unsafe {
+            let uninit = ::std::mem::MaybeUninit::<mpc_oemtable>::uninit();
+            let ptr = uninit.as_ptr();
+            ::std::ptr::addr_of!((*ptr).mpc) as usize - ptr as usize
+        },
         8usize,
         concat!(
             "Alignment of field: ",

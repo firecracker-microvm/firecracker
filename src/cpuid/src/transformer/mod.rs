@@ -57,7 +57,7 @@ impl VmSpec {
 #[derive(Debug, Clone)]
 pub enum Error {
     /// A FamStructWrapper operation has failed
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
     /// The operation is not permitted for the current vendor

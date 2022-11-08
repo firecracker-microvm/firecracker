@@ -11,7 +11,7 @@ pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 
 /// Errors associated with configuring the microVM.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmConfigError {
     /// The memory size is smaller than the target size set in the balloon device configuration.
     IncompatibleBalloonSize,
@@ -51,7 +51,7 @@ impl fmt::Display for VmConfigError {
 
 /// Strongly typed structure that represents the configuration of the
 /// microvm.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmConfig {
     /// Number of vcpu to start.
@@ -102,7 +102,7 @@ impl fmt::Display for VmConfig {
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmUpdateConfig {
     /// Number of vcpu to start.
@@ -177,13 +177,13 @@ where
 
     if val > T::from(MAX_SUPPORTED_VCPUS) {
         return Err(de::Error::invalid_value(
-            de::Unexpected::Other(&"vcpu_num"),
+            de::Unexpected::Other("vcpu_num"),
             &"number of vCPUs exceeds the maximum limitation",
         ));
     }
     if val < T::from(1) {
         return Err(de::Error::invalid_value(
-            de::Unexpected::Other(&"vcpu_num"),
+            de::Unexpected::Other("vcpu_num"),
             &"number of vCPUs should be larger than 0",
         ));
     }
@@ -206,7 +206,7 @@ where
     #[cfg(target_arch = "aarch64")]
     if val == T::from(true) {
         return Err(de::Error::invalid_value(
-            de::Unexpected::Other(&"smt"),
+            de::Unexpected::Other("smt"),
             &"Enabling simultaneous multithreading is not supported on aarch64",
         ));
     }
@@ -235,7 +235,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,
