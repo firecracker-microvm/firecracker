@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 mod cgroup;
 mod chroot;
@@ -359,7 +360,7 @@ fn sanitize_process() {
             let fd = fd_str.parse::<i32>().unwrap_or(0);
 
             if fd > 2 {
-                // Safe because close() cannot fail when passed a valid parameter.
+                // SAFETY: Safe because close() cannot fail when passed a valid parameter.
                 unsafe { libc::close(fd) };
             }
         }
@@ -436,6 +437,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;

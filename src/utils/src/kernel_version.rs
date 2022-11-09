@@ -40,6 +40,7 @@ impl KernelVersion {
             machine: [0; 65],
             domainname: [0; 65],
         };
+        // SAFETY: Safe because the parameters are valid.
         let res = unsafe { uname((&mut name) as *mut utsname) };
 
         if res < 0 {

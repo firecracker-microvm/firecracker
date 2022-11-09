@@ -142,6 +142,7 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use kvm_ioctls::Kvm;
 
     use super::*;

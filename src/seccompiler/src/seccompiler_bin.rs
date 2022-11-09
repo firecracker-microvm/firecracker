@@ -213,6 +213,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::collections::HashMap;
     use std::io;
     use std::io::Write;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 // We use `utils` as a wrapper over `vmm_sys_util` to control the latter
 // dependency easier (i.e. update only in one place `vmm_sys_util` version).
@@ -26,6 +27,7 @@ use std::result::Result;
 
 /// Return the default page size of the platform, in bytes.
 pub fn get_page_size() -> Result<usize, errno::Error> {
+    // SAFETY: Safe because the parameters are valid.
     match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
         -1 => Err(errno::Error::last()),
         ps => Ok(ps as usize),

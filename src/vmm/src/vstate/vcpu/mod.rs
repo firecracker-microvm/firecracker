@@ -182,7 +182,7 @@ impl Vcpu {
     /// kick the vcpu running on the current thread, if there is one.
     pub fn register_kick_signal_handler() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-            // This is safe because it's temporarily aliasing the `Vcpu` object, but we are
+            // SAFETY: This is safe because it's temporarily aliasing the `Vcpu` object, but we are
             // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
             unsafe {
                 let _ = Vcpu::run_on_thread_local(|vcpu| {
@@ -656,6 +656,7 @@ pub enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::fmt;
     use std::sync::{Arc, Barrier, Mutex};
 

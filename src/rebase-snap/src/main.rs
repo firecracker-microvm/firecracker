@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
@@ -101,6 +102,8 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
             base_file
                 .seek(SeekFrom::Start(cursor))
                 .map_err(Error::Seek)?;
+
+            // SAFETY: Safe because the parameters are valid.
             let num_transferred_bytes = unsafe {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
@@ -259,17 +262,17 @@ mod tests {
             // 1. Populated block both in base and diff file
             let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             base_file.write_all(base_block.as_bytes()).unwrap();
-            let mut diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
+            let diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             diff_file.write_all(diff_block.as_bytes()).unwrap();
-            expected_result.append(unsafe { diff_block.as_mut_vec() });
+            expected_result.append(&mut diff_block.into_bytes());
 
             // 2. Populated block in base file, hole in diff file
-            let mut base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
+            let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             base_file.write_all(base_block.as_bytes()).unwrap();
             diff_file
                 .seek(SeekFrom::Current(block_size as i64))
                 .unwrap();
-            expected_result.append(unsafe { base_block.as_mut_vec() });
+            expected_result.append(&mut base_block.into_bytes());
 
             // 3. Populated block in base file, zeroes block in diff file
             let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
@@ -283,17 +286,17 @@ mod tests {
             check_file_content(&mut base_file, &expected_result);
 
             // 4. The diff file is bigger
-            let mut diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
+            let diff_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             diff_file.write_all(diff_block.as_bytes()).unwrap();
-            expected_result.append(unsafe { diff_block.as_mut_vec() });
+            expected_result.append(&mut diff_block.into_bytes());
             // Rebase and check the result
             rebase(&mut base_file, &mut diff_file).unwrap();
             check_file_content(&mut base_file, &expected_result);
 
             // 5. The base file is bigger
-            let mut base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
+            let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             base_file.write_all(base_block.as_bytes()).unwrap();
-            expected_result.append(unsafe { base_block.as_mut_vec() });
+            expected_result.append(&mut base_block.into_bytes());
             // Rebase and check the result
             rebase(&mut base_file, &mut diff_file).unwrap();
             check_file_content(&mut base_file, &expected_result);

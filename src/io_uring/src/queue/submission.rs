@@ -131,7 +131,7 @@ impl SubmissionQueue {
         if min_complete > 0 {
             flags |= bindings::IORING_ENTER_GETEVENTS;
         }
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         let submitted = SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_enter,
@@ -192,8 +192,9 @@ impl SubmissionQueue {
 
 impl Drop for SubmissionQueue {
     fn drop(&mut self) {
-        // Safe because parameters are valid.
+        // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.ring.as_ptr().cast::<libc::c_void>(), self.ring.size()) };
+        // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.sqes.as_ptr().cast::<libc::c_void>(), self.sqes.size()) };
     }
 }

@@ -27,7 +27,7 @@ function check_swagger_artifact {
     swagger_path=$1
     version=$2
     swagger_ver=$(get_swagger_version "$swagger_path")
-    if [[ $version =~ v$swagger_ver.* ]]; then
+    if [[ ! $version =~ v$swagger_ver.* ]]; then
         die "Artifact $swagger_path's version: $swagger_ver does not match release version $version."
     fi
 }
@@ -97,6 +97,12 @@ VERSION=$(git describe --tags --dirty)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
 CARGO_TARGET=$ARCH-unknown-linux-$LIBC
 CARGO_TARGET_DIR=build/cargo_target/$CARGO_TARGET/$PROFILE_DIR
+
+if [[ $VERSION =~ "-dirty$" ]]; then
+    say_warn "Building dirty version.. dirty because:"
+    git status -s --untracked-files=no
+    git diff
+fi
 
 CARGO_REGISTRY_DIR="build/cargo_registry"
 CARGO_GIT_REGISTRY_DIR="build/cargo_git_registry"

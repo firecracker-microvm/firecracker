@@ -84,6 +84,7 @@ pub(crate) fn remove_range(
         // This workaround is (only) needed after resuming from a snapshot because the guest memory
         // is mmaped from file as private and there is no `madvise` flag that works for this case.
         if restored {
+            // SAFETY: The address and length are known to be valid.
             let ret = unsafe {
                 libc::mmap(
                     phys_address.cast(),
@@ -100,8 +101,11 @@ pub(crate) fn remove_range(
         };
 
         // Madvise the region in order to mark it as not used.
-        let ret =
-            unsafe { libc::madvise(phys_address.cast(), range_len as usize, libc::MADV_DONTNEED) };
+        // SAFETY: The address and length are known to be valid.
+        let ret = unsafe {
+            let range_len = range_len as usize;
+            libc::madvise(phys_address.cast(), range_len, libc::MADV_DONTNEED)
+        };
         if ret < 0 {
             return Err(RemoveRegionError::MadviseFail(io::Error::last_os_error()));
         }

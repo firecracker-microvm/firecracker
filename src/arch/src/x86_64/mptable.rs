@@ -35,12 +35,19 @@ struct MpcLintsrcWrapper(mpspec::mpc_lintsrc);
 struct MpfIntelWrapper(mpspec::mpf_intel);
 
 // These `mpspec` wrapper types are only data, reading them from data is a safe initialization.
+// SAFETY: POD
 unsafe impl ByteValued for MpcBusWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpcCpuWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpcIntsrcWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpcIoapicWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpcTableWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpcLintsrcWrapper {}
+// SAFETY: POD
 unsafe impl ByteValued for MpfIntelWrapper {}
 
 // MPTABLE, describing VCPUS.
@@ -101,9 +108,11 @@ const CPU_FEATURE_APIC: u32 = 0x200;
 const CPU_FEATURE_FPU: u32 = 0x001;
 
 fn compute_checksum<T: Copy>(v: &T) -> u8 {
-    // Safe because we are only reading the bytes within the size of the `T` reference `v`.
-    let v_slice =
-        unsafe { slice::from_raw_parts((v as *const T).cast::<u8>(), mem::size_of::<T>()) };
+    // SAFETY: Safe because we are only reading the bytes within the size of the `T` reference `v`.
+    let v_slice = unsafe {
+        let ptr = (v as *const T).cast::<u8>();
+        slice::from_raw_parts(ptr, mem::size_of::<T>())
+    };
     let mut checksum: u8 = 0;
     for i in v_slice.iter() {
         checksum = checksum.wrapping_add(*i);

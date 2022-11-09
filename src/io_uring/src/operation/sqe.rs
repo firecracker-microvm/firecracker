@@ -5,6 +5,7 @@ use vm_memory::ByteValued;
 
 use crate::bindings::io_uring_sqe;
 
+// SAFETY: Struct is POD and contains no references or niches.
 unsafe impl ByteValued for io_uring_sqe {}
 
 /// Newtype wrapper over a raw sqe.
@@ -28,6 +29,7 @@ impl Sqe {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
     #[test]
     fn test_user_data() {

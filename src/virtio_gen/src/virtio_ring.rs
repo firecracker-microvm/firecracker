@@ -8,7 +8,8 @@
     non_upper_case_globals,
     dead_code,
     non_snake_case,
-    clippy::ptr_as_ptr
+    clippy::ptr_as_ptr,
+    clippy::undocumented_unsafe_blocks
 )]
 
 pub const VIRTIO_RING_F_EVENT_IDX: u32 = 29;

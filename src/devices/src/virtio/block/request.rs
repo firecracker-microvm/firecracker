@@ -188,7 +188,7 @@ pub struct RequestHeader {
     sector: u64,
 }
 
-// Safe because RequestHeader only contains plain data.
+// SAFETY: Safe because RequestHeader only contains plain data.
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
@@ -400,6 +400,8 @@ impl Request {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use vm_memory::test_utils::create_anon_guest_memory;
     use vm_memory::{Address, GuestAddress, GuestMemory};
 
