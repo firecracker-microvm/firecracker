@@ -793,7 +793,7 @@ impl RuntimeApiController {
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
-                .map_err(DriveError::DeviceUpdate)?;
+                .map_err(DriveError::BlockDeviceUpdate)?;
         }
         if new_cfg.rate_limiter.is_some() {
             vmm.update_block_rate_limiter(
@@ -802,7 +802,7 @@ impl RuntimeApiController {
                 RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
-            .map_err(DriveError::DeviceUpdate)?;
+            .map_err(DriveError::BlockDeviceUpdate)?;
         }
         Ok(VmmData::Empty)
     }
@@ -1963,7 +1963,7 @@ mod tests {
         });
         check_runtime_request_err(
             req,
-            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
+            VmmActionError::DriveConfig(DriveError::BlockDeviceUpdate(VmmError::DeviceManager(
                 crate::device_manager::mmio::Error::IncorrectDeviceType,
             ))),
         );

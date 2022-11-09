@@ -68,7 +68,7 @@ impl fmt::Display for Error {
             }
             Error::EventFd(err) => write!(f, "failed to create or clone event descriptor: {}", err),
             Error::IncorrectDeviceType => write!(f, "incorrect device type"),
-            Error::InternalDeviceError(err) => write!(f, "device error: {}", err),
+            Error::InternalDeviceError(err) => write!(f, "{err}"),
             Error::InvalidInput => write!(f, "invalid configuration"),
             Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),

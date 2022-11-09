@@ -74,10 +74,9 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     if not supports_io_uring:
         # The Async engine is not supported for older kernels.
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
         test_microvm.check_log_message(
             "Received Error. Status code: 400 Bad Request. Message: Unable"
-            " to create the block device FileEngine(UnsupportedEngine(Async))"
+            " to create the block device: FileEngine(UnsupportedEngine(Async))"
         )
 
         # Now configure the default engine type and check that it works.
@@ -906,7 +905,7 @@ def _drive_patch(test_microvm):
     response = test_microvm.drive.patch(drive_id="scratch", path_on_host="foo.bar")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "drive update (patch): device error: BackingFile(Os { code: 2, "
+        "Unable to patch the block device: BackingFile(Os { code: 2, "
         'kind: NotFound, message: \\"No such file or directory\\" })' in response.text
     )
 
