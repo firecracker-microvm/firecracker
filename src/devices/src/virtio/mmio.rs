@@ -367,20 +367,6 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for DummyDevice {
-        fn device_type(&self) -> u32 {
-            123
-        }
-
-        fn read_config(&self, offset: u64, data: &mut [u8]) {
-            data.copy_from_slice(&self.config_bytes[offset as usize..]);
-        }
-
-        fn write_config(&mut self, offset: u64, data: &[u8]) {
-            for (i, item) in data.iter().enumerate() {
-                self.config_bytes[offset as usize + i] = *item;
-            }
-        }
-
         fn avail_features(&self) -> u64 {
             self.avail_features
         }
@@ -393,9 +379,8 @@ pub(crate) mod tests {
             self.acked_features = acked_features;
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
-            self.device_activated = true;
-            Ok(())
+        fn device_type(&self) -> u32 {
+            123
         }
 
         fn queues(&self) -> &[Queue] {
@@ -416,6 +401,21 @@ pub(crate) mod tests {
 
         fn interrupt_status(&self) -> Arc<AtomicUsize> {
             self.interrupt_status.clone()
+        }
+
+        fn read_config(&self, offset: u64, data: &mut [u8]) {
+            data.copy_from_slice(&self.config_bytes[offset as usize..]);
+        }
+
+        fn write_config(&mut self, offset: u64, data: &[u8]) {
+            for (i, item) in data.iter().enumerate() {
+                self.config_bytes[offset as usize + i] = *item;
+            }
+        }
+
+        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
+            self.device_activated = true;
+            Ok(())
         }
 
         fn is_activated(&self) -> bool {
