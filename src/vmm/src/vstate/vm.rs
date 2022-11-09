@@ -67,7 +67,7 @@ pub enum Error {
 
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "x86_64")]
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RestoreStateError {
     #[error("{0}")]
     SetPit2(kvm_ioctls::Error),

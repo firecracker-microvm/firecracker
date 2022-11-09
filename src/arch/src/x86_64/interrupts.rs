@@ -9,7 +9,7 @@ use kvm_bindings::kvm_lapic_state;
 use kvm_ioctls::VcpuFd;
 use utils::byte_order;
 /// Errors thrown while configuring the LAPIC.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     /// Failure in getting the LAPIC configuration.
     #[error("Failure in getting the LAPIC configuration: {0}")]
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn test_apic_delivery_mode() {
-        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_psuedo_rng_u32()).collect();
+        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_pseudo_rng_u32()).collect();
 
         v.iter_mut()
             .for_each(|x| *x = set_apic_delivery_mode(*x, 2));
