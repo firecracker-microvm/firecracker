@@ -506,9 +506,8 @@ checksum = "fbe5e23404da5b4f555ef85ebed98fb4083e55a00c317800bc2a50ede9f3d219"
 [[package]]
 name = "linux-loader"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8242360c7d79a7713a28043c994b815e9820b0e97e44b228ec9bd913c16bdfe"
 dependencies = [
+ "criterion",
  "vm-memory 0.9.0",
 ]
 

@@ -8,6 +8,7 @@
 //
 //! Helper for creating valid kernel command line strings.
 
+use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fmt;
 use std::result;
