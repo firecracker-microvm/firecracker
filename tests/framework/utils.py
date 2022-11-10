@@ -320,13 +320,14 @@ def search_output_from_cmd(cmd: str,
 
 
 def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
-                   recursive: bool = True):
+                   exclude_subdirs: list = None, recursive: bool = True):
     """
     Return a list of files from a given path, recursively.
 
     :param find_path: path where to look for files
     :param pattern: what pattern to apply to file names
     :param exclude_names: folder names to exclude
+    :param exclude_subdirs: names of nested folders to exclude
     :param recursive: do a recursive search for the given pattern
     :return: list of found files
     """
@@ -340,6 +341,16 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
         found.extend(
             glob.glob(f"{find_path}/{path_dir.name}/**/{pattern}",
                       recursive=recursive))
+
+        if exclude_subdirs is None:
+            exclude_subdirs = []
+
+        found = list(filter(lambda path_found:
+                            not any(subdir_to_exclude in
+                                    path_found for
+                                    subdir_to_exclude in
+                                    exclude_subdirs),
+                            found))
     # scandir will not look at the files matching the pattern in the
     # current directory.
     found.extend(

@@ -40,6 +40,7 @@ def test_ensure_mod_tests():
         '--files-with-matches '
         '--recursive '
         '--exclude-dir=src/*_gen/* '
+        '--exclude-dir=src/linux_loader/* '
         '\'\\#\\[test\\]\' ../src/*/src)" '
         '| grep -v "../src/io_uring/src/bindings.rs"'
     )
