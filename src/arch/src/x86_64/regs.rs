@@ -19,7 +19,7 @@ const PDPTE_START: u64 = 0xa000;
 const PDE_START: u64 = 0xb000;
 
 /// Errors thrown while setting up x86_64 registers.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     /// Failed to get SREGs for this CPU.
     #[error("Failed to get SREGs for this CPU: {0}")]
@@ -52,7 +52,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Error type for [`setup_fpu`].
-#[derive(Debug, derive_more::From, PartialEq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
 pub struct SetupFpuError(utils::errno::Error);
 impl std::error::Error for SetupFpuError {}
 impl fmt::Display for SetupFpuError {
@@ -81,7 +81,7 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> std::result::Result<(), SetupFpuError> {
 }
 
 /// Error type of [`setup_regs`].
-#[derive(Debug, derive_more::From, PartialEq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
 pub struct SetupRegistersError(utils::errno::Error);
 impl std::error::Error for SetupRegistersError {}
 impl fmt::Display for SetupRegistersError {
@@ -120,7 +120,7 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> std::result::Result<(), SetupR
 }
 
 /// Error type for [`setup_sregs`].
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SetupSpecialRegistersError {
     /// Failed to get special registers
     #[error("Failed to get special registers: {0}")]

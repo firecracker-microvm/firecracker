@@ -8,9 +8,10 @@
 // dependency easier (i.e. update only in one place `vmm_sys_util` version).
 // More specifically, we are re-exporting modules from `vmm_sys_util` as part
 // of the `utils` crate.
+pub use vmm_sys_util::ioctl::ioctl_expr;
 pub use vmm_sys_util::{
-    epoll, errno, eventfd, fam, generate_fam_struct_impl, ioctl, ioctl_expr, ioctl_ioc_nr,
-    ioctl_iow_nr, rand, seek_hole, sock_ctrl_msg, syscall, tempdir, tempfile, terminal,
+    epoll, errno, eventfd, fam, generate_fam_struct_impl, ioctl, ioctl_ioc_nr, ioctl_iow_nr, rand,
+    seek_hole, sock_ctrl_msg, syscall, tempdir, tempfile, terminal,
 };
 
 pub mod arg_parser;
@@ -59,5 +60,5 @@ fn rand_bytes_impl(rand_fn: &dyn Fn() -> u32, len: usize) -> Vec<u8> {
 
 /// Get a pseudo random vector of length `len` with bytes.
 pub fn rand_bytes(len: usize) -> Vec<u8> {
-    rand_bytes_impl(&rand::xor_psuedo_rng_u32, len)
+    rand_bytes_impl(&rand::xor_pseudo_rng_u32, len)
 }

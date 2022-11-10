@@ -437,7 +437,7 @@ pub mod test {
                 addr += len as u64;
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += utils::rand::xor_psuedo_rng_u32() as u64 % 10;
+                addr += utils::rand::xor_pseudo_rng_u32() as u64 % 10;
             }
 
             // Mark the chain as available.
