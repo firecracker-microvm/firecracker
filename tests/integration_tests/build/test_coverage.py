@@ -29,9 +29,9 @@ from host_tools import proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 84.89, "AMD": 84.20, "ARM": 83.93}
+    COVERAGE_DICT = {"Intel": 83.83, "AMD": 83.15, "ARM": 83.01}
 else:
-    COVERAGE_DICT = {"Intel": 81.94, "AMD": 81.25, "ARM": 80.94}
+    COVERAGE_DICT = {"Intel": 80.94, "AMD": 80.26, "ARM": 80.17}
 
 PROC_MODEL = proc.proc_type()
 
@@ -82,7 +82,8 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     target = "{}-unknown-linux-musl".format(platform.machine())
 
     cmd = (
-        'RUSTFLAGS="{}" CARGO_TARGET_DIR={} cargo kcov --all '
+        'CARGO_WRAPPER="kcov" RUSTFLAGS="{}" CARGO_TARGET_DIR={} '
+        'cargo kcov --all '
         '--target {} --output {} -- '
         '--exclude-pattern={} '
         '--exclude-region={} --verify'
