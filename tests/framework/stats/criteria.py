@@ -54,6 +54,9 @@ class ComparisonCriteria(ABC):
     @property
     def target(self):
         """Return criteria target."""
+        if self._baseline is None:
+            raise CriteriaException("Baseline data not defined.")
+
         target = self._baseline.get("target")
         if target is None:
             raise CriteriaException("Baseline target not defined.")
@@ -122,6 +125,9 @@ class EqualWith(ComparisonCriteria):
     @property
     def delta(self):
         """Return the `delta` field of the baseline."""
+        if self._baseline is None:
+            raise CriteriaException("Baseline data not defined.")
+
         delta = self._baseline.get("delta")
         if delta is None:
             raise CriteriaException("Baseline delta not defined.")
