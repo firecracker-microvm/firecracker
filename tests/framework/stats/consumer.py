@@ -7,8 +7,7 @@ from abc import ABC, abstractmethod
 from numbers import Number
 from typing import Any, Callable
 from collections import defaultdict
-from framework.utils import ExceptionAggregator, get_kernel_version
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
+from framework.utils import ExceptionAggregator
 
 from .criteria import CriteriaException
 from .metadata import Provider as MetadataProvider
@@ -142,16 +141,6 @@ class Consumer(ABC):
                         self._failure_aggregator.add_row(fail_msg)
                         if fail_fast:
                             raise self._failure_aggregator
-                else:
-                    self._statistics[ms_name][st_def.name]["outcome"] = "FAILED"
-                    fail_msg = (
-                        f"'{ms_name}/{st_def.name}': Criteria not found for "
-                        f"{get_instance_type()} / {get_cpu_model_name()} / "
-                        f"kernel {get_kernel_version(1)}."
-                    )
-                    self._failure_aggregator.add_row(fail_msg)
-                    if fail_fast:
-                        raise self._failure_aggregator
 
         self._reset()
 

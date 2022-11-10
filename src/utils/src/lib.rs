@@ -60,5 +60,5 @@ fn rand_bytes_impl(rand_fn: &dyn Fn() -> u32, len: usize) -> Vec<u8> {
 
 /// Get a pseudo random vector of length `len` with bytes.
 pub fn rand_bytes(len: usize) -> Vec<u8> {
-    rand_bytes_impl(&rand::xor_psuedo_rng_u32, len)
+    rand_bytes_impl(&rand::xor_pseudo_rng_u32, len)
 }

@@ -15,7 +15,8 @@
 - A MAC address is generated if one is not explicitly specified while adding
   network interfaces. This address can be obtained as part of the GET
   `/vm/config`.
-- Added baselines for m6i.metal for all long running performance tests.
+- Added baselines for m6i.metal and m6a.metal for all long running performance
+  tests.
 
 ### Changed
 

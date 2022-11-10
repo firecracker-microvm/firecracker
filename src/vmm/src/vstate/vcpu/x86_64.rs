@@ -166,7 +166,7 @@ impl Display for Error {
 type Result<T> = result::Result<T, Error>;
 
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
-#[derive(Debug, derive_more::From, PartialEq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
 pub struct GetTscError(utils::errno::Error);
 impl fmt::Display for GetTscError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -175,7 +175,7 @@ impl fmt::Display for GetTscError {
 }
 impl std::error::Error for GetTscError {}
 /// Error type for [`KvmVcpu::set_tsc_khz`].
-#[derive(Debug, derive_more::From, PartialEq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
 pub struct SetTscError(kvm_ioctls::Error);
 impl fmt::Display for SetTscError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
