@@ -2,7 +2,7 @@
 name = "linux-loader"
 version = "0.7.0"
 authors = ["Cathy Zhang <cathy.zhang@intel.com>"]
-edition = "2021"
+edition = "2018"
 license = "Apache-2.0 AND BSD-3-Clause"
 description = "A Linux kernel image loading crate."
 keywords = ["kernel"]
@@ -10,6 +10,7 @@ repository = "https://github.com/rust-vmm/linux-loader"
 homepage = "https://github.com/rust-vmm/linux-loader"
 readme = "README.md"
 autobenches = false
+build = "../../build.rs"
 
 [features]
 default = ["elf", "pe"]
