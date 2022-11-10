@@ -31,7 +31,7 @@ ALIBABA_LICENSE = (
     "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
 )
 
-EXCLUDE = ["build", ".kernel"]
+EXCLUDE = ["build", ".kernel", "linux_loader"]
 
 
 def _has_amazon_copyright(string):
@@ -106,7 +106,8 @@ def test_for_valid_licenses():
     rust_files = utils.get_files_from(
         find_path="..",
         pattern="*.rs",
-        exclude_names=EXCLUDE)
+        exclude_names=EXCLUDE,
+        exclude_subdirs=["linux_loader"])
     bash_files = utils.get_files_from(
         find_path="..",
         pattern="*.sh",
