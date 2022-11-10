@@ -1,0 +1,36 @@
+[package]
+name = "linux-loader"
+version = "0.7.0"
+authors = ["Cathy Zhang <cathy.zhang@intel.com>"]
+edition = "2021"
+license = "Apache-2.0 AND BSD-3-Clause"
+description = "A Linux kernel image loading crate."
+keywords = ["kernel"]
+repository = "https://github.com/rust-vmm/linux-loader"
+homepage = "https://github.com/rust-vmm/linux-loader"
+readme = "README.md"
+autobenches = false
+
+[features]
+default = ["elf", "pe"]
+bzimage = []
+elf = []
+pe = []
+
+[dependencies]
+vm-memory = "0.9.0"
+
+[dev-dependencies]
+criterion = "0.3.5"
+vm-memory = { version = "0.9.0", features = ["backend-mmap"] }
+
+[[bench]]
+name = "main"
+harness = false
+
+[lib]
+bench = false # https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+
+[profile.bench]
+lto = true
+codegen-units = 1
