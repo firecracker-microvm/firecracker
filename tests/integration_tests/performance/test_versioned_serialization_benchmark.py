@@ -23,12 +23,12 @@ BASELINES = {
     "Intel": {
         "serialize": {
             "no-crc": {
-                "target": 0.146,  # milliseconds
-                "delta": 0.030  # milliseconds
+                "target": 0.150,  # milliseconds
+                "delta": 0.050  # milliseconds
             },
             "crc": {
-                "target": 0.180,  # milliseconds
-                "delta": 0.030  # milliseconds
+                "target": 0.244,  # milliseconds
+                "delta": 0.44  # milliseconds
             }
         },
         "deserialize": {
