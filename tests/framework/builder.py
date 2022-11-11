@@ -89,7 +89,7 @@ class MicrovmBuilder:
               fc_binary=None,
               jailer_binary=None,
               use_ramdisk=False,
-              smt=None, daemonize=True):
+              smt=None, daemonize=True, io_engine=None):
         """Build a fresh microvm."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           fc_binary, jailer_binary)
@@ -143,7 +143,8 @@ class MicrovmBuilder:
             drive_id='rootfs',
             path_on_host=jailed_rootfs_path,
             is_root_device=True,
-            is_read_only=False
+            is_read_only=False,
+            io_engine=io_engine
         )
         assert vm.api_session \
             .is_status_no_content(response.status_code), \
