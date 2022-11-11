@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.

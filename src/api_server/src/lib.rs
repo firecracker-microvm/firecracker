@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.

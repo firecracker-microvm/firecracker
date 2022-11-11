@@ -13,6 +13,7 @@ TARGETS = [
     "{}-unknown-linux-gnu".format(MACHINE),
     "{}-unknown-linux-musl".format(MACHINE),
 ]
+CLIPPY_CFG = ["ptr_as_ptr", "undocumented_unsafe_blocks"]
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -22,6 +23,8 @@ def test_rust_clippy(target):
 
     @type: build
     """
-    utils.run_cmd(
-        "cargo clippy --target {} --all --profile test" " -- -D warnings".format(target)
-    )
+    cmd = "cargo clippy --target {} --all --profile test" " --".format(target)
+    for clippy_rule in CLIPPY_CFG:
+        cmd += " -D clippy::{}".format(clippy_rule)
+    cmd += " -D warnings"
+    utils.run_cmd(cmd)

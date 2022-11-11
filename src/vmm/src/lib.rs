@@ -5,11 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#![deny(missing_docs)]
+
 //! Virtual Machine Monitor that leverages the Linux Kernel-based Virtual Machine (KVM),
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
-#![deny(missing_docs)]
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
