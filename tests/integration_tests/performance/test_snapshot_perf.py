@@ -190,7 +190,7 @@ def snapshot_resume_measurements(vm_type, io_engine):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][
         get_instance_type()][
-        get_kernel_version()
+        get_kernel_version(level=1)
     ][io_engine][vm_type]
 
     if is_io_uring_supported():
