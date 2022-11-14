@@ -329,6 +329,7 @@ impl VsockMuxer {
         Ok(muxer)
     }
 
+    /// Return the file system path of the host-side Unix socket.
     pub fn host_sock_path(&self) -> &str {
         &self.host_sock_path
     }

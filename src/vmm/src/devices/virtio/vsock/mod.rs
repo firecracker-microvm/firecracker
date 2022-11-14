@@ -5,6 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! The Firecracker vsock device aims to provide full virtio-vsock support to
+//! software running inside the guest VM, while bypassing vhost kernel code on the
+//! host. To that end, Firecracker implements the virtio-vsock device model, and
+//! mediates communication between AF_UNIX sockets (on the host end) and AF_VSOCK
+//! sockets (on the guest end).
+
 mod csm;
 mod device;
 mod event_handler;
@@ -93,6 +99,7 @@ mod defs {
     }
 }
 
+/// Vsock device related errors.
 #[derive(Debug)]
 pub enum VsockError {
     /// The vsock data/buffer virtio descriptor length is smaller than expected.
