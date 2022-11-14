@@ -37,6 +37,7 @@ impl BusDevice for BootTimer {
 }
 
 impl BootTimer {
+    /// Create a device at a certain point in time.
     pub fn new(start_ts: TimestampUs) -> BootTimer {
         BootTimer { start_ts }
     }
