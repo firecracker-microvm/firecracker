@@ -11,7 +11,6 @@ use crate::BusDevice;
 pub type RTCDevice = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
 // Implements Bus functions for AMBA PL031 RTC device
-#[cfg(target_arch = "aarch64")]
 impl BusDevice for RTCDevice {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() == 4 {

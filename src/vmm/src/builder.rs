@@ -12,10 +12,11 @@ use std::sync::{Arc, Mutex};
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::is_same_model;
-use devices::legacy::serial::ReadableFd;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
-use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
+use devices::legacy::{
+    EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
+};
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
