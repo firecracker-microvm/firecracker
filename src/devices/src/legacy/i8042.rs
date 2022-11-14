@@ -113,6 +113,20 @@ impl I8042Device {
         }
     }
 
+    /// Signal a ctrl-alt-del (reset) event.
+    #[inline]
+    pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
+        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
+        // Fail if we don't have room for the whole sequence.
+        if BUF_SIZE - self.buf_len() < 4 {
+            return Err(Error::InternalBufferFull);
+        }
+        self.trigger_key(KEY_CTRL)?;
+        self.trigger_key(KEY_ALT)?;
+        self.trigger_key(KEY_DEL)?;
+        Ok(())
+    }
+
     fn trigger_kbd_interrupt(&self) -> Result<()> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
@@ -137,20 +151,6 @@ impl I8042Device {
             Ok(_) | Err(Error::KbdInterruptDisabled) => Ok(()),
             Err(err) => Err(err),
         }
-    }
-
-    /// Signal a ctrl-alt-del (reset) event.
-    #[inline]
-    pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
-        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
-        // Fail if we don't have room for the whole sequence.
-        if BUF_SIZE - self.buf_len() < 4 {
-            return Err(Error::InternalBufferFull);
-        }
-        self.trigger_key(KEY_CTRL)?;
-        self.trigger_key(KEY_ALT)?;
-        self.trigger_key(KEY_DEL)?;
-        Ok(())
     }
 
     #[inline]
