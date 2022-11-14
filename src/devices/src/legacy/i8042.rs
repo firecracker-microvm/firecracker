@@ -142,6 +142,7 @@ impl I8042Device {
         }
     }
 
+    /// Signal a ctrl-alt-del (reset) event.
     #[inline]
     fn push_byte(&mut self, byte: u8) -> Result<()> {
         self.status |= SB_OUT_DATA_AVAIL;

@@ -8,6 +8,7 @@ use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
 use crate::BusDevice;
 
+/// Wrapper over vm_superio's RTC implementation.
 pub type RTCDevice = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
 // Implements Bus functions for AMBA PL031 RTC device
