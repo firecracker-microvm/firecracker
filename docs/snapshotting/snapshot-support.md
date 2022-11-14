@@ -93,26 +93,34 @@ snapshot files by implementing authentication and encryption schemes while
 managing their lifecycle or moving them across the trust boundary, like for
 example when provisioning them from a respository to a host over the network.
 
-Firecracker is optimized for fast load/resume and it's designed to do some very basic
-sanity checks only on the vm state file. It only verifies integrity using a 64
-bit CRC value embedded in the vm state file, but this is only as a partial
-measure to protect against accidental corruption, as the disk files and memory
-file need to be secured as well. It is important to note that CRC computation
-is validated before trying to load the snapshot. Should it encounter failure,
-an error will be shown to the user and the Firecracker process will be terminated.
+Firecracker is optimized for fast load/resume, and it's designed to do some
+very basic sanity checks only on the vm state file. It only verifies integrity
+using a 64-bit CRC value embedded in the vm state file, but this is only
+as a partial measure to protect against accidental corruption, as the disk
+files and memory file need to be secured as well. It is important to note that
+CRC computation is validated before trying to load the snapshot. Should it
+encounter failure, an error will be shown to the user and the Firecracker
+process will be terminated.
 
 ### Performance
 
 The Firecracker snapshot create/resume performance depends on the memory size,
-vCPU count and emulated devices count. The Firecracker CI runs snapshots tests
-on AWS **m5d.metal** instances for Intel and on AWS **m6g.metal** for ARM.
-The baseline for snapshot resume latency target on Intel is under **8ms** with
-5ms p90, and on ARM is under **3ms** for a microVM with the following specs:
-2vCPU/512MB/1 block/1 net device.
+vCPU count and emulated devices count.
+The Firecracker CI runs snapshots tests on:
+
+- AWS **m5d.metal** and **m6i.metal** instances for Intel
+- AWS **m6g.metal** for ARM
+- AWS **m6a.metal** for AMD
+
+We are running nightly performance tests for all the enumerated platforms on
+all supported kernel versions.
+The baselines can be found in their [respective config file](../../tests/integration_tests/performance/configs/).
 
 ### Known issues
 
-- High snapshot latency on 5.4+ host kernels - [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
+- High snapshot latency on 5.4+ host kernels due to cgroups V1. We
+- strongly recommend to deploy snapshots on cgroups V2 enabled hosts for the
+- implied kernel versions - [related issue](https://github.com/firecracker-microvm/firecracker/issues/2129).
 - Guest network connectivity is not guaranteed to be preserved after resume.
   For recommendations related to guest network connectivity for clones please
   see [Network connectivity for clones](network-for-clones.md).
