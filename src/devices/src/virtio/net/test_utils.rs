@@ -21,11 +21,12 @@ use vm_memory::{GuestAddress, GuestMemoryMmap};
 #[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
+use crate::virtio::net::Net;
+use crate::virtio::queue::{Queue, QueueError};
 use crate::virtio::test_utils::VirtQueue;
-use crate::virtio::{Net, Queue, QueueError};
 use crate::Error as DeviceError;
 
-pub type Result<T> = ::std::result::Result<T, Error>;
+pub type Result<T> = result::Result<T, Error>;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 

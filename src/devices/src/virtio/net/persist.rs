@@ -19,11 +19,14 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
-use super::device::Net;
-use super::{NUM_QUEUES, QUEUE_SIZE};
+use crate::virtio::device::DeviceState;
+use crate::virtio::net::device::Net;
+use crate::virtio::net::{NUM_QUEUES, QUEUE_SIZE};
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
-use crate::virtio::{DeviceState, TYPE_NET};
+use crate::virtio::TYPE_NET;
 
+/// Information about the network config's that are saved
+/// at snapshot.
 #[derive(Debug, Default, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetConfigSpaceState {
@@ -59,6 +62,8 @@ impl NetConfigSpaceState {
     }
 }
 
+/// Information about the network device that are saved
+/// at snapshot.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetState {
@@ -66,21 +71,30 @@ pub struct NetState {
     tap_if_name: String,
     rx_rate_limiter_state: RateLimiterState,
     tx_rate_limiter_state: RateLimiterState,
+    /// The associated MMDS network stack.
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
     virtio_state: VirtioDeviceState,
 }
 
+/// Auxiliary structure for creating a device when resuming from a snapshot.
 pub struct NetConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Pointer to the MMDS data store.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
 
+/// Errors triggered when trying to construct a network device at resume time.
 #[derive(Debug, derive_more::From)]
 pub enum Error {
+    /// Failed to create a network device.
     CreateNet(super::Error),
+    /// Failed to create a rate limiter.
     CreateRateLimiter(io::Error),
+    /// Failed to re-create the virtio state (i.e queues etc).
     VirtioState(VirtioStateError),
+    /// Indicator that no MMDS is associated with this device.
     NoMmdsDataStore,
 }
 

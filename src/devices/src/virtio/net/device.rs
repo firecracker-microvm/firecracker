@@ -30,16 +30,15 @@ use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
+use crate::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::virtio::net::iovec::IoVecBuffer;
 use crate::virtio::net::tap::Tap;
-use crate::virtio::net::{
-    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
-};
-use crate::virtio::{
-    ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
-    TYPE_NET,
-};
+use crate::virtio::net::{Error, NetQueue, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
+use crate::virtio::queue::{DescriptorChain, Queue};
+use crate::virtio::{ActivateResult, TYPE_NET};
 use crate::{report_net_event_fail, Error as DeviceError};
+
+type Result<T> = result::Result<T, Error>;
 
 enum FrontendError {
     AddUsed,
@@ -92,9 +91,11 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
+/// Virtio device for exposing network level capabilities for receiving/transferring frame buffers.
 pub struct Net {
     pub(crate) id: String,
 
+    /// The backend for this device: a tap.
     pub tap: Tap,
 
     pub(crate) avail_features: u64,
@@ -121,10 +122,13 @@ pub struct Net {
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
+    /// The MMDS stack corresponding to this interface.
+    /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
 }
 
 impl Net {
+    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
         tap: Tap,
@@ -178,7 +182,7 @@ impl Net {
         })
     }
 
-    /// Create a new virtio network device with the given TAP interface.
+    /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
         tap_if_name: &str,
@@ -635,7 +639,9 @@ impl Net {
         tap.write_iovec(buf)
     }
 
-    pub fn process_rx_queue_event(&mut self) {
+    /// Process the rx queue of events.
+    /// Called by the event manager.
+    pub(crate) fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
 
         if let Err(err) = self.queue_evts[RX_INDEX].read() {
@@ -650,7 +656,7 @@ impl Net {
         }
     }
 
-    pub fn process_tap_rx_event(&mut self) {
+    pub(crate) fn process_tap_rx_event(&mut self) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.net.rx_tap_event_count.inc();
@@ -681,7 +687,9 @@ impl Net {
         }
     }
 
-    pub fn process_tx_queue_event(&mut self) {
+    /// Process the tx queue of events.
+    /// Called by the event manager.
+    pub(crate) fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
         if let Err(err) = self.queue_evts[TX_INDEX].read() {
             error!("Failed to get tx queue event: {:?}", err);
@@ -695,7 +703,7 @@ impl Net {
         }
     }
 
-    pub fn process_rx_rate_limiter_event(&mut self) {
+    pub(crate) fn process_rx_rate_limiter_event(&mut self) {
         METRICS.net.rx_event_rate_limiter_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
@@ -712,7 +720,7 @@ impl Net {
         }
     }
 
-    pub fn process_tx_rate_limiter_event(&mut self) {
+    pub(crate) fn process_tx_rate_limiter_event(&mut self) {
         METRICS.net.tx_rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.

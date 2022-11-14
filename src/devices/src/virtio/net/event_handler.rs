@@ -7,8 +7,9 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
+use crate::virtio::device::VirtioDevice;
 use crate::virtio::net::device::Net;
-use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+use crate::virtio::net::{RX_INDEX, TX_INDEX};
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {
