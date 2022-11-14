@@ -94,10 +94,15 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
+/// VirtIO network device.
+///
+/// It emulates a network device able to exchange L2 frames between the guest
+/// and a host-side tap device.
 #[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
 
+    /// The backend for this device: a tap.
     pub tap: Tap,
 
     pub(crate) avail_features: u64,
@@ -124,10 +129,13 @@ pub struct Net {
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
+    /// The MMDS stack corresponding to this interface.
+    /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
 }
 
 impl Net {
+    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
         tap: Tap,
@@ -181,7 +189,7 @@ impl Net {
         })
     }
 
-    /// Create a new virtio network device with the given TAP interface.
+    /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
         tap_if_name: &str,
@@ -638,6 +646,10 @@ impl Net {
         tap.write_iovec(buf)
     }
 
+    /// Process a single RX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the RX queue.
     pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
 
@@ -684,6 +696,10 @@ impl Net {
         }
     }
 
+    /// Process a single TX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the TX queue.
     pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
         if let Err(err) = self.queue_evts[TX_INDEX].read() {
