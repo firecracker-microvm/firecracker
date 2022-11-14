@@ -11,21 +11,27 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
-use super::*;
+use crate::virtio::device::DeviceState;
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_VSOCK};
-
-#[derive(Clone, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
-pub struct VsockState {
-    pub backend: VsockBackendState,
-    pub frontend: VsockFrontendState,
-}
+use crate::virtio::vsock::{
+    defs, Vsock, VsockBackend, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
+};
 
 /// The Vsock serializable state.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+pub struct VsockState {
+    /// The vsock backend state.
+    pub backend: VsockBackendState,
+    /// The vsock frontend state.
+    pub frontend: VsockFrontendState,
+}
+
+/// The Vsock frontend serializable state.
+#[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockFrontendState {
+    /// Context IDentifier.
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
@@ -34,6 +40,7 @@ pub struct VsockFrontendState {
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum VsockBackendState {
+    /// UDS backend state.
     Uds(VsockUdsState),
 }
 
@@ -47,13 +54,15 @@ pub struct VsockUdsState {
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 pub struct VsockConstructorArgs<B> {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// The vsock Unix Backend.
     pub backend: B,
 }
 
-/// A helper structure that holds the constructor arguments for VsockUnixBackend
+/// A helper structure that holds the constructor arguments for VsockUnixBackend.
 pub struct VsockUdsConstructorArgs {
-    // cid available in VsockFrontendState.
+    /// cid available in VsockFrontendState.
     pub cid: u64,
 }
 
@@ -129,10 +138,10 @@ where
 pub(crate) mod tests {
     use utils::byte_order;
 
-    use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::device::AVAIL_FEATURES;
     use crate::virtio::vsock::test_utils::{TestBackend, TestContext};
 
     impl Persist<'_> for TestBackend {

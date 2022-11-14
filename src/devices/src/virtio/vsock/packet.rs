@@ -21,8 +21,8 @@ use vm_memory::{
     GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
 };
 
-use super::super::DescriptorChain;
-use super::{defs, Result, VsockError};
+use crate::virtio::queue::DescriptorChain;
+use crate::virtio::vsock::{defs, Result, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //

@@ -28,14 +28,13 @@ use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
-use super::super::super::Error as DeviceError;
-use super::defs::uapi;
-use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use super::{defs, VsockBackend};
-use crate::virtio::{
-    ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
-    VirtioDevice, VsockError,
-};
+use crate::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::virtio::queue::Queue as VirtQueue;
+use crate::virtio::vsock::defs::uapi;
+use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use crate::virtio::vsock::{defs, VsockBackend, VsockError};
+use crate::virtio::{ActivateError, ActivateResult};
+use crate::Error as DeviceError;
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -50,6 +49,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
+/// Structure representing the vsock device.
 pub struct Vsock<B> {
     cid: u64,
     pub(crate) queues: Vec<VirtQueue>,
@@ -76,6 +76,8 @@ impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
+    /// Auxiliary function for creating a new virtio-vsock device with the given VM CID, vsock
+    /// backend and empty virtio queues.
     pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
@@ -104,14 +106,17 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    /// Provides the ID of this vsock device as used in MMIO device identification.
     pub fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
     }
 
+    /// Retrieve the cid associated with this vsock device.
     pub fn cid(&self) -> u64 {
         self.cid
     }
 
+    /// Access the backend behind the device.
     pub fn backend(&self) -> &B {
         &self.backend
     }
@@ -219,9 +224,9 @@ where
         have_used
     }
 
-    // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
-    // connections and the guest_cid configuration field is fetched again. Existing listen sockets
-    // remain but their CID is updated to reflect the current guest_cid.
+    /// Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
+    /// connections and the guest_cid configuration field is fetched again. Existing listen sockets
+    /// remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();

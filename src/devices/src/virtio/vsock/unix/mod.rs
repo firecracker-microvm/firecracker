@@ -24,6 +24,7 @@ mod defs {
     pub const MUXER_KILLQ_SIZE: usize = 128;
 }
 
+/// Vsock backend related errors.
 #[derive(Debug)]
 pub enum Error {
     /// Error registering a new epoll-listening FD.

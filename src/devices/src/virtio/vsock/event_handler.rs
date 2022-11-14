@@ -30,15 +30,15 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
-use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
-use super::VsockBackend;
-use crate::virtio::VirtioDevice;
+use crate::virtio::device::VirtioDevice;
+use crate::virtio::vsock::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
+use crate::virtio::vsock::{Vsock, VsockBackend};
 
 impl<B> Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
+    pub(crate) fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
 
         if evset != EventSet::IN {
@@ -58,7 +58,7 @@ where
         raise_irq
     }
 
-    pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
+    pub(crate) fn handle_txq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: TX queue event");
 
         if evset != EventSet::IN {
@@ -84,7 +84,7 @@ where
         raise_irq
     }
 
-    pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
+    pub(crate) fn handle_evq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: event queue event");
 
         if evset != EventSet::IN {
@@ -100,6 +100,7 @@ where
         false
     }
 
+    /// Notify backend of new events.
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
         debug!("vsock: backend event");
 
@@ -107,7 +108,7 @@ where
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
         // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
-        // reurning an error) at some point in the past, now is the time to try walking the
+        // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
         let mut raise_irq = self.process_tx();
         if self.backend.has_pending_rx() {

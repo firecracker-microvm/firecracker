@@ -9,13 +9,12 @@ use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+use crate::virtio::device::VirtioDevice;
+use crate::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::virtio::test_utils::{single_region_mem, VirtQueue as GuestQ};
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use crate::virtio::{
-    VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
-    VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-};
+use crate::virtio::vsock::{Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 
 type Result<T> = std::result::Result<T, VsockError>;
 
