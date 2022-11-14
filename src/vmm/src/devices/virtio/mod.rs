@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 //! Implements virtio devices, queues, and transport mechanisms.
+
 use std::any::Any;
 use std::io::Error as IOError;
 
@@ -50,27 +51,37 @@ mod device_status {
 
 /// Types taken from linux/virtio_ids.h.
 /// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
+/// Virtio net device ID.
 pub const TYPE_NET: u32 = 1;
+/// Virtio block device ID.
 pub const TYPE_BLOCK: u32 = 2;
+/// Virtio rng device ID.
 pub const TYPE_RNG: u32 = 4;
+/// Virtio balloon device ID.
 pub const TYPE_BALLOON: u32 = 5;
 
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
+/// Errors triggered when activating a VirtioDevice.
 #[derive(Debug)]
 pub enum ActivateError {
+    /// Epoll error.
     EpollCtl(IOError),
+    /// General error at activation.
     BadActivate,
 }
 
 /// Trait that helps in upcasting an object to Any
 pub trait AsAny {
+    /// Return the immutable any encapsulated object.
     fn as_any(&self) -> &dyn Any;
 
+    /// Return the mutable encapsulated any object.
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
+
 impl<T: Any> AsAny for T {
     fn as_any(&self) -> &dyn Any {
         self

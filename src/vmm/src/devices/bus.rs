@@ -11,6 +11,7 @@ use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+/// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error)]
 pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
