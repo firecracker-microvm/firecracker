@@ -230,6 +230,7 @@ impl Bus {
         None
     }
 
+    /// Returns the device found at some address.
     pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
