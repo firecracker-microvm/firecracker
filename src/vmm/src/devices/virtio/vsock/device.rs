@@ -50,6 +50,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
+/// Structure representing the vsock device.
 #[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
@@ -77,6 +78,8 @@ impl<B> Vsock<B>
 where
     B: VsockBackend + Debug,
 {
+    /// Auxiliary function for creating a new virtio-vsock device with the given VM CID, vsock
+    /// backend and empty virtio queues.
     pub fn with_queues(
         cid: u64,
         backend: B,
@@ -109,14 +112,17 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    /// Provides the ID of this vsock device as used in MMIO device identification.
     pub fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
     }
 
+    /// Retrieve the cid associated with this vsock device.
     pub fn cid(&self) -> u64 {
         self.cid
     }
 
+    /// Access the backend behind the device.
     pub fn backend(&self) -> &B {
         &self.backend
     }
