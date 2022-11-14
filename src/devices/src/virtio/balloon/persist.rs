@@ -13,11 +13,14 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
-use super::*;
-use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};
+use crate::virtio::balloon::device::{Balloon, BalloonStats, ConfigSpace};
+use crate::virtio::balloon::{NUM_QUEUES, QUEUE_SIZE};
+use crate::virtio::device::DeviceState;
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_BALLOON};
+use crate::virtio::TYPE_BALLOON;
 
+/// Information about the balloon config's that are saved
+/// at snapshot.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonConfigSpaceState {
@@ -25,6 +28,8 @@ pub struct BalloonConfigSpaceState {
     actual_pages: u32,
 }
 
+/// Information about the balloon stats that are saved
+/// at snapshot.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonStatsState {
@@ -76,6 +81,8 @@ impl BalloonStatsState {
     }
 }
 
+/// Information about the balloon that are saved
+/// at snapshot.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonState {
@@ -86,7 +93,9 @@ pub struct BalloonState {
     virtio_state: VirtioDeviceState,
 }
 
+/// Auxiliary structure for creating a device when resuming from a snapshot.
 pub struct BalloonConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
 }
 

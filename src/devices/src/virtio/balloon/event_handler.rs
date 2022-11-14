@@ -8,8 +8,8 @@ use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
 use crate::report_balloon_event_fail;
-use crate::virtio::balloon::device::Balloon;
-use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use crate::virtio::balloon::{Balloon, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use crate::virtio::device::VirtioDevice;
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {

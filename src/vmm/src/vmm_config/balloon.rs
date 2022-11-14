@@ -4,7 +4,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-pub use devices::virtio::balloon::device::BalloonStats;
+pub use devices::virtio::balloon::BalloonStats;
 pub use devices::virtio::BALLOON_DEV_ID;
 use devices::virtio::{Balloon, BalloonConfig};
 use serde::{Deserialize, Serialize};

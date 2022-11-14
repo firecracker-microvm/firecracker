@@ -6,7 +6,16 @@ use std::io;
 use logger::error;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
-use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use super::MAX_PAGE_COMPACT_BUFFER;
+
+#[derive(Debug)]
+pub enum RemoveRegionError {
+    AddressTranslation,
+    MalformedRange,
+    MadviseFail(std::io::Error),
+    MmapFail(std::io::Error),
+    RegionNotFound,
+}
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
