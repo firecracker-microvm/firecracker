@@ -12,8 +12,10 @@ use logger::warn;
 use utils::byte_order;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-use super::{device_status, *};
 use crate::bus::BusDevice;
+use crate::virtio::device::VirtioDevice;
+use crate::virtio::device_status;
+use crate::virtio::queue::Queue;
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
@@ -74,11 +76,12 @@ impl MmioTransport {
         }
     }
 
+    /// Gets the encapsulated locked VirtioDevice.
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
         self.device.lock().expect("Poisoned lock")
     }
 
-    // Gets the encapsulated VirtioDevice.
+    /// Gets the encapsulated VirtioDevice.
     pub fn device(&self) -> Arc<Mutex<dyn VirtioDevice>> {
         self.device.clone()
     }
@@ -332,6 +335,7 @@ pub(crate) mod tests {
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
+    use crate::virtio::ActivateResult;
 
     pub(crate) struct DummyDevice {
         acked_features: u64,

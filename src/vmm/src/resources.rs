@@ -497,6 +497,7 @@ mod tests {
     use std::fs::File;
     use std::os::linux::fs::MetadataExt;
 
+    use devices::virtio::block::CacheType;
     use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};

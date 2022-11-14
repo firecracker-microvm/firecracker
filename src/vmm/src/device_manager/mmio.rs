@@ -298,7 +298,7 @@ impl MMIODeviceManager {
         irq_number
     }
 
-    /// Gets the the specified device.
+    /// Gets the specified device.
     pub fn get_device(
         &self,
         device_type: DeviceType,

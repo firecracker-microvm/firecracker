@@ -1018,6 +1018,7 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
+    use devices::virtio::balloon::BALLOON_DEV_ID;
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
@@ -1028,7 +1029,7 @@ pub mod tests {
 
     use super::*;
     use crate::arch::DeviceType;
-    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
+    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};

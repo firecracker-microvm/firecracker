@@ -20,11 +20,10 @@ use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
-use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
-use crate::virtio::net::Net;
+use crate::virtio::net::tap::{IfReqBuilder, Tap};
+use crate::virtio::net::{Error, Net};
 use crate::virtio::queue::{Queue, QueueError};
 use crate::virtio::test_utils::VirtQueue;
-use crate::Error as DeviceError;
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -293,21 +292,17 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
-pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result<(), DeviceError> {
+pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result<(), Error> {
     if idx > net.queue_evts.len() {
-        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
-        )));
+        return Err(Error::Queue(QueueError::DescIndexOutOfBounds(idx as u16)));
     }
     net.queue_evts[idx].write(val).unwrap();
     Ok(())
 }
 
-pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, DeviceError> {
+pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, Error> {
     if idx > net.queue_evts.len() {
-        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
-        )));
+        return Err(Error::Queue(QueueError::DescIndexOutOfBounds(idx as u16)));
     }
     Ok(u64::try_from(net.queue_evts[idx].as_raw_fd()).unwrap())
 }
@@ -345,11 +340,10 @@ pub mod test {
     use crate::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
+    use crate::virtio::net::{MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use crate::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::virtio::{
-        IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
-        VIRTQ_DESC_F_WRITE,
-    };
+    use crate::virtio::{IrqType, Net, VirtioDevice};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,

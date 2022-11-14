@@ -661,9 +661,9 @@ pub(crate) mod tests {
         set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
+    use crate::virtio::block::IO_URING_NUM_ENTRIES;
     use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::virtio::IO_URING_NUM_ENTRIES;
 
     #[test]
     fn test_disk_backing_file_helper() {

@@ -5,7 +5,8 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use devices::virtio::vsock::{VsockError, VsockUnixBackend, VsockUnixBackendError};
+use devices::virtio::Vsock;
 use serde::{Deserialize, Serialize};
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
@@ -180,14 +181,12 @@ pub(crate) mod tests {
         use std::io;
 
         use super::VsockConfigError::*;
-        let err = CreateVsockBackend(devices::virtio::VsockUnixBackendError::EpollAdd(
+        let err = CreateVsockBackend(VsockUnixBackendError::EpollAdd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateVsockDevice(devices::virtio::VsockError::EventFd(
-            io::Error::from_raw_os_error(0),
-        ));
+        let err = CreateVsockDevice(VsockError::EventFd(io::Error::from_raw_os_error(0)));
         let _ = format!("{}{:?}", err, err);
     }
 

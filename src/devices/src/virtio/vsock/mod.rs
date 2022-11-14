@@ -115,6 +115,8 @@ pub enum VsockError {
     GuestMemoryBounds,
     /// The vsock header descriptor length is too small.
     HdrDescTooSmall(u32),
+    /// Received error while sending an interrupt.
+    InterruptError(std::io::Error),
     /// The vsock header `len` field holds an invalid value.
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.

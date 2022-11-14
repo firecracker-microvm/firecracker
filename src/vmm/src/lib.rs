@@ -5,10 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#![deny(missing_docs)]
+
 //! Virtual Machine Monitor that leverages the Linux Kernel-based Virtual Machine (KVM),
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
-#![deny(missing_docs)]
 
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
@@ -48,11 +49,10 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
-use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
-    TYPE_BLOCK, TYPE_NET,
+use devices::virtio::balloon::{
+    BalloonConfig, BalloonStats, Error as BalloonError, BALLOON_DEV_ID,
 };
+use devices::virtio::{Balloon, Block, MmioTransport, Net, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};

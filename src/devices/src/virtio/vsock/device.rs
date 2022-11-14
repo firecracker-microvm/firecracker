@@ -34,7 +34,6 @@ use crate::virtio::vsock::defs::uapi;
 use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use crate::virtio::vsock::{defs, VsockBackend, VsockError};
 use crate::virtio::{ActivateError, ActivateResult};
-use crate::Error as DeviceError;
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -123,11 +122,11 @@ where
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+    pub fn signal_used_queue(&self) -> result::Result<(), VsockError> {
         debug!("vsock: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
-            .map_err(DeviceError::FailedSignalingIrq)
+            .map_err(VsockError::InterruptError)
     }
 
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
@@ -227,13 +226,13 @@ where
     /// Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
     /// connections and the guest_cid configuration field is fetched again. Existing listen sockets
     /// remain but their CID is updated to reflect the current guest_cid.
-    pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
+    pub fn send_transport_reset_event(&mut self) -> result::Result<(), VsockError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
             METRICS.vsock.ev_queue_event_fails.inc();
-            DeviceError::VsockError(VsockError::EmptyQueue)
+            VsockError::EmptyQueue
         })?;
 
         mem.write_obj::<u32>(VIRTIO_VSOCK_EVENT_TRANSPORT_RESET, head.addr)

@@ -102,7 +102,7 @@ impl VmInfo {
     }
 }
 
-/// Contains the necesary state for saving/restoring a microVM.
+/// Contains the necessary state for saving/restoring a microVM.
 #[derive(Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MicrovmState {

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
-use crate::virtio::Queue;
+use crate::virtio::queue::Queue;
 
 #[macro_export]
 macro_rules! check_metric_after_block {

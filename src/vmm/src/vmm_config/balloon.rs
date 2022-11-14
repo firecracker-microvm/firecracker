@@ -4,9 +4,8 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-pub use devices::virtio::balloon::BalloonStats;
-pub use devices::virtio::BALLOON_DEV_ID;
-use devices::virtio::{Balloon, BalloonConfig};
+pub use devices::virtio::balloon::{BalloonConfig, BalloonStats};
+use devices::virtio::Balloon;
 use serde::{Deserialize, Serialize};
 
 type MutexBalloon = Arc<Mutex<Balloon>>;

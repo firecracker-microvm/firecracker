@@ -7,8 +7,11 @@ use std::u32;
 
 use crate::virtio::test_utils::VirtQueue;
 #[cfg(test)]
+use crate::virtio::IrqType;
+#[cfg(test)]
 use crate::virtio::{
-    balloon::NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
+    balloon::DEFLATE_INDEX, balloon::INFLATE_INDEX, balloon::NUM_QUEUES, balloon::STATS_INDEX,
+    Balloon,
 };
 
 #[cfg(test)]

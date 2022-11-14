@@ -199,6 +199,7 @@ impl Queue {
         }
     }
 
+    /// Maximum size of the queue.
     pub fn get_max_size(&self) -> u16 {
         self.max_size
     }
@@ -209,6 +210,7 @@ impl Queue {
         min(self.size, self.max_size)
     }
 
+    /// Some to ensure the validity of the queue's representation.
     pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
         let queue_size = u64::from(self.actual_size());
         let desc_table = self.desc_table;
@@ -523,10 +525,10 @@ pub(crate) mod tests {
 
     use vm_memory::test_utils::create_anon_guest_memory;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use QueueError::{DescIndexOutOfBounds, UsedRing};
 
     pub use super::*;
     use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
-    use crate::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {

@@ -30,13 +30,13 @@ use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
+use crate::report_net_event_fail;
 use crate::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::virtio::net::iovec::IoVecBuffer;
 use crate::virtio::net::tap::Tap;
 use crate::virtio::net::{Error, NetQueue, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
 use crate::virtio::queue::{DescriptorChain, Queue};
 use crate::virtio::{ActivateResult, TYPE_NET};
-use crate::{report_net_event_fail, Error as DeviceError};
 
 type Result<T> = result::Result<T, Error>;
 
@@ -250,7 +250,7 @@ impl Net {
         &self.tx_rate_limiter
     }
 
-    fn signal_used_queue(&mut self, queue_type: NetQueue) -> result::Result<(), DeviceError> {
+    fn signal_used_queue(&mut self, queue_type: NetQueue) -> result::Result<(), Error> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -264,7 +264,7 @@ impl Net {
                 .trigger_irq(IrqType::Vring)
                 .map_err(|err| {
                     METRICS.net.event_fails.inc();
-                    DeviceError::FailedSignalingIrq(err)
+                    Error::InterruptError(err)
                 })?;
         }
 
@@ -496,7 +496,7 @@ impl Net {
         self.read_tap().map_err(Error::IO)
     }
 
-    fn process_rx(&mut self) -> result::Result<(), DeviceError> {
+    fn process_rx(&mut self) -> result::Result<(), Error> {
         // Read as many frames as possible.
         loop {
             match self.read_from_mmds_or_tap() {
@@ -516,7 +516,7 @@ impl Net {
                         _ => {
                             error!("Failed to read tap: {:?}", err);
                             METRICS.net.tap_read_fails.inc();
-                            return Err(DeviceError::FailedReadTap);
+                            return Err(Error::FailedReadTap);
                         }
                     };
                     break;
@@ -533,7 +533,7 @@ impl Net {
     }
 
     // Process the deferred frame first, then continue reading from tap.
-    fn handle_deferred_frame(&mut self) -> result::Result<(), DeviceError> {
+    fn handle_deferred_frame(&mut self) -> result::Result<(), Error> {
         if self.rate_limited_rx_single_frame() {
             self.rx_deferred_frame = false;
             // process_rx() was interrupted possibly before consuming all
@@ -544,7 +544,7 @@ impl Net {
         self.signal_used_queue(NetQueue::Rx)
     }
 
-    fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
+    fn resume_rx(&mut self) -> result::Result<(), Error> {
         if self.rx_deferred_frame {
             self.handle_deferred_frame()
         } else {
@@ -552,7 +552,7 @@ impl Net {
         }
     }
 
-    fn process_tx(&mut self) -> result::Result<(), DeviceError> {
+    fn process_tx(&mut self) -> result::Result<(), Error> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -573,7 +573,7 @@ impl Net {
                     METRICS.net.tx_fails.inc();
                     tx_queue
                         .add_used(mem, head_index, 0)
-                        .map_err(DeviceError::QueueError)?;
+                        .map_err(Error::Queue)?;
                     continue;
                 }
             };
@@ -599,7 +599,7 @@ impl Net {
 
             tx_queue
                 .add_used(mem, head_index, 0)
-                .map_err(DeviceError::QueueError)?;
+                .map_err(Error::Queue)?;
             used_any = true;
         }
 
@@ -862,10 +862,9 @@ pub mod tests {
         default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
         TapTrafficSimulator, WriteTapMock,
     };
-    use crate::virtio::net::QUEUE_SIZES;
-    use crate::virtio::{
-        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
-    };
+    use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
+    use crate::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::virtio::{Net, VirtioDevice, TYPE_NET};
 
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {

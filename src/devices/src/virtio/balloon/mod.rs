@@ -9,12 +9,9 @@ pub mod persist;
 pub mod test_utils;
 mod utils;
 
-pub use crate::virtio::balloon::device::{Balloon, BalloonConfig, BalloonStats};
+pub use crate::virtio::balloon::device::{Balloon, BalloonConfig, BalloonStats, BALLOON_DEV_ID};
 use crate::virtio::queue::QueueError;
 
-/// Device ID used in MMIO device identification.
-/// Because Balloon is unique per-vm, this ID can be hardcoded.
-pub const BALLOON_DEV_ID: &str = "balloon";
 /// The size of the config space.
 pub const CONFIG_SPACE_SIZE: usize = 8;
 /// Max size of virtio queues.

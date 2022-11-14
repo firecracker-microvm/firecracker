@@ -9,9 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::{io, result};
 
 use devices::virtio::block::Error as BlockError;
-pub use devices::virtio::block::FileEngineType;
+pub use devices::virtio::block::{CacheType, FileEngineType};
 use devices::virtio::Block;
-pub use devices::virtio::CacheType;
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;

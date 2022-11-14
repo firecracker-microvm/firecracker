@@ -17,7 +17,7 @@ use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use crate::virtio::balloon::utils::{compact_page_frame_numbers, remove_range};
 use crate::virtio::balloon::{
-    Error as BalloonError, BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC,
+    Error as BalloonError, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC,
     MAX_PAGE_COMPACT_BUFFER, MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX,
     VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
     VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
@@ -31,6 +31,9 @@ use crate::virtio::{ActivateResult, TYPE_BALLOON};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
+/// Device ID used in MMIO device identification.
+/// Because Balloon is unique per-vm, this ID can be hardcoded.
+pub const BALLOON_DEV_ID: &str = "balloon";
 
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
@@ -626,8 +629,8 @@ pub(crate) mod tests {
     use crate::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
+    use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::{check_metric_after_block, report_balloon_event_fail};
 
     impl Balloon {

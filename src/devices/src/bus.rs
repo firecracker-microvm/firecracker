@@ -26,6 +26,7 @@ pub trait BusDevice: AsAny + Send {
     fn write(&mut self, offset: u64, data: &[u8]) {}
 }
 
+/// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The insertion failed because the new device overlapped with an old device.

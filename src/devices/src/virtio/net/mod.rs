@@ -13,6 +13,7 @@ pub mod test_utils;
 pub use tap::{Error as TapError, Tap};
 
 pub use crate::virtio::net::device::Net;
+use crate::virtio::queue::QueueError;
 
 /// Maximum size of the frame buffers handled by this device.
 pub const MAX_BUFFER_SIZE: usize = 65562;
@@ -37,6 +38,15 @@ pub enum NetQueue {
 /// Errors the network device can trigger.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Failed to read from the TAP device")]
+    /// Failed to read from the TAP device.
+    FailedReadTap,
+    /// Received error while sending an interrupt.
+    #[error("Received error while triggering an interrupt: {0}")]
+    InterruptError(std::io::Error),
+    #[error("Error while processing the virt queues: {0}")]
+    /// Error while processing the virt queues.
+    Queue(QueueError),
     /// Open tap device failed
     #[error("Open tap device failed: {0}")]
     TapOpen(TapError),

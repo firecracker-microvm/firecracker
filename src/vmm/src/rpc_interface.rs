@@ -830,7 +830,7 @@ mod tests {
     use std::path::PathBuf;
 
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
+    use devices::virtio::vsock::VsockError;
     use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 

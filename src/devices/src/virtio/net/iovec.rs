@@ -4,7 +4,7 @@
 use libc::{c_void, iovec, size_t};
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
-use crate::virtio::DescriptorChain;
+use crate::virtio::queue::DescriptorChain;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
