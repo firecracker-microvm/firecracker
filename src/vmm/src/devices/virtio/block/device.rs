@@ -48,6 +48,7 @@ pub enum CacheType {
     Writeback,
 }
 
+/// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
@@ -63,6 +64,7 @@ impl Default for FileEngineType {
 }
 
 impl FileEngineType {
+    /// Whether the Async engine is supported on the current host kernel.
     pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
@@ -281,6 +283,10 @@ impl Block {
         })
     }
 
+    /// Process a single event in the VirtIO queue.
+    ///
+    /// This function is called by the event manager when the guest notifies us
+    /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
         if let Err(err) = self.queue_evts[0].read() {
@@ -327,6 +333,7 @@ impl Block {
         }
     }
 
+    /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -502,6 +509,7 @@ impl Block {
         &self.rate_limiter
     }
 
+    /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
         match self.disk.file_engine() {
             FileEngine::Sync(_) => FileEngineType::Sync,
@@ -515,6 +523,7 @@ impl Block {
         }
     }
 
+    /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         if !self.is_activated() {
             return;
