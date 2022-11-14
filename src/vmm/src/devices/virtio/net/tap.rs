@@ -162,6 +162,7 @@ impl Tap {
         })
     }
 
+    /// Retrieve the interface's name as a str.
     pub fn if_name_as_str(&self) -> &str {
         let len = self
             .if_name
