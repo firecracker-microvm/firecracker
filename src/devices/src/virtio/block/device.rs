@@ -14,7 +14,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{cmp, result};
 
-use block_io::FileEngine;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use serde::{Deserialize, Serialize};
@@ -26,11 +25,14 @@ use virtio_gen::virtio_blk::{
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
-use super::io::async_io;
-use super::request::*;
-use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
-use crate::virtio::{IrqTrigger, IrqType};
+use crate::virtio::block::io::{async_io, Error as IoError, FileEngine};
+use crate::virtio::block::request::{
+    FinishedRequest, IoErr, PendingRequest, ProcessingResult, Request,
+};
+use crate::virtio::block::{Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
+use crate::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::virtio::queue::Queue;
+use crate::virtio::{ActivateResult, TYPE_BLOCK};
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -50,6 +52,7 @@ impl Default for CacheType {
     }
 }
 
+/// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
@@ -65,6 +68,7 @@ impl Default for FileEngineType {
 }
 
 impl FileEngineType {
+    /// Whether the Async engine is supported on the current host kernel.
     pub fn is_supported(&self) -> result::Result<bool, utils::kernel_version::Error> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
@@ -281,6 +285,8 @@ impl Block {
         })
     }
 
+    /// Process queue of events.
+    /// Called by the event manager.
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
         if let Err(err) = self.queue_evts[0].read() {
@@ -327,6 +333,7 @@ impl Block {
         }
     }
 
+    /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -410,9 +417,9 @@ impl Block {
                         Ok(count) => (user_data, Ok(count)),
                         Err(error) => (
                             user_data,
-                            Err(IoErr::FileEngine(block_io::Error::Async(
-                                async_io::Error::IO(error),
-                            ))),
+                            Err(IoErr::FileEngine(IoError::Async(async_io::Error::IO(
+                                error,
+                            )))),
                         ),
                     };
                     let finished = pending.finish(mem, res);
@@ -429,7 +436,7 @@ impl Block {
         }
     }
 
-    pub fn process_async_completion_event(&mut self) {
+    pub(crate) fn process_async_completion_event(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
         if let Err(err) = engine.completion_evt().read() {
@@ -502,6 +509,7 @@ impl Block {
         &self.rate_limiter
     }
 
+    /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
         match self.disk.file_engine() {
             FileEngine::Sync(_) => FileEngineType::Sync,
@@ -515,6 +523,7 @@ impl Block {
         }
     }
 
+    /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         if !self.is_activated() {
             return;
@@ -638,10 +647,15 @@ pub(crate) mod tests {
     use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
+    use virtio_gen::virtio_blk::{
+        VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_FLUSH,
+        VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+    };
     use vm_memory::{Address, Bytes, GuestAddress};
 
     use super::*;
     use crate::check_metric_after_block;
+    use crate::virtio::block::request::RequestHeader;
     use crate::virtio::block::test_utils::{
         default_block, default_engine_type_for_kv, read_blk_req_descriptors, set_queue,
         set_rate_limiter, simulate_async_completion_event,

@@ -16,11 +16,12 @@ use vm_memory::{Bytes, GuestAddress};
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
-use crate::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::virtio::block::request::RequestHeader;
+use crate::virtio::block::{Block, CacheType};
+use crate::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
 use crate::virtio::IrqType;
-use crate::virtio::{Block, CacheType, Queue, RequestHeader};
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> Block {

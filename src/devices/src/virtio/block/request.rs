@@ -16,10 +16,9 @@ pub use virtio_gen::virtio_blk::{
 };
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
-use super::super::DescriptorChain;
-use super::{io as block_io, Error, SECTOR_SHIFT};
 use crate::virtio::block::device::DiskProperties;
-use crate::virtio::SECTOR_SIZE;
+use crate::virtio::block::{io as block_io, Error, SECTOR_SHIFT, SECTOR_SIZE};
+use crate::virtio::queue::DescriptorChain;
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
@@ -192,13 +191,6 @@ pub struct RequestHeader {
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
-    pub fn new(request_type: u32, sector: u64) -> RequestHeader {
-        RequestHeader {
-            request_type,
-            _reserved: 0,
-            sector,
-        }
-    }
     /// Reads the request header from GuestMemoryMmap starting at `addr`.
     ///
     /// Virtio 1.0 specifies that the data is transmitted by the driver in little-endian
@@ -410,6 +402,16 @@ mod tests {
     use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
 
     const NUM_DISK_SECTORS: u64 = 1024;
+
+    impl RequestHeader {
+        pub fn new(request_type: u32, sector: u64) -> RequestHeader {
+            RequestHeader {
+                request_type,
+                _reserved: 0,
+                sector,
+            }
+        }
+    }
 
     #[test]
     fn test_read_request_header() {

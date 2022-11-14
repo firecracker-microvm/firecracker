@@ -6,10 +6,10 @@ pub mod sync_io;
 
 use std::fs::File;
 
+use async_io::AsyncFileEngine;
+use sync_io::SyncFileEngine;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-pub use self::async_io::AsyncFileEngine;
-pub use self::sync_io::SyncFileEngine;
 use crate::virtio::block::device::FileEngineType;
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]

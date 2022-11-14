@@ -16,15 +16,23 @@ use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 use vm_memory::GuestMemoryMmap;
 
-use super::*;
-use crate::virtio::block::device::FileEngineType;
+use crate::virtio::block::device::{Block, CacheType, FileEngineType};
+use crate::virtio::block::io::Error as IoError;
+use crate::virtio::block::{Error, NUM_QUEUES, QUEUE_SIZE};
+use crate::virtio::device::DeviceState;
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, TYPE_BLOCK};
+use crate::virtio::TYPE_BLOCK;
 
+/// Holds info about block's cache type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum CacheTypeState {
+    /// Flushing mechanic will be advertised to the guest driver, but
+    /// the operation will be a noop.
     Unsafe,
+    /// Flushing mechanic will be advertised to the guest driver and
+    /// flush requests coming from the guest will be performed using
+    /// `fsync`.
     Writeback,
 }
 
@@ -46,10 +54,13 @@ impl From<CacheTypeState> for CacheType {
     }
 }
 
+/// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum FileEngineTypeState {
+    /// Sync File Engine.
     Sync,
+    /// Async File Engine.
     Async,
 }
 
@@ -79,6 +90,7 @@ impl Default for FileEngineTypeState {
     }
 }
 
+/// Holds info about the block device. Gets saved in snapshot.
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BlockState {
@@ -118,7 +130,9 @@ impl BlockState {
     }
 }
 
+/// Auxiliary structure for creating a device when resuming from a snapshot.
 pub struct BlockConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
 }
 
@@ -160,7 +174,7 @@ impl Persist<'_> for Block {
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
-            Error::FileEngine(io::Error::UnsupportedEngine(FileEngineType::Async)) => {
+            Error::FileEngine(IoError::UnsupportedEngine(FileEngineType::Async)) => {
                 // If the kernel does not support `Async`, fallback to `Sync`.
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \

@@ -216,8 +216,8 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::default_block_with_path;
+    use crate::virtio::block::FileEngineType;
     use crate::virtio::mmio::tests::DummyDevice;
     use crate::virtio::test_utils::default_mem;
     use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};

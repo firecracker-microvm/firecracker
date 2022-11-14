@@ -6,9 +6,9 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use logger::{debug, error, warn};
 use utils::epoll::EventSet;
 
-use super::io::FileEngine;
 use crate::virtio::block::device::Block;
-use crate::virtio::VirtioDevice;
+use crate::virtio::block::io::FileEngine;
+use crate::virtio::device::VirtioDevice;
 
 impl Block {
     fn register_runtime_events(&self, ops: &mut EventOps) {

@@ -19,7 +19,6 @@ use crate::virtio::block::IO_URING_NUM_ENTRIES;
 pub enum Error {
     IO(std::io::Error),
     IoUring(IoUringError),
-    Submit(std::io::Error),
     SyncAll(std::io::Error),
     EventFd(std::io::Error),
     GuestMemory(vm_memory::GuestMemoryError),

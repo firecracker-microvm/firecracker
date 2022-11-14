@@ -1,29 +1,36 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod device;
-pub mod event_handler;
+//! Implements a virtio block device.
+
+mod device;
+mod event_handler;
 mod io;
 pub mod persist;
-pub mod request;
+mod request;
 pub mod test_utils;
 
 use vm_memory::GuestMemoryError;
 
-pub use self::device::{Block, CacheType};
-pub use self::event_handler::*;
-pub use self::request::*;
+pub use crate::virtio::block::device::{Block, CacheType, FileEngineType};
 
+/// Size of config space for block device.
 pub const CONFIG_SPACE_SIZE: usize = 8;
+/// Sector shift for block device.
 pub const SECTOR_SHIFT: u8 = 9;
+/// Size of block sector.
 pub const SECTOR_SIZE: u64 = (0x01_u64) << SECTOR_SHIFT;
+/// Queue size for block device.
 pub const QUEUE_SIZE: u16 = 256;
+/// The number of queues of block device.
 pub const NUM_QUEUES: usize = 1;
-pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
 // The virtio queue can hold up to 256 descriptors, but 1 request spreads across 2-3 descriptors.
 // So we can use 128 IO_URING entries without ever triggering a FullSq Error.
+/// Maximum number of io uring entries we allow in the queue.
 pub const IO_URING_NUM_ENTRIES: u16 = 128;
 
+/// Errors the block device can trigger.
 #[derive(Debug)]
 pub enum Error {
     /// Guest gave us too few descriptors in a descriptor chain.
@@ -42,16 +49,16 @@ pub enum Error {
     UnexpectedReadOnlyDescriptor,
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
-    // Error coming from the IO engine.
+    /// Error coming from the IO engine.
     FileEngine(io::Error),
-    // Error manipulating the backing file.
+    /// Error manipulating the backing file.
     BackingFile(std::io::Error, String),
-    // Error opening eventfd.
+    /// Error opening eventfd.
     EventFd(std::io::Error),
-    // Error creating an irqfd.
+    /// Error creating an irqfd.
     IrqTrigger(std::io::Error),
-    // Error coming from the rate limiter.
+    /// Error coming from the rate limiter.
     RateLimiter(std::io::Error),
-    // Persistence error.
+    /// Persistence related error.
     Persist(crate::virtio::persist::Error),
 }
