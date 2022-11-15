@@ -184,7 +184,9 @@ impl KernelLoader for Elf {
     /// let kernel_addr = GuestAddress(0x200000);
     /// let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), mem_size)]).unwrap();
     /// let mut kernel_image = vec![];
-    /// kernel_image.extend_from_slice(include_bytes!("test_elf.bin"));
+    /// kernel_image.extend_from_slice(include_bytes!(
+    ///     "../../../../../../resources/linux_loader/loader/x86_64/elf/test_elf.bin"
+    /// ));
     /// elf::Elf::load(
     ///     &gm,
     ///     Some(kernel_addr),
@@ -434,24 +436,38 @@ mod tests {
 
     fn make_elf_bin() -> Vec<u8> {
         let mut v = Vec::new();
-        v.extend_from_slice(include_bytes!("test_elf.bin"));
+        v.extend_from_slice(include_bytes!(
+            "../../../../../../resources/linux_loader/loader/x86_64/elf/test_elf.bin"
+        ));
         v
     }
 
     fn make_elfnote() -> Vec<u8> {
-        include_bytes!("test_elfnote.bin").to_vec()
+        include_bytes!(
+            "../../../../../../resources/linux_loader/loader/x86_64/elf/test_elfnote.bin"
+        )
+        .to_vec()
     }
 
     fn make_dummy_elfnote() -> Vec<u8> {
-        include_bytes!("test_dummy_note.bin").to_vec()
+        include_bytes!(
+            "../../../../../../resources/linux_loader/loader/x86_64/elf/test_dummy_note.bin"
+        )
+        .to_vec()
     }
 
     fn make_invalid_pvh_note() -> Vec<u8> {
-        include_bytes!("test_invalid_pvh_note.bin").to_vec()
+        include_bytes!(
+            "../../../../../../resources/linux_loader/loader/x86_64/elf/test_invalid_pvh_note.bin"
+        )
+        .to_vec()
     }
 
     fn make_bad_align() -> Vec<u8> {
-        include_bytes!("test_bad_align.bin").to_vec()
+        include_bytes!(
+            "../../../../../../resources/linux_loader/loader/x86_64/elf/test_bad_align.bin"
+        )
+        .to_vec()
     }
 
     #[test]
