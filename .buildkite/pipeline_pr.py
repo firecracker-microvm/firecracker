@@ -55,7 +55,8 @@ step_block_unless_maintainer = {
 step_style = {
     "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
     "label": "🪶 Style",
-    # no agent tags, it doesn't matter where this runs
+    # we only install the required dependencies in x86_64
+    "agents": ["platform=x86_64.metal"]
 }
 
 build_grp = group(
