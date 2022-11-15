@@ -6,6 +6,7 @@ import subprocess
 from enum import Enum, auto
 
 from framework.utils import run_cmd
+from framework.utils_imdsv2 import imdsv2_get
 import host_tools.network as net_tools
 
 
@@ -32,7 +33,14 @@ def get_cpu_model_name():
     return info[1].strip()
 
 
-def check_guest_cpuid_output(vm, guest_cmd, expected_header,
+def get_instance_type():
+    """Get the instance type through IMDSv2."""
+    return imdsv2_get("/meta-data/instance-type")
+
+
+def check_guest_cpuid_output(vm,
+                             guest_cmd,
+                             expected_header,
                              expected_separator,
                              expected_key_value_store):
     """Parse cpuid output inside guest and match with expected one."""
