@@ -6,7 +6,7 @@ use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
 use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::io::IntoRawFd;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -42,8 +42,6 @@ const DEV_NET_TUN_MINOR: u32 = 200;
 const DEV_URANDOM_WITH_NUL: &[u8] = b"/dev/urandom\0";
 const DEV_URANDOM_MAJOR: u32 = 1;
 const DEV_URANDOM_MINOR: u32 = 9;
-
-const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 
 // Relevant folders inside the jail that we create or/and for which we change ownership.
 // We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
@@ -403,23 +401,13 @@ impl Env {
     }
 
     fn join_netns(path: &str) -> Result<()> {
-        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately)
-        // instead used `into_raw_fd` which provides underlying fd ownership to caller.
-        let netns_fd = File::open(path)
-            .map_err(|err| Error::FileOpen(PathBuf::from(path), err))?
-            .into_raw_fd();
+        // The fd backing the file will be automatically dropped at the end of the scope
+        let netns = File::open(path).map_err(|err| Error::FileOpen(PathBuf::from(path), err))?;
 
         // SAFETY: Safe because we are passing valid parameters.
-        SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
+        SyscallReturnCode(unsafe { libc::setns(netns.as_raw_fd(), libc::CLONE_NEWNET) })
             .into_empty_result()
-            .map_err(Error::SetNetNs)?;
-
-        // Since we have ownership here, we also have to close the fd after joining the
-        // namespace.
-        // SAFETY: Safe because we are passing valid parameters.
-        SyscallReturnCode(unsafe { libc::close(netns_fd) })
-            .into_empty_result()
-            .map_err(Error::CloseNetNsFd)
+            .map_err(Error::SetNetNs)
     }
 
     fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
@@ -553,18 +541,7 @@ impl Env {
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
-            Some(
-                // SAFETY: Safe because we use a constant null-terminated string and verify the
-                // result.
-                SyscallReturnCode(unsafe {
-                    libc::open(
-                        DEV_NULL_WITH_NUL.as_ptr().cast::<libc::c_char>(),
-                        libc::O_RDWR,
-                    )
-                })
-                .into_result()
-                .map_err(Error::OpenDevNull)?,
-            )
+            Some(File::open("/dev/null").map_err(Error::OpenDevNull)?)
         } else {
             None
         };
@@ -606,7 +583,7 @@ impl Env {
             });
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
-        if let Some(fd) = dev_null {
+        if let Some(dev_null) = dev_null {
             // Call setsid().
             // SAFETY: Safe because it's a library function.
             SyscallReturnCode(unsafe { libc::setsid() })
@@ -614,14 +591,9 @@ impl Env {
                 .map_err(Error::SetSid)?;
 
             // Replace the stdio file descriptors with the /dev/null fd.
-            dup2(fd, STDIN_FILENO)?;
-            dup2(fd, STDOUT_FILENO)?;
-            dup2(fd, STDERR_FILENO)?;
-
-            // SAFETY: Safe because we are passing valid parameters, and checking the result.
-            SyscallReturnCode(unsafe { libc::close(fd) })
-                .into_empty_result()
-                .map_err(Error::CloseDevNullFd)?;
+            dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
+            dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
+            dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
         }
 
         // If specified, exec the provided binary into a new PID namespace.
@@ -892,18 +864,11 @@ mod tests {
     #[test]
     fn test_dup2() {
         // Open /dev/kvm since it should be available anyway.
-        let fd1 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
+        let file1 = fs::File::open("/dev/kvm").unwrap();
         // We open a second file to make sure its associated fd is not used by something else.
-        let fd2 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
+        let file2 = fs::File::open("/dev/kvm").unwrap();
 
-        dup2(fd1, fd2).unwrap();
-
-        unsafe {
-            libc::close(fd1);
-        }
-        unsafe {
-            libc::close(fd2);
-        }
+        dup2(file1.as_raw_fd(), file2.as_raw_fd()).unwrap();
     }
 
     #[test]
