@@ -24,11 +24,11 @@ BASELINES = {
         "serialize": {
             "no-crc": {
                 "target": 0.146,  # milliseconds
-                "delta": 0.025  # milliseconds
+                "delta": 0.050  # milliseconds
             },
             "crc": {
-                "target": 0.205,  # milliseconds
-                "delta": 0.025  # milliseconds
+                "target": 0.244,  # milliseconds
+                "delta": 0.44  # milliseconds
             }
         },
         "deserialize": {
