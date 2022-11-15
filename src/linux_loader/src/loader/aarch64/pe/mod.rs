@@ -215,7 +215,9 @@ mod tests {
 
     fn make_image_bin() -> Vec<u8> {
         let mut v = Vec::new();
-        v.extend_from_slice(include_bytes!("test_image.bin"));
+        v.extend_from_slice(include_bytes!(
+            "../../../../../../resources/linux_loader/loader/aarch64/test_image.bin"
+        ));
         v
     }
 

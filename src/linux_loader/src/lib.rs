@@ -67,7 +67,7 @@
 //!     let mut elf_pvh_image = Vec::new();
 //!     let path = concat!(
 //!         env!("CARGO_MANIFEST_DIR"),
-//!         "/src/loader/x86_64/elf/test_elfnote.bin"
+//!         "/../../resources/linux_loader/loader/x86_64/elf/test_elfnote.bin"
 //!     );
 //!     let mut file = File::open(path).unwrap();
 //!     file.read_to_end(&mut elf_pvh_image).unwrap();
