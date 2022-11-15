@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import platform
+import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
@@ -14,8 +16,9 @@ from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import eager_map, CpuMap, \
     get_firecracker_version_from_toml, compare_versions, get_kernel_version, \
     is_io_uring_supported
-from framework.stats import core, consumer, producer, types, criteria,\
+from framework.stats import core, consumer, producer, types, criteria, \
     function
+from framework.utils_cpuid import get_instance_type
 from integration_tests.performance.utils import handle_failure
 
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -25,6 +28,10 @@ import host_tools.logging as log_tools
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
 PLATFORM = platform.machine()
+ENGINES = ["Sync"]
+
+if is_io_uring_supported():
+    ENGINES.append("Async")
 
 # Latencies in milliseconds.
 # The latency for snapshot creation has high variance due to scheduler noise.
@@ -74,23 +81,85 @@ CREATE_LATENCY_BASELINES = {
 # this is tracked here:
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
+# TODO: we need to actually measure the numbers for m6i
+# since they might be lower.
 LOAD_LATENCY_BASELINES = {
-    'x86_64': {
-        '2vcpu_256mb.json': {
-            'target': 9
+    "x86_64": {
+        "m5d.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 9},
+                    "2vcpu_512mb.json": {"target": 9},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
+            },
         },
-        '2vcpu_512mb.json': {
-            'target': 9
+        "m6a.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 15},
+                    "2vcpu_512mb.json": {"target": 15},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
+            },
+        },
+        "m6i.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 9},
+                    "2vcpu_512mb.json": {"target": 9},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 60},
+                    "2vcpu_512mb.json": {"target": 60},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 190},
+                    "2vcpu_512mb.json": {"target": 190},
+                },
+            },
         },
     },
-    'aarch64': {
-        '2vcpu_256mb.json': {
-            'target': 3
+    "aarch64": {
+        "m6g.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 125},
+                    "2vcpu_512mb.json": {"target": 130},
+                },
+            },
         },
-        '2vcpu_512mb.json': {
-            'target': 3
-        },
-    }
+    },
 }
 
 
@@ -112,9 +181,12 @@ def snapshot_create_measurements(vm_type, snapshot_type):
     return [latency]
 
 
-def snapshot_resume_measurements(vm_type):
+def snapshot_resume_measurements(vm_type, io_engine):
     """Define measurements for snapshot resume tests."""
-    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
+    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][
+        get_instance_type()][
+        get_kernel_version(level=1)
+    ][io_engine][vm_type]
 
     if is_io_uring_supported():
         # There is added latency caused by the io_uring syscalls used by the
@@ -312,6 +384,7 @@ def _test_snapshot_resume_latency(context):
     snapshot_type = context.custom['snapshot_type']
     file_dumper = context.custom['results_file_dumper']
     diff_snapshots = snapshot_type == SnapshotType.DIFF
+    io_engine = context.custom["io_engine"]
 
     logger.info("""Measuring snapshot resume({}) latency for microvm: \"{}\",
     kernel {}, disk {} """.format(snapshot_type,
@@ -329,7 +402,8 @@ def _test_snapshot_resume_latency(context):
                                    ssh_key=ssh_key,
                                    config=context.microvm,
                                    diff_snapshots=diff_snapshots,
-                                   use_ramdisk=True)
+                                   use_ramdisk=True,
+                                   io_engine=io_engine)
     basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -370,8 +444,11 @@ def _test_snapshot_resume_latency(context):
             st_name="max", ms_name="latency", value=result),
         func_kwargs={}
     )
-    eager_map(cons.set_measurement_def,
-              snapshot_resume_measurements(context.microvm.name()))
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_resume_measurements(context.microvm.name(),
+                                     io_engine.lower()),
+    )
 
     st_core.add_pipe(producer=prod, consumer=cons,
                      tag=context.microvm.name())
@@ -390,6 +467,7 @@ def _test_older_snapshot_resume_latency(context):
     logger = context.custom["logger"]
     snapshot_type = context.custom['snapshot_type']
     file_dumper = context.custom["results_file_dumper"]
+    io_engine = context.custom["io_engine"]
 
     firecracker = context.firecracker
     jailer = firecracker.jailer()
@@ -444,8 +522,11 @@ def _test_older_snapshot_resume_latency(context):
             st_name="max", ms_name="latency", value=result),
         func_kwargs={}
     )
-    eager_map(cons.set_measurement_def,
-              snapshot_resume_measurements(context.microvm.name()))
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_resume_measurements(context.microvm.name(),
+                                     io_engine.lower()),
+    )
 
     st_core.add_pipe(producer=prod, consumer=cons,
                      tag=context.microvm.name())
@@ -543,9 +624,10 @@ def test_snapshot_create_diff_latency(network_config,
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
-def test_snapshot_resume_latency(network_config,
-                                 bin_cloner_path,
-                                 results_file_dumper):
+@pytest.mark.parametrize("io_engine", ENGINES)
+def test_snapshot_resume_latency(
+        network_config, bin_cloner_path, results_file_dumper, io_engine
+):
     """
     Test scenario: Snapshot load performance measurement.
 
@@ -573,7 +655,8 @@ def test_snapshot_resume_latency(network_config,
         'logger': logger,
         'snapshot_type': SnapshotType.FULL,
         'name': 'resume_latency',
-        'results_file_dumper': results_file_dumper
+        'results_file_dumper': results_file_dumper,
+        'io_engine': io_engine
     }
 
     # Create the test matrix.
@@ -587,7 +670,9 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
-def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
+@pytest.mark.parametrize("io_engine", ENGINES)
+def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper,
+                                       io_engine):
     """
     Test scenario: Older snapshot load performance measurement.
 
@@ -611,7 +696,8 @@ def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
         'logger': logger,
         'snapshot_type': SnapshotType.FULL,
         'name': 'old_snapshot_resume_latency',
-        'results_file_dumper': results_file_dumper
+        'results_file_dumper': results_file_dumper,
+        'io_engine': io_engine
     }
 
     # Create the test matrix.
