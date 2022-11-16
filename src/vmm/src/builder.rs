@@ -1089,6 +1089,16 @@ pub mod tests {
     }
 
     fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
+        // The following unwraps can never fail; the only way any of these methods
+        // would return an `Err` is if one of the following conditions is met:
+        //    1. The command line is empty: We just added things to it, and if insertion
+        //       of an argument goes wrong, then `Cmdline::insert` would have already
+        //       returned `Err`.
+        //    2. There's a spurious null character somewhere in the command line: The
+        //       `Cmdline::insert` methods verify that this is not the case.
+        //    3. The `CString` is not valid UTF8: It just got created from a `String`,
+        //       which was valid UTF8.
+
         cmdline
             .as_cstring()
             .unwrap()
