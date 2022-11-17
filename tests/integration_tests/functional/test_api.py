@@ -263,7 +263,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         iface_id="1", host_dev_name=second_if_name, guest_mac="06:00:00:00:00:01"
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Could not create Network Device" in response.text
+    assert "Could not create the network device" in response.text
 
     # Updates to a network interface with an available name are allowed.
     iface_id = "1"
