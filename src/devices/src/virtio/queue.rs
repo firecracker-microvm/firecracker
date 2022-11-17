@@ -39,11 +39,10 @@ impl fmt::Display for QueueError {
         use self::QueueError::*;
 
         match self {
-            DescIndexOutOfBounds(val) => write!(f, "Descriptor index out of bounds: {}", val),
+            DescIndexOutOfBounds(val) => write!(f, "Descriptor index out of bounds: {val}"),
             UsedRing(err) => write!(
                 f,
-                "Failed to write value into the virtio queue used ring: {}",
-                err
+                "Failed to write value into the virtio queue used ring: {err}"
             ),
         }
     }

@@ -39,11 +39,9 @@ impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
         match self {
-            DeviceUpdate(err) => {
-                write!(f, "Unable to patch the block device: {err}")
-            }
             CreateBlockDevice(err) => write!(f, "Unable to create the block device: {err:?}"),
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {err}"),
+            DeviceUpdate(err) => write!(f, "Unable to patch the block device: {err}"),
             InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {path}"),
             RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
         }

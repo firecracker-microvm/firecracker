@@ -793,7 +793,7 @@ impl RuntimeApiController {
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
-                .map_err(DriveError::BlockDeviceUpdate)?;
+                .map_err(DriveError::DeviceUpdate)?;
         }
         if new_cfg.rate_limiter.is_some() {
             vmm.update_block_rate_limiter(
@@ -802,7 +802,7 @@ impl RuntimeApiController {
                 RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
-            .map_err(DriveError::BlockDeviceUpdate)?;
+            .map_err(DriveError::DeviceUpdate)?;
         }
         Ok(VmmData::Empty)
     }
@@ -1101,7 +1101,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1127,7 +1127,7 @@ mod tests {
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -1963,8 +1963,8 @@ mod tests {
         });
         check_runtime_request_err(
             req,
-            VmmActionError::DriveConfig(DriveError::BlockDeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::IncorrectDeviceType,
+            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
+                crate::device_manager::mmio::Error::InvalidDeviceType,
             ))),
         );
     }
@@ -1989,7 +1989,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::IncorrectDeviceType),
+                VmmError::DeviceManager(crate::device_manager::mmio::Error::InvalidDeviceType),
             )),
         );
     }
