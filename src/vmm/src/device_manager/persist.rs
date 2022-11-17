@@ -351,7 +351,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
                         )
-                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::Allocator(e)))?;
 
                     dev_manager.register_mmio_serial(
                         vm,
@@ -368,7 +368,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
                         )
-                        .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+                        .map_err(|e| Error::DeviceManager(super::mmio::Error::Allocator(e)))?;
                     dev_manager.register_mmio_rtc(rtc, Some(state.device_info.clone()))?;
                 }
             }
@@ -405,7 +405,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     MMIO_LEN,
                     AllocPolicy::ExactMatch(device_info.addr),
                 )
-                .map_err(|e| Error::DeviceManager(super::mmio::Error::AllocatorError(e)))?;
+                .map_err(|e| Error::DeviceManager(super::mmio::Error::Allocator(e)))?;
 
             dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, device_info)?;
 
