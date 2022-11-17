@@ -23,17 +23,14 @@ type Result<T> = result::Result<T, DriveError>;
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug)]
 pub enum DriveError {
-    /// Error during block device update (patch).
-    BlockDeviceUpdate(VmmError),
-    /// Unable to seek the block device backing file due to invalid permissions or
-    /// the file was corrupted.
+    /// Could not create a Block Device.
     CreateBlockDevice(BlockError),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
+    /// Error during block device update (patch).
+    DeviceUpdate(VmmError),
     /// The block device path is invalid.
     InvalidBlockDevicePath(String),
-    /// Cannot open block device due to invalid permissions or path.
-    OpenBlockDevice(io::Error),
     /// A root block device was already added.
     RootBlockDeviceAlreadyAdded,
 }
@@ -42,17 +39,12 @@ impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
         match self {
-            BlockDeviceUpdate(err) => {
+            DeviceUpdate(err) => {
                 write!(f, "Unable to patch the block device: {err}")
             }
             CreateBlockDevice(err) => write!(f, "Unable to create the block device: {err:?}"),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {}", path),
-            OpenBlockDevice(err) => write!(
-                f,
-                "Cannot open block device. Invalid permission/path: {}",
-                err
-            ),
+            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {err}"),
+            InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {path}"),
             RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
         }
     }
