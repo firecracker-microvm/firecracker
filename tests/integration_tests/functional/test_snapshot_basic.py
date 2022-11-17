@@ -103,7 +103,6 @@ def _test_seq_snapshots(context):
         microvm, _ = vm_builder.build_from_snapshot(
             snapshot, resume=True, diff_snapshots=diff_snapshots
         )
-
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)

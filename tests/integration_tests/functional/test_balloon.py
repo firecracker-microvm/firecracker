@@ -45,22 +45,29 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=0.5):
 
 def make_guest_dirty_memory(ssh_connection, should_oom=False, amount=8192):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
+    logger = logging.getLogger("make_guest_dirty_memory")
+
     amount_in_mbytes = amount / MB_TO_PAGES
 
-    exit_code, _, _ = ssh_connection.execute_command(
-        "/sbin/fillmem {}".format(amount_in_mbytes)
-    )
+    cmd = f"/sbin/fillmem {amount_in_mbytes}"
+    exit_code, stdout, stderr = ssh_connection.execute_command(cmd)
+    # add something to the logs for troubleshooting
+    if exit_code != 0:
+        logger.error("while running: %s", cmd)
+        logger.error("stdout: %s", stdout.read())
+        logger.error("stderr: %s", stderr.read())
 
     cmd = "cat /tmp/fillmem_output.txt"
     _, stdout, _ = ssh_connection.execute_command(cmd)
     if should_oom:
         assert (
-            exit_code == 0
-            and ("OOM Killer stopped the program with " "signal 9, exit code 0")
-            in stdout.read()
+            "OOM Killer stopped the program with "
+            "signal 9, exit code 0" in stdout.read()
         )
     else:
-        assert exit_code == 0 and ("Memory filling was " "successful") in stdout.read()
+        assert exit_code == 0, stderr.read()
+        stdout_txt = stdout.read()
+        assert "Memory filling was successful" in stdout_txt, stdout_txt
 
 
 def build_test_matrix(network_config, bin_cloner_path, logger):
