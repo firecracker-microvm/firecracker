@@ -75,7 +75,7 @@ def test_attach_too_many_devices(test_microvm_with_api, network_config):
     response = test_microvm.actions.put(action_type="InstanceStart")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     error_str = (
-        "failed to allocate requested resource: The requested resource"
+        "Failed to allocate requested resource: The requested resource"
         " is not available."
     )
     assert error_str in response.text
