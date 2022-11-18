@@ -8,6 +8,7 @@
 use kvm_bindings::kvm_lapic_state;
 use kvm_ioctls::VcpuFd;
 use utils::byte_order;
+
 /// Errors thrown while configuring the LAPIC.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
