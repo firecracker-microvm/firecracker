@@ -8,6 +8,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
@@ -40,38 +42,59 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     return stdout.readline().strip()
 
 
-def _test_seq_snapshots(context):
-    logger = context.custom["logger"]
-    seq_len = context.custom["seq_len"]
-    vm_builder = context.custom["builder"]
-    snapshot_type = context.custom["snapshot_type"]
+ARTIFACTS = ArtifactCollection(_test_images_s3_bucket())
+
+# Testing matrix:
+# - Guest kernel: All supported ones
+# - Rootfs: Ubuntu 18.04
+# - Microvm: 2vCPU with 512 MB RAM
+# TODO: Multiple microvm sizes must be tested in the async pipeline.
+@pytest.mark.parametrize(
+    "microvm", ARTIFACTS.microvms(keyword="2vcpu_512mb"), ids=lambda x: x.name()
+)
+@pytest.mark.parametrize("kernel", ARTIFACTS.kernels(), ids=lambda x: x.name())
+@pytest.mark.parametrize(
+    "disk", ARTIFACTS.disks(keyword="ubuntu"), ids=lambda x: x.name()
+)
+@pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
+def test_5_snapshots(
+    bin_cloner_path,
+    bin_vsock_path,
+    test_fc_session_root_path,
+    microvm,
+    kernel,
+    disk,
+    snapshot_type,
+):
+    """
+    Create and load 5 snapshots.
+
+    @type: functional
+    """
+    logger = logging.getLogger("snapshot_sequence")
+
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    seq_len = 5
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info(
-        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
-            snapshot_type,
-            context.microvm.name(),
-            context.kernel.name(),
-            context.disk.name(),
-        )
-    )
+    disk.download()
+    kernel.download()
+    microvm.download()
 
     # Create a rw copy artifact.
-    root_disk = context.disk.copy()
+    root_disk = disk.copy()
     # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
+    ssh_key = disk.ssh_key()
     # Create a fresh microvm from artifacts.
     vm_instance = vm_builder.build(
-        kernel=context.kernel,
+        kernel=kernel,
         disks=[root_disk],
         ssh_key=ssh_key,
-        config=context.microvm,
+        config=microvm,
         diff_snapshots=diff_snapshots,
     )
     basevm = vm_instance.vm
-    basevm.vsock.put(
-        vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
+    basevm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -80,15 +103,13 @@ def _test_seq_snapshots(context):
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
-    test_fc_session_root_path = context.custom["test_fc_session_root_path"]
-    vsock_helper = context.custom["bin_vsock_path"]
     vm_blob_path = "/tmp/vsock/test.blob"
     # Generate a random data file for vsock.
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     # Copy the data file and a vsock helper to the guest.
-    _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_helper)
+    _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, bin_vsock_path)
 
-    logger.info("Create {} #0.".format(snapshot_type))
+    logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
 
@@ -99,11 +120,10 @@ def _test_seq_snapshots(context):
     basevm.kill()
 
     for i in range(seq_len):
-        logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
+        logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm, _ = vm_builder.build_from_snapshot(
             snapshot, resume=True, diff_snapshots=diff_snapshots
         )
-
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -118,7 +138,7 @@ def _test_seq_snapshots(context):
         # Check that the root device is not corrupted.
         check_filesystem(ssh_connection, "ext4", "/dev/vda")
 
-        logger.info("Create snapshot #{}.".format(i + 1))
+        logger.info("Create snapshot #%d.", i + 1)
 
         # Create a snapshot builder from the currently running microvm.
         snapshot_builder = SnapshotBuilder(microvm)
@@ -130,7 +150,7 @@ def _test_seq_snapshots(context):
         # If we are testing incremental snapshots we must merge the base with
         # current layer.
         if snapshot_type == SnapshotType.DIFF:
-            logger.info("Base: {}, Layer: {}".format(base_snapshot.mem, snapshot.mem))
+            logger.info("Base: %s, Layer: %s", base_snapshot.mem, snapshot.mem)
             snapshot.rebase_snapshot(base_snapshot)
             # Update the base for next iteration.
             base_snapshot = snapshot
@@ -243,88 +263,6 @@ def test_patch_drive_snapshot(bin_cloner_path):
     assert guest_drive_size == str(scratchdisk1.size())
 
     microvm.kill()
-
-
-def test_5_full_snapshots(
-    network_config, bin_cloner_path, bin_vsock_path, test_fc_session_root_path
-):
-    """
-    Create and load 5 full sequential snapshots.
-
-    @type: functional
-    """
-    logger = logging.getLogger("snapshot_sequence")
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: All supported ones
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 512 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.FULL,
-        "seq_len": 5,
-        "bin_vsock_path": bin_vsock_path,
-        "test_fc_session_root_path": test_fc_session_root_path,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-
-    test_matrix.run_test(_test_seq_snapshots)
-
-
-def test_5_inc_snapshots(
-    network_config, bin_cloner_path, bin_vsock_path, test_fc_session_root_path
-):
-    """
-    Create and load 5 incremental snapshots.
-
-    @type: functional
-    """
-    logger = logging.getLogger("snapshot_sequence")
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: All supported ones
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 512MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.DIFF,
-        "seq_len": 5,
-        "bin_vsock_path": bin_vsock_path,
-        "test_fc_session_root_path": test_fc_session_root_path,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-
-    test_matrix.run_test(_test_seq_snapshots)
 
 
 def test_load_snapshot_failure_handling(test_microvm_with_api):
