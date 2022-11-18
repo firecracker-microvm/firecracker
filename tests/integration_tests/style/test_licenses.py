@@ -57,6 +57,8 @@ def _validate_license(filename):
             if line.startswith(("// Copyright", "# Copyright")):
                 copyright_info = line
                 break
+            if line == "":
+                return False
 
         has_amazon_copyright = _has_amazon_copyright(
             copyright_info
