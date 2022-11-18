@@ -8,7 +8,8 @@
   - [Overview](#overview)
   - [Snapshot files management](#snapshot-files-management)
   - [Performance](#performance)
-  - [Known issues](#known-issues)
+  - [Developer preview status](#developer-preview-status)
+  - [Limitations](#limitations)
 - [Firecracker Snapshotting characteristics](#firecracker-snapshotting-characteristics)
 - [Snapshot versioning](#snapshot-versioning)
 - [Snapshot API](#snapshot-api)
@@ -38,6 +39,7 @@ guest workload at that particular point in time.
 
 The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
 on all CPU micro-architectures listed in [README](../../README.md#supported-platforms).
+See [this section](#developer-preview-status) for more info.
 
 ### Overview
 
@@ -82,8 +84,6 @@ resumed microVM.
 
 The Firecracker snapshot design offers a very simple interface to interact with
 snapshots but provides no functionality to package or manage them on the host.
-Using snapshots in production is currently not recommended as there are open
-[Known issues](#known-issues).
 
 The [threat containment model](../design.md#threat-containment) states
 that the host, host/API communication and snapshot files are trusted by Firecracker.
@@ -93,33 +93,49 @@ snapshot files by implementing authentication and encryption schemes while
 managing their lifecycle or moving them across the trust boundary, like for
 example when provisioning them from a respository to a host over the network.
 
-Firecracker is optimized for fast load/resume and it's designed to do some very basic
-sanity checks only on the vm state file. It only verifies integrity using a 64
-bit CRC value embedded in the vm state file, but this is only as a partial
-measure to protect against accidental corruption, as the disk files and memory
-file need to be secured as well. It is important to note that CRC computation
-is validated before trying to load the snapshot. Should it encounter failure,
-an error will be shown to the user and the Firecracker process will be terminated.
+Firecracker is optimized for fast load/resume, and it's designed to do some
+very basic sanity checks only on the vm state file. It only verifies integrity
+using a 64-bit CRC value embedded in the vm state file, but this is only
+a partial measure to protect against accidental corruption, as the disk
+files and memory file need to be secured as well. It is important to note that
+CRC computation is validated before trying to load the snapshot. Should it
+encounter failure, an error will be shown to the user and the Firecracker
+process will be terminated.
 
 ### Performance
 
 The Firecracker snapshot create/resume performance depends on the memory size,
-vCPU count and emulated devices count. The Firecracker CI runs snapshots tests
-on AWS **m5d.metal** instances for Intel and on AWS **m6g.metal** for ARM.
-The baseline for snapshot resume latency target on Intel is under **8ms** with
-5ms p90, and on ARM is under **3ms** for a microVM with the following specs:
-2vCPU/512MB/1 block/1 net device.
+vCPU count and emulated devices count.
+The Firecracker CI runs snapshot tests on:
 
-### Known issues
+- AWS **m5d.metal** and **m6i.metal** instances for Intel
+- AWS **m6g.metal** for ARM
+- AWS **m6a.metal** for AMD
 
-- High snapshot latency on 5.4+ host kernels - [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
+We are running nightly performance tests for all the enumerated platforms on
+all supported kernel versions.
+The baselines can be found in their [respective config file](../../tests/integration_tests/performance/configs/).
+
+### Developer preview status
+
+The snapshot functionality is still in developer preview due to the following:
+
+- Poor entropy and replayable randomness when resuming multiple microvms from
+  the same snapshot. We do not recommend to use snapshotting in production if
+  there is no mechanism to guarantee proper secrecy and uniqueness between
+  guests.
+  Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
+
+### Limitations
+
+- High snapshot latency on 5.4+ host kernels due to cgroups V1. We
+  strongly recommend to deploy snapshots on cgroups V2 enabled hosts for the
+  implied kernel versions - [related issue](https://github.com/firecracker-microvm/firecracker/issues/2129).
 - Guest network connectivity is not guaranteed to be preserved after resume.
   For recommendations related to guest network connectivity for clones please
   see [Network connectivity for clones](network-for-clones.md).
 - Vsock device does not have full snapshotting support.
   Please see [Vsock device limitation](#vsock-device-limitation).
-- Poor entropy and replayable randomness when resuming multiple microvms which
-  deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.
   However, restoring between different GIC version is not possible.
 
@@ -542,7 +558,7 @@ Boot microVM A -> ... -> Create snapshot S -> Resume -> ...
                                            -> Load S in microVM B -> Resume -> ...
 ```
 
-Here, both microVM A and B do work staring from the state stored in snapshot S.
+Here, both microVM A and B do work starting from the state stored in snapshot S.
 Unique identifiers, random numbers, and cryptographic tokens that are meant to
 be used once may be used twice. It doesn't matter if microVM A is terminated
 before microVM B resumes execution from snapshot S or not. In this example, we
