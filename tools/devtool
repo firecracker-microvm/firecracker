@@ -2000,7 +2000,7 @@ cmd_build_kernel() {
     create_dir "$kernel_dir_host"
 
     # Extract the kernel version from the config file provided as parameter.
-    KERNEL_VERSION=$(cat "$KERNEL_CFG" | grep -Po "^# Linux\/$cfg_pattern (([0-9]+.)[0-9]+)" | cut -d ' ' -f 3)
+    KERNEL_VERSION=$(grep -Po "^# Linux\/$cfg_pattern (([0-9]+.)[0-9]+)" "$KERNEL_CFG" | cut -d ' ' -f 3)
     validate_kernel_version "$KERNEL_VERSION"
 
     recipe_commit="b551cccc405a73a6d316c0c09dfe0b3e7a73ba3f"
@@ -2008,7 +2008,8 @@ cmd_build_kernel() {
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "curl -LO "$recipe_url" && source make_kernel.sh && extract_kernel_srcs "$KERNEL_VERSION""
+        -- /bin/bash -c "curl -LO $recipe_url && source make_kernel.sh && extract_kernel_srcs $KERNEL_VERSION"
+    ok_or_die "Could not extract kernel sources with recipe $recipe_url!"
 
     cp "$KERNEL_CFG" "$kernel_dir_host/linux-$KERNEL_VERSION/.config"
 
@@ -2016,7 +2017,8 @@ cmd_build_kernel() {
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "source make_kernel.sh && make_kernel "$kernel_dir_ctr/linux-$KERNEL_VERSION" $format $target "$nprocs" "$KERNEL_BINARY_NAME""
+        -- /bin/bash -c "source make_kernel.sh && make_kernel "$kernel_dir_ctr/linux-"$KERNEL_VERSION"" $format $target $nprocs $KERNEL_BINARY_NAME"
+    ok_or_die "Could not build kernel!"
 
     say "Successfully built kernel!"
     say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
