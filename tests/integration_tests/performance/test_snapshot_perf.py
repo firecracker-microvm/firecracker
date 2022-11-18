@@ -436,23 +436,39 @@ def _test_snapshot_resume_latency(context):
     file_dumper.dump(result)
 
 
-def _test_older_snapshot_resume_latency(context):
-    builder = context.custom["builder"]
-    logger = context.custom["logger"]
-    snapshot_type = context.custom["snapshot_type"]
-    file_dumper = context.custom["results_file_dumper"]
-    io_engine = context.custom["io_engine"]
+ARTIFACTS = ArtifactCollection(_test_images_s3_bucket())
 
-    firecracker = context.firecracker
-    jailer = firecracker.jailer()
-    jailer.download()
-    fc_version = firecracker.base_name()[1:]
+
+@pytest.mark.parametrize("io_engine", ENGINES)
+@pytest.mark.parametrize(
+    "microvm", ARTIFACTS.microvms(keyword="2vcpu_512mb"), ids=lambda uvm: uvm.name()
+)
+def test_older_snapshot_resume_latency(
+    bin_cloner_path, results_file_dumper, firecracker_release, io_engine, microvm
+):
+    """
+    Test scenario: Older snapshot load performance measurement.
+
+    With each previous firecracker version, create a snapshot and try to
+    restore in current version.
+
+    @type: performance
+    """
+    logger = logging.getLogger("old_snapshot_load")
+
+    builder = MicrovmBuilder(bin_cloner_path)
+    snapshot_type = SnapshotType.FULL
+    microvm.download()
+    jailer = firecracker_release.jailer()
+    fc_version = firecracker_release.base_name()[1:]
     logger.info("Firecracker version: %s", fc_version)
-    logger.info("Source Firecracker: %s", firecracker.local_path())
+    logger.info("Source Firecracker: %s", firecracker_release.local_path())
     logger.info("Source Jailer: %s", jailer.local_path())
 
     # Create a fresh microvm with the binary artifacts.
-    vm_instance = builder.build_vm_micro(firecracker.local_path(), jailer.local_path())
+    vm_instance = builder.build_vm_micro(
+        firecracker_release.local_path(), jailer.local_path()
+    )
     basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -493,18 +509,18 @@ def _test_older_snapshot_resume_latency(context):
     )
     eager_map(
         cons.set_measurement_def,
-        snapshot_resume_measurements(context.microvm.name(), io_engine.lower()),
+        snapshot_resume_measurements(microvm.name(), io_engine.lower()),
     )
 
-    st_core.add_pipe(producer=prod, consumer=cons, tag=context.microvm.name())
+    st_core.add_pipe(producer=prod, consumer=cons, tag=microvm.name())
 
     # Gather results and verify pass criteria.
     try:
         result = st_core.run_exercise()
     except core.CoreException as err:
-        handle_failure(file_dumper, err)
+        handle_failure(results_file_dumper, err)
 
-    file_dumper.dump(result)
+    results_file_dumper.dump(result)
 
 
 def test_snapshot_create_full_latency(
@@ -629,47 +645,3 @@ def test_snapshot_resume_latency(
     )
 
     test_matrix.run_test(_test_snapshot_resume_latency)
-
-
-@pytest.mark.parametrize("io_engine", ENGINES)
-def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper, io_engine):
-    """
-    Test scenario: Older snapshot load performance measurement.
-
-    @type: performance
-    """
-    logger = logging.getLogger("old_snapshot_load")
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all firecracker binaries.
-    # With each binary create a snapshot and try to restore in current
-    # version.
-    firecracker_artifacts = ArtifactSet(
-        artifacts.firecrackers(
-            min_version="1.1.0", max_version=get_firecracker_version_from_toml()
-        )
-    )
-    assert len(firecracker_artifacts) > 0
-
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "snapshot_type": SnapshotType.FULL,
-        "name": "old_snapshot_resume_latency",
-        "results_file_dumper": results_file_dumper,
-        "io_engine": io_engine,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[
-            firecracker_artifacts,
-            microvm_artifacts,
-        ],
-    )
-
-    test_matrix.run_test(_test_older_snapshot_resume_latency)
