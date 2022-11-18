@@ -31,8 +31,8 @@ pub enum Error {
 /// Extract entry from the cpuid.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
-    // TODO: replace with validation based on `has_cpuid()` when it becomes stable:
-    //  https://doc.rust-lang.org/core/arch/x86/fn.has_cpuid.html
+    // TODO: Use `core::arch::x86_64::has_cpuid`
+    // (https://github.com/firecracker-microvm/firecracker/issues/3271)
     #[cfg(target_env = "sgx")]
     {
         return Err(Error::NotSupported);
