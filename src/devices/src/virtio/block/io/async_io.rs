@@ -67,7 +67,7 @@ impl<T> AsyncFileEngine<T> {
 
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let ring = IoUring::new(
-            IO_URING_NUM_ENTRIES as u32,
+            u32::from(IO_URING_NUM_ENTRIES),
             vec![&file],
             vec![
                 // Make sure we only allow operations on pre-registered fds.

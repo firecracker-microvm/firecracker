@@ -36,7 +36,7 @@ impl VmSpec {
             cpu_vendor_id,
             cpu_index,
             cpu_count,
-            cpu_bits: (cpu_count > 1 && smt) as u8,
+            cpu_bits: u8::from(cpu_count > 1 && smt),
             brand_string: BrandString::from_vendor_id(&cpu_vendor_id),
         })
     }

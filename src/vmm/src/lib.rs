@@ -694,7 +694,7 @@ impl Vmm {
     ) -> std::result::Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if amount_mib as u64 > mem_size_mib(self.guest_memory()) {
+        if u64::from(amount_mib) > mem_size_mib(self.guest_memory()) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
