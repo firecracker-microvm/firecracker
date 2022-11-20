@@ -7,7 +7,7 @@
 
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
-
+#![warn(clippy::cast_lossless)]
 //! Emulates virtual and hardware devices.
 use std::io;
 

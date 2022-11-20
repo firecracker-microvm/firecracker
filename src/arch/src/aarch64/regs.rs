@@ -239,7 +239,7 @@ pub fn setup_boot_regs(
 ///
 /// * `regid` - The index of the register we are checking.
 pub fn is_system_register(regid: u64) -> bool {
-    if (regid & KVM_REG_ARM_COPROC_MASK as u64) == KVM_REG_ARM_CORE as u64 {
+    if (regid & u64::from(KVM_REG_ARM_COPROC_MASK)) == u64::from(KVM_REG_ARM_CORE) {
         return false;
     }
 
@@ -508,7 +508,7 @@ mod tests {
         assert!(!is_system_register(regid));
         let regid = KVM_REG_ARM64 as u64
             | KVM_REG_SIZE_U64 as u64
-            | kvm_bindings::KVM_REG_ARM64_SYSREG as u64;
+            | u64::from(kvm_bindings::KVM_REG_ARM64_SYSREG);
         assert!(is_system_register(regid));
     }
 
