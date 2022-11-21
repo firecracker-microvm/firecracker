@@ -54,7 +54,6 @@ files_to_change=(
     "$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
     "$FC_ROOT_DIR/src/firecracker/Cargo.toml"
     "$FC_ROOT_DIR/src/jailer/Cargo.toml"
-    "$FC_ROOT_DIR/src/rebase-snap/Cargo.toml"
     "$FC_ROOT_DIR/src/seccompiler/Cargo.toml"
 )
 say "Updating source files:"
