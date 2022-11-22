@@ -14,7 +14,7 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 thiserror = "1.0.32"
 
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
 mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
