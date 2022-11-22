@@ -121,7 +121,7 @@ def _test_mmds(vm, mmds_net_iface):
 @pytest.mark.nonci
 @pytest.mark.parametrize(
     "cpu_template",
-    ["C3", "T2", "None"] if get_cpu_vendor() == CpuVendor.INTEL else ["None"],
+    ["C3", "T2", "T2S", "None"] if get_cpu_vendor() == CpuVendor.INTEL else ["None"],
 )
 def test_snap_restore_from_artifacts(
     bin_cloner_path, bin_vsock_path, test_fc_session_root_path, cpu_template
