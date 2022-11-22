@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed the bad handling of kernel cmdline parameters when init arguments were
+  provided in the `boot_args` field of the JSON body of the PUT `/boot-source`
+  request.
+
 ## [1.0.1]
 
 ### Fixed
