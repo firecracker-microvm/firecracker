@@ -558,8 +558,8 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.5.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.5.0-1#4569d3f5b7746b66fc58a14cd05e5dbf9368932b"
+version = "0.6.0"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-1#e8359204b41d5c2e7c5af9ae5c26283b62337740"
 dependencies = [
  "versionize",
  "versionize_derive",
