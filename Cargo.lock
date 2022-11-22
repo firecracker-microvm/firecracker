@@ -1259,9 +1259,9 @@ dependencies = [
 
 [[package]]
 name = "vm-superio"
-version = "0.5.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4b5231d334edbc03b22704caa1a022e4c07491d6df736593f26094df8b04a51"
+checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 
 [[package]]
 name = "vmm"
