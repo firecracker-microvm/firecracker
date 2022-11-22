@@ -429,9 +429,9 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "event-manager"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
+checksum = "2bbb5f730c95a458654dee0afb13f1ebb4fc3d7b772789d5f30713ec68fed75d"
 dependencies = [
  "libc",
  "vmm-sys-util",
