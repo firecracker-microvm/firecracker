@@ -14,7 +14,9 @@ use devices::legacy::RTCDevice;
 use devices::legacy::{
     EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
 };
-use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use devices::virtio::{
+    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
@@ -316,8 +318,6 @@ pub fn build_microvm_for_boot(
         attach_boot_timer_device(&mut vmm, request_ts)?;
     }
 
-    attach_entropy_device(&mut vmm, event_manager, &mut boot_cmdline)?;
-
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
     }
@@ -334,8 +334,13 @@ pub fn build_microvm_for_boot(
         vm_resources.net_builder.iter(),
         event_manager,
     )?;
+
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
+    }
+
+    if let Some(entropy) = vm_resources.entropy.get() {
+        attach_entropy_device(&mut vmm, &mut boot_cmdline, entropy, event_manager)?;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -931,20 +936,17 @@ pub(crate) fn attach_boot_timer_device(
 
 fn attach_entropy_device(
     vmm: &mut Vmm,
-    event_manager: &mut EventManager,
     cmdline: &mut LoaderKernelCmdline,
+    entropy_device: &Arc<Mutex<Entropy>>,
+    event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
-    let entropy_device = Arc::new(Mutex::new(
-        devices::virtio::rng::Entropy::new().map_err(StartMicrovmError::CreateEntropyDevice)?,
-    ));
     let id = entropy_device
         .lock()
         .expect("Poisoned lock")
         .id()
         .to_string();
 
-    attach_virtio_device(event_manager, vmm, id, entropy_device, cmdline)?;
-    Ok(())
+    attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
 fn attach_block_devices<'a>(
@@ -1029,8 +1031,9 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
+    use devices::virtio::rng::device::ENTROPY_DEV_ID;
     use devices::virtio::vsock::VSOCK_DEV_ID;
-    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
+    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
     use mmds::data_store::{Mmds, MmdsVersion};
     use mmds::ns::MmdsNetworkStack;
@@ -1042,6 +1045,7 @@ pub mod tests {
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
+    use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
@@ -1246,6 +1250,23 @@ pub mod tests {
         assert!(vmm
             .mmio_device_manager
             .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
+            .is_some());
+    }
+
+    pub(crate) fn insert_entropy_device(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        entropy_config: EntropyDeviceConfig,
+    ) {
+        let mut builder = EntropyDeviceBuilder::new();
+        let entropy = builder.build(entropy_config).unwrap();
+
+        assert!(attach_entropy_device(vmm, cmdline, &entropy, event_manager).is_ok());
+
+        assert!(vmm
+            .mmio_device_manager
+            .get_device(DeviceType::Virtio(TYPE_RNG), ENTROPY_DEV_ID)
             .is_some());
     }
 
@@ -1612,6 +1633,23 @@ pub mod tests {
     }
 
     #[test]
+    fn test_attach_entropy_device() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut vmm = default_vmm();
+
+        let entropy_config = EntropyDeviceConfig::default();
+
+        let mut cmdline = default_kernel_cmdline();
+        insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline_contains(
+            &cmdline,
+            "virtio_mmio.device=4K@0xd0000000:5"
+        ));
+    }
+
+    #[test]
     fn test_attach_vsock_device() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
@@ -1666,6 +1704,11 @@ pub mod tests {
 
         let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
+
+        let err = CreateEntropyDevice(devices::virtio::rng::Error::EventFd(
+            io::Error::from_raw_os_error(0),
+        ));
+        let _ = format!("{err}{err:?}");
     }
 
     #[test]
