@@ -18,6 +18,7 @@ use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
 use crate::vmm_config::drive::*;
+use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{
@@ -31,51 +32,47 @@ use crate::vmm_config::vsock::*;
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, derive_more::From)]
 pub enum Error {
     /// Balloon device configuration error.
+    #[error("Balloon device error: {0}")]
     BalloonDevice(BalloonConfigError),
     /// Block device configuration error.
+    #[error("Block device error: {0}")]
     BlockDevice(DriveError),
     /// Boot source configuration error.
+    #[error("Boot source error: {0}")]
     BootSource(BootSourceConfigError),
     /// File operation error.
+    #[error("File operation error: {0}")]
     File(std::io::Error),
     /// JSON is invalid.
+    #[error("Invalid JSON: {0}")]
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
+    #[error("Logger error: {0}")]
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
+    #[error("Metrics error: {0}")]
     Metrics(MetricsConfigError),
     /// MMDS error.
+    #[error("MMDS error: {0}")]
     Mmds(mmds::data_store::Error),
     /// MMDS configuration error.
+    #[error("MMDS config error: {0}")]
     MmdsConfig(MmdsConfigError),
     /// Net device configuration error.
+    #[error("Network device error: {0}")]
     NetDevice(NetworkInterfaceError),
     /// microVM vCpus or memory configuration error.
+    #[error("VM config error: {0}")]
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
+    #[error("Vsock device error: {0}")]
     VsockDevice(VsockConfigError),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
-            Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
-            Error::BootSource(err) => write!(f, "Boot source error: {}", err),
-            Error::File(err) => write!(f, "File operation error: {}", err),
-            Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
-            Error::Logger(err) => write!(f, "Logger error: {}", err),
-            Error::Metrics(err) => write!(f, "Metrics error: {}", err),
-            Error::Mmds(err) => write!(f, "MMDS error: {}", err),
-            Error::MmdsConfig(err) => write!(f, "MMDS config error: {}", err),
-            Error::NetDevice(err) => write!(f, "Network device error: {}", err),
-            Error::VmConfig(err) => write!(f, "VM config error: {}", err),
-            Error::VsockDevice(err) => write!(f, "Vsock device error: {}", err),
-        }
-    }
+    /// Entropy device configuration error.
+    #[error("Entropy device error: {0}")]
+    EntropyDevice(EntropyDeviceError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -101,6 +98,8 @@ pub struct VmmConfig {
     net_devices: Vec<NetworkInterfaceConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
+    #[serde(rename = "entropy")]
+    entropy_device: Option<EntropyDeviceConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -119,6 +118,8 @@ pub struct VmResources {
     pub balloon: BalloonBuilder,
     /// The network devices builder.
     pub net_builder: NetBuilder,
+    /// The entropy device builder.
+    pub entropy: EntropyDeviceBuilder,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -190,6 +191,10 @@ impl VmResources {
 
         if let Some(mmds_config) = vmm_config.mmds_config {
             resources.set_mmds_config(mmds_config, &instance_info.id)?;
+        }
+
+        if let Some(entropy_device_config) = vmm_config.entropy_device {
+            resources.build_entropy_device(entropy_device_config)?;
         }
 
         Ok(resources)
@@ -371,6 +376,14 @@ impl VmResources {
         self.vsock.insert(config)
     }
 
+    /// Builds an entropy device to be attached when the VM starts.
+    pub fn build_entropy_device(
+        &mut self,
+        body: EntropyDeviceConfig,
+    ) -> Result<EntropyDeviceError> {
+        self.entropy.insert(body)
+    }
+
     /// Setter for mmds config.
     pub fn set_mmds_config(
         &mut self,
@@ -456,6 +469,7 @@ impl From<&VmResources> for VmmConfig {
             mmds_config: resources.mmds_config(),
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
+            entropy_device: resources.entropy.config(),
         }
     }
 }
@@ -466,7 +480,7 @@ mod tests {
     use std::io::Write;
     use std::os::linux::fs::MetadataExt;
 
-    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
+    use devices::virtio::vsock::VSOCK_DEV_ID;
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
@@ -558,6 +572,7 @@ mod tests {
             mmds: None,
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
+            entropy: Default::default(),
         }
     }
 
@@ -1153,7 +1168,8 @@ mod tests {
                         "vcpu_count": 2,
                         "mem_size_mib": 1024,
                         "smt": false
-                    }}
+                    }},
+                    "entropy": {{}}
             }}"#,
                 kernel_file.as_path().to_str().unwrap(),
                 rootfs_file.as_path().to_str().unwrap(),
@@ -1406,6 +1422,21 @@ mod tests {
     }
 
     #[test]
+    fn test_set_entropy_device() {
+        let mut vm_resources = default_vm_resources();
+        vm_resources.entropy = EntropyDeviceBuilder::new();
+        let entropy_device_cfg = EntropyDeviceConfig::default();
+
+        assert!(vm_resources.entropy.get().is_none());
+        vm_resources
+            .build_entropy_device(entropy_device_cfg.clone())
+            .unwrap();
+
+        let actual_entropy_cfg = vm_resources.entropy.config().unwrap();
+        assert_eq!(actual_entropy_cfg, entropy_device_cfg);
+    }
+
+    #[test]
     fn test_boot_config() {
         let vm_resources = default_vm_resources();
         let expected_boot_cfg = vm_resources.boot_source.builder.as_ref().unwrap();
@@ -1514,114 +1545,5 @@ mod tests {
 
         vm_resources.build_net_device(new_net_device_cfg).unwrap();
         assert_eq!(vm_resources.net_builder.len(), 2);
-    }
-
-    #[test]
-    fn test_error_display() {
-        assert_eq!(
-            format!(
-                "{}",
-                Error::BalloonDevice(BalloonConfigError::DeviceNotActive)
-            ),
-            format!(
-                "Balloon device error: {}",
-                BalloonConfigError::DeviceNotActive
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::BlockDevice(DriveError::InvalidBlockDevicePath(String::from("path")))
-            ),
-            format!(
-                "Block device error: {}",
-                DriveError::InvalidBlockDevicePath(String::from("path"))
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::BootSource(BootSourceConfigError::InvalidKernelPath(
-                    std::io::Error::from_raw_os_error(21)
-                ))
-            ),
-            format!(
-                "Boot source error: {}",
-                BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(21))
-            )
-        );
-        assert_eq!(
-            format!("{}", Error::File(std::io::Error::from_raw_os_error(2))),
-            format!(
-                "File operation error: {}",
-                std::io::Error::from_raw_os_error(2)
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::InvalidJson(serde_json::Error::io(std::io::Error::from_raw_os_error(21)))
-            ),
-            format!(
-                "Invalid JSON: {}",
-                serde_json::Error::io(std::io::Error::from_raw_os_error(21))
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::Logger(LoggerConfigError::InitializationFailure(
-                    "error message".to_string()
-                ))
-            ),
-            format!(
-                "Logger error: {}",
-                LoggerConfigError::InitializationFailure("error message".to_string())
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::Metrics(MetricsConfigError::InitializationFailure(
-                    "error message".to_string()
-                ))
-            ),
-            format!(
-                "Metrics error: {}",
-                MetricsConfigError::InitializationFailure("error message".to_string())
-            )
-        );
-        assert_eq!(
-            format!("{}", Error::MmdsConfig(MmdsConfigError::InvalidIpv4Addr)),
-            format!("MMDS config error: {}", MmdsConfigError::InvalidIpv4Addr)
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::NetDevice(NetworkInterfaceError::GuestMacAddressInUse(
-                    "MAC".to_string()
-                ))
-            ),
-            format!(
-                "Network device error: {}",
-                NetworkInterfaceError::GuestMacAddressInUse("MAC".to_string())
-            )
-        );
-        assert_eq!(
-            format!("{}", Error::VmConfig(VmConfigError::InvalidMemorySize)),
-            format!("VM config error: {}", VmConfigError::InvalidMemorySize)
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::VsockDevice(VsockConfigError::CreateVsockDevice(
-                    VsockError::BufDescTooSmall
-                ))
-            ),
-            format!(
-                "Vsock device error: {}",
-                VsockConfigError::CreateVsockDevice(VsockError::BufDescTooSmall)
-            )
-        );
     }
 }

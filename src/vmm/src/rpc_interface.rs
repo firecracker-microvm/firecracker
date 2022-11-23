@@ -1,7 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -32,6 +31,7 @@ use crate::vmm_config::balloon::{
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
+use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
@@ -108,6 +108,9 @@ pub enum VmmAction {
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
     SetVsockDevice(VsockDeviceConfig),
+    /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
+    /// before the microVM has booted.
+    SetEntropyDevice(EntropyDeviceConfig),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -129,89 +132,72 @@ pub enum VmmAction {
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, derive_more::From)]
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
+    #[error("{0}")]
     BalloonConfig(BalloonConfigError),
     /// The action `ConfigureBootSource` failed because of bad user input.
+    #[error("{0}")]
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
+    #[error("{0}")]
     CreateSnapshot(CreateSnapshotError),
     /// The action `ConfigureCpu` failed.
+    #[error("{0}")]
     ConfigureCpu(GuestConfigError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
+    #[error("{0}")]
     DriveConfig(DriveError),
+    /// `SetEntropyDevice` action failed because of bad user input.
+    #[error("{0}")]
+    EntropyDevice(EntropyDeviceError),
     /// Internal Vmm error.
+    #[error("Internal Vmm error: {0}")]
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
+    #[error("Load microVM snapshot error: {0}")]
     LoadSnapshot(LoadSnapshotError),
     /// The action `ConfigureLogger` failed because of bad user input.
+    #[error("{0}")]
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
     /// input.
+    #[error("{0}")]
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
+    #[error("{0}")]
     Metrics(MetricsConfigError),
     /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
     #[from(ignore)]
+    #[error("{0}")]
     Mmds(data_store::Error),
     /// The action `SetMmdsConfiguration` failed because of bad user input.
+    #[error("{0}")]
     MmdsConfig(MmdsConfigError),
     /// Mmds contents update failed due to exceeding the data store limit.
     #[from(ignore)]
+    #[error("{0}")]
     MmdsLimitExceeded(data_store::Error),
     /// The action `InsertNetworkDevice` failed because of bad user input.
+    #[error("{0}")]
     NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported.
+    #[error("The requested operation is not supported: {0}")]
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
+    #[error("The requested operation is not supported after starting the microVM.")]
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
+    #[error("The requested operation is not supported before starting the microVM.")]
     OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed because of an internal error.
+    #[error("{0}")]
     StartMicrovm(StartMicrovmError),
     /// The action `SetVsockDevice` failed because of bad user input.
+    #[error("{0}")]
     VsockConfig(VsockConfigError),
-}
-
-impl Display for VmmActionError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::VmmActionError::*;
-
-        write!(
-            f,
-            "{}",
-            match self {
-                BalloonConfig(err) => err.to_string(),
-                BootSource(err) => err.to_string(),
-                ConfigureCpu(err) => err.to_string(),
-                CreateSnapshot(err) => err.to_string(),
-                DriveConfig(err) => err.to_string(),
-                InternalVmm(err) => format!("Internal Vmm error: {}", err),
-                LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
-                Logger(err) => err.to_string(),
-                MachineConfig(err) => err.to_string(),
-                Metrics(err) => err.to_string(),
-                Mmds(err) => err.to_string(),
-                MmdsConfig(err) => err.to_string(),
-                MmdsLimitExceeded(err) => err.to_string(),
-                NetworkConfig(err) => err.to_string(),
-                NotSupported(err) => format!("The requested operation is not supported: {}", err),
-                OperationNotSupportedPostBoot => {
-                    "The requested operation is not supported after starting the microVM."
-                        .to_string()
-                }
-                OperationNotSupportedPreBoot => {
-                    "The requested operation is not supported before starting the microVM."
-                        .to_string()
-                }
-                StartMicrovm(err) => err.to_string(),
-                // The action `SetVsockDevice` failed because of bad user input.
-                VsockConfig(err) => err.to_string(),
-            }
-        )
-    }
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -442,6 +428,7 @@ impl<'a> PrebootApiController<'a> {
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
             UpdateVmConfiguration(config) => self.update_vm_config(config),
+            SetEntropyDevice(config) => self.set_entropy_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
             | FlushMetrics
@@ -524,6 +511,12 @@ impl<'a> PrebootApiController<'a> {
             .set_vsock_device(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::VsockConfig)
+    }
+
+    fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> ActionResult {
+        self.boot_path = true;
+        self.vm_resources.build_entropy_device(cfg)?;
+        Ok(VmmData::Empty)
     }
 
     // On success, this command will end the pre-boot stage and this controller
@@ -684,6 +677,7 @@ impl RuntimeApiController {
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
+            | SetEntropyDevice(_)
             | StartMicroVm
             | UpdateVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -836,9 +830,11 @@ impl RuntimeApiController {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::path::PathBuf;
 
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use devices::virtio::rng::Error as EntropyError;
     use devices::virtio::VsockError;
     use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
@@ -877,6 +873,7 @@ mod tests {
                     | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
                     | (StartMicrovm(_), StartMicrovm(_))
                     | (VsockConfig(_), VsockConfig(_))
+                    | (EntropyDevice(_), EntropyDevice(_))
             )
         }
     }
@@ -894,6 +891,7 @@ mod tests {
         block_set: bool,
         vsock_set: bool,
         net_set: bool,
+        entropy_set: bool,
         pub mmds: Option<Arc<Mutex<Mmds>>>,
         pub mmds_size_limit: usize,
         pub boot_timer: bool,
@@ -986,6 +984,19 @@ mod tests {
                 ));
             }
             self.vsock_set = true;
+            Ok(())
+        }
+
+        pub fn build_entropy_device(
+            &mut self,
+            _: EntropyDeviceConfig,
+        ) -> Result<(), EntropyDeviceError> {
+            if self.force_errors {
+                return Err(EntropyDeviceError::CreateDevice(EntropyError::EventFd(
+                    io::Error::from_raw_os_error(0),
+                )));
+            }
+            self.entropy_set = true;
             Ok(())
         }
 
@@ -1425,6 +1436,15 @@ mod tests {
                 VsockError::BufDescMissing,
             )),
         );
+    }
+
+    #[test]
+    fn test_preboot_set_entropy_device() {
+        let req = VmmAction::SetEntropyDevice(EntropyDeviceConfig::default());
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.entropy_set);
+        });
     }
 
     #[test]
@@ -2115,6 +2135,10 @@ mod tests {
                 enable_diff_snapshots: false,
                 resume_vm: false,
             }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::SetEntropyDevice(EntropyDeviceConfig::default()),
             VmmActionError::OperationNotSupportedPostBoot,
         );
     }
