@@ -11,7 +11,14 @@ prepare_fc_rootfs() {
     SSH_DIR="$BUILD_DIR/ssh"
     RESOURCE_DIR="$2"
 
-    packages="udev systemd-sysv openssh-server iproute2 msr-tools"
+    packages="udev systemd-sysv openssh-server iproute2"
+
+    # msr-tools is only supported on x86-64.
+    arch=$(uname -m)
+    if [ "${arch}" == "x86_64" ]; then
+        packages="$packages msr-tools"    
+    fi
+
     apt-get update
     apt-get install -y --no-install-recommends $packages
 

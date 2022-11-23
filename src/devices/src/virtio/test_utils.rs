@@ -325,7 +325,7 @@ impl<'a> VirtQueue<'a> {
 
     pub fn check_used_elem(&self, used_index: u16, expected_id: u16, expected_len: u32) {
         let used_elem = self.used.ring[used_index as usize].get();
-        assert_eq!(used_elem.id, expected_id as u32);
+        assert_eq!(used_elem.id, u32::from(expected_id));
         assert_eq!(used_elem.len, expected_len);
     }
 }

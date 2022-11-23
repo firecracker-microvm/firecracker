@@ -159,7 +159,7 @@ pub(crate) mod tests {
         vsock_config.guest_cid = new_cid;
         store.insert(vsock_config).unwrap();
         let vsock = store.get().unwrap();
-        assert_eq!(vsock.lock().unwrap().cid(), new_cid as u64);
+        assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
     }
 
     #[test]

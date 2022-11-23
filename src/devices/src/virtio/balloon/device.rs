@@ -303,7 +303,7 @@ impl Balloon {
             // Remove the page ranges.
             for (page_frame_number, range_len) in page_ranges {
                 let guest_addr =
-                    GuestAddress((page_frame_number as u64) << VIRTIO_BALLOON_PFN_SHIFT);
+                    GuestAddress(u64::from(page_frame_number) << VIRTIO_BALLOON_PFN_SHIFT);
 
                 if let Err(err) = remove_range(
                     mem,
@@ -365,7 +365,7 @@ impl Balloon {
                 // so we ignore the rest of it.
                 let addr = head
                     .addr
-                    .checked_add(index as u64)
+                    .checked_add(u64::from(index))
                     .ok_or(BalloonError::MalformedDescriptor)?;
                 let stat = mem
                     .read_obj::<BalloonStat>(addr)
@@ -445,8 +445,8 @@ impl Balloon {
 
     pub fn update_timer_state(&mut self) {
         let timer_state = TimerState::Periodic {
-            current: Duration::from_secs(self.stats_polling_interval_s as u64),
-            interval: Duration::from_secs(self.stats_polling_interval_s as u64),
+            current: Duration::from_secs(u64::from(self.stats_polling_interval_s)),
+            interval: Duration::from_secs(u64::from(self.stats_polling_interval_s)),
         };
         self.stats_timer
             .set_state(timer_state, SetTimeFlags::Default);
@@ -687,7 +687,7 @@ pub(crate) mod tests {
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                     | ((if *deflate_on_oom { 1 } else { 0 }) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
-                    | ((*stats_interval as u64) << VIRTIO_BALLOON_F_STATS_VQ);
+                    | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
                 assert_eq!(balloon.avail_features_by_page(0), features as u32);
                 assert_eq!(balloon.avail_features_by_page(1), (features >> 32) as u32);

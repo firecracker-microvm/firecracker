@@ -257,10 +257,10 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
 
 #[derive(Debug, derive_more::From)]
 pub(crate) enum Error {
-    // A generic error, with a given status code and message to be turned into a fault message.
-    Generic(StatusCode, String),
     // The resource ID is empty.
     EmptyID,
+    // A generic error, with a given status code and message to be turned into a fault message.
+    Generic(StatusCode, String),
     // The resource ID must only contain alphanumeric characters and '_'.
     InvalidID,
     // The HTTP method & request path combination is not valid.
@@ -272,8 +272,8 @@ pub(crate) enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::Generic(_, ref desc) => write!(f, "{}", desc),
             Error::EmptyID => write!(f, "The ID cannot be empty."),
+            Error::Generic(_, ref desc) => write!(f, "{desc}"),
             Error::InvalidID => write!(
                 f,
                 "API Resource IDs can only contain alphanumeric characters and underscores."
@@ -286,8 +286,7 @@ impl std::fmt::Display for Error {
             ),
             Error::SerdeJson(ref err) => write!(
                 f,
-                "An error occurred when deserializing the json body of a request: {}.",
-                err
+                "An error occurred when deserializing the json body of a request: {err}."
             ),
         }
     }
