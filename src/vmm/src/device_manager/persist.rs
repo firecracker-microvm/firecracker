@@ -541,6 +541,7 @@ mod tests {
     use crate::builder::tests::*;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
+    use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
 
@@ -726,6 +727,9 @@ mod tests {
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            // Add an entropy device.
+            let entropy_config = EntropyDeviceConfig::default();
+            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
             assert_eq!(
                 vmm.mmio_device_manager
@@ -837,7 +841,8 @@ mod tests {
   "vsock": {{
     "guest_cid": 3,
     "uds_path": "{}"
-  }}
+  }},
+  "entropy": null
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap()

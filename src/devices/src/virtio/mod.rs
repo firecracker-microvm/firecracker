@@ -28,6 +28,7 @@ pub use self::mmio::*;
 pub use self::net::*;
 pub use self::persist::*;
 pub use self::queue::*;
+pub use self::rng::*;
 pub use self::vsock::*;
 
 /// When the driver initializes the device, it lets the device know about the

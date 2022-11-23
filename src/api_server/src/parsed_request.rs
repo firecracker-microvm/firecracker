@@ -13,6 +13,7 @@ use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_
 use crate::request::boot_source::parse_put_boot_source;
 use crate::request::cpu_configuration::parse_put_cpu_config;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
+use crate::request::entropy::parse_put_entropy;
 use crate::request::instance_info::parse_get_instance_info;
 use crate::request::logger::parse_put_logger;
 use crate::request::machine_configuration::{
@@ -121,6 +122,7 @@ impl ParsedRequest {
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.get(1)),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
@@ -698,6 +700,19 @@ pub mod tests {
             "{ \"amount_mib\": 0, \"deflate_on_oom\": false, \"stats_polling_interval_s\": 0 }";
         sender
             .write_all(http_request("PUT", "/balloon", Some(body)).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_entropy() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        let body = "{}";
+        sender
+            .write_all(http_request("PUT", "/entropy", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
