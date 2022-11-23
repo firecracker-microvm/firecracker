@@ -79,7 +79,7 @@
 use std::io::{sink, stderr, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
-use std::{fmt, result, thread};
+use std::{result, thread};
 
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
@@ -391,19 +391,11 @@ impl Logger {
 }
 
 /// Describes the errors which may occur while handling logging scenarios.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerError {
     /// Initialization Error.
+    #[error("Logger initialization failure: {0}")]
     Init(init::Error),
-}
-
-impl fmt::Display for LoggerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match *self {
-            LoggerError::Init(ref err) => format!("Logger initialization failure: {}", err),
-        };
-        write!(f, "{}", printable)
-    }
 }
 
 /// Implements the "Log" trait from the externally used "log" crate.
