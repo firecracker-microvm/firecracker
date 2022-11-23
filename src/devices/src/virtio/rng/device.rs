@@ -138,6 +138,22 @@ impl Entropy {
         self.process_entropy_queue();
     }
 
+    pub(crate) fn set_avail_features(&mut self, features: u64) {
+        self.avail_features = features;
+    }
+
+    pub(crate) fn set_acked_features(&mut self, features: u64) {
+        self.acked_features = features;
+    }
+
+    pub(crate) fn set_irq_status(&mut self, status: usize) {
+        self.irq_trigger.irq_status = Arc::new(AtomicUsize::new(status));
+    }
+
+    pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap) {
+        self.device_state = DeviceState::Activated(mem);
+    }
+
     pub(crate) fn activate_event(&self) -> &EventFd {
         &self.activate_event
     }
