@@ -233,6 +233,9 @@ impl VmResources {
             SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
+            SharedDeviceType::Entropy(entropy) => {
+                self.entropy.set_device(entropy);
+            }
         }
     }
 

@@ -67,10 +67,8 @@ lazy_static! {
         // to be 1-to-1 (see below)
         version_map.new_version();
 
-        // v1.4 - no changes introduced, but we need to bump as mapping
-        // between firecracker minor versions and snapshot versions needs
-        // to be 1-to-1 (see below)
-        version_map.new_version();
+        // v1.4 state change mappings.
+        version_map.new_version().set_type_version(DeviceStates::type_id(), 4);
 
         version_map
     };

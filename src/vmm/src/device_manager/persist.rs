@@ -13,10 +13,12 @@ use devices::virtio::block::{Block, Error as BlockError};
 use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
 use devices::virtio::net::Net;
 use devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
+use devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState, Error as EntropyError};
+use devices::virtio::rng::Entropy;
 use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUdsConstructorArgs};
 use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use devices::virtio::{
-    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
+    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
 };
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
@@ -48,6 +50,7 @@ pub enum Error {
     Vsock(VsockError),
     VsockUnixBackend(VsockUnixBackendError),
     MmdsConfig(MmdsConfigError),
+    Entropy(EntropyError),
 }
 
 /// Holds the state of a balloon device connected to the MMIO space.
@@ -100,6 +103,20 @@ pub struct ConnectedVsockState {
     pub device_id: String,
     /// Device state.
     pub device_state: VsockState,
+    /// Mmio transport state.
+    pub transport_state: MmioTransportState,
+    /// VmmResources.
+    pub device_info: MMIODeviceInfo,
+}
+
+#[derive(Clone, Versionize)]
+/// Holds the state of an entropy device connected to the MMIO space.
+// NOTICE: Any chages to this structure require a snapshot version bump.
+pub struct ConnectedEntropyState {
+    /// Device identifier.
+    pub device_id: String,
+    /// Device state.
+    pub device_state: EntropyState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -161,6 +178,9 @@ pub struct DeviceStates {
     /// Mmds version.
     #[version(start = 3, ser_fn = "mmds_version_serialize")]
     pub mmds_version: Option<MmdsVersionState>,
+    /// Entropy device state.
+    #[version(start = 4, ser_fn = "entropy_serialize")]
+    pub entropy_device: Option<ConnectedEntropyState>,
 }
 
 /// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
@@ -170,6 +190,7 @@ pub enum SharedDeviceType {
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
+    Entropy(Arc<Mutex<Entropy>>),
 }
 
 impl DeviceStates {
@@ -189,6 +210,16 @@ impl DeviceStates {
                 "Target version does not support persisting the MMDS version. The default will be \
                  used when restoring."
             );
+        }
+
+        Ok(())
+    }
+
+    fn entropy_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
+        if target_version < 4 && self.entropy_device.is_some() {
+            return Err(VersionizeError::Semantic(
+                "Target version does not support persisting the virtio-rng device.".to_owned(),
+            ));
         }
 
         Ok(())
@@ -218,6 +249,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             #[cfg(target_arch = "aarch64")]
             legacy_devices: Vec::new(),
             mmds_version: None,
+            entropy_device: None,
         };
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
             if *devtype == crate::arch::DeviceType::BootTimer {
@@ -309,6 +341,19 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     states.vsock_device = Some(ConnectedVsockState {
                         device_id: devid.clone(),
                         device_state: vsock_state,
+                        transport_state,
+                        device_info: device_info.clone(),
+                    });
+                }
+                TYPE_RNG => {
+                    let entropy = locked_device
+                        .as_mut_any()
+                        .downcast_mut::<Entropy>()
+                        .unwrap();
+
+                    states.entropy_device = Some(ConnectedEntropyState {
+                        device_id: devid.clone(),
+                        device_state: entropy.save(),
                         transport_state,
                         device_info: device_info.clone(),
                     });
@@ -527,6 +572,30 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
+
+        if let Some(entropy_state) = &state.entropy_device {
+            let ctor_args = EntropyConstructorArgs::new(mem.clone());
+
+            let device = Arc::new(Mutex::new(Entropy::restore(
+                ctor_args,
+                &entropy_state.device_state,
+            )?));
+
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::Entropy(device.clone()),
+            );
+
+            restore_helper(
+                device.clone(),
+                device,
+                &entropy_state.device_id,
+                &entropy_state.transport_state,
+                &entropy_state.device_info,
+                constructor_args.event_manager,
+            )?;
+        }
+
         Ok(dev_manager)
     }
 }
@@ -727,9 +796,6 @@ mod tests {
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
-            // Add an entropy device.
-            let entropy_config = EntropyDeviceConfig::default();
-            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
             assert_eq!(
                 vmm.mmio_device_manager
@@ -769,6 +835,37 @@ mod tests {
                 .serialize(&mut buf.as_mut_slice(), &version_map, 3)
                 .unwrap();
 
+            // Add an entropy device.
+            let entropy_config = EntropyDeviceConfig::default();
+            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+
+            version_map
+                .new_version()
+                .set_type_version(DeviceStates::type_id(), 4);
+
+            // Entropy device not supported in version < 4
+            assert_eq!(
+                vmm.mmio_device_manager
+                    .save()
+                    .serialize(&mut buf.as_mut_slice(), &version_map, 3),
+                Err(VersionizeError::Semantic(
+                    "Target version does not support persisting the virtio-rng device.".to_string()
+                ))
+            );
+
+            version_map
+                .new_version()
+                .set_type_version(DeviceStates::type_id(), 4)
+                .set_type_version(NetConfigSpaceState::type_id(), 2);
+
+            vmm.mmio_device_manager
+                .save()
+                .serialize(&mut buf.as_mut_slice(), &version_map, 4)
+                .unwrap();
+            let device_states: DeviceStates =
+                DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 4).unwrap();
+            assert!(device_states.entropy_device.is_some());
+
             // We only want to keep the device map from the original MmioDeviceManager.
             vmm.mmio_device_manager.soft_clone()
         };
@@ -777,7 +874,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_states: DeviceStates =
-            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 3).unwrap();
+            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 4).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
@@ -842,7 +939,7 @@ mod tests {
     "guest_cid": 3,
     "uds_path": "{}"
   }},
-  "entropy": null
+  "entropy": {{}}
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap()
