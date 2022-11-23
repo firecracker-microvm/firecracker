@@ -18,7 +18,7 @@ use crate::virtio::iovec::IoVecBufferMut;
 use crate::virtio::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_RNG};
 use crate::Error as DeviceError;
 
-const ENTROPY_DEV_ID: &str = "rng";
+pub const ENTROPY_DEV_ID: &str = "rng";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -458,6 +458,21 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /entropy:
+    put:
+      summary: Creates an entropy device. Pre-boot only.
+      description:
+        Enables an entropy device that provides high-quality random data to the guest.
+      operationId: putEntropyDevice
+      responses:
+        204:
+          description: Entropy device created
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface. Pre-boot only.
