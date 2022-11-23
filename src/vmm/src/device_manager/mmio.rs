@@ -14,8 +14,8 @@ use devices::legacy::RTCDevice;
 use devices::legacy::SerialDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
-    Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_VSOCK,
+    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
+    TYPE_RNG, TYPE_VSOCK,
 };
 use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
@@ -432,6 +432,13 @@ impl MMIODeviceManager {
                     // so for Vsock we don't support connection persistence through snapshot.
                     // Any in-flight packets or events are simply lost.
                     // Vsock is restored 'empty'.
+                }
+                TYPE_RNG => {
+                    let entropy = virtio.as_mut_any().downcast_mut::<Entropy>().unwrap();
+                    if entropy.is_activated() {
+                        info!("kick entropy {id}.");
+                        entropy.process_virtio_queues();
+                    }
                 }
                 _ => (),
             }
