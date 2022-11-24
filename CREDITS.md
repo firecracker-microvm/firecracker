@@ -137,6 +137,8 @@ Contributors to the Firecracker repository:
 * Nikolay Edigaryev <edigaryev@gmail.com>
 * Noah Meyerhans <nmeyerha@amazon.com>
 * not required <bertdeb@gmail.com>
+* Pablo Barbáchano <pablob@amazon.com>
+* Patrick Roy <roypat@amazon.co.uk>
 * Peng Tao <bergwolf@gmail.com>
 * Penny Zheng <penny.zheng@arm.com>
 * Peter Hrvola <peter.hrvola@hotmail.com>
@@ -172,6 +174,7 @@ Contributors to the Firecracker repository:
 * Tim Deegan <tdeegan@amazon.com>
 * timvisee <tim@visee.me>
 * Tobias Pfandzelter <pfandzelter@campus.tu-berlin.de>
+* Traistaru Andrei Cristian <atc@amazon.com>
 * Tyler Anton <tyler@debian.anton>
 * Urvil Patel <patelurvil38@gmail.com>
 * Wei Yang <richard.weiyang@linux.alibaba.com>
@@ -182,7 +185,7 @@ Contributors to the Firecracker repository:
 * xibz <impactbchang@gmail.com>
 * xiekeyang <keyang.xie@gmail.com>
 * Yichen Zhang <jakezhang2020@gmail.com>
-* YLyu <lyuyuan92@gmail.com>
+* YUAN LYU <lyuyuan92@gmail.com>
 * Yuval Kohavi <yuval.kohavi@gmail.com>
 * Yılmaz ŞEN <yilmazsen94@gmail.com>
 * Zi Shen Lim <zlim.lnx@gmail.com>
