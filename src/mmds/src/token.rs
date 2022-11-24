@@ -277,7 +277,7 @@ impl TokenAuthority {
         // to current time (also in milliseconds). This addition is safe
         // because ttl is verified beforehand and can never be more than
         // 6h (21_600_000 ms).
-        now_as_milliseconds.add(ttl_as_seconds as u64 * MILLISECONDS_PER_SECOND)
+        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
     }
 }
 

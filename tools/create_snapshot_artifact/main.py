@@ -203,7 +203,7 @@ def main():
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
-        cpu_templates.extend(["C3", "T2"])
+        cpu_templates.extend(["C3", "T2", "T2S"])
 
     for cpu_template in cpu_templates:
         # Create a test context.

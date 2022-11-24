@@ -4,7 +4,7 @@
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
-
+#![warn(clippy::cast_lossless)]
 //! High-level interface over Linux io_uring.
 //!
 //! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
@@ -368,7 +368,7 @@ impl IoUring {
         let supported_opcodes: HashSet<u8> = probes
             .as_slice()
             .iter()
-            .filter(|op| ((op.flags as u32) & bindings::IO_URING_OP_SUPPORTED) != 0)
+            .filter(|op| ((u32::from(op.flags)) & bindings::IO_URING_OP_SUPPORTED) != 0)
             .map(|op| op.op)
             .collect();
 

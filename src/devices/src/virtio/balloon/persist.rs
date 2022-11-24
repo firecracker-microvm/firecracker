@@ -145,8 +145,8 @@ impl Persist<'_> for Balloon {
 
                 // Restart timer if needed.
                 let timer_state = TimerState::Periodic {
-                    current: Duration::from_secs(state.stats_polling_interval_s as u64),
-                    interval: Duration::from_secs(state.stats_polling_interval_s as u64),
+                    current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
+                    interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
                 };
                 balloon
                     .stats_timer

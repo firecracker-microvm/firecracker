@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 
 //! Provides version tolerant serialization and deserialization facilities and
 //! implements a persistent storage format for Firecracker state snapshots.
@@ -95,7 +96,7 @@ fn get_format_version(magic_id: u64) -> Result<u16, Error> {
 }
 
 fn build_magic_id(format_version: u16) -> u64 {
-    BASE_MAGIC_ID | format_version as u64
+    BASE_MAGIC_ID | u64::from(format_version)
 }
 
 impl Snapshot {
