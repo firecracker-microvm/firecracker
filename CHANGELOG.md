@@ -23,6 +23,7 @@
 - Changed the jailer option `--exec-file` to fail if the filename does not
   contain the string `firecracker` to prevent from running non-firecracker
   binaries.
+- Rust toolchain upgraded from 1.52.1 to 1.64.0.
 
 ### Fixed
 
