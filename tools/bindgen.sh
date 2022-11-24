@@ -91,6 +91,12 @@ fc-bindgen \
     --allowlist-type "virtio_net_hdr_v1" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/virtio_gen/src/virtio_net.rs
 
+info "BINDGEN virtio_rng.h"
+fc-bindgen \
+    --allowlist-var "VIRTIO_RNG_.*" \
+    --allowlist-var "VIRTIO_F_.*" \
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/virtio_gen/src/virtio_rng.rs
+
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
 # The Linux repo is huge. Just copy what we need.
 # git clone --branch v5.10 --depth 1 https://github.com/torvalds/linux.git linux
