@@ -459,7 +459,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
     for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
         for reg in state.regs.as_mut_slice().iter_mut() {
             if reg.id == MIDR_EL1 {
-                reg.addr = 0x710FD081;
+                reg.value = 0x710FD081;
             }
         }
     }

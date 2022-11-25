@@ -8,6 +8,7 @@
 use std::fmt::{Display, Formatter};
 use std::result;
 
+use arch::aarch64::regs::Aarch64Register;
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -179,7 +180,7 @@ impl KvmVcpu {
 #[derive(Clone, Default, Versionize)]
 pub struct VcpuState {
     pub mp_state: kvm_bindings::kvm_mp_state,
-    pub regs: Vec<kvm_bindings::kvm_one_reg>,
+    pub regs: Vec<Aarch64Register>,
     // We will be using the mpidr for passing it to the VmState.
     // The VmState will give this away for saving restoring the icc and redistributor
     // registers.
@@ -191,7 +192,6 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
-    use kvm_bindings::kvm_one_reg;
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
@@ -290,7 +290,7 @@ mod tests {
 
         // Try to restore the register using a faulty state.
         let faulty_vcpu_state = VcpuState {
-            regs: vec![kvm_one_reg { id: 0, addr: 0 }],
+            regs: vec![Aarch64Register { id: 0, value: 0 }],
             ..Default::default()
         };
 
@@ -308,13 +308,13 @@ mod tests {
         assert!(!state.regs.is_empty());
         vcpu.restore_state(&state)
             .expect("Cannot restore state of vcpu");
-        let addr = vcpu
+        let value = vcpu
             .fd
             .get_one_reg(0x6030_0000_0010_003E)
             .expect("Cannot get sp core register");
-        assert!(state.regs.contains(&kvm_bindings::kvm_one_reg {
+        assert!(state.regs.contains(&Aarch64Register {
             id: 0x6030_0000_0010_003E,
-            addr
+            value
         }));
     }
 

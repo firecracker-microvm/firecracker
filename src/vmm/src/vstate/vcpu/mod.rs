@@ -468,11 +468,17 @@ impl Vcpu {
                 }
                 // Documentation specifies that below kvm exits are considered
                 // errors.
-                VcpuExit::FailEntry => {
+                VcpuExit::FailEntry(hardware_entry_failure_reason, cpu) => {
                     // Hardware entry failure.
                     METRICS.vcpu.failures.inc();
-                    error!("Received KVM_EXIT_FAIL_ENTRY signal");
-                    Err(Error::FaultyKvmExit(format!("{:?}", VcpuExit::FailEntry)))
+                    error!(
+                        "Received KVM_EXIT_FAIL_ENTRY signal: {} on cpu {}",
+                        hardware_entry_failure_reason, cpu
+                    );
+                    Err(Error::FaultyKvmExit(format!(
+                        "{:?}",
+                        VcpuExit::FailEntry(hardware_entry_failure_reason, cpu)
+                    )))
                 }
                 VcpuExit::InternalError => {
                     // Failure from the Linux KVM subsystem rather than from the hardware.
@@ -699,14 +705,14 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry(0, 0)));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
                 "{:?}",
-                EmulationError::FaultyKvmExit("FailEntry".to_string())
+                EmulationError::FaultyKvmExit("FailEntry(0, 0)".to_string())
             )
         );
 
