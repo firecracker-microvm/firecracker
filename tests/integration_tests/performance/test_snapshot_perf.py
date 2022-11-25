@@ -684,8 +684,12 @@ def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper,
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
     # version.
-    firecracker_artifacts = ArtifactSet(artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml()))
+    firecracker_artifacts = ArtifactSet(
+        artifacts.firecrackers(
+            min_version="1.1.0",
+            max_version=get_firecracker_version_from_toml()
+        )
+    )
     assert len(firecracker_artifacts) > 0
 
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))

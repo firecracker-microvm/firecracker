@@ -824,8 +824,8 @@ def test_mmds_snapshot(bin_cloner_path,  version):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        # v1.0.0 breaks snapshot compatibility with older versions.
-        min_version="1.0.0",
+        # v1.1.0 breaks snapshot compatibility with older versions, see #3290.
+        min_version="1.1.0",
         max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         vm_instance = vm_builder.build_vm_nano(
@@ -836,17 +836,11 @@ def test_mmds_snapshot(bin_cloner_path,  version):
         jailer.download()
 
         target_version = firecracker.base_name()[1:]
-        # If the version is smaller or equal to 1.0.0, we expect that
-        # MMDS will be initialised with V1 by default.
-        if compare_versions(target_version, "1.0.0") <= 0:
-            mmds_version = "V1"
-        else:
-            mmds_version = version
 
         _validate_mmds_snapshot(
             vm_instance,
             vm_builder,
-            mmds_version,
+            version,
             target_fc_version=target_version,
             fc_path=firecracker.local_path(),
             jailer_path=jailer.local_path()
@@ -868,7 +862,8 @@ def test_mmds_older_snapshot(bin_cloner_path):
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Fetch all firecracker binaries.
     firecracker_artifacts = artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml())
+        min_version="1.1.0", max_version=get_firecracker_version_from_toml()
+    )
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
