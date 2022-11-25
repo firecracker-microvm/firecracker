@@ -5,7 +5,7 @@ use std::io;
 use std::os::raw::c_void;
 use std::os::unix::io::{AsRawFd, RawFd};
 
-use devices::legacy::serial::ReadableFd;
+use devices::legacy::ReadableFd;
 
 pub struct MockSerialInput(pub RawFd);
 

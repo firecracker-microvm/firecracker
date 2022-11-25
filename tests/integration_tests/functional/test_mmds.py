@@ -737,7 +737,7 @@ def test_mmds_older_snapshot(bin_cloner_path):
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Fetch all firecracker binaries.
     firecracker_artifacts = artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml()
+        min_version="1.1.0", max_version=get_firecracker_version_from_toml()
     )
     for firecracker in firecracker_artifacts:
         firecracker.download()

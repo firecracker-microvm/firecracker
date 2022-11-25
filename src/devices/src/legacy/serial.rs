@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! Implements a wrapper over an UART serial device.
 use std::io::Write;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
@@ -58,8 +59,11 @@ impl<EV: SerialEvents, W: Write> RawIOHandler for Serial<EventFdTrigger, EV, W> 
     }
 }
 
+/// Wrapper over available events (i.e metrics, buffer ready etc).
 pub struct SerialEventsWrapper {
+    /// Metrics for this serial device.
     pub metrics: Arc<SerialDeviceMetrics>,
+    /// Buffer ready event.
     pub buffer_ready_event_fd: Option<EventFdTrigger>,
 }
 
@@ -91,8 +95,11 @@ impl SerialEvents for SerialEventsWrapper {
     }
 }
 
+/// Wrapper over the imported serial device.
 pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write> {
+    /// Serial device object.
     pub serial: Serial<T, EV, W>,
+    /// Input to the serial device (needs to be readable).
     pub input: Option<Box<dyn ReadableFd + Send>>,
 }
 
@@ -154,7 +161,7 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
         self.input.as_ref().map_or(-1, |input| input.as_raw_fd())
     }
 
-    pub fn consume_buffer_ready_event(&self) -> io::Result<u64> {
+    fn consume_buffer_ready_event(&self) -> io::Result<u64> {
         self.serial
             .events()
             .buffer_ready_event_fd
@@ -163,6 +170,7 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
     }
 }
 
+/// Type for representing a serial device.
 pub type SerialDevice =
     SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<dyn io::Write + Send>>;
 
