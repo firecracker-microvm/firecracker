@@ -138,8 +138,8 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 2},
                 },
                 "async": {
-                    "2vcpu_256mb.json": {"target": 125},
-                    "2vcpu_512mb.json": {"target": 130},
+                    "2vcpu_256mb.json": {"target": 320},
+                    "2vcpu_512mb.json": {"target": 310},
                 },
             },
         }
