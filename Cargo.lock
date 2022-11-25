@@ -414,7 +414,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
 dependencies = [
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.9.0",
 ]
 
 [[package]]
@@ -542,18 +542,18 @@ source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-1#e
 dependencies = [
  "versionize",
  "versionize_derive",
- "vmm-sys-util",
+ "vmm-sys-util 0.11.0",
 ]
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97422ba48d7ffb66fd4d18130f72ab66f9bbbf791fb7a87b9291cdcfec437593"
+checksum = "c3a321cabd827642499c77e27314f388dd83a717a5ca716b86476fb947f73ae4"
 dependencies = [
  "kvm-bindings",
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.11.0",
 ]
 
 [[package]]
@@ -636,7 +636,7 @@ version = "0.1.0"
 source = "git+https://github.com/firecracker-microvm/micro-http?rev=0a58eb1#0a58eb1ece68e326e68365c4297d0a7c08ecd9bc"
 dependencies = [
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.9.0",
 ]
 
 [[package]]
@@ -1156,7 +1156,7 @@ dependencies = [
  "net_gen",
  "serde",
  "serde_json",
- "vmm-sys-util",
+ "vmm-sys-util 0.9.0",
 ]
 
 [[package]]
@@ -1167,9 +1167,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "versionize"
-version = "0.1.6"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7429cf68de8f091b667d27323ed323afd39584a56d533995b12ddd748e5e6ca9"
+checksum = "d6e2495726cf917e7ba7ec8bf0f0fceab543dd38d0a4195ed6bef331e38a290f"
 dependencies = [
  "bincode",
  "crc64",
@@ -1179,7 +1179,7 @@ dependencies = [
  "serde_derive",
  "syn",
  "versionize_derive",
- "vmm-sys-util",
+ "vmm-sys-util 0.11.0",
 ]
 
 [[package]]
@@ -1263,6 +1263,16 @@ name = "vmm-sys-util"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "733537bded03aaa93543f785ae997727b30d1d9f4a03b7861d23290474242e11"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
+name = "vmm-sys-util"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc06a16ee8ebf0d9269aed304030b0d20a866b8b3dd3d4ce532596ac567a0d24"
 dependencies = [
  "bitflags",
  "libc",
