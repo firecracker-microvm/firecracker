@@ -41,7 +41,10 @@ def firecracker_id(fc):
 
 @pytest.mark.parametrize(
     "firecracker",
-    firecracker_artifacts(max_version=get_firecracker_version_from_toml()),
+    firecracker_artifacts(
+        min_version="1.1.0",
+        max_version=get_firecracker_version_from_toml(),
+    ),
     ids=firecracker_id,
 )
 def test_restore_old_snapshot(bin_cloner_path, firecracker):
