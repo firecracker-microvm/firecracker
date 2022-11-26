@@ -23,7 +23,7 @@ SIZES_DICT = {
         "JAILER_BINARY_SIZE_TARGET": 851152,
         "FC_BINARY_SIZE_LIMIT": 2438511,
         "JAILER_BINARY_SIZE_LIMIT": 893709,
-    }
+    },
 }
 
 FC_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_TARGET"]
@@ -51,11 +51,18 @@ def test_firecracker_binary_size():
     """
     fc_binary, _ = host.get_firecracker_binaries()
 
-    result = check_binary_size("firecracker", fc_binary, FC_BINARY_SIZE_TARGET,
-                               BINARY_SIZE_TOLERANCE, FC_BINARY_SIZE_LIMIT)
+    result = check_binary_size(
+        "firecracker",
+        fc_binary,
+        FC_BINARY_SIZE_TARGET,
+        BINARY_SIZE_TOLERANCE,
+        FC_BINARY_SIZE_LIMIT,
+    )
 
-    return f"{result} B", \
-           f"{FC_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B"
+    return (
+        f"{result} B",
+        f"{FC_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
+    )
 
 
 @pytest.mark.timeout(500)
@@ -67,12 +74,18 @@ def test_jailer_binary_size():
     """
     _, jailer_binary = host.get_firecracker_binaries()
 
-    result = check_binary_size("jailer", jailer_binary,
-                               JAILER_BINARY_SIZE_TARGET,
-                               BINARY_SIZE_TOLERANCE, JAILER_BINARY_SIZE_LIMIT)
+    result = check_binary_size(
+        "jailer",
+        jailer_binary,
+        JAILER_BINARY_SIZE_TARGET,
+        BINARY_SIZE_TOLERANCE,
+        JAILER_BINARY_SIZE_LIMIT,
+    )
 
-    return f"{result} B", \
-           f"{JAILER_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B"
+    return (
+        f"{result} B",
+        f"{JAILER_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
+    )
 
 
 def check_binary_size(name, binary_path, size_target, tolerance, limit):
@@ -82,33 +95,35 @@ def check_binary_size(name, binary_path, size_target, tolerance, limit):
 
     # Get the name of the variable that needs updating.
     namespace = globals()
-    size_target_name = [name for name in namespace if namespace[name]
-                        is size_target][0]
+    size_target_name = [name for name in namespace if namespace[name] is size_target][0]
 
     # Compute concrete binary size difference.
     delta_size = size_target - binary_size
 
     binary_low_msg = (
-        'Current {} binary size of {} bytes is below the target'
-        ' of {} bytes with {} bytes.\n'
-        'Update the {} threshold'
-        .format(name, binary_size, size_target, delta_size, size_target_name)
+        "Current {} binary size of {} bytes is below the target"
+        " of {} bytes with {} bytes.\n"
+        "Update the {} threshold".format(
+            name, binary_size, size_target, delta_size, size_target_name
+        )
     )
 
     assert binary_size > size_target * (1 - tolerance), binary_low_msg
 
     binary_high_msg = (
-        'Current {} binary size of {} bytes is above the target'
-        ' of {} bytes with {} bytes.\n'
-        .format(name, binary_size, size_target, -delta_size)
+        "Current {} binary size of {} bytes is above the target"
+        " of {} bytes with {} bytes.\n".format(
+            name, binary_size, size_target, -delta_size
+        )
     )
 
     assert binary_size < size_target * (1 + tolerance), binary_high_msg
 
     binary_limit_msg = (
-        'Current {} binary size of {} bytes is above the limit'
-        ' of {} bytes with {} bytes.\n'
-        .format(name, binary_size, limit, binary_size - limit)
+        "Current {} binary size of {} bytes is above the limit"
+        " of {} bytes with {} bytes.\n".format(
+            name, binary_size, limit, binary_size - limit
+        )
     )
 
     assert binary_size < limit, binary_limit_msg
