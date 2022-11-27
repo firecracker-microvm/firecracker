@@ -83,7 +83,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    you're on.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_x86_64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
 
     docker images
     REPOSITORY                         TAG          IMAGE ID       CREATED
@@ -125,7 +125,7 @@ Then continue with the above steps:
    you're on.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_aarch64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
     docker images
     REPOSITORY                         TAG            IMAGE ID
