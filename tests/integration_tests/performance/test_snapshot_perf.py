@@ -65,7 +65,6 @@ CREATE_LATENCY_BASELINES = {
 # this is tracked here:
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
-# TODO: we need to actually measure the numbers for m6i
 # since they might be lower.
 LOAD_LATENCY_BASELINES = {
     "x86_64": {
@@ -118,8 +117,8 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 60},
                 },
                 "async": {
-                    "2vcpu_256mb.json": {"target": 190},
-                    "2vcpu_512mb.json": {"target": 190},
+                    "2vcpu_256mb.json": {"target": 220},
+                    "2vcpu_512mb.json": {"target": 220},
                 },
             },
         },
@@ -138,8 +137,8 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 2},
                 },
                 "async": {
-                    "2vcpu_256mb.json": {"target": 125},
-                    "2vcpu_512mb.json": {"target": 130},
+                    "2vcpu_256mb.json": {"target": 320},
+                    "2vcpu_512mb.json": {"target": 310},
                 },
             },
         }
