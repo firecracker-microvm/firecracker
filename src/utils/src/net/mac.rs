@@ -106,33 +106,12 @@ impl MacAddr {
         MacAddr { bytes }
     }
 
-    /// Create a `MacAddr` from a slice.
-    /// This method will return None if the slice length is different from `MAC_ADDR_LEN`.
-    /// # Arguments
-    ///
-    /// * `src` - slice from which to copy MAC address content.
-    /// # Example
-    ///
-    /// ```
-    /// use self::utils::net::mac::MacAddr;
-    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
-    /// println!("{}", mac.to_string());
-    /// ```
-    /// TODO this is unused, do we need it?
-    #[inline]
-    pub fn from_bytes(src: &[u8]) -> Option<MacAddr> {
-        if src.len() != MAC_ADDR_LEN {
-            return None;
-        }
-        Some(MacAddr::from_bytes_unchecked(src))
-    }
-
     /// Return the underlying content of this `MacAddr` in bytes.
     /// # Example
     ///
     /// ```
     /// use self::utils::net::mac::MacAddr;
-    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
+    /// let mac = MacAddr::from([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
     /// ```
     #[inline]
@@ -184,20 +163,6 @@ mod tests {
 
         let bytes = mac.get_bytes();
         assert_eq!(bytes, [0x12u8, 0x34, 0x56, 0x78, 0x9a, 0xbc]);
-    }
-
-    #[test]
-    fn test_from_bytes() {
-        let src1 = [0x01, 0x02, 0x03, 0x04, 0x05];
-        let src2 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
-        let src3 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-
-        assert!(MacAddr::from_bytes(&src1[..]).is_none());
-
-        let x = MacAddr::from_bytes(&src2[..]).unwrap();
-        assert_eq!(x.to_string(), String::from("01:02:03:04:05:06"));
-
-        assert!(MacAddr::from_bytes(&src3[..]).is_none());
     }
 
     #[test]
