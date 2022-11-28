@@ -1087,13 +1087,11 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif1",
-                            "host_dev_name": "hostname9",
-                            "guest_mac": "06:00:c0:00:32:de"
+                            "host_dev_name": "hostname9"
                         }},
                         {{
                             "iface_id": "netif2",
-                            "host_dev_name": "hostname10",
-                            "guest_mac": "0a:00:20:00:a2:de"
+                            "host_dev_name": "hostname10"
                         }}
                     ],
                     "machine-config": {{
@@ -1164,13 +1162,11 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif1",
-                            "host_dev_name": "hostname9",
-                            "guest_mac": "06:00:00:00:32:de"
+                            "host_dev_name": "hostname9"
                         }},
                         {{
                             "iface_id": "netif2",
-                            "host_dev_name": "hostname10",
-                            "guest_mac": "06:00:00:00:a2:de"
+                            "host_dev_name": "hostname10"
                         }}
                     ],
                     "machine-config": {{
@@ -1225,13 +1221,11 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif1",
-                            "host_dev_name": "hostname9",
-                            "guest_mac": "06:00:00:00:32:de"
+                            "host_dev_name": "hostname9"
                         }},
                         {{
                             "iface_id": "netif2",
-                            "host_dev_name": "hostname10",
-                            "guest_mac": "06:00:00:00:a2:de"
+                            "host_dev_name": "hostname10"
                         }}
                     ],
                     "machine-config": {{

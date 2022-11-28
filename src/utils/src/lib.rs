@@ -34,32 +34,3 @@ pub fn get_page_size() -> Result<usize, errno::Error> {
         ps => Ok(ps as usize),
     }
 }
-
-// The below fucntions will get merged in rust-vmm function once we will upstream it there
-fn xor_pseudo_rng_u8_bytes(rand_fn: &dyn Fn() -> u32) -> Vec<u8> {
-    let mut r = vec![];
-
-    for n in &rand_fn().to_ne_bytes() {
-        r.push(*n);
-    }
-    r
-}
-
-fn rand_bytes_impl(rand_fn: &dyn Fn() -> u32, len: usize) -> Vec<u8> {
-    let mut buf: Vec<u8> = Vec::new();
-    let mut done = 0;
-    loop {
-        for n in xor_pseudo_rng_u8_bytes(rand_fn) {
-            done += 1;
-            buf.push(n);
-            if done >= len {
-                return buf;
-            }
-        }
-    }
-}
-
-/// Get a pseudo random vector of length `len` with bytes.
-pub fn rand_bytes(len: usize) -> Vec<u8> {
-    rand_bytes_impl(&rand::xor_pseudo_rng_u32, len)
-}

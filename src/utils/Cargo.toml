@@ -8,6 +8,8 @@ license = "Apache-2.0"
 [dependencies]
 libc = ">=0.2.39"
 serde = { version = ">=1.0.27", features = ["derive"] }
+versionize = "0.1.6"
+versionize_derive = "0.1.3"
 vmm-sys-util = ">=0.8.0"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
