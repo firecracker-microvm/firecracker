@@ -250,6 +250,7 @@ fn snapshot_state_to_file(
     let mut snapshot_file = OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
