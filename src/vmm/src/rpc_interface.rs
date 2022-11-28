@@ -33,6 +33,8 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{builder::StartMicrovmError, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
+#[cfg(target_arch = "aarch64")]
+use logger::warn;
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
@@ -40,6 +42,9 @@ use tests::{
     build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
+
+#[cfg(target_arch = "aarch64")]
+const SNAPSHOT_WARNING: &str = "This version of Firecracker is affected by a bug where the upper 64bit of the V0-V31 FL/SIMD registers are lost during snapshotting. This bug is fixed in Firecracker 1.1.4 and newer";
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -467,6 +472,11 @@ impl<'a> PrebootApiController<'a> {
             VmmActionError::LoadSnapshot(e)
         });
 
+        #[cfg(target_arch = "aarch64")]
+        {
+            warn!("{}", SNAPSHOT_WARNING);
+        }
+
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
         info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
@@ -627,6 +637,11 @@ impl RuntimeApiController {
 
         create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
             .map_err(VmmActionError::CreateSnapshot)?;
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            warn!("{}", SNAPSHOT_WARNING)
+        }
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
