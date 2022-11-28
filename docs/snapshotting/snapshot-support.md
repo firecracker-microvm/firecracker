@@ -123,6 +123,10 @@ The baseline for snapshot resume latency target on Intel is under **8ms** with
   deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.
   However, restoring between different GIC version is not possible.
+- On arm64, the upper 64 bits of the FL/SIMD registers V0-V31 are not saved
+  in snapshots, due to incorrect use of the KVM_GET_ONE_REG ioctl.
+  See [here](https://github.com/firecracker-microvm/firecracker/commit/bdfb24c20330bb82daa919d5b35df4ba31dd43dc)
+  for details. This bug is fixed in Firecracker 1.1.4 and newer.
 
 ## Firecracker Snapshotting characteristics
 
