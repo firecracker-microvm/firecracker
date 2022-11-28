@@ -378,12 +378,16 @@ mod tests {
         // We allow a deviation of 20ms to account for the gap
         // between the two calls to `get_time_ms()`.
         let deviation = 20;
-        assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
+        assert!(
+            ttl >= MILLISECONDS_PER_SECOND && ttl <= MILLISECONDS_PER_SECOND + deviation,
+            "ttl={ttl} not within [{MILLISECONDS_PER_SECOND}, \
+             {MILLISECONDS_PER_SECOND}+{deviation}]",
+        );
 
         let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(0);
         let ttl = expiry - time_now;
-        assert!(ttl <= deviation);
+        assert!(ttl <= deviation, "ttl={ttl} is greater than {deviation}");
     }
 
     #[test]
