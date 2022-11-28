@@ -15,12 +15,14 @@ use std::result::Result;
 
 use serde::de::{Deserialize, Deserializer, Error};
 use serde::ser::{Serialize, Serializer};
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 
 /// The number of tuples (the ones separated by ":") contained in a MAC address.
 pub const MAC_ADDR_LEN: usize = 6;
 
 /// Represents a MAC address
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
@@ -34,6 +36,18 @@ impl fmt::Display for MacAddr {
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             b[0], b[1], b[2], b[3], b[4], b[5]
         )
+    }
+}
+
+impl From<[u8; 6]> for MacAddr {
+    fn from(bytes: [u8; 6]) -> Self {
+        Self { bytes }
+    }
+}
+
+impl From<MacAddr> for [u8; 6] {
+    fn from(mac: MacAddr) -> Self {
+        mac.bytes
     }
 }
 
@@ -104,6 +118,7 @@ impl MacAddr {
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// println!("{}", mac.to_string());
     /// ```
+    /// TODO this is unused, do we need it?
     #[inline]
     pub fn from_bytes(src: &[u8]) -> Option<MacAddr> {
         if src.len() != MAC_ADDR_LEN {
@@ -131,7 +146,7 @@ impl Serialize for MacAddr {
     where
         S: Serializer,
     {
-        self.to_string().serialize(serializer)
+        Serialize::serialize(&self.to_string(), serializer)
     }
 }
 
@@ -140,7 +155,7 @@ impl<'de> Deserialize<'de> for MacAddr {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = <std::string::String as Deserialize>::deserialize(deserializer)?;
         MacAddr::parse_str(&s).map_err(|_| D::Error::custom("The provided MAC address is invalid."))
     }
 }

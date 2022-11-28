@@ -38,7 +38,7 @@ impl From<&Net> for NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: net.id().clone(),
             host_dev_name: net.iface_name(),
-            guest_mac: Some(*net.guest_mac()),
+            guest_mac: net.guest_mac().copied(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
         }
@@ -139,7 +139,7 @@ impl NetBuilder {
             let net = net.lock().expect("Poisoned lock");
             // Check if another net dev has same MAC.
             netif_config.guest_mac.is_some()
-                && netif_config.guest_mac.as_ref().unwrap() == net.guest_mac()
+                && netif_config.guest_mac.as_ref() == net.guest_mac()
                 && &netif_config.iface_id != net.id()
         };
         // Validate there is no Mac conflict.
@@ -182,7 +182,7 @@ impl NetBuilder {
         devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
             cfg.host_dev_name.clone(),
-            cfg.guest_mac.as_ref(),
+            cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
         )
@@ -379,7 +379,7 @@ mod tests {
         let net = Net::new_with_tap(
             net_id.to_string(),
             host_dev_name.to_string(),
-            Some(&MacAddr::parse_str(guest_mac).unwrap()),
+            Some(MacAddr::parse_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
         )
@@ -397,37 +397,6 @@ mod tests {
                 .deref()
                 .id(),
             net_id
-        );
-    }
-
-    #[test]
-    fn test_mac_address_generation() {
-        let mut net_builder = NetBuilder::new();
-        let net_id = "test_id";
-        let host_dev_name = "dev";
-        let guest_mac = "00:00:00:00:00:00";
-
-        let net = Net::new_with_tap(
-            net_id.to_string(),
-            host_dev_name.to_string(),
-            None,
-            RateLimiter::default(),
-            RateLimiter::default(),
-        )
-        .unwrap();
-
-        net_builder.add_device(Arc::new(Mutex::new(net)));
-        assert_eq!(net_builder.net_devices.len(), 1);
-        assert_ne!(
-            net_builder
-                .net_devices
-                .pop()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .deref()
-                .guest_mac(),
-            MacAddr::parse_str(guest_mac).as_ref().unwrap()
         );
     }
 }

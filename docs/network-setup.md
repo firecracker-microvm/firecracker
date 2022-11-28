@@ -76,10 +76,6 @@ to your configuration file like this:
 Alternatively, if you are using firectl, add
 --tap-device=tap0/AA:FC:00:00:00:01` to your command line.
 
-*Note:* When `guest_mac` is not explicitely specified, a MAC address is generated
-and assigned to the network interface. This address is included in the result of
-GET `/vm/config`.
-
 ## In The Guest
 
 Once you have booted the guest, bring up networking within the guest:

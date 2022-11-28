@@ -7,6 +7,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
+use logger::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
@@ -23,10 +24,39 @@ use super::{NUM_QUEUES, QUEUE_SIZE};
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Default, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetConfigSpaceState {
+    #[version(end = 2, default_fn = "def_guest_mac_old")]
     guest_mac: [u8; MAC_ADDR_LEN],
+    #[version(start = 2, de_fn = "de_guest_mac_v2", ser_fn = "ser_guest_mac_v2")]
+    guest_mac_v2: Option<MacAddr>,
+}
+
+impl NetConfigSpaceState {
+    fn de_guest_mac_v2(&mut self, version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not have optional MAC address.
+        warn!("Optional MAC address will be set to older version.");
+        if version < 2 {
+            self.guest_mac_v2 = Some(self.guest_mac.into());
+        }
+        Ok(())
+    }
+
+    fn ser_guest_mac_v2(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not have optional MAC address.
+        warn!("Saving to older snapshot version, optional MAC address will not be saved.");
+        match self.guest_mac_v2 {
+            Some(mac) => self.guest_mac = mac.into(),
+            None => self.guest_mac = Default::default(),
+        }
+        Ok(())
+    }
+
+    fn def_guest_mac_old(_: u16) -> [u8; MAC_ADDR_LEN] {
+        // v1.2 and newer don't use this field anyway
+        Default::default()
+    }
 }
 
 #[derive(Clone, Versionize)]
@@ -67,7 +97,8 @@ impl Persist<'_> for Net {
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
             config_space: NetConfigSpaceState {
-                guest_mac: self.config_space.guest_mac,
+                guest_mac_v2: self.guest_mac,
+                guest_mac: Default::default(),
             },
             virtio_state: VirtioDeviceState::from_device(self),
         }
@@ -83,10 +114,7 @@ impl Persist<'_> for Net {
         let mut net = Net::new_with_tap(
             state.id.clone(),
             state.tap_if_name.clone(),
-            Some(MacAddr::from_bytes_unchecked(
-                &state.config_space.guest_mac[..MAC_ADDR_LEN],
-            ))
-            .as_ref(),
+            state.config_space.guest_mac_v2,
             rx_rate_limiter,
             tx_rate_limiter,
         )?;
