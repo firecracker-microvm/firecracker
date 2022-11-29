@@ -12,9 +12,6 @@
   and restore on a host that has a Skylake CPU.
 - Added a new CLI option `--metrics-path PATH`. It accepts a file parameter
   where metrics will be sent to.
-- A MAC address is generated if one is not explicitly specified while adding
-  network interfaces. This address can be obtained as part of the GET
-  `/vm/config`.
 - Added baselines for m6i.metal and m6a.metal for all long running performance
   tests.
 
@@ -30,10 +27,8 @@
 - Make the `T2` template more robust by explicitly disabling additional
   CPUID flags that should be off but were missed initially or that were
   not available in the spec when the template was created.
-- When MAC address was left unspecified, GET `/vm/config` would report the
-  interface MAC address incorrectly as `null`, and post snapshot restore as
-  `00:00:00:00:00:00`. It now correctly reports the code generated MAC address
-  when queried in both cases.
+- Now MAC address is correctly displayed when queried with GET `/vm/config`
+  if left unspecified in both pre and post snapshot states.
 - Fixed a self-DoS scenario in the virtio-queue code by reporting and
   terminating execution when the number of available descriptors reported
   by the driver is higher than the queue size.
