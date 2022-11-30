@@ -430,6 +430,7 @@ dependencies = [
  "rate_limiter",
  "serde",
  "snapshot",
+ "thiserror",
  "timerfd",
  "utils",
  "versionize",

@@ -297,7 +297,10 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
+                TapError::IfreqExecuteError(
+                    std::io::Error::from_raw_os_error(16),
+                    host_dev_name_1.to_string()
+                )
             ))
             .to_string()
         );
@@ -321,7 +324,10 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
+                TapError::IfreqExecuteError(
+                    std::io::Error::from_raw_os_error(16),
+                    host_dev_name_1.to_string()
+                )
             ))
             .to_string()
         );
