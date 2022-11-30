@@ -31,21 +31,25 @@ pub enum NetQueue {
     Tx,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Open tap device failed.
+    /// Open tap device failed
+    #[error("Open tap device failed: {0}")]
     TapOpen(TapError),
-    /// Setting tap interface offload flags failed.
+    /// Setting tap interface offload flags failed
+    #[error("Setting tap interface offload flags failed: {0}")]
     TapSetOffload(TapError),
-    /// Setting vnet header size failed.
+    /// Setting vnet header size failed
+    #[error("Setting vnet header size failed: {0}")]
     TapSetVnetHdrSize(TapError),
-    /// Enabling tap interface failed.
-    TapEnable(TapError),
-    /// EventFd error.
+    /// EventFd error
+    #[error("EventFd error: {0}")]
     EventFd(io::Error),
-    /// IO error.
+    /// IO error
+    #[error("IO error: {0}")]
     IO(io::Error),
-    /// The VNET header is missing from the frame.
+    /// The VNET header is missing from the frame
+    #[error("The VNET header is missing from the frame")]
     VnetHeaderMissing,
 }
 
