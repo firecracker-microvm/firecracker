@@ -253,9 +253,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         iface_id="2", host_dev_name=second_if_name, guest_mac=guest_mac
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert (
-        "The guest MAC address {} is already in use.".format(guest_mac) in response.text
-    )
+    assert f"The MAC address is already in use: {guest_mac}" in response.text
 
     # Updates to a network interface with an available MAC are allowed.
     response = test_microvm.network.put(
