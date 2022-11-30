@@ -51,3 +51,32 @@ def test_high_ingress_traffic(test_microvm_with_api, network_config):
     # ssh commands.
     exit_code, _, _ = ssh_connection.execute_command("echo success\n")
     assert exit_code == 0
+
+
+def test_multi_queue_unsupported(test_microvm_with_api):
+    """
+    Creates multi-queue tap device and tries to add it to firecracker.
+
+    @type: functional
+    """
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+
+    tapname = microvm.id[:8] + "tap1"
+
+    utils.run_cmd(f"ip tuntap add name {tapname} mode tap multi_queue")
+    utils.run_cmd(f"ip link set {tapname} netns {microvm.jailer.netns}")
+
+    response = microvm.network.put(
+        iface_id="eth0",
+        host_dev_name=tapname,
+        guest_mac="AA:FC:00:00:00:01",
+    )
+
+    assert response.json()["fault_message"] == (
+        "Could not create Network Device: Open tap device failed:"
+        " Error while creating ifreq structure: Invalid argument (os error 22)."
+        " Invalid TUN/TAP Backend provided by {}. Check our documentation on setting"
+        " up the network devices"
+    ).format(tapname)
