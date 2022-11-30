@@ -5,13 +5,13 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-utils = { path = "../../../src/utils" }
-
-libc = "0.2.121"
-nix = "0.23.0"
+libc = "0.2.117"
+nix = "0.26.1"
 serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.79"
-userfaultfd = "0.4.2"
+serde_json = "1.0.78"
+userfaultfd = "0.5.0"
+
+utils = { path = "../../../src/utils" }
 
 [workspace]
 
