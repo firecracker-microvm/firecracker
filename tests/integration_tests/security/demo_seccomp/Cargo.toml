@@ -2,7 +2,7 @@
 name = "demo_seccomp"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 libc = "0.2.117"
