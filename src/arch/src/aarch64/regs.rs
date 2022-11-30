@@ -178,7 +178,8 @@ arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
 ///
 /// # Arguments
 ///
-/// * `state` - Array slice of kvm_one_reg structures, representing the registers of a VCPU state.
+/// * `state` - Array slice of [`Aarch64Register`] structures, representing the registers of a VCPU
+///   state.
 pub fn get_manufacturer_id_from_state(state: &[Aarch64Register]) -> Result<u32> {
     let midr_el1 = state.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
