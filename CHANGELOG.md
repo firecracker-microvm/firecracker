@@ -21,6 +21,9 @@
   contain the string `firecracker` to prevent from running non-firecracker
   binaries.
 - Rust toolchain upgraded from 1.52.1 to 1.64.0.
+- Switched to specifying our dependencies using caret requirements instead
+  of comparison requirements.
+- Updated all dependencies to their respective newest versions.
 
 ### Fixed
 
@@ -35,6 +38,10 @@
 - Fixed the bad handling of kernel cmdline parameters when init arguments
   where provided in the `boot_args` field of the JSON body of the
   PUT `/boot-source` request.
+- Fixed a bug on ARM64 hosts where the upper 64bits of the V0-V31 FL/SIMD
+  registers were not saved correctly when taking a snapshot, potentially
+  leading to data loss. This change invalidates all ARM64 snapshots taken
+  with versions of Firecracker <= 1.1.3.
 
 ## [1.1.0]
 
