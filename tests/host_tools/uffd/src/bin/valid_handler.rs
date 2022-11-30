@@ -5,7 +5,6 @@
 //! which loads the whole region from the backing memory file
 //! when a page fault occurs.
 
-use nix::poll::{poll, PollFd, PollFlags};
 use std::os::unix::io::AsRawFd;
 
 use uffd::uffd_utils::{create_pf_handler, MemPageState};
@@ -13,19 +12,27 @@ use uffd::uffd_utils::{create_pf_handler, MemPageState};
 fn main() {
     let mut uffd_handler = create_pf_handler();
 
-    let pollfd = PollFd::new(uffd_handler.uffd.as_raw_fd(), PollFlags::POLLIN);
-
+    let mut pollfd = libc::pollfd {
+        fd: uffd_handler.uffd.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
     // Loop, handling incoming events on the userfaultfd file descriptor.
     loop {
         // See what poll() tells us about the userfaultfd.
-        let nready = poll(&mut [pollfd], -1).expect("Failed to poll");
+        let nready = unsafe { libc::poll(&mut pollfd, 1, -1) };
 
-        let revents = pollfd.revents().unwrap();
+        if nready == -1 {
+            panic!("Could not poll for events!")
+        }
+
+        let revents = pollfd.revents;
+
         println!(
             "poll() returns: nready = {}; POLLIN = {}; POLLERR = {}",
             nready,
-            revents.contains(PollFlags::POLLIN),
-            revents.contains(PollFlags::POLLERR),
+            revents & libc::POLLIN,
+            revents & libc::POLLERR,
         );
 
         // Read an event from the userfaultfd.

@@ -7,12 +7,9 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::{mem, ptr};
 
-use libc::c_void;
-use nix::sys::mman::{mmap, MapFlags, ProtFlags};
 use serde::Deserialize;
 use userfaultfd::Uffd;
 use utils::get_page_size;
-
 use utils::sock_ctrl_msg::ScmSocket;
 
 // This is the same with the one used in src/vmm.
@@ -134,7 +131,7 @@ impl UffdPfHandler {
         let page_size = get_page_size().unwrap();
 
         // Find the start of the page that the current faulting address belongs to.
-        let dst = (addr as usize & !(page_size as usize - 1)) as *mut c_void;
+        let dst = (addr as usize & !(page_size as usize - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
 
         // Get the state of the current faulting page.
@@ -226,17 +223,20 @@ pub fn create_pf_handler() -> UffdPfHandler {
     let size = file.metadata().unwrap().len() as usize;
 
     // mmap a memory area used to bring in the faulting regions.
-    let memfile_buffer = unsafe {
-        mmap(
+    let ret = unsafe {
+        libc::mmap(
             ptr::null_mut(),
             size,
-            ProtFlags::PROT_READ,
-            MapFlags::MAP_PRIVATE,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
             file.as_raw_fd(),
             0,
         )
-        .expect("mmap failed")
-    } as *const u8;
+    };
+    if ret == libc::MAP_FAILED {
+        panic!("mmap failed");
+    }
+    let memfile_buffer = ret as *const u8;
 
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(&uffd_sock_path).expect("Cannot bind to socket path");

@@ -309,7 +309,6 @@ name = "uffd"
 version = "1.1.0"
 dependencies = [
  "libc",
- "nix",
  "serde",
  "serde_json",
  "userfaultfd",
@@ -324,9 +323,9 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 
 [[package]]
 name = "userfaultfd"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b738009e099b4ded1ecf19dfb7631f69c24f16e0af6d29fd9b3f54a092aca46"
+checksum = "fee2cdd3f8bdd0b98d7aa9ace35e7214a71888229d60c1cd1cd71b7c09c089d0"
 dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
