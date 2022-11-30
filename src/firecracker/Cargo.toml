@@ -10,9 +10,9 @@ license = "Apache-2.0"
 
 [dependencies]
 event-manager = "0.3.0"
-libc = ">=0.2.39"
-serde_json = ">=1.0.68"
-timerfd = ">=1.0"
+libc = "0.2.117"
+serde_json = "1.0.78"
+timerfd = "1.2.0"
 
 api_server = { path = "../api_server" }
 logger = { path = "../logger" }
@@ -21,3 +21,7 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+
+[dev-dependencies]
+cargo_toml = "0.13.0"
+regex = "1.5.5"

@@ -3,7 +3,6 @@
 
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
-use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
@@ -174,71 +173,45 @@ pub enum MicrovmStateError {
 }
 
 /// Errors associated with creating a snapshot.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
+    #[error("Cannot get dirty bitmap: {0}")]
     DirtyBitmap(VmmError),
     /// The virtio devices uses a features that is incompatible with older versions of Firecracker.
+    #[error(
+        "The virtio devices use a features that is incompatible with older versions of \
+         Firecracker: {0}"
+    )]
     IncompatibleVirtioFeature(&'static str),
     /// Invalid microVM version format
+    #[error("Invalid microVM version format")]
     InvalidVersionFormat,
     /// MicroVM version does not support snapshot.
+    #[error("Cannot translate microVM version to snapshot data version")]
     UnsupportedVersion,
     /// Failed to write memory to snapshot.
+    #[error("Cannot write memory file: {0}")]
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
+    #[error("Cannot perform {0} on the memory backing file: {1}")]
     MemoryBackingFile(&'static str, io::Error),
     /// Failed to save MicrovmState.
+    #[error("Cannot save the microVM state: {0}")]
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
+    #[error("Cannot serialize the microVM state: {0}")]
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
+    #[error("Cannot perform {0} on the snapshot backing file: {1}")]
     SnapshotBackingFile(&'static str, io::Error),
-    #[cfg(target_arch = "x86_64")]
     /// Number of devices exceeds the maximum supported devices for the snapshot data version.
+    #[cfg(target_arch = "x86_64")]
+    #[error(
+        "Too many devices attached: {0}. The maximum number allowed for the snapshot data version \
+         requested is {FC_V0_23_MAX_DEVICES}."
+    )]
     TooManyDevices(usize),
-}
-
-impl Display for CreateSnapshotError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::CreateSnapshotError::*;
-        match self {
-            DirtyBitmap(err) => write!(f, "Cannot get dirty bitmap: {}", err),
-            IncompatibleVirtioFeature(feature) => write!(
-                f,
-                "The virtio devices use a features that is incompatible with older versions of \
-                 Firecracker: {}",
-                feature
-            ),
-            InvalidVersionFormat => write!(f, "Invalid microVM version format"),
-            UnsupportedVersion => write!(
-                f,
-                "Cannot translate microVM version to snapshot data version",
-            ),
-            Memory(err) => write!(f, "Cannot write memory file: {}", err),
-            MemoryBackingFile(action, err) => write!(
-                f,
-                "Cannot perform {} on the memory backing file: {}",
-                action, err
-            ),
-            MicrovmState(err) => write!(f, "Cannot save the microVM state: {}", err),
-            SerializeMicrovmState(err) => {
-                write!(f, "Cannot serialize the microVM state: {:?}", err)
-            }
-            SnapshotBackingFile(action, err) => write!(
-                f,
-                "Cannot perform {} on the snapshot backing file: {}",
-                action, err
-            ),
-            #[cfg(target_arch = "x86_64")]
-            TooManyDevices(val) => write!(
-                f,
-                "Too many devices attached: {}. The maximum number allowed for the snapshot data \
-                 version requested is {}.",
-                val, FC_V0_23_MAX_DEVICES
-            ),
-        }
-    }
 }
 
 /// Creates a Microvm snapshot.
@@ -277,6 +250,7 @@ fn snapshot_state_to_file(
     let mut snapshot_file = OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 

@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use devices::virtio::block::persist::BlockState;
+use devices::virtio::net::persist::NetConfigSpaceState;
 use devices::virtio::QueueState;
 use lazy_static::lazy_static;
 use versionize::{VersionMap, Versionize};
@@ -53,6 +54,7 @@ lazy_static! {
 
         // v1.2 state change mappings.
         version_map.new_version().set_type_version(VmInfo::type_id(), 2);
+        version_map.set_type_version(NetConfigSpaceState::type_id(), 2);
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 3);
 

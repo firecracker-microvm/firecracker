@@ -8,8 +8,7 @@ use std::ops::Add;
 use std::path::Path;
 use std::{fmt, io};
 
-use aes_gcm::aead::NewAead;
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use logger::warn;
 use serde::{Deserialize, Serialize};
@@ -233,7 +232,7 @@ impl TokenAuthority {
         entropy_pool.read_exact(&mut key)?;
 
         // Create cipher entity to handle encryption/decryption.
-        Ok(Aes256Gcm::new(Key::from_slice(&key)))
+        Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)))
     }
 
     /// Make sure to reinitialize the cipher under a new key before reaching
@@ -378,12 +377,16 @@ mod tests {
         // We allow a deviation of 20ms to account for the gap
         // between the two calls to `get_time_ms()`.
         let deviation = 20;
-        assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
+        assert!(
+            ttl >= MILLISECONDS_PER_SECOND && ttl <= MILLISECONDS_PER_SECOND + deviation,
+            "ttl={ttl} not within [{MILLISECONDS_PER_SECOND}, \
+             {MILLISECONDS_PER_SECOND}+{deviation}]",
+        );
 
         let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(0);
         let ttl = expiry - time_now;
-        assert!(ttl <= deviation);
+        assert!(ttl <= deviation, "ttl={ttl} is greater than {deviation}");
     }
 
     #[test]

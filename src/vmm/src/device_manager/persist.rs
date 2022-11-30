@@ -50,9 +50,9 @@ pub enum Error {
     MmdsConfig(MmdsConfigError),
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the state of a balloon device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Versionize)]
 pub struct ConnectedBalloonState {
     /// Device identifier.
     pub device_id: String,
@@ -64,9 +64,9 @@ pub struct ConnectedBalloonState {
     pub device_info: MMIODeviceInfo,
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the state of a block device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Versionize)]
 pub struct ConnectedBlockState {
     /// Device identifier.
     pub device_id: String,
@@ -78,9 +78,9 @@ pub struct ConnectedBlockState {
     pub device_info: MMIODeviceInfo,
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the state of a net device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Versionize)]
 pub struct ConnectedNetState {
     /// Device identifier.
     pub device_id: String,
@@ -92,9 +92,9 @@ pub struct ConnectedNetState {
     pub device_info: MMIODeviceInfo,
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the state of a vsock device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Versionize)]
 pub struct ConnectedVsockState {
     /// Device identifier.
     pub device_id: String,
@@ -106,9 +106,9 @@ pub struct ConnectedVsockState {
     pub device_info: MMIODeviceInfo,
 }
 
+/// Holds the state of a legacy device connected to the MMIO space.
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone, Versionize)]
-/// Holds the state of a legacy device connected to the MMIO space.
 pub struct ConnectedLegacyState {
     /// Device identifier.
     pub type_: DeviceType,
@@ -117,8 +117,8 @@ pub struct ConnectedLegacyState {
 }
 
 /// Holds the MMDS data store version.
-#[derive(Debug, Clone, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, PartialEq, Eq, Versionize)]
 pub enum MmdsVersionState {
     V1,
     V2,
@@ -142,9 +142,9 @@ impl From<MmdsVersion> for MmdsVersionState {
     }
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the device states.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Versionize)]
 pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
@@ -534,7 +534,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use devices::virtio::block::CacheType;
-    use utils::net::mac::MacAddr;
+    use devices::virtio::net::persist::NetConfigSpaceState;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -704,7 +704,7 @@ mod tests {
             let network_interface = NetworkInterfaceConfig {
                 iface_id: String::from("netif"),
                 host_dev_name: String::from("hostname"),
-                guest_mac: Some(MacAddr::parse_str("00:00:00:00:00:00").unwrap()),
+                guest_mac: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             };
@@ -743,7 +743,8 @@ mod tests {
 
             version_map
                 .new_version()
-                .set_type_version(DeviceStates::type_id(), 3);
+                .set_type_version(DeviceStates::type_id(), 3)
+                .set_type_version(NetConfigSpaceState::type_id(), 2);
 
             // For snapshot versions that not support persisting the mmds version, it should be
             // deserialized as None. The MMIODeviceManager will initialise it as the default if
@@ -824,7 +825,7 @@ mod tests {
     {{
       "iface_id": "netif",
       "host_dev_name": "hostname",
-      "guest_mac": "00:00:00:00:00:00",
+      "guest_mac": null,
       "rx_rate_limiter": null,
       "tx_rate_limiter": null
     }}

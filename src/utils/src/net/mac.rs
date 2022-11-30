@@ -15,12 +15,14 @@ use std::result::Result;
 
 use serde::de::{Deserialize, Deserializer, Error};
 use serde::ser::{Serialize, Serializer};
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 
 /// The number of tuples (the ones separated by ":") contained in a MAC address.
 pub const MAC_ADDR_LEN: usize = 6;
 
 /// Represents a MAC address
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
@@ -34,6 +36,18 @@ impl fmt::Display for MacAddr {
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             b[0], b[1], b[2], b[3], b[4], b[5]
         )
+    }
+}
+
+impl From<[u8; 6]> for MacAddr {
+    fn from(bytes: [u8; 6]) -> Self {
+        Self { bytes }
+    }
+}
+
+impl From<MacAddr> for [u8; 6] {
+    fn from(mac: MacAddr) -> Self {
+        mac.bytes
     }
 }
 
@@ -92,32 +106,12 @@ impl MacAddr {
         MacAddr { bytes }
     }
 
-    /// Create a `MacAddr` from a slice.
-    /// This method will return None if the slice length is different from `MAC_ADDR_LEN`.
-    /// # Arguments
-    ///
-    /// * `src` - slice from which to copy MAC address content.
-    /// # Example
-    ///
-    /// ```
-    /// use self::utils::net::mac::MacAddr;
-    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
-    /// println!("{}", mac.to_string());
-    /// ```
-    #[inline]
-    pub fn from_bytes(src: &[u8]) -> Option<MacAddr> {
-        if src.len() != MAC_ADDR_LEN {
-            return None;
-        }
-        Some(MacAddr::from_bytes_unchecked(src))
-    }
-
     /// Return the underlying content of this `MacAddr` in bytes.
     /// # Example
     ///
     /// ```
     /// use self::utils::net::mac::MacAddr;
-    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
+    /// let mac = MacAddr::from([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
     /// ```
     #[inline]
@@ -131,7 +125,7 @@ impl Serialize for MacAddr {
     where
         S: Serializer,
     {
-        self.to_string().serialize(serializer)
+        Serialize::serialize(&self.to_string(), serializer)
     }
 }
 
@@ -140,7 +134,7 @@ impl<'de> Deserialize<'de> for MacAddr {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = <std::string::String as Deserialize>::deserialize(deserializer)?;
         MacAddr::parse_str(&s).map_err(|_| D::Error::custom("The provided MAC address is invalid."))
     }
 }
@@ -169,20 +163,6 @@ mod tests {
 
         let bytes = mac.get_bytes();
         assert_eq!(bytes, [0x12u8, 0x34, 0x56, 0x78, 0x9a, 0xbc]);
-    }
-
-    #[test]
-    fn test_from_bytes() {
-        let src1 = [0x01, 0x02, 0x03, 0x04, 0x05];
-        let src2 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
-        let src3 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-
-        assert!(MacAddr::from_bytes(&src1[..]).is_none());
-
-        let x = MacAddr::from_bytes(&src2[..]).unwrap();
-        assert_eq!(x.to_string(), String::from("01:02:03:04:05:06"));
-
-        assert!(MacAddr::from_bytes(&src3[..]).is_none());
     }
 
     #[test]
