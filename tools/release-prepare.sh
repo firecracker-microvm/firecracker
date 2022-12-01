@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -eu -o pipefail
+shopt -s lastpipe
 
 FC_TOOLS_DIR=$(dirname $(realpath $0))
 source "$FC_TOOLS_DIR/functions"
@@ -66,16 +67,15 @@ for file in "${files_to_change[@]}"; do
     sed -i "s/$prev_ver/$version/" "$file"
 done
 
-# Run `cargo check` to update firecracker and jailer versions in
+CHANGED=()
+# Run `cargo check` to update firecracker and jailer versions in all
 # `Cargo.lock`.
-say "Updating lockfile..."
-cargo check
-CHANGED=(Cargo.lock)
-
-cd tests/integration_tests/security/demo_seccomp
-cargo check
-cd -
-CHANGED+=(tests/integration_tests/security/demo_seccomp/Cargo.lock)
+# NOTE: This will break if it finds paths with spaces in them
+find . -path ./build -prune -o -name Cargo.lock -print |while read -r cargo_lock; do
+    say "Updating $cargo_lock ..."
+    (cd "$(dirname "$cargo_lock")"; cargo check)
+    CHANGED+=("$cargo_lock")
+done
 
 # Update credits.
 say "Updating credits..."
