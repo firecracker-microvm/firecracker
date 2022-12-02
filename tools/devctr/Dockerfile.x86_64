@@ -82,12 +82,15 @@ RUN apt-get update \
 # Update Python to 3.10
 # This method isn't ideal, compiling from source can be dropped
 # once the container definition is based on ubuntu:22.04
-RUN wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
+RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
+    && wget https://www.python.org/ftp/python/3.10.4/Python-3.10.4.tgz \
     && tar -xf Python-3.10.4.tgz \
     && cd ./Python-3.10.4 \
     && ./configure --enable-optimizations \
     && make -j 8 \
-    && make install
+    && make install \
+    && cd / \
+    && rm -rf "$TMP_BUILD_DIR"
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
