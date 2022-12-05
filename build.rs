@@ -7,7 +7,7 @@ use std::process::Command;
 // embedding the FIRECRACKER_VERSION directly in the resulting binary
 fn main() {
     let firecracker_version = Command::new("git")
-        .args(&["describe", "--dirty"])
+        .args(["describe", "--dirty"])
         .output()
         .ok()
         .and_then(|output| {

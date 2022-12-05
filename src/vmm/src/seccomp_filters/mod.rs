@@ -74,7 +74,7 @@ impl SeccompConfig {
         } else {
             match seccomp_filter {
                 Some(path) => Ok(SeccompConfig::Custom(Box::new(
-                    File::open(&path).map_err(FilterError::FileOpen)?,
+                    File::open(path).map_err(FilterError::FileOpen)?,
                 ))),
                 None => Ok(SeccompConfig::Advanced),
             }
