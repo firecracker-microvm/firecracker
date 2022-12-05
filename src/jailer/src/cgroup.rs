@@ -338,7 +338,7 @@ impl CgroupV2 {
             }
         };
 
-        Self::write_all_subtree_control(&parent, controller)?;
+        Self::write_all_subtree_control(parent, controller)?;
         writeln_special(&cg_subtree_ctrl, format!("+{}", &controller))
     }
 
@@ -399,7 +399,7 @@ impl Cgroup for CgroupV2 {
         // Ok to unwrap since the path was just created.
         let parent = location.parent().unwrap();
         // Enable the controller in all parent directories
-        CgroupV2::write_all_subtree_control(&parent, controller)?;
+        CgroupV2::write_all_subtree_control(parent, controller)?;
 
         location.push(&self.0.file);
         writeln_special(location, &self.0.value)?;

@@ -1656,7 +1656,7 @@ pub(crate) mod tests {
         let mut block = default_block(default_engine_type_for_kv());
         let f = TempFile::new().unwrap();
         let path = f.as_path();
-        let mdata = metadata(&path).unwrap();
+        let mdata = metadata(path).unwrap();
         let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
         let part_id = str_id.as_bytes();
