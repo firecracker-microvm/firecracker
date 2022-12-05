@@ -40,38 +40,6 @@ def _create_and_start_microvm_with_net_devices(
 
 
 @pytest.mark.skipif(
-    platform.machine() != "aarch64", reason="Exercises specific x86_64 functionality."
-)
-def test_create_v0_23_snapshot(test_microvm_with_api):
-    """
-    Exercise creating a snapshot targeting v0.23 on aarch64.
-
-    @type: functional
-    """
-    test_microvm = test_microvm_with_api
-
-    _create_and_start_microvm_with_net_devices(test_microvm)
-
-    snapshot_builder = SnapshotBuilder(test_microvm)
-    # Create directory and files for saving snapshot state and memory.
-    _snapshot_dir = snapshot_builder.create_snapshot_dir()
-
-    # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state="Paused")
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.snapshot.create(
-        mem_file_path="/snapshot/vm.mem",
-        snapshot_path="/snapshot/vm.vmstate",
-        diff=True,
-        version="0.23.0",
-    )
-
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot translate microVM version to snapshot data version" in response.text
-
-
-@pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Exercises specific x86_64 functionality."
 )
 def test_create_with_too_many_devices(test_microvm_with_api, network_config):
