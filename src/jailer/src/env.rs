@@ -125,7 +125,7 @@ impl Env {
         let chroot_base = arguments
             .single_value("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
-        let mut chroot_dir = canonicalize(&chroot_base)
+        let mut chroot_dir = canonicalize(chroot_base)
             .map_err(|err| Error::Canonicalize(PathBuf::from(&chroot_base), err))?;
 
         if !chroot_dir.is_dir() {
@@ -412,10 +412,10 @@ impl Env {
 
     fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
         Command::new(chroot_exec_file)
-            .args(&["--id", &self.id])
-            .args(&["--start-time-us", &self.start_time_us.to_string()])
-            .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
-            .args(&["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
+            .args(["--id", &self.id])
+            .args(["--start-time-us", &self.start_time_us.to_string()])
+            .args(["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args(["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -467,8 +467,8 @@ impl Env {
             // We now read the contents of the current directory and copy the files we are
             // interested in to the destination path.
             for entry in FOLDER_HIERARCHY.iter() {
-                let host_cache_file = host_path.join(&entry);
-                let jailer_cache_file = jailer_path.join(&entry);
+                let host_cache_file = host_path.join(entry);
+                let jailer_cache_file = jailer_path.join(entry);
 
                 let line = readln_special(&host_cache_file)?;
                 writeln_special(&jailer_cache_file, line)?;
@@ -557,7 +557,7 @@ impl Env {
         // for all of them.
         FOLDER_HIERARCHY
             .iter()
-            .try_for_each(|f| self.setup_jailed_folder(*f))?;
+            .try_for_each(|f| self.setup_jailed_folder(f))?;
 
         // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
@@ -1179,7 +1179,7 @@ mod tests {
             assert_eq!(
                 format!(
                     "{:?}",
-                    Env::parse_resource_limits(&mut resource_limits, &*arg)
+                    Env::parse_resource_limits(&mut resource_limits, &arg)
                         .err()
                         .unwrap()
                 ),
@@ -1194,7 +1194,7 @@ mod tests {
             assert_eq!(
                 format!(
                     "{:?}",
-                    Env::parse_resource_limits(&mut resource_limits, &*vec![arg])
+                    Env::parse_resource_limits(&mut resource_limits, &[arg])
                         .err()
                         .unwrap()
                 ),
@@ -1209,7 +1209,7 @@ mod tests {
             assert_eq!(
                 format!(
                     "{:?}",
-                    Env::parse_resource_limits(&mut resource_limits, &*vec![arg])
+                    Env::parse_resource_limits(&mut resource_limits, &[arg])
                         .err()
                         .unwrap()
                 ),
@@ -1227,7 +1227,7 @@ mod tests {
         let resources = [FSIZE_ARG, NO_FILE_ARG];
         for resource in resources.iter() {
             let arg = vec![resource.to_string() + "=4098"];
-            Env::parse_resource_limits(&mut resource_limits, &*arg).unwrap();
+            Env::parse_resource_limits(&mut resource_limits, &arg).unwrap();
         }
     }
 
