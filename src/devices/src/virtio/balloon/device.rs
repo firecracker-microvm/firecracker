@@ -682,8 +682,8 @@ pub(crate) mod tests {
                 assert_eq!(balloon.device_type(), TYPE_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
-                    | ((if *deflate_on_oom { 1 } else { 0 }) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
-                    | ((*stats_interval as u64) << VIRTIO_BALLOON_F_STATS_VQ);
+                    | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
+                    | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
                 assert_eq!(balloon.avail_features_by_page(0), features as u32);
                 assert_eq!(balloon.avail_features_by_page(1), (features >> 32) as u32);
