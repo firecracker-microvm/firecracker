@@ -61,7 +61,6 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -188,30 +187,20 @@ impl<T: Serialize> Deref for Metrics<T> {
 }
 
 /// Describes the errors which may occur while handling metrics scenarios.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MetricsError {
     /// First attempt at initialization failed.
+    #[error("{0}")]
     NeverInitialized(String),
     /// The metrics system does not allow reinitialization.
+    #[error("Reinitialization of metrics not allowed.")]
     AlreadyInitialized,
     /// Error in the serialization of metrics instance.
+    #[error("{0}")]
     Serde(String),
     /// Writing the specified buffer failed.
+    #[error("Failed to write metrics: {0}")]
     Write(std::io::Error),
-}
-
-impl fmt::Display for MetricsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match *self {
-            MetricsError::NeverInitialized(ref err) => err.to_string(),
-            MetricsError::AlreadyInitialized => {
-                "Reinitialization of metrics not allowed.".to_string()
-            }
-            MetricsError::Serde(ref err) => err.to_string(),
-            MetricsError::Write(ref err) => format!("Failed to write metrics: {}", err),
-        };
-        write!(f, "{}", printable)
-    }
 }
 
 /// Used for defining new types of metrics that act as a counter (i.e they are continuously updated
