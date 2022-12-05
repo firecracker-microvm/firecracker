@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a bug on ARM64 hosts where the upper 64bits of the V0-V31 FL/SIMD
+  registers were not saved correctly when taking a snapshot, potentially leading
+  to data loss. This change invalidates all ARM64 snapshots taken with versions
+  of Firecracker <= 1.1.3.
+
 ## [1.1.3]
 
 ### Fixed
