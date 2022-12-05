@@ -172,7 +172,7 @@ fn open_file_nonblock(path: &Path) -> Result<File> {
         .custom_flags(O_NONBLOCK)
         .read(true)
         .write(true)
-        .open(&path)
+        .open(path)
 }
 
 type FcLineWriter = io::LineWriter<File>;
