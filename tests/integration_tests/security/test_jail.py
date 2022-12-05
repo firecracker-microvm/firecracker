@@ -98,7 +98,7 @@ def test_empty_jailer_id(test_microvm_with_api):
         assert False
     except Exception as err:
         expected_err = (
-            "Jailer error: Invalid instance ID: invalid len (0);"
+            "Jailer error: Invalid instance ID: Invalid len (0);"
             "  the length must be between 1 and 64"
         )
         assert expected_err in str(err)

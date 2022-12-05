@@ -1269,6 +1269,7 @@ dependencies = [
  "net_gen",
  "serde",
  "serde_json",
+ "thiserror",
  "versionize",
  "versionize_derive",
  "vmm-sys-util",
