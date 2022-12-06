@@ -3,6 +3,8 @@
 
 # Pytest fixtures and redefined-outer-name don't mix well. Disable it.
 # pylint:disable=redefined-outer-name
+# We import some fixtures that are unused. Disable that too.
+# pylint:disable=unused-import
 
 """Imported by pytest at the start of every test session.
 
@@ -91,8 +93,8 @@ from pathlib import Path
 import pytest
 
 import host_tools.cargo_build as build_tools
-import host_tools.network as net_tools
 from host_tools import proc
+from host_tools.ip_generator import network_config, subnet_generator
 from framework import utils
 from framework import defs
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
@@ -216,9 +218,6 @@ def pytest_configure(config):
     Initialize the test scheduler and IPC services.
     """
     config.addinivalue_line("markers", "nonci: mark test as nonci.")
-    PytestScheduler.instance().register_mp_singleton(
-        net_tools.UniqueIPv4Generator.instance()
-    )
     config.pluginmanager.register(PytestScheduler.instance())
 
 
@@ -427,12 +426,6 @@ def microvm_factory(tmp_path, bin_cloner_path):
             return vm
 
     yield MicroVMFactory(tmp_path, bin_cloner_path)
-
-
-@pytest.fixture
-def network_config():
-    """Yield a UniqueIPv4Generator."""
-    yield net_tools.UniqueIPv4Generator.instance()
 
 
 @pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))

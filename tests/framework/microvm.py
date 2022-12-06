@@ -784,10 +784,13 @@ class Microvm:
         """
         # Create tap before configuring interface.
         tapname = tapname or (self.id[:8] + "tap" + iface_id)
-        (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-        tap = self.create_tap_and_ssh_config(
-            host_ip, guest_ip, network_config.get_netmask_len(), tapname
-        )
+        # The guest is hardcoded to expect an IP in a /30 network,
+        # so we request the IPs to be aligned on a /30 network
+        # See https://github.com/firecracker-microvm/firecracker/blob/main/resources/tests/fcnet-setup.sh#L21
+        # file:../../resources/tests/fcnet-setup.sh#L21
+        netmask_len = 30
+        (host_ip, guest_ip) = network_config.get_next_available_ips(2, netmask_len)
+        tap = self.create_tap_and_ssh_config(host_ip, guest_ip, netmask_len, tapname)
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
         response = self.network.put(
