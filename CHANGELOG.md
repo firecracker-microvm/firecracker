@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Improved error message when invalid network backend provided
+
 ## [1.2.0]
 
 ### Added
