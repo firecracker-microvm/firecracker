@@ -30,7 +30,7 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-def test_boottime_no_network(test_microvm_with_api):
+def test_boottime_no_network(test_microvm_with_api, record_property):
     """
     Check boot time of microVM without a network device.
 
@@ -40,12 +40,11 @@ def test_boottime_no_network(test_microvm_with_api):
     vm.jailer.extra_args.update({"boot-timer": None})
     _ = _configure_and_run_vm(vm)
     boottime_us = _test_microvm_boottime(vm)
-    print("Boot time with no network is: " + str(boottime_us) + " us")
+    print(f"Boot time with no network is: {boottime_us} us")
+    record_property("boottime_no_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
 
-    return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
 
-
-def test_boottime_with_network(test_microvm_with_api, network_config):
+def test_boottime_with_network(test_microvm_with_api, network_config, record_property):
     """
     Check boot time of microVM with a network device.
 
@@ -55,12 +54,13 @@ def test_boottime_with_network(test_microvm_with_api, network_config):
     vm.jailer.extra_args.update({"boot-timer": None})
     _tap = _configure_and_run_vm(vm, {"config": network_config, "iface_id": "1"})
     boottime_us = _test_microvm_boottime(vm)
-    print("Boot time with network configured is: " + str(boottime_us) + " us")
+    print(f"Boot time with network configured is: {boottime_us} us")
+    record_property(
+        "boottime_with_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us"
+    )
 
-    return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
 
-
-def test_initrd_boottime(test_microvm_with_initrd):
+def test_initrd_boottime(test_microvm_with_initrd, record_property):
     """
     Check boot time of microVM when using an initrd.
 
@@ -70,9 +70,8 @@ def test_initrd_boottime(test_microvm_with_initrd):
     vm.jailer.extra_args.update({"boot-timer": None})
     _tap = _configure_and_run_vm(vm, initrd=True)
     boottime_us = _test_microvm_boottime(vm, max_time_us=INITRD_BOOT_TIME_US)
-    print("Boot time with initrd is: " + str(boottime_us) + " us")
-
-    return f"{boottime_us} us", f"< {INITRD_BOOT_TIME_US} us"
+    print(f"Boot time with initrd is: {boottime_us} us")
+    record_property("boottime_initrd", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
 
 
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
