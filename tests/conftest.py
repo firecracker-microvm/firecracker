@@ -81,13 +81,15 @@ be run on every microvm image in the bucket, each as a separate test case.
   by the MicrovmImageFetcher, but not by the fixture template.
 """
 
+import inspect
+import json
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
 import uuid
-import json
 from pathlib import Path
 
 import pytest
@@ -101,6 +103,7 @@ from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
+from framework.properties import GLOBAL_PROPS
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
@@ -113,8 +116,6 @@ if sys.version_info < (3, 6):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
-
-
 
 
 def _test_images_s3_bucket():
@@ -232,6 +233,34 @@ def pytest_collection_modifyitems(config, items):
         for skip_marker_name, skip_marker in skip_markers.items():
             if skip_marker_name in item.keywords:
                 item.add_marker(skip_marker)
+
+
+def pytest_runtest_makereport(item, call):
+    """Decorate test results with additional properties."""
+    if call.when != "setup":
+        return
+
+    for prop_name, prop_val in GLOBAL_PROPS.items():
+        # if record_testsuite_property worked with xdist we could use that
+        # https://docs.pytest.org/en/7.1.x/reference/reference.html#record-testsuite-property
+        # to record the properties once per report. But here we record each
+        # prop per test. It just results in larger report files.
+        item.user_properties.append((prop_name, prop_val))
+
+    function_docstring = inspect.getdoc(item.function)
+    description = []
+    attributes = {}
+    for line in function_docstring.split("\n"):
+        # extract tags like @type, @issue, etc
+        match = re.match(r"\s*@(?P<attr>\w+):\s*(?P<value>\w+)", line)
+        if match:
+            attr, value = match["attr"], match["value"]
+            attributes[attr] = value
+        else:
+            description.append(line)
+    for attr_name, attr_value in attributes.items():
+        item.user_properties.append((attr_name, attr_value))
+    item.user_properties.append(("description", "".join(description)))
 
 
 def test_session_root_path():
