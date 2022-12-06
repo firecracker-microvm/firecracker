@@ -93,7 +93,6 @@ from pathlib import Path
 import pytest
 
 import host_tools.cargo_build as build_tools
-from host_tools import proc
 from host_tools.ip_generator import network_config, subnet_generator
 from framework import utils
 from framework import defs
@@ -117,13 +116,6 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-# Style related tests and dependency enforcements are run only on Intel.
-if "Intel" not in proc.proc_type():
-    TEST_DIR = "integration_tests"
-    collect_ignore = [
-        os.path.join(SCRIPT_FOLDER, "{}/style".format(TEST_DIR)),
-        os.path.join(SCRIPT_FOLDER, "{}/build/test_dependencies.py".format(TEST_DIR)),
-    ]
 
 
 def _test_images_s3_bucket():
