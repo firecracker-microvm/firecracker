@@ -656,6 +656,7 @@ cmd_test() {
         --workdir "$CTR_FC_ROOT_DIR/tests" \
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
+        -e AWS_EMF_AGENT_ENDPOINT -e AWS_EMF_SERVICE_NAME -e AWS_EMF_NAMESPACE -e AWS_EMF_DISABLE_METRIC_EXTRACTION \
         -v /boot:/boot \
         ${ramdisk_args} \
         -- \
