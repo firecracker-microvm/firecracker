@@ -79,8 +79,26 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
     ```
 
-1. Tag the new image with the next available version and the architecture
-   you're on.
+1. Tag the new image with the next available version `X` and the architecture
+   you're on. Note that this will not always be "current version in devtool + 1",
+   as sometimes that version might already be used on feature branches. Always
+   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
+   to make sure you do not accidentally overwrite an existing image.
+
+   As a sanity check, run:
+
+   ```bash
+   docker pull public.ecr.aws/firecracker/fcuvm:vX
+   ```
+
+   and verify that you get an error message along the lines of
+
+   ```
+   Error response from daemon: manifest for public.ecr.aws/firecracker/fcuvm:vX not
+   found: manifest unknown: Requested image not found
+   ```
+
+   This means the version you've chosen does not exist yet, and you are good to go.
 
     ```bash
     docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
@@ -121,8 +139,26 @@ Then continue with the above steps:
     public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
     ```
 
-1. Tag the new image with the next available version and the architecture
-   you're on.
+1. Tag the new image with the next available version `X` and the architecture
+   you're on. Note that this will not always be "current version in devtool + 1",
+   as sometimes that version might already be used on feature branches. Always
+   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
+   to make sure you do not accidentally overwrite an existing image.
+
+   As a sanity check, run:
+
+   ```bash
+   docker pull public.ecr.aws/firecracker/fcuvm:vX
+   ```
+
+   and verify that you get an error message along the lines of
+
+   ```
+   Error response from daemon: manifest for public.ecr.aws/firecracker/fcuvm:vX not
+   found: manifest unknown: Requested image not found
+   ```
+
+   This means the version you've chosen does not exist yet, and you are good to go.
 
     ```bash
     docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
