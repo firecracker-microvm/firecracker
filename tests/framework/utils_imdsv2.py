@@ -50,6 +50,7 @@ class IMDSv2Client:
         Get a metadata path from IMDSv2
 
         >>> IMDSv2Client().get("/meta-data/instance-type")
+        >>> m5d.metal
         """
         headers = {IMDSV2_HDR_TOKEN: self.get_token()}
         url = f"{self.endpoint}/{self.version}{path}"

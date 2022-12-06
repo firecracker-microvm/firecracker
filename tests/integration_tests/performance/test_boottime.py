@@ -6,6 +6,8 @@ import re
 import platform
 from framework.utils_cpuid import get_instance_type, get_cpu_model_name
 
+from framework.properties import global_props
+
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
 # NOTE: For aarch64 most of the boot time is spent by the kernel to unpack the
@@ -37,6 +39,13 @@ INITRD_BOOT_TIME_US = {
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 
+DIMENSIONS = {
+    "cpu_arch": global_props.cpu_architecture,
+    "cpu_model": global_props.cpu_model,
+    "host_linux": global_props.host_linux_version,
+}
+
+
 def test_no_boottime(test_microvm_with_api):
     """
     Check that boot timer device is not present by default.
@@ -51,7 +60,7 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-def test_boottime_no_network(test_microvm_with_api, record_property):
+def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     """
     Check boot time of microVM without a network device.
 
@@ -63,9 +72,13 @@ def test_boottime_no_network(test_microvm_with_api, record_property):
     boottime_us = _test_microvm_boottime(vm)
     print(f"Boot time with no network is: {boottime_us} us")
     record_property("boottime_no_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
+    metrics.set_dimensions(DIMENSIONS)
+    metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
 
 
-def test_boottime_with_network(test_microvm_with_api, network_config, record_property):
+def test_boottime_with_network(
+    test_microvm_with_api, network_config, record_property, metrics
+):
     """
     Check boot time of microVM with a network device.
 
@@ -79,9 +92,11 @@ def test_boottime_with_network(test_microvm_with_api, network_config, record_pro
     record_property(
         "boottime_with_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us"
     )
+    metrics.set_dimensions(DIMENSIONS)
+    metrics.put_metric("boot_time_with_net", boottime_us, unit="Microseconds")
 
 
-def test_initrd_boottime(test_microvm_with_initrd, record_property):
+def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
     """
     Check boot time of microVM when using an initrd.
 
@@ -96,6 +111,8 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property):
     boottime_us = _test_microvm_boottime(vm, max_time_us=max_time_us)
     print(f"Boot time with initrd is: {boottime_us} us")
     record_property("boottime_initrd", f"{boottime_us} us < {max_time_us} us")
+    metrics.set_dimensions(DIMENSIONS)
+    metrics.put_metric("boot_time_with_initrd", boottime_us, unit="Microseconds")
 
 
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):

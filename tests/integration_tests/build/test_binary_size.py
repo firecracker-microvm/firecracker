@@ -34,7 +34,7 @@ BINARY_SIZE_TOLERANCE = 0.05
 
 
 @pytest.mark.timeout(500)
-def test_firecracker_binary_size(record_property):
+def test_firecracker_binary_size(record_property, metrics):
     """
     Test if the size of the firecracker binary is within expected ranges.
 
@@ -53,10 +53,12 @@ def test_firecracker_binary_size(record_property):
         "firecracker_binary_size",
         f"{result}B ({FC_BINARY_SIZE_TARGET}B ±{BINARY_SIZE_TOLERANCE:.0%})",
     )
+    metrics.set_dimensions({"cpu_arch": MACHINE})
+    metrics.put_metric("firecracker_binary_size", result, unit="Bytes")
 
 
 @pytest.mark.timeout(500)
-def test_jailer_binary_size(record_property):
+def test_jailer_binary_size(record_property, metrics):
     """
     Test if the size of the jailer binary is within expected ranges.
 
@@ -75,6 +77,8 @@ def test_jailer_binary_size(record_property):
         "jailer_binary_size",
         f"{result}B ({JAILER_BINARY_SIZE_TARGET}B ±{BINARY_SIZE_TOLERANCE:.0%})",
     )
+    metrics.set_dimensions({"cpu_arch": MACHINE})
+    metrics.put_metric("jailer_binary_size", result, unit="Bytes")
 
 
 def check_binary_size(name, binary_path, size_target, tolerance):
