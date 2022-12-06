@@ -99,7 +99,6 @@ from framework import defs
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
-from framework.scheduler import PytestScheduler
 from framework.utils import get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
 
@@ -205,12 +204,8 @@ def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None)
 
 
 def pytest_configure(config):
-    """Pytest hook - initialization.
-
-    Initialize the test scheduler and IPC services.
-    """
+    """Pytest hook - initialization"""
     config.addinivalue_line("markers", "nonci: mark test as nonci.")
-    config.pluginmanager.register(PytestScheduler.instance())
 
 
 def pytest_addoption(parser):
@@ -220,7 +215,23 @@ def pytest_addoption(parser):
         action="store_true",
         help="Flag to dump test results to the test_results folder.",
     )
-    return PytestScheduler.instance().do_pytest_addoption(parser)
+    parser.addoption("--nonci", action="store_true", help="run tests marked with nonci")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Pytest hook. Skip some tests."""
+    skip_markers = {}
+
+    for skip_marker_name in ["nonci"]:
+        if not config.getoption(f"--{skip_marker_name}"):
+            skip_markers[skip_marker_name] = pytest.mark.skip(
+                reason=f"Skipping {skip_marker_name} test"
+            )
+
+    for item in items:
+        for skip_marker_name, skip_marker in skip_markers.items():
+            if skip_marker_name in item.keywords:
+                item.add_marker(skip_marker)
 
 
 def test_session_root_path():
