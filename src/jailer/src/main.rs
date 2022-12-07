@@ -649,7 +649,7 @@ mod tests {
                 "{}",
                 Error::InvalidInstanceId(validators::Error::InvalidChar('a', 1))
             ),
-            "Invalid instance ID: invalid char (a) at position 1",
+            "Invalid instance ID: Invalid char (a) at position 1",
         );
         assert_eq!(
             format!("{}", Error::MissingParent(file_path.clone())),
