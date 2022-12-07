@@ -63,6 +63,15 @@ lazy_static! {
 
     /// Static instance used for creating a 1:1 mapping between Firecracker release version
     /// and snapshot data format version.
+    /// !CAVEAT!
+    /// This map is supposed to be strictly one-to-one (i.e. bijective) because
+    /// describe-snapshot inverts it to look up the release that matches the
+    /// snapshot version. If two version map to the snap_version, the results
+    /// are non-deterministic.
+    /// This means
+    /// - Do not insert patch releases here.
+    /// - Every minor version should be represented here.
+    /// - When requesting a `target_version`, these are the versions we expect.
     pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
         let mut mapping = HashMap::new();
         #[cfg(not(target_arch = "aarch64"))]
