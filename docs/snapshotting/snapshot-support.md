@@ -293,14 +293,23 @@ the snapshot.
     dirtied page bitmap and marks all pages clean (from a diff snapshot point
     of view).
   - If a `version` is specified, the new snapshot is saved at that version,
-    otherwise it will be saved at the same version of the running Firecracker.
-    The version is only used for the microVM state file as it contains internal
-    state structures for device emulation, vCPUs and others that can change
-    their format from a Firecracker version to another. Versioning is not
-    required for the block and memory files. The separate block device file
-    components of the snapshot have to be handled by the user.
+    otherwise it will be saved at the latest snapshot version of the running
+    Firecracker. The version is only used for the microVM state file as it
+    contains internal state structures for device emulation, vCPUs and others
+    that can change their format from a Firecracker version to another.
+    Versioning is not required for the block and memory files.
 
 - _on failure_: no side-effects.
+
+**Notes**:
+
+- The separate block device file components of the snapshot have to be handled
+  by the user.
+- If specified, `version` must match the firecracker version that introduced a
+  snapshot version, which may differ from the running Firecracker version. For
+  example, if you are running on `1.1.2` and want to target version `1.0.4`, you
+  should specify `1.0.0`. Not specifying `version` uses the latest snapshot
+  version available to that version.
 
 #### Creating diff snapshots
 
