@@ -21,6 +21,7 @@ the terms of the Apache 2.0 license.
 - [ ] API changes follow the [Runbook for Firecracker API changes][2].
 - [ ] User-facing changes are mentioned in `CHANGELOG.md`.
 - [ ] All added/changed functionality is tested.
+- [ ] New `TODO`s link to an issue.
 
 ---
 
