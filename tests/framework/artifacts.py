@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Define classes for interacting with CI artifacts in s3."""
 
+import functools
 import os
 import platform
 import tempfile
@@ -9,8 +10,10 @@ from shutil import copyfile
 from enum import Enum
 from stat import S_IREAD, S_IWRITE
 from pathlib import Path
+
 import boto3
 import botocore.client
+
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, SUPPORTED_KERNELS
 from framework.utils import compare_versions
 from host_tools.snapshot_helper import merge_memory_bitmaps
@@ -93,7 +96,7 @@ class Artifact:
         Path(self.local_dir()).mkdir(parents=True, exist_ok=True)
         if force or not os.path.exists(self.local_path()):
             self._bucket.download_file(self._key, self.local_path())
-            # Artifacts are read only by design.
+            # Artifacts are read-only by design.
             os.chmod(self.local_path(), S_IREAD)
 
     def local_path(self):
@@ -276,11 +279,12 @@ class DiskArtifact(Artifact):
 class FirecrackerArtifact(Artifact):
     """Provides access to associated jailer artifact."""
 
+    @functools.lru_cache
     def jailer(self):
         """Return a jailer binary artifact."""
         # Jailer and FC binaries have different extensions and share
         # file name when stored in S3:
-        # Firecracker binary: v0.22.firecrcker
+        # Firecracker binary: v0.22.firecracker
         # Jailer binary: v0.23.0.jailer
         jailer_path = str(Path(self.key).with_suffix(".jailer"))
         return Artifact(self.bucket, jailer_path, artifact_type=ArtifactType.JAILER)
@@ -290,6 +294,25 @@ class FirecrackerArtifact(Artifact):
         """Return the artifact's version: `X.Y.Z`."""
         # Get the filename, remove the extension and trim the leading 'v'.
         return os.path.splitext(os.path.basename(self.key))[0][1:]
+
+    @property
+    def version_tuple(self):
+        """Return the artifact's version as a tuple `(X, Y, Z)`."""
+        return tuple(int(x) for x in self.version.split("."))
+
+    @property
+    def snapshot_version_tuple(self):
+        """Return the artifact's snapshot version as a tuple: `X.Y.0`."""
+        return self.version_tuple[:2] + (0,)
+
+    @property
+    def snapshot_version(self):
+        """Return the artifact's snapshot version: `X.Y.0`.
+
+        Due to how Firecracker maps release versions to snapshot versions, we
+        have to request the minor version instead of the actual version.
+        """
+        return ".".join(str(x) for x in self.snapshot_version_tuple)
 
 
 class ArtifactCollection:
