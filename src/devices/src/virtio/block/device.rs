@@ -528,6 +528,18 @@ impl Block {
 }
 
 impl VirtioDevice for Block {
+    fn avail_features(&self) -> u64 {
+        self.avail_features
+    }
+
+    fn acked_features(&self) -> u64 {
+        self.acked_features
+    }
+
+    fn set_acked_features(&mut self, acked_features: u64) {
+        self.acked_features = acked_features;
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }
@@ -551,18 +563,6 @@ impl VirtioDevice for Block {
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
-    }
-
-    fn avail_features(&self) -> u64 {
-        self.avail_features
-    }
-
-    fn acked_features(&self) -> u64 {
-        self.acked_features
-    }
-
-    fn set_acked_features(&mut self, acked_features: u64) {
-        self.acked_features = acked_features;
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
@@ -591,10 +591,6 @@ impl VirtioDevice for Block {
         self.config_space[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
     }
 
-    fn is_activated(&self) -> bool {
-        self.device_state.is_activated()
-    }
-
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
@@ -609,6 +605,10 @@ impl VirtioDevice for Block {
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
+    }
+
+    fn is_activated(&self) -> bool {
+        self.device_state.is_activated()
     }
 }
 

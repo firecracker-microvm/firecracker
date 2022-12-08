@@ -498,6 +498,18 @@ impl Balloon {
 }
 
 impl VirtioDevice for Balloon {
+    fn avail_features(&self) -> u64 {
+        self.avail_features
+    }
+
+    fn acked_features(&self) -> u64 {
+        self.acked_features
+    }
+
+    fn set_acked_features(&mut self, acked_features: u64) {
+        self.acked_features = acked_features;
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BALLOON
     }
@@ -520,18 +532,6 @@ impl VirtioDevice for Balloon {
 
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
-    }
-
-    fn avail_features(&self) -> u64 {
-        self.avail_features
-    }
-
-    fn acked_features(&self) -> u64 {
-        self.acked_features
-    }
-
-    fn set_acked_features(&mut self, acked_features: u64) {
-        self.acked_features = acked_features;
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
@@ -562,10 +562,6 @@ impl VirtioDevice for Balloon {
         config_space_bytes[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
     }
 
-    fn is_activated(&self) -> bool {
-        self.device_state.is_activated()
-    }
-
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
@@ -580,6 +576,10 @@ impl VirtioDevice for Balloon {
         }
 
         Ok(())
+    }
+
+    fn is_activated(&self) -> bool {
+        self.device_state.is_activated()
     }
 }
 
