@@ -272,7 +272,7 @@ Details about the required and optional fields can be found in the
 
 *Note*: If the files indicated by `snapshot_path` and `mem_file_path` don't
 exist at the specified paths, then they will be created right before generating
-the snapshot.
+the snapshot. If they exist, the files will be truncated and overwritten.
 
 **Prerequisites**: The microVM is `Paused`.
 
