@@ -3,8 +3,8 @@
 
 use std::convert::TryInto;
 use std::ops::Deref;
+use std::result;
 use std::sync::{Arc, Mutex};
-use std::{fmt, result};
 
 use devices::virtio::net::TapError;
 use devices::virtio::Net;
@@ -61,43 +61,23 @@ pub struct NetworkInterfaceUpdateConfig {
 }
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum NetworkInterfaceError {
-    /// Could not create Network Device.
-    CreateNetworkDevice(devices::virtio::net::Error),
-    /// Failed to create a `RateLimiter` object.
-    CreateRateLimiter(std::io::Error),
-    /// The MAC address is already in use.
+    /// Could not create Network Device
+    #[error("Could not create Network Device: {0}")]
+    CreateNetworkDevice(#[from] devices::virtio::net::Error),
+    /// Failed to create a `RateLimiter` object
+    #[error("Failed to create a `RateLimiter` object: {0}")]
+    CreateRateLimiter(#[from] std::io::Error),
+    /// The MAC address is already in use
+    #[error("The MAC address is already in use: {0}")]
     GuestMacAddressInUse(String),
-    /// Error during interface update (patch).
-    DeviceUpdate(VmmError),
-    /// Cannot open/create tap device.
-    OpenTap(TapError),
-}
-
-impl fmt::Display for NetworkInterfaceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::NetworkInterfaceError::*;
-        match self {
-            CreateNetworkDevice(err) => write!(f, "Could not create Network Device: {:?}", err),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            GuestMacAddressInUse(mac_addr) => {
-                write!(f, "The guest MAC address {mac_addr} is already in use.")
-            }
-            DeviceUpdate(err) => write!(f, "Error during interface update (patch): {}", err),
-            OpenTap(err) => {
-                // We are propagating the Tap Error. This error can contain
-                // imbricated quotes which would result in an invalid json.
-                let mut tap_err = format!("{:?}", err);
-                tap_err = tap_err.replace('\"', "");
-
-                write!(
-                    f,
-                    "Cannot open TAP device. Invalid name/permissions. {tap_err}",
-                )
-            }
-        }
-    }
+    /// Error during interface update (patch)
+    #[error("Error during interface update (patch): {0}")]
+    DeviceUpdate(#[from] VmmError),
+    /// Cannot open/create tap device
+    #[error("Cannot open/create tap device: {0}")]
+    OpenTap(#[from] TapError),
 }
 
 type Result<T> = result::Result<T, NetworkInterfaceError>;
@@ -172,11 +152,13 @@ impl NetBuilder {
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
-            .transpose()?;
+            .transpose()
+            .map_err(NetworkInterfaceError::CreateRateLimiter)?;
         let tx_rate_limiter = cfg
             .tx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
-            .transpose()?;
+            .transpose()
+            .map_err(NetworkInterfaceError::CreateRateLimiter)?;
 
         // Create and return the Net device
         devices::virtio::net::Net::new_with_tap(
@@ -285,10 +267,10 @@ mod tests {
         let guest_mac_2 = "01:23:45:67:89:0b";
 
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
-        let expected_error = format!("The guest MAC address {} is already in use.", guest_mac_1);
+        let expected_error = NetworkInterfaceError::GuestMacAddressInUse(guest_mac_1.into());
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            expected_error
+            expected_error.to_string()
         );
         assert_eq!(net_builder.net_devices.len(), 1);
 
@@ -297,7 +279,10 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
+                TapError::IfreqExecuteError(
+                    std::io::Error::from_raw_os_error(16),
+                    host_dev_name_1.to_string()
+                )
             ))
             .to_string()
         );
@@ -310,10 +295,10 @@ mod tests {
         // Error Cases for UPDATE
         // Error Case: Update netif_2 mac using the same mac as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
-        let expected_error = format!("The guest MAC address {} is already in use.", guest_mac_1);
+        let expected_error = NetworkInterfaceError::GuestMacAddressInUse(guest_mac_1.into());
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            expected_error
+            expected_error.to_string()
         );
 
         // Error Case: Update netif_2 dev_host_name using the same dev_host_name as netif_1.
@@ -321,30 +306,12 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
+                TapError::IfreqExecuteError(
+                    std::io::Error::from_raw_os_error(16),
+                    host_dev_name_1.to_string()
+                )
             ))
             .to_string()
-        );
-    }
-
-    #[test]
-    fn test_error_display() {
-        // FIXME: use macro
-        let err = NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-            TapError::InvalidIfname,
-        ));
-        let _ = format!("{}{:?}", err, err);
-        let err = NetworkInterfaceError::CreateRateLimiter(std::io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::DeviceUpdate(VmmError::VcpuExit),
-            NetworkInterfaceError::DeviceUpdate(VmmError::VcpuExit)
-        );
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::OpenTap(TapError::InvalidIfname),
-            NetworkInterfaceError::OpenTap(TapError::InvalidIfname)
         );
     }
 
