@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::num::Wrapping;
-use std::{fmt, io, result};
+use std::{io, result};
 
 use logger::{error, warn, IncMetric, METRICS};
 use utils::eventfd::EventFd;
@@ -14,28 +14,17 @@ use utils::eventfd::EventFd;
 use crate::bus::BusDevice;
 
 /// Errors thrown by the i8042 device.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Failure in triggering the keyboard interrupt (guest disabled).
-    KbdInterruptDisabled,
-    /// Failure in triggering the keyboard interrupt.
-    KbdInterruptFailure(io::Error),
     /// Internal i8042 buffer is full.
+    #[error("i8042 internal buffer full.")]
     InternalBufferFull,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::KbdInterruptDisabled => {
-                write!(f, "Keyboard interrupt disabled by guest driver.",)
-            }
-            Error::KbdInterruptFailure(io_err) => {
-                write!(f, "Could not trigger keyboard interrupt: {io_err}.",)
-            }
-            Error::InternalBufferFull => write!(f, "i8042 internal buffer full."),
-        }
-    }
+    /// Failure in triggering the keyboard interrupt.
+    #[error("Keyboard interrupt disabled by guest driver.")]
+    KbdInterruptDisabled,
+    /// Failure in triggering the keyboard interrupt (guest disabled).
+    #[error("Could not trigger keyboard interrupt: {0}.")]
+    KbdInterruptFailure(io::Error),
 }
 
 type Result<T> = result::Result<T, Error>;
