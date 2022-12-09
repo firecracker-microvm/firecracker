@@ -42,7 +42,7 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use std::{fmt, io, process};
+use std::{io, process};
 
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
@@ -55,38 +55,25 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 enum Error {
+    #[error("Bincode (de)serialization failed: {0}")]
     Bincode(BincodeError),
-    FileOpen(PathBuf, io::Error),
+    #[error("{0}")]
     FileFormat(FilterFormatError),
+    #[error("{}", format!("Failed to open file {:?}: {1}", .0, .1).replace('\"', ""))]
+    FileOpen(PathBuf, io::Error),
+    #[error("Error parsing JSON: {0}")]
     Json(JSONError),
+    #[error("Missing input file.")]
     MissingInputFile,
+    #[error("Missing target arch.")]
     MissingTargetArch,
+    #[error("{0}")]
     Arch(TargetArchError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            Bincode(ref err) => write!(f, "Bincode (de)serialization failed: {}", err),
-            FileFormat(ref err) => write!(f, "{}", err),
-            FileOpen(ref path, ref err) => write!(
-                f,
-                "{}",
-                format!("Failed to open file {:?}: {}", path, err).replace('\"', "")
-            ),
-            Json(ref err) => write!(f, "Error parsing JSON: {}", err),
-            MissingInputFile => write!(f, "Missing input file."),
-            MissingTargetArch => write!(f, "Missing target arch."),
-            Arch(ref err) => write!(f, "{}", err),
-        }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 struct Arguments {
