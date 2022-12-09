@@ -11,7 +11,6 @@ pub mod persist;
 mod token;
 pub mod token_headers;
 
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use micro_http::{
@@ -24,36 +23,23 @@ use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 use crate::token::PATH_TO_TOKEN;
 use crate::token_headers::REJECTED_HEADER;
 
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("MMDS token not valid.")]
     InvalidToken,
+    #[error("Invalid URI.")]
     InvalidURI,
+    #[error("Not allowed HTTP method.")]
     MethodNotAllowed,
+    #[error("No MMDS token provided. Use `X-metadata-token` header to specify the session token.")]
     NoTokenProvided,
+    #[error(
+        "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify \
+         the token's lifetime."
+    )]
     NoTtlProvided,
+    #[error("Resource not found: {0}.")]
     ResourceNotFound(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::InvalidToken => write!(f, "MMDS token not valid."),
-            Error::InvalidURI => write!(f, "Invalid URI."),
-            Error::MethodNotAllowed => write!(f, "Not allowed HTTP method."),
-            Error::NoTokenProvided => write!(
-                f,
-                "No MMDS token provided. Use `X-metadata-token` header to specify the session \
-                 token."
-            ),
-            Error::NoTtlProvided => write!(
-                f,
-                "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
-                 specify the token's lifetime."
-            ),
-            Error::ResourceNotFound(ref uri) => {
-                write!(f, "Resource not found: {uri}.")
-            }
-        }
-    }
 }
 
 impl From<MediaType> for OutputFormat {

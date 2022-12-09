@@ -775,6 +775,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapshot",
+ "thiserror",
  "utils",
  "versionize",
  "versionize_derive",

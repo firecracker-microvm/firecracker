@@ -11,6 +11,7 @@ base64 = "0.13.0"
 bincode = "1.2.1"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
+thiserror = "1.0.32"
 versionize = "0.1.6"
 versionize_derive = "0.1.4"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
