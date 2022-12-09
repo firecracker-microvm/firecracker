@@ -46,28 +46,18 @@ pub enum OutputFormat {
     Imds,
 }
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum Error {
+    #[error("The MMDS patch request doesn't fit.")]
     DataStoreLimitExceeded,
+    #[error("The MMDS resource does not exist.")]
     NotFound,
+    #[error("The MMDS data store is not initialized.")]
     NotInitialized,
+    #[error("Token Authority error: {0}")]
     TokenAuthority(TokenError),
+    #[error("Cannot retrieve value. The value has an unsupported type.")]
     UnsupportedValueType,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
-            Error::NotFound => write!(f, "The MMDS resource does not exist."),
-            Error::NotInitialized => write!(f, "The MMDS data store is not initialized."),
-            Error::TokenAuthority(err) => write!(f, "Token Authority error: {}", err),
-            Error::UnsupportedValueType => write!(
-                f,
-                "Cannot retrieve value. The value has an unsupported type."
-            ),
-        }
-    }
 }
 
 // Used for ease of use in tests.
