@@ -19,16 +19,26 @@ use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Unable to create tap interface.
-    CreateTap(IoError),
-    /// Invalid interface name.
-    InvalidIfname,
-    /// ioctl failed.
-    IoctlError(IoError),
-    /// Couldn't open /dev/net/tun.
+    /// Couldn't open /dev/net/tun
+    #[error("Couldn't open /dev/net/tun: {0}")]
     OpenTun(IoError),
+    /// Invalid interface name
+    #[error("Invalid interface name")]
+    InvalidIfname,
+    /// Error while creating ifreq structure
+    #[error(
+        "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. \
+         Check our documentation on setting up the network devices"
+    )]
+    IfreqExecuteError(IoError, String),
+    /// Error while setting the offload flags
+    #[error("Error while setting the offload flags: {0}")]
+    SetOffloadFlags(IoError),
+    /// Error while setting size of the vnet header
+    #[error("Error while setting size of the vnet header: {0}")]
+    SetSizeOfVnetHdr(IoError),
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -66,6 +76,7 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
     Ok(terminated_if_name)
 }
 
+#[derive(Copy, Clone)]
 pub struct IfReqBuilder(ifreq);
 
 impl IfReqBuilder {
@@ -87,11 +98,10 @@ impl IfReqBuilder {
         self
     }
 
-    pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
+    pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> std::io::Result<ifreq> {
         // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
-        let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
+        if unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) } < 0 {
+            return Err(IoError::last_os_error());
         }
 
         Ok(self.0)
@@ -104,8 +114,6 @@ impl Tap {
     ///
     /// * `if_name` - the name of the interface.
     pub fn open_named(if_name: &str) -> Result<Tap> {
-        let terminated_if_name = build_terminated_if_name(if_name)?;
-
         // SAFETY: Open calls are safe because we give a constant null-terminated
         // string and verify the result.
         let fd = unsafe {
@@ -117,13 +125,16 @@ impl Tap {
         if fd < 0 {
             return Err(Error::OpenTun(IoError::last_os_error()));
         }
+
         // SAFETY: We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
+        let terminated_if_name = build_terminated_if_name(if_name)?;
         let ifreq = IfReqBuilder::new()
             .if_name(&terminated_if_name)
             .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
-            .execute(&tuntap, TUNSETIFF())?;
+            .execute(&tuntap, TUNSETIFF())
+            .map_err(|io_error| Error::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
         Ok(Tap {
             tap_file: tuntap,
@@ -144,9 +155,8 @@ impl Tap {
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
+        if unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) } < 0 {
+            return Err(Error::SetOffloadFlags(IoError::last_os_error()));
         }
 
         Ok(())
@@ -155,9 +165,8 @@ impl Tap {
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret = unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
+        if unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) } < 0 {
+            return Err(Error::SetSizeOfVnetHdr(IoError::last_os_error()));
         }
 
         Ok(())
@@ -247,8 +256,14 @@ pub mod tests {
             tap_file: unsafe { File::from_raw_fd(-2) },
             if_name: [0x01; 16],
         };
-        assert!(faulty_tap.set_vnet_hdr_size(16).is_err());
-        assert!(faulty_tap.set_offload(0).is_err());
+        assert_eq!(
+            faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),
+            Error::SetSizeOfVnetHdr(IoError::from_raw_os_error(9)).to_string()
+        );
+        assert_eq!(
+            faulty_tap.set_offload(0).unwrap_err().to_string(),
+            Error::SetOffloadFlags(IoError::from_raw_os_error(9)).to_string()
+        );
     }
 
     #[test]
