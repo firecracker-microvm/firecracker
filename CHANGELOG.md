@@ -4,7 +4,11 @@
 
 ### Changed
 
-- Improved error message when invalid network backend provided
+- Improved error message when invalid network backend provided.
+
+### Fixed
+
+- Fixed feature flags in T2 CPU template on Intel Ice Lake.
 
 ## [1.2.0]
 
