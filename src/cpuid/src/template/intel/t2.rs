@@ -74,6 +74,7 @@ pub(crate) fn update_structured_extended_entry(
             .write_bit(ebx::SGX_BITINDEX, false)
             .write_bit(ebx::HLE_BITINDEX, false)
             .write_bit(ebx::FPDP_BITINDEX, false)
+            .write_bit(ebx::ERMS_BITINDEX, true)
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
             .write_bit(ebx::FPU_CS_DS_DEPRECATE_BITINDEX, false)
@@ -101,16 +102,23 @@ pub(crate) fn update_structured_extended_entry(
             .write_bit(ecx::UMIP_BITINDEX, false)
             .write_bit(ecx::PKU_BITINDEX, false)
             .write_bit(ecx::OSPKE_BITINDEX, false)
+            .write_bit(ecx::AVX512_VBMI2_BITINDEX, false)
+            .write_bit(ecx::GFNI_BITINDEX, false)
+            .write_bit(ecx::VAES_BITINDEX, false)
+            .write_bit(ecx::VPCLMULQDQ_BITINDEX, false)
             .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
+            .write_bit(ecx::AVX512_BITALG_BITINDEX, false)
             .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false)
-            .write_bit(ecx::LA57, false)
+            .write_bit(ecx::LA57_BITINDEX, false)
             .write_bit(ecx::RDPID_BITINDEX, false)
             .write_bit(ecx::SGX_LC_BITINDEX, false);
 
         entry
             .edx
             .write_bit(edx::AVX512_4VNNIW_BITINDEX, false)
-            .write_bit(edx::AVX512_4FMAPS_BITINDEX, false);
+            .write_bit(edx::AVX512_4FMAPS_BITINDEX, false)
+            .write_bit(edx::FSRM_BITINDEX, false)
+            .write_bit(edx::AVX512_VP2INTERSECT_BITINDEX, false);
     }
 
     Ok(())
@@ -157,13 +165,26 @@ pub(crate) fn update_extended_feature_info_entry(
 ) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0x80000001::*;
 
-    entry.ecx.write_bit(ecx::PREFETCH_BITINDEX, false);
+    entry
+        .ecx
+        .write_bit(ecx::PREFETCH_BITINDEX, false)
+        .write_bit(ecx::MWAIT_EXTENDED_BITINDEX, false);
 
     entry.edx.write_bit(edx::PDPE1GB_BITINDEX, false);
 
     Ok(())
 }
 
+pub(crate) fn update_extended_feature_extensions_entry(
+    entry: &mut kvm_cpuid_entry2,
+    _vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use crate::cpu_leaf::leaf_0x80000008::*;
+
+    entry.ebx.write_bit(ebx::WBNOINVD_BITINDEX, false);
+
+    Ok(())
+}
 /// Sets up the cpuid entries for a given VCPU following a T2 template.
 struct T2CpuidTransformer;
 
@@ -174,6 +195,7 @@ impl CpuidTransformer for T2CpuidTransformer {
             leaf_0x7::LEAF_NUM => Some(update_structured_extended_entry),
             leaf_0xd::LEAF_NUM => Some(update_xsave_features_entry),
             leaf_0x80000001::LEAF_NUM => Some(update_extended_feature_info_entry),
+            leaf_0x80000008::LEAF_NUM => Some(update_extended_feature_extensions_entry),
             _ => None,
         }
     }
