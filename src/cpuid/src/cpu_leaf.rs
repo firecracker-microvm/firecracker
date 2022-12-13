@@ -296,13 +296,19 @@ pub mod leaf_0x80000001 {
     pub const LEAF_NUM: u32 = 0x8000_0001;
 
     pub mod ecx {
-        pub const TOPOEXT_BITINDEX: u32 = 22;
-        pub const PREFETCH_BITINDEX: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
         pub const LZCNT_BITINDEX: u32 = 5; // advanced bit manipulation
+        pub const SSE4A_BITINDEX: u32 = 6; // EXTRQ, INSERTQ, MOVNTSS, and MOVNTSD instruction support
+        pub const MISALIGN_SSE_BITINDEX: u32 = 7; // Misaligned SEE mode
+        pub const PREFETCH_BITINDEX: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
+        pub const TOPOEXT_BITINDEX: u32 = 22; // topology extensions support
         pub const MWAIT_EXTENDED_BITINDEX: u32 = 29; // MWAITX and MONITORX capability supported
     }
 
     pub mod edx {
+        pub const MMX_EXT_BITINDEX: u32 = 22; // AMD extensions to MMX instructions
+        pub const MMX_BITINDEX: u32 = 23; // MMX instructions
+        pub const FXSR_BITINDEX: u32 = 24; // FXSAVE and FXRSTOR instructions
+        pub const FFXSR_BITINDEX: u32 = 25; // FXSAVE and FXRSTOR instruction optimizations
         pub const PDPE1GB_BITINDEX: u32 = 26; // 1-GByte pages are available if 1.
     }
 }
@@ -311,8 +317,17 @@ pub mod leaf_0x80000008 {
     pub const LEAF_NUM: u32 = 0x8000_0008;
 
     pub mod ebx {
+        // Clear Zero Instruction
+        pub const CLZERO_BITINDEX: u32 = 0;
+        // FXSAVE, XSAVE, FXSAVEOPT, XSAVEC, XSAVES always save error pointers and
+        // FXRSTOR, XRSTOR, XRSTORS always restore error pointers is supported
+        pub const RSTR_FP_ERR_PTRS_BITINDEX: u32 = 2;
         // Write Back and Do Not Invalidate Cache instruction
         pub const WBNOINVD_BITINDEX: u32 = 9;
+        // IBRS is preferred over software solution
+        pub const IBRS_PREFERRED_BITINDEX: u32 = 18;
+        // IBRS provides Same Mode Protection
+        pub const IBRS_PROVIDES_SAME_MODE_PROTECTION_BITINDEX: u32 = 19;
     }
     pub mod ecx {
         use crate::bit_helper::BitRange;

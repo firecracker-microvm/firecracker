@@ -6,9 +6,9 @@
 import framework.utils_cpuid as cpuid_utils
 
 # All existing CPU templates available on Intel
-INTEL_TEMPLATES = ["C3", "T2", "T2S"]
+INTEL_TEMPLATES = ["C3", "T2", "T2CL", "T2S"]
 # All existing CPU templates available on AMD
-AMD_TEMPLATES = []
+AMD_TEMPLATES = ["T2A"]
 # All existing CPU templates
 ALL_TEMPLATES = INTEL_TEMPLATES + AMD_TEMPLATES
 

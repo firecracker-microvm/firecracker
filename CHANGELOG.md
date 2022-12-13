@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Introduced T2CL (Intel) and T2A (AMD) CPU templates to provide
+  instruction set feature parity between Intel and AMD CPUs when using
+  these templates.
+
 ### Changed
 
 - Improved error message when invalid network backend provided.
