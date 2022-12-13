@@ -47,11 +47,6 @@ def group(group_name, command, agent_tags=None, priority=0, timeout=30):
     return {"group": group_name, "steps": steps}
 
 
-step_block_unless_maintainer = {
-    "block": "Waiting for approval to run",
-    "if": '(build.creator.teams includes "prod-compute-capsule") == false',
-}
-
 step_style = {
     "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
     "label": "🪶 Style",
@@ -93,7 +88,6 @@ performance_grp = group(
 pipeline = {
     "agents": {"queue": "default"},
     "steps": [
-        step_block_unless_maintainer,
         step_style,
         build_grp,
         functional_1_grp,
