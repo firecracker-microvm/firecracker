@@ -126,7 +126,8 @@ pub mod leaf_0x7 {
             pub const FPDP_BITINDEX: u32 = 6;
             // 7 = SMEP (Supervisor-Mode Execution Prevention if 1)
             pub const BMI2_BITINDEX: u32 = 8;
-            // 9 = Enhanced REP MOVSB/STOSB if 1
+            // ERMS = Enhanced REP MOVSB/STOSB if 1
+            pub const ERMS_BITINDEX: u32 = 9;
             // 10 = INVPCID
             pub const INVPCID_BITINDEX: u32 = 10;
             pub const RTM_BITINDEX: u32 = 11;
@@ -181,19 +182,24 @@ pub mod leaf_0x7 {
             // OSPKE = If 1, OS has set CR4.PKE to enable protection keys
             pub const OSPKE_BITINDEX: u32 = 4;
             // 5 = WAITPKG
-            // 6 = AVX512_VBMI2
+            // AVX512_VBMI2 = AVX-512 byte/word load, store and concatenation with shift
+            pub const AVX512_VBMI2_BITINDEX: u32 = 6;
             // 7 reserved
-            // 8 = GFNI
-            // 9 = VAES
-            // 10 = VPCLMULQDQ
+            // GFNI = Galois Field New Instructions
+            pub const GFNI_BITINDEX: u32 = 8;
+            // VAES = Vector AES
+            pub const VAES_BITINDEX: u32 = 9;
+            // VPCLMULQDQ = AVX-512 carry-less multiplication
+            pub const VPCLMULQDQ_BITINDEX: u32 = 10;
             // AVX512_VNNI = Vector Neural Network Instructions
             pub const AVX512_VNNI_BITINDEX: u32 = 11;
-            // 12 = AVX512_BITALG
+            // AVX512_BITALG = byte/word bit manipulation instructions expanding VPOPCNTDQj
+            pub const AVX512_BITALG_BITINDEX: u32 = 12;
             // 13 = TME
             // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
             pub const AVX512_VPOPCNTDQ_BITINDEX: u32 = 14;
             // LA57 = 5-level page tables.
-            pub const LA57: u32 = 16;
+            pub const LA57_BITINDEX: u32 = 16;
             // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit
             // mode. Read Processor ID
             pub const RDPID_BITINDEX: u32 = 22;
@@ -208,6 +214,11 @@ pub mod leaf_0x7 {
             pub const AVX512_4VNNIW_BITINDEX: u32 = 2;
             // AVX-512 4-register Multiply Accumulation Single precision
             pub const AVX512_4FMAPS_BITINDEX: u32 = 3;
+            // Fast Short REP MOV
+            pub const FSRM_BITINDEX: u32 = 4;
+            // AVX-512 Compute Intersection Between DWORDS/QUADWORDS
+            pub const AVX512_VP2INTERSECT_BITINDEX: u32 = 8;
+            // Presence of IA32_ARCH_CAPABILITIES MSR
             pub const ARCH_CAPABILITIES_BITINDEX: u32 = 29;
         }
     }
@@ -285,9 +296,10 @@ pub mod leaf_0x80000001 {
     pub const LEAF_NUM: u32 = 0x8000_0001;
 
     pub mod ecx {
-        pub const TOPOEXT_INDEX: u32 = 22;
+        pub const TOPOEXT_BITINDEX: u32 = 22;
         pub const PREFETCH_BITINDEX: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
         pub const LZCNT_BITINDEX: u32 = 5; // advanced bit manipulation
+        pub const MWAIT_EXTENDED_BITINDEX: u32 = 29; // MWAITX and MONITORX capability supported
     }
 
     pub mod edx {
@@ -298,6 +310,10 @@ pub mod leaf_0x80000001 {
 pub mod leaf_0x80000008 {
     pub const LEAF_NUM: u32 = 0x8000_0008;
 
+    pub mod ebx {
+        // Write Back and Do Not Invalidate Cache instruction
+        pub const WBNOINVD_BITINDEX: u32 = 9;
+    }
     pub mod ecx {
         use crate::bit_helper::BitRange;
 

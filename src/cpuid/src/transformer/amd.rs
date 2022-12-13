@@ -55,7 +55,7 @@ pub fn update_extended_feature_info_entry(
     use crate::cpu_leaf::leaf_0x80000001::*;
 
     // set the Topology Extension bit since we use the Extended Cache Topology leaf
-    entry.ecx.write_bit(ecx::TOPOEXT_INDEX, true);
+    entry.ecx.write_bit(ecx::TOPOEXT_BITINDEX, true);
 
     Ok(())
 }
@@ -251,7 +251,7 @@ mod tests {
             Ok(())
         ));
 
-        assert!(entry.ecx.read_bit(ecx::TOPOEXT_INDEX));
+        assert!(entry.ecx.read_bit(ecx::TOPOEXT_BITINDEX));
     }
 
     fn check_update_amd_features_entry(cpu_count: u8, smt: bool) {
