@@ -12,7 +12,7 @@ use std::{fmt, result};
 use arch::x86_64::interrupts;
 use arch::x86_64::msr::SetMSRsError;
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2s, VmSpec};
+use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
@@ -274,6 +274,10 @@ impl KvmVcpu {
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::T2S => t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
+            CpuFeaturesTemplate::T2CL => t2cl::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
+                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
+            CpuFeaturesTemplate::T2A => t2a::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
+                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::C3 => c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
                 .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
             CpuFeaturesTemplate::None => {}
@@ -309,6 +313,10 @@ impl KvmVcpu {
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
             self.msr_list.extend(t2s::msr_entries_to_save());
             t2s::update_msr_entries(&mut msr_boot_entries);
+        }
+        if vcpu_config.cpu_template == CpuFeaturesTemplate::T2CL {
+            self.msr_list.extend(t2cl::msr_entries_to_save());
+            t2cl::update_msr_entries(&mut msr_boot_entries);
         }
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
@@ -619,7 +627,7 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
-    use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
+    use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
 
     use super::*;
@@ -698,16 +706,45 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
+        // Test configure while using the T2CL template.
+        vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
+        let t2cl_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
+
+        // Test configure while using the T2S template.
+        vcpu_config.cpu_template = CpuFeaturesTemplate::T2A;
+        let t2a_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
+
         match &get_vendor_id_from_host().unwrap() {
             VENDOR_ID_INTEL => {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
                 assert!(t2s_res.is_ok());
+                assert!(t2cl_res.is_ok());
+                assert!(t2a_res.is_err());
+            }
+            VENDOR_ID_AMD => {
+                assert!(t2_res.is_err());
+                assert!(c3_res.is_err());
+                assert!(t2s_res.is_err());
+                assert!(t2cl_res.is_err());
+                assert!(t2a_res.is_ok());
             }
             _ => {
                 assert!(t2_res.is_err());
                 assert!(c3_res.is_err());
                 assert!(t2s_res.is_err());
+                assert!(t2cl_res.is_err());
+                assert!(t2a_res.is_err());
             }
         }
     }
