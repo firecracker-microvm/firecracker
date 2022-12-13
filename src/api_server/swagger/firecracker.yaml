@@ -783,6 +783,8 @@ definitions:
       - C3
       - T2
       - T2S
+      - T2CL
+      - T2A
       - None
     default: "None"
 

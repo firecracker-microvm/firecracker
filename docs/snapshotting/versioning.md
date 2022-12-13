@@ -185,15 +185,21 @@ are an invariant when saving and restoring the snapshot. The trivial scenario
 is creating and restoring snapshots on hosts that have the same CPU model.
 
 To make snapshots more portable across Intel CPUs Firecracker provides an API to
-select a CPU template which is only available for Intel - T2, T2S and C3.
-Firecracker CPU templates mask CPUID and some MSR values (in case of T2S) to
-restrict the exposed features to a common denominator of multiple CPU models. T2
-and C3 templates are mapped as close as possible to AWS T2/C3 instances in terms
+select an Intel CPU template: T2, T2CL, T2S and C3.
+Firecracker CPU templates mask CPUID and some MSR values (in case of T2CL and T2S)
+to restrict the exposed features to a common denominator of multiple CPU models.
+T2 and C3 templates are mapped as close as possible to AWS T2/C3 instances in terms
 of CPU features. The T2S template is designed to allow migrating snapshots
 between hosts with Intel SkyLake and Cascade Lake securely by further
 restricting CPU features for the guest, however this comes with a performance
 penalty. Users are encouraged to carry out a performance assessment if they wish
-to use the T2S template. There are no templates available for AMD or ARM64.
+to use the T2S template.
+The T2CL template is mapped to be close to Intel Cascade Lake.
+It is not safe to use it on Intel CPUs older than Cascade Lake (such as Skylake).
+
+The only AMD template is T2A. It is considered safe to be used with AMD Milan.
+
+There are no templates available for ARM64.
 
 It is important to note that guest workloads can still execute instructions
 that are being masked by CPUID and restoring and saving of such workloads will

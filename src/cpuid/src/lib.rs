@@ -22,7 +22,8 @@ use crate::common::*;
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::intel::{c3, t2, t2s};
+pub use crate::template::amd::t2a;
+pub use crate::template::intel::{c3, t2, t2cl, t2s};
 pub use crate::template::msrs_to_save_by_cpuid;
 
 mod cpu_leaf;
