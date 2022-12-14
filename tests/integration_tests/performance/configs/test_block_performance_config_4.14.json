@@ -2504,6 +2504,283 @@
                         }
                     }
                 ]
+            },
+            "c7g.metal": {
+                "cpus": [
+                    {
+                        "model": "ARM_NEOVERSE_V1",
+                        "baselines": {
+                            "iops_read": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 113938,
+                                                    "delta_percentage": 7
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 157266,
+                                                    "delta_percentage": 7
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 237939,
+                                                    "delta_percentage": 8
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 115212,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 94587,
+                                                    "delta_percentage": 20
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 148953,
+                                                    "delta_percentage": 8
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 221291,
+                                                    "delta_percentage": 9
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 107235,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "iops_write": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 113938,
+                                                    "delta_percentage": 7
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 115205,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 94583,
+                                                    "delta_percentage": 20
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 107230,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "bw_read": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 455750,
+                                                    "delta_percentage": 7
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 629064,
+                                                    "delta_percentage": 7
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 951756,
+                                                    "delta_percentage": 8
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 460848,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 378346,
+                                                    "delta_percentage": 20
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 595811,
+                                                    "delta_percentage": 8
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 885161,
+                                                    "delta_percentage": 9
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 428937,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "bw_write": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 455752,
+                                                    "delta_percentage": 7
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 460819,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 378329,
+                                                    "delta_percentage": 20
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 428919,
+                                                    "delta_percentage": 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 87,
+                                                    "delta_percentage": 5
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 68,
+                                                    "delta_percentage": 8
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 86,
+                                                    "delta_percentage": 5
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 86,
+                                                    "delta_percentage": 8
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 93,
+                                                    "delta_percentage": 5
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 85,
+                                                    "delta_percentage": 6
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 94,
+                                                    "delta_percentage": 6
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 92,
+                                                    "delta_percentage": 7
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 64,
+                                                    "delta_percentage": 8
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 42,
+                                                    "delta_percentage": 8
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 55,
+                                                    "delta_percentage": 8
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 57,
+                                                    "delta_percentage": 10
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "sync_1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "randrw-bs4096": {
+                                                    "target": 56,
+                                                    "delta_percentage": 14
+                                                },
+                                                "randread-bs4096": {
+                                                    "target": 40,
+                                                    "delta_percentage": 9
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 51,
+                                                    "delta_percentage": 11
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 53,
+                                                    "delta_percentage": 11
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         }
     }
