@@ -3608,6 +3608,725 @@
                         }
                     }
                 ]
+            },
+            "c7g.metal": {
+                "cpus": [
+                    {
+                        "model": "ARM_NEOVERSE_V1",
+                        "baselines": {
+                            "latency": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.377,
+                                                    "delta_percentage": 25
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.412,
+                                                    "delta_percentage": 25
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.505,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.535,
+                                                    "delta_percentage": 23
+                                                }
+                                            }
+                                        },
+                                        "3vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.623,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.657,
+                                                    "delta_percentage": 21
+                                                }
+                                            }
+                                        },
+                                        "4vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.736,
+                                                    "delta_percentage": 19
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.788,
+                                                    "delta_percentage": 36
+                                                }
+                                            }
+                                        },
+                                        "5vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.839,
+                                                    "delta_percentage": 20
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.902,
+                                                    "delta_percentage": 38
+                                                }
+                                            }
+                                        },
+                                        "6vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.961,
+                                                    "delta_percentage": 20
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.012,
+                                                    "delta_percentage": 29
+                                                }
+                                            }
+                                        },
+                                        "7vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.068,
+                                                    "delta_percentage": 11
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.12,
+                                                    "delta_percentage": 16
+                                                }
+                                            }
+                                        },
+                                        "8vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.187,
+                                                    "delta_percentage": 13
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.269,
+                                                    "delta_percentage": 32
+                                                }
+                                            }
+                                        },
+                                        "9vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.323,
+                                                    "delta_percentage": 14
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.404,
+                                                    "delta_percentage": 32
+                                                }
+                                            }
+                                        },
+                                        "10vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.46,
+                                                    "delta_percentage": 15
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.567,
+                                                    "delta_percentage": 29
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_256mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.609,
+                                                    "delta_percentage": 22
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.65,
+                                                    "delta_percentage": 22
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_512mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.621,
+                                                    "delta_percentage": 20
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.66,
+                                                    "delta_percentage": 21
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_1024mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.648,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.682,
+                                                    "delta_percentage": 20
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_2048mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.664,
+                                                    "delta_percentage": 20
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.704,
+                                                    "delta_percentage": 20
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_4096mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.677,
+                                                    "delta_percentage": 20
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.728,
+                                                    "delta_percentage": 21
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_8192mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.696,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.756,
+                                                    "delta_percentage": 22
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_16384mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.718,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.813,
+                                                    "delta_percentage": 34
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_32768mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.733,
+                                                    "delta_percentage": 26
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.819,
+                                                    "delta_percentage": 23
+                                                }
+                                            }
+                                        },
+                                        "2net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.222,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.278,
+                                                    "delta_percentage": 21
+                                                }
+                                            }
+                                        },
+                                        "3net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.772,
+                                                    "delta_percentage": 18
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.847,
+                                                    "delta_percentage": 16
+                                                }
+                                            }
+                                        },
+                                        "4net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 3.31,
+                                                    "delta_percentage": 15
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 3.427,
+                                                    "delta_percentage": 18
+                                                }
+                                            }
+                                        },
+                                        "2block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.646,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.688,
+                                                    "delta_percentage": 24
+                                                }
+                                            }
+                                        },
+                                        "3block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.674,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.719,
+                                                    "delta_percentage": 25
+                                                }
+                                            }
+                                        },
+                                        "4block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.689,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.73,
+                                                    "delta_percentage": 22
+                                                }
+                                            }
+                                        },
+                                        "all_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.705,
+                                                    "delta_percentage": 22
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.766,
+                                                    "delta_percentage": 36
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.606,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.644,
+                                                    "delta_percentage": 23
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.716,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.751,
+                                                    "delta_percentage": 22
+                                                }
+                                            }
+                                        },
+                                        "3vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.838,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.876,
+                                                    "delta_percentage": 22
+                                                }
+                                            }
+                                        },
+                                        "4vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.897,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.99,
+                                                    "delta_percentage": 39
+                                                }
+                                            }
+                                        },
+                                        "5vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.991,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.052,
+                                                    "delta_percentage": 31
+                                                }
+                                            }
+                                        },
+                                        "6vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.1,
+                                                    "delta_percentage": 22
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.204,
+                                                    "delta_percentage": 27
+                                                }
+                                            }
+                                        },
+                                        "7vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.205,
+                                                    "delta_percentage": 19
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.37,
+                                                    "delta_percentage": 34
+                                                }
+                                            }
+                                        },
+                                        "8vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.286,
+                                                    "delta_percentage": 21
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.496,
+                                                    "delta_percentage": 35
+                                                }
+                                            }
+                                        },
+                                        "9vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.383,
+                                                    "delta_percentage": 19
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.465,
+                                                    "delta_percentage": 34
+                                                }
+                                            }
+                                        },
+                                        "10vcpu_128mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.515,
+                                                    "delta_percentage": 19
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.668,
+                                                    "delta_percentage": 35
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_256mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.631,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.67,
+                                                    "delta_percentage": 25
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_512mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.637,
+                                                    "delta_percentage": 26
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.683,
+                                                    "delta_percentage": 29
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_1024mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.649,
+                                                    "delta_percentage": 28
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.713,
+                                                    "delta_percentage": 31
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_2048mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.638,
+                                                    "delta_percentage": 29
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.702,
+                                                    "delta_percentage": 28
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_4096mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.629,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.674,
+                                                    "delta_percentage": 25
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_8192mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.649,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.717,
+                                                    "delta_percentage": 23
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_16384mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.685,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.761,
+                                                    "delta_percentage": 34
+                                                }
+                                            }
+                                        },
+                                        "1vcpu_32768mb": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.714,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.855,
+                                                    "delta_percentage": 37
+                                                }
+                                            }
+                                        },
+                                        "2net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.203,
+                                                    "delta_percentage": 18
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.257,
+                                                    "delta_percentage": 19
+                                                }
+                                            }
+                                        },
+                                        "3net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 2.763,
+                                                    "delta_percentage": 16
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 2.835,
+                                                    "delta_percentage": 17
+                                                }
+                                            }
+                                        },
+                                        "4net_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 3.324,
+                                                    "delta_percentage": 15
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 3.447,
+                                                    "delta_percentage": 17
+                                                }
+                                            }
+                                        },
+                                        "2block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.661,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.692,
+                                                    "delta_percentage": 23
+                                                }
+                                            }
+                                        },
+                                        "3block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.685,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.729,
+                                                    "delta_percentage": 24
+                                                }
+                                            }
+                                        },
+                                        "4block_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.683,
+                                                    "delta_percentage": 24
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.723,
+                                                    "delta_percentage": 24
+                                                }
+                                            }
+                                        },
+                                        "all_dev": {
+                                            "P50": {
+                                                "restore": {
+                                                    "target": 1.682,
+                                                    "delta_percentage": 23
+                                                }
+                                            },
+                                            "P90": {
+                                                "restore": {
+                                                    "target": 1.728,
+                                                    "delta_percentage": 24
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         }
     }
