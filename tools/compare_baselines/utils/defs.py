@@ -25,6 +25,10 @@ CODENAME2DICT = {
         "instance": "m6g.metal",
         "model": "ARM_NEOVERSE_N1"
     },
+    "graviton3": {
+        "instance": "c7g.metal",
+        "model": "ARM_NEOVERSE_V1"
+    },
 }
 # fmt: on
 
@@ -34,6 +38,7 @@ MODEL2SHORT = {
     "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz": "m6i",
     "AMD EPYC 7R13 48-Core Processor": "m6a",
     "ARM_NEOVERSE_N1": "m6g",
+    "ARM_NEOVERSE_V1": "c7g",
 }
 
 DEFAULT_BASELINE_DIRECTORY = "tests/integration_tests/performance/configs/"
