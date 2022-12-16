@@ -485,6 +485,35 @@ pub(crate) mod tests {
         assert!(vm.restore_state(&vm_state).is_ok());
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vm_save_restore_state_bad_irqchip() {
+        use kvm_bindings::KVM_NR_IRQCHIPS;
+
+        let (vm, _mem) = setup_vm(0x1000);
+        vm.setup_irqchip().unwrap();
+        let mut vm_state = vm.save_state().unwrap();
+
+        let (vm, _mem) = setup_vm(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        // Try to restore an invalid PIC Master chip ID
+        let orig_master_chip_id = vm_state.pic_master.chip_id;
+        vm_state.pic_master.chip_id = KVM_NR_IRQCHIPS;
+        assert!(vm.restore_state(&vm_state).is_err());
+        vm_state.pic_master.chip_id = orig_master_chip_id;
+
+        // Try to restore an invalid PIC Slave chip ID
+        let orig_slave_chip_id = vm_state.pic_slave.chip_id;
+        vm_state.pic_slave.chip_id = KVM_NR_IRQCHIPS;
+        assert!(vm.restore_state(&vm_state).is_err());
+        vm_state.pic_slave.chip_id = orig_slave_chip_id;
+
+        // Try to restore an invalid IOPIC chip ID
+        vm_state.ioapic.chip_id = KVM_NR_IRQCHIPS;
+        assert!(vm.restore_state(&vm_state).is_err());
+    }
+
     #[test]
     fn test_set_kvm_memory_regions() {
         let kvm_context = KvmContext::new().unwrap();
