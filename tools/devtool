@@ -133,10 +133,6 @@ CTR_CARGO_REBASE_SNAP_TARGET_DIR="$CTR_FC_BUILD_DIR/rebase-snap"
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 
-# Full path to the poetry tmp directory on the container, used for holding
-# the lock and toml files.
-CTR_POETRY_TMP_DIR="/tmp/poetry"
-
 # Full path to the public key mapping on the guest
 PUB_KEY_PATH=/root/.ssh/id_rsa.pub
 
@@ -293,17 +289,12 @@ cmd_fix_perms() {
 # Builds the development container from its Dockerfile.
 #
 cmd_build_devctr() {
-    arch=$(uname -m)
-    docker_file_name="Dockerfile.$arch"
-    build_args="--build-arg TMP_POETRY_DIR=$CTR_POETRY_TMP_DIR"
+    docker_file_name=$FC_DEVCTR_DIR/Dockerfile
+    build_args="--build-arg ARCH=$(uname -m)"
 
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
-            "-n"|"--no-python-package-upgrade")
-                shift
-                build_args="$build_args --build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
-                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -312,11 +303,7 @@ cmd_build_devctr() {
         shift
     done
 
-    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
-
-    # Copy back the lockfile, since a new dependency or version would have
-    # updated it.
-    copy_poetry_lockfile
+    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$docker_file_name" $build_args .
 }
 
 
@@ -385,23 +372,6 @@ test_key() {
     [ $ret -ne 0 ] && die "$1 is not a valid key file."
 }
 
-# Copies the ```poetry.lock``` file to the host, upgrading the versions if
-# requested.
-#
-copy_poetry_lockfile() {
-    # defined in Dockerfile
-    lock_file_location_on_host="$FC_DEVCTR_DIR/poetry.lock"
-    image_id=$(docker images -q "$DEVCTR_IMAGE_NO_TAG" | head -n 1)
-    dummy_container_name=$(uuidgen)
-    dummy_container_id=$(docker create --name "$dummy_container_name" "$image_id" bash)
-
-    docker cp \
-        "$dummy_container_id":"$CTR_POETRY_TMP_DIR"/poetry.lock \
-        "$lock_file_location_on_host"
-
-    docker rm -f "$dummy_container_name"
-}
-
 create_dir() {
     # Create a dir for the provided path.
     dir="$1"
@@ -440,9 +410,8 @@ cmd_help() {
     echo "                              (in this particular order) required for the git authentication."
     echo "                              It is mandatory that both keys are specified."
     echo ""
-    echo "    build_devctr [--no-python-package-upgrade]"
+    echo "    build_devctr"
     echo "        Builds the development container from its Dockerfile."
-    echo "        -n, --no-python-package-upgrade  Do not update python packages."
     echo ""
     echo "    build_kernel -c|--config [-n|--nproc]"
     echo "        Builds a kernel image custom-tailored for our CI."
