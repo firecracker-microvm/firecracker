@@ -20,6 +20,17 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
 ## Steps
 
+### **[optional]** Update `poetry.lock`
+
+This step is optional but recommended, to be on top of Python package changes.
+
+```sh
+./tools/devtool shell --privileged
+poetry update --lock --directory tools/devctr/
+```
+
+This will change `poetry.lock`, which you can commit with your changes.
+
 ### `x86_64`
 
 1. Login to the Docker organization in a shell. Make sure that your account has
@@ -48,26 +59,15 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     ```
 
 1. Make your necessary changes, if any, to the
-   [Dockerfile](https://docs.docker.com/engine/reference/builder/)(s). There's
-   one for each supported architecture in the Firecracker source tree.
+   [Dockerfile](https://docs.docker.com/engine/reference/builder/). There's
+   one for all the architectures in the Firecracker source tree.
 
 1. Commit the changes, if any.
 
 1. Build a new container image with the updated Dockerfile.
 
-   a: Additionally also checks for any outdated python packages
-   and tries to update them. This makes sure that python packages
-   versions are up to date with latest versions.
-
    ```bash
     tools/devtool build_devctr
-   ```
-
-   b: Builds a container image but skips performing updates of python
-   packages. The container image will use the locked versions of python packages.
-
-   ```bash
-    tools/devtool build_devctr --no-python-package-upgrade
    ```
 
 1. Verify that the new image exists.
