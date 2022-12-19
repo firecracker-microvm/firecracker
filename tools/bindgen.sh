@@ -32,8 +32,9 @@ function fc-bindgen {
     dead_code,
     non_snake_case,
     clippy::ptr_as_ptr,
-    clippy::undocumented_unsafe_blocks
-    clippy::cast_lossless
+    clippy::undocumented_unsafe_blocks,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss
 )]
 
 EOF

@@ -5,6 +5,7 @@
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::cast_lossless)]
+#![allow(clippy::cast_precision_loss)]
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to

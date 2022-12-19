@@ -4,6 +4,7 @@
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::cast_lossless)]
+#![warn(clippy::cast_precision_loss)]
 
 //! Provides version tolerant serialization and deserialization facilities and
 //! implements a persistent storage format for Firecracker state snapshots.

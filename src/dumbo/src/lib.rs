@@ -5,6 +5,7 @@
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::cast_lossless)]
+#![warn(clippy::cast_precision_loss)]
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
 pub mod pdu;

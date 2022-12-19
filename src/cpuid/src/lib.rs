@@ -9,6 +9,7 @@
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::cast_lossless)]
+#![warn(clippy::cast_precision_loss)]
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 #![cfg(target_arch = "x86_64")]

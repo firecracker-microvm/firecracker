@@ -5,6 +5,7 @@
 #![warn(clippy::ptr_as_ptr)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::cast_lossless)]
+#![warn(clippy::cast_precision_loss)]
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.
 //! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
