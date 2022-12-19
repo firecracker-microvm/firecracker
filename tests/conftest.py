@@ -498,29 +498,6 @@ def test_microvm_any(request, microvm):
     yield microvm
 
 
-@pytest.fixture(autouse=True, scope="session")
-def test_spectre_mitigations():
-    """Check the kernel is compiled with SPECTREv2 mitigations."""
-
-    def x86_64(body):
-        return ("IBPB: conditional" in body or "IBPB: always-on" in body) and (
-            "Enhanced IBRS" in body or "IBRS" in body
-        )
-
-    def aarch64(body):
-        return "Mitigation: CSV2, BHB" in body or "Not affected" in body
-
-    arch = platform.machine()
-    assert arch in ("x86_64", "aarch64"), f"Unsupported arch {arch}"
-
-    body = open(
-        "/sys/devices/system/cpu/vulnerabilities/spectre_v2", encoding="utf-8"
-    ).read()
-
-    mitigated = x86_64(body) if arch == "x86_64" else aarch64(body)
-    assert mitigated, "SPECTREv2 not mitigated {}".format(body)
-
-
 def firecracker_id(fc):
     """Render a nice ID for pytest parametrize."""
     if isinstance(fc, FirecrackerArtifact):
