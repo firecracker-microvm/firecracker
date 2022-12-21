@@ -344,7 +344,7 @@ def change_net_config_space_bin(test_fc_session_root_path):
     _gcc_compile(
         "host_tools/change_net_config_space.c",
         change_net_config_space_bin,
-        extra_flags="",
+        extra_flags="-static",
     )
     yield change_net_config_space_bin
 
