@@ -13,7 +13,7 @@ IPERF_BINARY = "iperf3"
 IPERF_TRANSMIT_TIME = 4
 
 # Use a fixed-size TCP window so we get constant flow
-IPERF_TCP_WINDOW = "1000K"
+IPERF_TCP_WINDOW = "256K"
 
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
