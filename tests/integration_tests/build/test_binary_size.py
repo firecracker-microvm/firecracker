@@ -15,28 +15,18 @@ SIZES_DICT = {
     "x86_64": {
         "FC_BINARY_SIZE_TARGET": 2520632,
         "JAILER_BINARY_SIZE_TARGET": 850224,
-        "FC_BINARY_SIZE_LIMIT": 2646663,
-        "JAILER_BINARY_SIZE_LIMIT": 892735,
     },
     "aarch64": {
         "FC_BINARY_SIZE_TARGET": 2322392,
         "JAILER_BINARY_SIZE_TARGET": 851152,
-        "FC_BINARY_SIZE_LIMIT": 2438511,
-        "JAILER_BINARY_SIZE_LIMIT": 893709,
     },
 }
 
 FC_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_TARGET"]
 """Firecracker target binary size in bytes"""
 
-FC_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_LIMIT"]
-"""Firecracker maximum binary size in bytes"""
-
 JAILER_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_TARGET"]
 """Jailer target binary size in bytes"""
-
-JAILER_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_LIMIT"]
-"""Jailer maximum binary size in bytes"""
 
 BINARY_SIZE_TOLERANCE = 0.05
 """Tolerance of 5% allowed for binary size"""
@@ -56,7 +46,6 @@ def test_firecracker_binary_size():
         fc_binary,
         FC_BINARY_SIZE_TARGET,
         BINARY_SIZE_TOLERANCE,
-        FC_BINARY_SIZE_LIMIT,
     )
 
     return (
@@ -79,7 +68,6 @@ def test_jailer_binary_size():
         jailer_binary,
         JAILER_BINARY_SIZE_TARGET,
         BINARY_SIZE_TOLERANCE,
-        JAILER_BINARY_SIZE_LIMIT,
     )
 
     return (
@@ -88,7 +76,7 @@ def test_jailer_binary_size():
     )
 
 
-def check_binary_size(name, binary_path, size_target, tolerance, limit):
+def check_binary_size(name, binary_path, size_target, tolerance):
     """Check if the specified binary falls within the expected range."""
     # Get the size of the release binary.
     binary_size = os.path.getsize(binary_path)
@@ -118,14 +106,4 @@ def check_binary_size(name, binary_path, size_target, tolerance, limit):
     )
 
     assert binary_size < size_target * (1 + tolerance), binary_high_msg
-
-    binary_limit_msg = (
-        "Current {} binary size of {} bytes is above the limit"
-        " of {} bytes with {} bytes.\n".format(
-            name, binary_size, limit, binary_size - limit
-        )
-    )
-
-    assert binary_size < limit, binary_limit_msg
-
     return binary_size
