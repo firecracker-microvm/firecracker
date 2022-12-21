@@ -71,13 +71,13 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
 /// Extracts the CPU vendor id from leaf 0x0.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], Error> {
-    // SAFETY: This is safe because the resulting type has a lower alignment requirement
-    get_cpuid(0, 0).map(|vendor_entry| unsafe {
-        std::mem::transmute::<[u32; 3], [u8; 12]>([
-            vendor_entry.ebx,
-            vendor_entry.edx,
-            vendor_entry.ecx,
-        ])
+    get_cpuid(0, 0).map(|vendor_entry| {
+        let b = vendor_entry.ebx.to_ne_bytes();
+        let d = vendor_entry.edx.to_ne_bytes();
+        let c = vendor_entry.ecx.to_ne_bytes();
+        [
+            b[0], b[1], b[2], b[3], d[0], d[1], d[2], d[3], c[0], c[1], c[2], c[3],
+        ]
     })
 }
 
