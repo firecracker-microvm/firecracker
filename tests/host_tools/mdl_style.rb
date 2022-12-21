@@ -1,5 +1,6 @@
 all
 rule 'MD013', :tables => false
+rule 'MD007', :indent => 2
 
 exclude_rule 'MD033'
 exclude_rule 'MD041'
