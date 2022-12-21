@@ -48,6 +48,7 @@ RUN apt-get update \
         iperf3 \
         iproute2 \
         jq \
+        less \
         libdw-dev \
         libiberty-dev \
         libssl-dev \
