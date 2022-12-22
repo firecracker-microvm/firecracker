@@ -27,5 +27,6 @@
   "vsock": null,
   "logger": null,
   "metrics": null,
-  "mmds-config": null
+  "mmds-config": null,
+  "entropy": null
 }
