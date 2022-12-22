@@ -102,6 +102,7 @@ def test_cli_metrics_path(test_microvm_with_api):
         "uart",
         "signals",
         "vsock",
+        "entropy",
     ]
 
     if platform.machine() == "aarch64":

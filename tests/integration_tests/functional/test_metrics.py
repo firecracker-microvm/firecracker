@@ -53,6 +53,7 @@ def test_flush_metrics(test_microvm_with_api):
         "uart",
         "signals",
         "vsock",
+        "entropy",
     ]
 
     if platform.machine() == "aarch64":
