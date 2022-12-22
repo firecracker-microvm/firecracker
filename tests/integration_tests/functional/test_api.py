@@ -1262,6 +1262,9 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "network_interfaces": [net_iface.dev_name],
     }
 
+    # We should expect a null entropy device
+    expected_cfg["entropy"] = None
+
     # Validate full vm configuration post-restore.
     response = microvm.full_cfg.get()
     assert microvm.api_session.is_status_ok(response.status_code)
@@ -1361,6 +1364,9 @@ def test_get_full_config(test_microvm_with_api):
         "ipv4_address": "169.254.169.250",
         "network_interfaces": ["1"],
     }
+
+    # We should expect a null entropy device
+    expected_cfg["entropy"] = None
 
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.full_cfg.get()
