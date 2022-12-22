@@ -4,6 +4,7 @@
 import asyncio
 import functools
 import glob
+import json
 import logging
 import os
 import platform
@@ -569,6 +570,14 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
     return cpu_percentages
 
 
+def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
+    """Runs a shell command at the remote accessible via SSH"""
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ""
+    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stdout == expected
+
+
 @retry(delay=0.5, tries=5)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
@@ -732,6 +741,20 @@ def configure_mmds(
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     return response
+
+
+def populate_data_store(test_microvm, data_store):
+    """Populate the MMDS data store of the microvm with the provided data"""
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
 
 
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
