@@ -36,6 +36,7 @@ class MemoryMonitor(Thread):
         self._guest_mem_mib = None
         self._guest_mem_start = None
         self._exceeded_queue = Queue()
+        self._pmap_out = None
         self._threshold = self.MEMORY_THRESHOLD
         self._should_stop = False
         self._current_rss = 0
@@ -122,6 +123,7 @@ class MemoryMonitor(Thread):
                 self._current_rss = mem_total
             if mem_total > self.threshold:
                 self.exceeded_queue.put(mem_total)
+                self._pmap_out = stdout
                 return
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
@@ -137,7 +139,7 @@ class MemoryMonitor(Thread):
         """Check that there are no samples over the threshold."""
         if not self.exceeded_queue.empty():
             raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold
+                self.exceeded_queue.get(), self.threshold, self._pmap_out
             )
 
     @property
