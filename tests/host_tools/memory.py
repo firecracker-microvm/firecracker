@@ -11,17 +11,16 @@ from framework import utils
 class MemoryUsageExceededException(Exception):
     """A custom exception containing details on excessive memory usage."""
 
-    def __init__(self, usage, threshold):
+    def __init__(self, usage, threshold, out):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            "Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n".format(
-                usage, threshold
-            )
+            f"Memory usage ({usage} KiB) exceeded maximum threshold "
+            f"({threshold} KiB).\n {out} \n"
         )
 
 
 class MemoryMonitor(Thread):
-    """Class to represent a RSS memory monitor for a Firecracker process.
+    """Class to represent an RSS memory monitor for a Firecracker process.
 
     The guest's memory region is skipped, as the main interest is the
     VMM memory usage.
