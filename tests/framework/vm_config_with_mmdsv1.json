@@ -36,5 +36,6 @@
   "metrics": null,
   "mmds-config": {
     "network_interfaces": ["1"]
-  }
+  },
+  "entropy": null
 }
