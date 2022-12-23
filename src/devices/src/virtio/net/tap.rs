@@ -237,6 +237,13 @@ pub mod tests {
         assert_eq!(b"tap0\0\0\0\0\0\0\0\0\0\0\0\0", &tap.if_name);
         assert_eq!("tap0", tap.if_name_as_str());
 
+        // Test using '%d' to have the kernel assign an unused name,
+        // and that we correctly copy back that generated name
+        let tap = Tap::open_named("tap%d").unwrap();
+        // '%d' should be replaced with _some_ number, although we don't know what was the next available one.
+        // Just assert that '%d' definitely isn't there anymore.
+        assert_ne!(b"tap%d", &tap.if_name[..5]);
+
         // 16 characters - too long.
         let name = "a123456789abcdef";
         match Tap::open_named(name) {
