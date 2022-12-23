@@ -128,12 +128,12 @@ impl Net {
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
-        tap_if_name: String,
+        tap_if_name: &str,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self> {
-        let tap = Tap::open_named(&tap_if_name).map_err(Error::TapOpen)?;
+        let tap = Tap::open_named(tap_if_name).map_err(Error::TapOpen)?;
 
         // Set offload flags to match the virtio features below.
         tap.set_offload(

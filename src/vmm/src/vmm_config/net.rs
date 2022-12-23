@@ -163,7 +163,7 @@ impl NetBuilder {
         // Create and return the Net device
         devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
-            cfg.host_dev_name.clone(),
+            &cfg.host_dev_name,
             cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
@@ -345,7 +345,7 @@ mod tests {
 
         let net = Net::new_with_tap(
             net_id.to_string(),
-            host_dev_name.to_string(),
+            host_dev_name,
             Some(MacAddr::parse_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
