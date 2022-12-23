@@ -31,13 +31,19 @@ static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
 pub fn default_net() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-    let tap_dev_name = format!("net-device{}", next_tap);
+    // Id is the firecracker-facing identifier, e.g. local to the FC process. We thus do not need to make sure
+    // it is globally unique
+    let tap_device_id = format!("net-device{}", next_tap);
+    // This is the device name on the host, and thus needs to be unique between all firecracker processes. We
+    // cannot use the above counter to ensure this uniqueness (as it is per-process). Thus, ask the kernel to assign
+    // us a number.
+    let tap_if_name = "net-device%d";
 
     let guest_mac = default_guest_mac();
 
     let mut net = Net::new_with_tap(
-        format!("net-device{}", next_tap),
-        tap_dev_name,
+        tap_device_id,
+        String::from(tap_if_name),
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
@@ -54,13 +60,13 @@ pub fn default_net() -> Net {
 
 pub fn default_net_no_mmds() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-    let tap_dev_name = format!("net-device{}", next_tap);
+    let tap_device_id = format!("net-device{}", next_tap);
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new_with_tap(
-        format!("net-device{}", next_tap),
-        tap_dev_name,
+    let mut net = Net::new_with_tap(
+        tap_device_id,
+        String::from("net-device%d"),
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
