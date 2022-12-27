@@ -256,15 +256,16 @@ impl Balloon {
                     if len > max_len {
                         error!(
                             "Inflate descriptor has bogus page count {} > {}, skipping.",
-                            len as usize / SIZE_OF_U32,
+                            len / SIZE_OF_U32,
                             MAX_PAGES_IN_DESC
                         );
 
                         // Skip descriptor.
                         continue;
                     }
-                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current desc.
-                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len as usize / SIZE_OF_U32 {
+                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
+                    // desc.
+                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len / SIZE_OF_U32 {
                         queue.undo_pop();
                         break;
                     }

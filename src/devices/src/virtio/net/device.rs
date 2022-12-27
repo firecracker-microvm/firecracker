@@ -573,12 +573,10 @@ impl Net {
             // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
             // and get rid of the intermediate buffer.
             for (desc_addr, desc_len) in self.tx_iovec.drain(..) {
-                let limit = cmp::min((read_count + desc_len) as usize, self.tx_frame_buf.len());
+                let limit = cmp::min(read_count + desc_len, self.tx_frame_buf.len());
 
-                let read_result = mem.read_slice(
-                    &mut self.tx_frame_buf[read_count..limit as usize],
-                    desc_addr,
-                );
+                let read_result =
+                    mem.read_slice(&mut self.tx_frame_buf[read_count..limit], desc_addr);
                 match read_result {
                     Ok(()) => {
                         read_count += limit - read_count;
@@ -999,7 +997,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_missing_queue_signal() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
@@ -1016,7 +1014,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_read_only_descriptor() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.add_desc_chain(
@@ -1036,7 +1034,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_short_writable_descriptor() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
@@ -1048,7 +1046,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_partial_write() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1071,7 +1069,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_retry() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1121,7 +1119,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_complex_desc_chain() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1159,7 +1157,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_multiple_frames() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1201,7 +1199,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_missing_queue_signal() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1221,7 +1219,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_writeable_descriptor() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1240,7 +1238,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_short_frame() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1262,7 +1260,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_partial_read() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1290,7 +1288,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_retry() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1330,7 +1328,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_complex_descriptor() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1358,7 +1356,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_multiple_frame() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1498,7 +1496,7 @@ pub mod tests {
 
     #[test]
     fn test_process_error_cases() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         // RX rate limiter events should error since the limiter is not blocked.
@@ -1523,7 +1521,7 @@ pub mod tests {
     //  * interrupt_evt.write
     #[test]
     fn test_read_tap_fail_event_handler() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::Failure);
 
@@ -1546,7 +1544,7 @@ pub mod tests {
 
     #[test]
     fn test_rx_rate_limiter_handling() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
@@ -1560,7 +1558,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_rate_limiter_handling() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
@@ -1575,7 +1573,7 @@ pub mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         // Test TX bandwidth rate limiting
@@ -1677,7 +1675,7 @@ pub mod tests {
 
     #[test]
     fn test_ops_rate_limiter() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         // Test TX ops rate limiting
@@ -1786,7 +1784,7 @@ pub mod tests {
 
     #[test]
     fn test_patch_rate_limiters() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
 
         th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
@@ -1827,7 +1825,7 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
         th.activate_net();
         let net = th.net.lock().unwrap();
 

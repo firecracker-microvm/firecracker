@@ -333,8 +333,8 @@ fn snapshot_memory_to_file(
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    file.set_len((mem_size_mib * 1024 * 1024) as u64)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
+    file.set_len(mem_size_mib * 1024 * 1024)
+        .map_err(|err| MemoryBackingFile("set_length", err))?;
 
     match snapshot_type {
         SnapshotType::Diff => {

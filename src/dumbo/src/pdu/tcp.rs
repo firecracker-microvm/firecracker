@@ -704,7 +704,7 @@ mod tests {
                 TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
             assert_eq!(
                 segment.parse_mss_option_unchecked(header_len),
-                Ok(Some(NonZeroU16::new(mss_left as u16).unwrap()))
+                Ok(Some(NonZeroU16::new(mss_left).unwrap()))
             );
         }
 

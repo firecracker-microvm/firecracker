@@ -241,7 +241,7 @@ impl KvmVcpu {
 
         arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)
             .map_err(Error::MSRSConfiguration)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
+        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         arch::x86_64::regs::setup_sregs(guest_mem, &self.fd).map_err(Error::SREGSConfiguration)?;

@@ -118,7 +118,7 @@ impl Env {
         let exec_file = arguments
             .single_value("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
-        let exec_file_path = canonicalize(&exec_file)
+        let exec_file_path = canonicalize(exec_file)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
 
         if !exec_file_path.is_file() {
@@ -139,7 +139,7 @@ impl Env {
             return Err(Error::NotADirectory(chroot_dir));
         }
 
-        chroot_dir.push(&exec_file_name);
+        chroot_dir.push(exec_file_name);
         chroot_dir.push(id);
         chroot_dir.push("root");
 
@@ -502,7 +502,7 @@ impl Env {
 
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
-        let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
+        let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
 
         // Join the specified network namespace, if applicable.
         if let Some(ref path) = self.netns {

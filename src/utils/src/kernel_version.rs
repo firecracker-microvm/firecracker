@@ -47,6 +47,7 @@ impl KernelVersion {
         }
 
         Self::parse(
+            #[allow(clippy::unnecessary_cast)]
             String::from_utf8(name.release.iter().map(|c| *c as u8).collect())
                 .map_err(Error::InvalidUtf8)?,
         )

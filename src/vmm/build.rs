@@ -60,7 +60,7 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
 
     // Command for running seccompiler-bin
     let mut command = Command::new("cargo");
-    command.args(&[
+    command.args([
         "run",
         "-p",
         "seccompiler",

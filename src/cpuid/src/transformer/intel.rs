@@ -98,7 +98,7 @@ fn update_extended_topology_entry(
             );
             entry
                 .ecx
-                .write_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE, entry.index as u32);
+                .write_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE, entry.index);
             entry
                 .ecx
                 .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_CORE);
