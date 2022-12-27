@@ -219,7 +219,7 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     let mem_size = guest_mem.last_addr().raw_value() - super::layout::DRAM_MEM_START + 1;
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
     // for an explanation of this.
-    let mem_reg_prop = &[super::layout::DRAM_MEM_START as u64, mem_size as u64];
+    let mem_reg_prop = &[super::layout::DRAM_MEM_START, mem_size];
 
     let mem = fdt.begin_node("memory")?;
     fdt.property_string("device_type", "memory")?;
@@ -243,10 +243,7 @@ fn create_chosen_node(
     fdt.property_string("bootargs", cmdline_string.as_str())?;
 
     if let Some(initrd_config) = initrd {
-        fdt.property_u64(
-            "linux,initrd-start",
-            initrd_config.address.raw_value() as u64,
-        )?;
+        fdt.property_u64("linux,initrd-start", initrd_config.address.raw_value())?;
         fdt.property_u64(
             "linux,initrd-end",
             initrd_config.address.raw_value() + initrd_config.size as u64,

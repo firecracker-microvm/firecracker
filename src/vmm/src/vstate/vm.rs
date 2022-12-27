@@ -358,8 +358,8 @@ impl Vm {
             .try_for_each(|(index, region)| {
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value() as u64,
-                    memory_size: region.len() as u64,
+                    guest_phys_addr: region.start_addr().raw_value(),
+                    memory_size: region.len(),
                     // It's safe to unwrap because the guest address is valid.
                     userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
                     flags,

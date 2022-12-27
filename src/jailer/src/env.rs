@@ -516,7 +516,7 @@ impl Env {
 
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
-        let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
+        let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
 
         // Join the specified network namespace, if applicable.
         if let Some(ref path) = self.netns {
