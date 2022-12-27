@@ -96,7 +96,7 @@ impl DiskProperties {
             .map_err(Error::BackingFile)?;
         let disk_size = disk_image
             .seek(SeekFrom::End(0))
-            .map_err(Error::BackingFile)? as u64;
+            .map_err(Error::BackingFile)?;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
