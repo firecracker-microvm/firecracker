@@ -59,7 +59,7 @@ macro_rules! generate_handler {
 }
 
 fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
-    if si_code != SYS_SECCOMP_CODE as i32 {
+    if si_code != SYS_SECCOMP_CODE {
         // We received a SIGSYS for a reason other than `bad syscall`.
         exit_with_code(FcExitCode::UnexpectedError);
     }

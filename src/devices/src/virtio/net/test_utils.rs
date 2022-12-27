@@ -206,13 +206,7 @@ impl TapTrafficSimulator {
 
 pub fn create_socket() -> File {
     // SAFETY: This is safe since we check the return value.
-    let socket = unsafe {
-        libc::socket(
-            libc::AF_PACKET,
-            libc::SOCK_RAW,
-            libc::ETH_P_ALL.to_be() as i32,
-        )
-    };
+    let socket = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ALL.to_be()) };
     if socket < 0 {
         panic!("Unable to create tap socket");
     }
@@ -353,7 +347,7 @@ pub mod test {
     impl<'a> TestHelper<'a> {
         const QUEUE_SIZE: u16 = 16;
 
-        pub fn default() -> TestHelper<'a> {
+        pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
             let mem = vm_memory::test_utils::create_guest_memory_unguarded(

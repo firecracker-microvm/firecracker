@@ -309,13 +309,13 @@ pub mod tests {
         mem.write(&data, addr).unwrap();
         assert_sync_execution!(
             engine.write(offset, &mem, addr, partial_len, ()),
-            partial_len as u32
+            partial_len
         );
         // Offset read
         let mem = create_mem();
         assert_sync_execution!(
             engine.read(offset, &mem, addr, partial_len, ()),
-            partial_len as u32
+            partial_len
         );
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
@@ -371,11 +371,11 @@ pub mod tests {
         let addr = GuestAddress(0);
         mem.write(&data, addr).unwrap();
         assert_queued!(engine.write(offset, &mem, addr, partial_len, ()));
-        assert_async_execution(&mem, &mut engine, partial_len as u32);
+        assert_async_execution(&mem, &mut engine, partial_len);
         // Offset read
         let mem = create_mem();
         assert_queued!(engine.read(offset, &mem, addr, partial_len, ()));
-        assert_async_execution(&mem, &mut engine, partial_len as u32);
+        assert_async_execution(&mem, &mut engine, partial_len);
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();
@@ -387,12 +387,12 @@ pub mod tests {
         // Full write
         mem.write(&data, GuestAddress(0)).unwrap();
         assert_queued!(engine.write(0, &mem, addr, FILE_LEN, ()));
-        assert_async_execution(&mem, &mut engine, FILE_LEN as u32);
+        assert_async_execution(&mem, &mut engine, FILE_LEN);
 
         // Full read
         let mem = create_mem();
         assert_queued!(engine.read(0, &mem, addr, FILE_LEN, ()));
-        assert_async_execution(&mem, &mut engine, FILE_LEN as u32);
+        assert_async_execution(&mem, &mut engine, FILE_LEN);
         // Check data
         let mut buf = vec![0u8; FILE_LEN as usize];
         mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
