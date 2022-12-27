@@ -135,10 +135,10 @@ pub fn configure_system(
     if last_addr < end_32bit_gap_start {
         add_e820_entry(
             &mut params,
-            himem_start.raw_value() as u64,
+            himem_start.raw_value(),
             // it's safe to use unchecked_offset_from because
             // mem_end > himem_start
-            last_addr.unchecked_offset_from(himem_start) as u64 + 1,
+            last_addr.unchecked_offset_from(himem_start) + 1,
             E820_RAM,
         )?;
     } else {
