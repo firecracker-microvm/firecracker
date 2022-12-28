@@ -46,14 +46,3 @@ def timed_request(method):
         return result
 
     return timed
-
-
-def test_context(cap, count=1):
-    """Set the image capability and vm count attribute for individual tests."""
-
-    def wrap(func):
-        setattr(func, "_capability", cap)
-        setattr(func, "_pool_size", count)
-        return func
-
-    return wrap
