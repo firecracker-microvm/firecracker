@@ -66,8 +66,8 @@ lazy_static! {
     /// !CAVEAT!
     /// This map is supposed to be strictly one-to-one (i.e. bijective) because
     /// describe-snapshot inverts it to look up the release that matches the
-    /// snapshot version. If two version map to the snap_version, the results
-    /// are non-deterministic.
+    /// snapshot version. If two versions map to the same snap_version, the
+    /// results are non-deterministic.
     /// This means
     /// - Do not insert patch releases here.
     /// - Every minor version should be represented here.
