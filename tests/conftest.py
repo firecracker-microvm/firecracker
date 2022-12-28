@@ -497,39 +497,6 @@ def test_microvm_any(request, microvm):
     yield microvm
 
 
-@pytest.fixture
-def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
-    """Yield one or more microvms based on the context provided.
-
-    `context` is a dynamically parameterized fixture created inside the special
-    function `pytest_generate_tests` and it holds a tuple containing the name
-    of the guest image used to spawn a microvm and the number of microvms
-    to spawn.
-    """
-    microvms = []
-    (microvm_resources, how_many) = context
-
-    # When the context specifies multiple microvms, we use the first vm to
-    # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-    MICROVM_S3_FETCHER.init_vm_resources(microvm_resources, first_vm)
-    microvms.append(first_vm)
-
-    # It is safe to do this as the dynamically generated fixture `context`
-    # asserts that the `how_many` parameter is always positive
-    # (i.e strictly greater than 0).
-    for _ in range(how_many - 1):
-        vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-        MICROVM_S3_FETCHER.hardlink_vm_resources(microvm_resources, first_vm, vm)
-        microvms.append(vm)
-
-    yield microvms
-
-    for i in range(how_many):
-        microvms[i].kill()
-        shutil.rmtree(os.path.join(test_fc_session_root_path, microvms[i].id))
-
-
 @pytest.fixture(autouse=True, scope="session")
 def test_spectre_mitigations():
     """Check the kernel is compiled with SPECTREv2 mitigations."""
@@ -580,45 +547,6 @@ def firecracker_release(request):
     firecracker.download()
     firecracker.jailer().download()
     return firecracker
-
-
-def pytest_generate_tests(metafunc):
-    """Implement customized parametrization scheme.
-
-    This is a special hook which is called by the pytest infrastructure when
-    collecting a test function. The `metafunc` contains the requesting test
-    context. Amongst other things, the `metafunc` provides the list of fixture
-    names that the calling test function is using.  If we find a fixture that
-    is called `context`, we check the calling function through the
-    `metafunc.function` field for the `_pool_size` attribute which we
-    previously set with a decorator. Then we create the list of parameters
-    for this fixture.
-    The parameter will be a list of tuples of the form (cap, pool_size).
-    For each parameter from the list (i.e. tuple) a different test case
-    scenario will be created.
-    """
-    if "context" in metafunc.fixturenames:
-        # In order to create the params for the current fixture, we need the
-        # capability and the number of vms we want to spawn.
-
-        # 1. Look if the test function set the pool size through the decorator.
-        # If it did not, we set it to 1.
-        how_many = int(getattr(metafunc.function, "_pool_size", None))
-        assert how_many > 0
-
-        # 2. Check if the test function set the capability field through
-        # the decorator. If it did not, we set it to any.
-        cap = getattr(metafunc.function, "_capability", "*")
-
-        # 3. Before parametrization, get the list of images that have the
-        # desired capability. By parametrize-ing the fixture with it, we
-        # trigger tests cases for each of them.
-        image_list = MICROVM_S3_FETCHER.list_microvm_images(capability_filter=[cap])
-        metafunc.parametrize(
-            "context",
-            [(item, how_many) for item in image_list],
-            ids=["{}, {} instance(s)".format(item, how_many) for item in image_list],
-        )
 
 
 @pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
