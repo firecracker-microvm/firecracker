@@ -5,6 +5,8 @@
 """Generate Buildkite pipelines dynamically"""
 
 import json
+import subprocess
+from pathlib import Path
 
 INSTANCES = [
     "m5d.metal",
@@ -14,6 +16,14 @@ INSTANCES = [
 ]
 
 KERNELS = ["4.14", "5.10"]
+
+
+def get_changed_files(branch):
+    """
+    Get all files changed since `branch`
+    """
+    stdout = subprocess.check_output(["git", "diff", "--name-only", branch])
+    return [Path(line) for line in stdout.decode().splitlines()]
 
 
 def group(group_name, command, agent_tags=None, priority=0, timeout=30):
@@ -27,7 +37,7 @@ def group(group_name, command, agent_tags=None, priority=0, timeout=30):
         agent_tags = []
     # Use the 1st character of the group name (should be an emoji)
     label1 = group_name[0]
-    steps = []
+    group_steps = []
     for instance in INSTANCES:
         for kv in KERNELS:
             agents = [
@@ -42,16 +52,16 @@ def group(group_name, command, agent_tags=None, priority=0, timeout=30):
                 "timeout": timeout,
                 "agents": agents,
             }
-            steps.append(step)
+            group_steps.append(step)
 
-    return {"group": group_name, "steps": steps}
+    return {"group": group_name, "steps": group_steps}
 
 
 step_style = {
     "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
     "label": "🪶 Style",
     # we only install the required dependencies in x86_64
-    "agents": ["platform=x86_64.metal"]
+    "agents": ["platform=x86_64.metal"],
 }
 
 build_grp = group(
@@ -85,16 +95,20 @@ performance_grp = group(
     agent_tags=["ag=1"],
 )
 
-pipeline = {
-    "agents": {"queue": "default"},
-    "steps": [
-        step_style,
+steps = [step_style]
+changed_files = get_changed_files("main")
+if any(x.suffix != ".md" for x in changed_files):
+    steps += [
         build_grp,
         functional_1_grp,
         functional_2_grp,
         security_grp,
         performance_grp,
-    ],
+    ]
+
+pipeline = {
+    "agents": {"queue": "default"},
+    "steps": steps,
 }
 
 print(json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False))
