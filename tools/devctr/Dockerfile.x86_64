@@ -4,7 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.65.0"
+ARG RUST_TOOLCHAIN="1.66.0"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG TMP_POETRY_DIR
@@ -28,7 +28,9 @@ RUN apt-get update \
         binutils-dev \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
+        cmake \
         build-essential \
+        zlib1g-dev \
         libncurses5-dev \
         libgdbm-dev  \
         libnss3-dev \
@@ -37,7 +39,6 @@ RUN apt-get update \
         libsqlite3-dev \
         wget \
         libbz2-dev \
-        cmake \
         curl \
         file \
         g++ \
@@ -47,6 +48,7 @@ RUN apt-get update \
         iperf3 \
         iproute2 \
         jq \
+        less \
         libdw-dev \
         libiberty-dev \
         libssl-dev \
@@ -74,8 +76,9 @@ RUN apt-get update \
         setuptools \
         wheel \
     && python3 -m pip install --upgrade pip \ 
-    && gem install chef-utils:16.6.14 \
-    && gem install mdl -v 0.11.0
+    && gem install \
+        chef-utils:16.6.14 \
+        mdl:0.11.0
 
 # Update Python to 3.10
 # This method isn't ideal, compiling from source can be dropped
@@ -105,11 +108,10 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add x86_64-unknown-linux-musl \
-        && rustup component add rustfmt \
-        && rustup component add clippy-preview \
-        && rustup install "stable" \
+        && rustup component add rustfmt clippy clippy-preview \
+        && rustup install --profile minimal "stable" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
