@@ -1,0 +1,19 @@
+[package]
+name = "bit-fields-macros"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies] 
+quote = "1.0.21"
+proc-macro2 = "1.0.43"
+thiserror = "1.0.32"
+# For converting bit flag member names to constant names.
+convert_case = "0.6.0"
+
+[dev-dependencies]
+rand = "0.8.5"
+
+[lib]
+proc-macro = true

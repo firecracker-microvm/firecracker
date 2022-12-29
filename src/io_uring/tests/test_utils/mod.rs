@@ -27,7 +27,7 @@ pub fn drive_submission_and_completion(
                     0,
                     mem_region
                         .as_volatile_slice()
-                        .subslice(i as usize, 1)
+                        .subslice(i, 1)
                         .unwrap()
                         .as_ptr() as usize,
                     1,
@@ -38,7 +38,7 @@ pub fn drive_submission_and_completion(
                     0,
                     mem_region
                         .as_volatile_slice()
-                        .subslice(i as usize, 1)
+                        .subslice(i, 1)
                         .unwrap()
                         .as_ptr() as usize,
                     1,
