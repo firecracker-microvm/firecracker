@@ -47,7 +47,7 @@ COVERAGE_MAX_DELTA = 0.05
 GRCOV_VERSION = "0.7.1"
 
 
-@pytest.mark.timeout(400)
+@pytest.mark.timeout(600)
 def test_coverage():
     """Test code coverage
 
