@@ -301,7 +301,7 @@ fn test_write() {
     // Create & init a memory mapping for storing the write buffers.
     let mem_region: MmapRegion = MmapRegion::build(
         None,
-        NUM_BYTES as usize,
+        NUM_BYTES,
         libc::PROT_READ | libc::PROT_WRITE,
         libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
     )
@@ -312,7 +312,7 @@ fn test_write() {
     for i in 0..NUM_BYTES {
         mem_region
             .as_volatile_slice()
-            .write_obj(i as u8, i as usize)
+            .write_obj(i as u8, i)
             .unwrap();
     }
 
@@ -342,7 +342,7 @@ fn test_read() {
     // Create & init a memory mapping for storing the read buffers.
     let mem_region: MmapRegion = MmapRegion::build(
         None,
-        NUM_BYTES as usize,
+        NUM_BYTES,
         libc::PROT_READ | libc::PROT_WRITE,
         libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
     )
