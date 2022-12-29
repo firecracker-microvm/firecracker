@@ -15,6 +15,8 @@ from functools import partial
 sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 
 # pylint: disable=wrong-import-position
+# The test infra assumes it is running from the `tests` directory.
+os.chdir("tests")
 from conftest import _test_images_s3_bucket, _gcc_compile, init_microvm
 from framework.artifacts import (
     ArtifactCollection,
@@ -32,6 +34,8 @@ from framework.utils import (
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import _configure_vm_from_json
 import host_tools.network as net_tools  # pylint: disable=import-error
+# restore directory
+os.chdir("..")
 
 DEST_KERNEL_NAME = "vmlinux.bin"
 ROOTFS_KEY = "ubuntu-18.04"
