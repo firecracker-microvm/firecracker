@@ -9,14 +9,15 @@ from framework.defs import MAX_API_CALL_DURATION_MS
 
 def timed_request(method):
     """Decorate functions to monitor their duration."""
+
     class ApiTimeoutException(Exception):
         """A custom exception containing the details of the failed API call."""
 
         def __init__(self, duration, method, resource, payload):
             """Compose the error message from the API call components."""
             super().__init__(
-                f'API call exceeded maximum duration: {float(duration)} ms.\n'
-                f'Call: {method} {resource} {payload}'
+                f"API call exceeded maximum duration: {float(duration)} ms.\n"
+                f"Call: {method} {resource} {payload}"
             )
 
     def timed(*args, **kwargs):
@@ -30,19 +31,16 @@ def timed_request(method):
                 # The positional arguments are:
                 # 1. The Session object
                 # 2. The URL from which we extract the resource for readability
-                resource = args[1][(args[1].rfind("/")):]
+                resource = args[1][(args[1].rfind("/")) :]
             except IndexError:
                 # Ignore formatting errors.
-                resource = ''
+                resource = ""
 
             # The payload is JSON-encoded and passed as an argument.
-            payload = kwargs['json'] if 'json' in kwargs else ''
+            payload = kwargs["json"] if "json" in kwargs else ""
 
             raise ApiTimeoutException(
-                duration_ms,
-                method.__name__.upper(),
-                resource,
-                payload
+                duration_ms, method.__name__.upper(), resource, payload
             )
 
         return result
@@ -52,8 +50,10 @@ def timed_request(method):
 
 def test_context(cap, count=1):
     """Set the image capability and vm count attribute for individual tests."""
+
     def wrap(func):
-        setattr(func, '_capability', cap)
-        setattr(func, '_pool_size', count)
+        setattr(func, "_capability", cap)
+        setattr(func, "_pool_size", count)
         return func
+
     return wrap

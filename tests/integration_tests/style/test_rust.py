@@ -13,8 +13,8 @@ def test_rust_style():
     """
     # Check that the output is empty.
     _, stdout, _ = utils.run_cmd(
-        'cargo fmt --all -- --check '
-        '--config format_code_in_doc_comments=true')
+        "cargo fmt --all -- --check " "--config format_code_in_doc_comments=true"
+    )
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout
@@ -31,16 +31,16 @@ def test_ensure_mod_tests():
     # Take the list and check each file contains 'mod tests {', output file
     # name if it doesn't.
     cmd = (
-        '/bin/bash '
-        '-c '
+        "/bin/bash "
+        "-c "
         '"grep '
-        '--files-without-match '
-        '\'mod tests {\' '
-        '\\$(grep '
-        '--files-with-matches '
-        '--recursive '
-        '--exclude-dir=src/*_gen/* '
-        '\'\\#\\[test\\]\' ../src/*/src)" '
+        "--files-without-match "
+        "'mod tests {' "
+        "\\$(grep "
+        "--files-with-matches "
+        "--recursive "
+        "--exclude-dir=src/*_gen/* "
+        "'\\#\\[test\\]' ../src/*/src)\" "
         '| grep -v "../src/io_uring/src/bindings.rs"'
     )
 
@@ -52,7 +52,7 @@ def test_ensure_mod_tests():
 
     error_msg = (
         f'Tests found in files without a "tests" module:\n {stdout} '
-        'To ensure code coverage is reported correctly, please check that '
+        "To ensure code coverage is reported correctly, please check that "
         'your tests are in a module named "tests".'
     )
 

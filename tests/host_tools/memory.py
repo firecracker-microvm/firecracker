@@ -14,8 +14,9 @@ class MemoryUsageExceededException(Exception):
     def __init__(self, usage, threshold):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            'Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n'
-            .format(usage, threshold)
+            "Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n".format(
+                usage, threshold
+            )
         )
 
 
@@ -87,7 +88,7 @@ class MemoryMonitor(Thread):
         the maximum value, it is pushed in a thread safe queue and memory
         monitoring ceases. It is up to the caller to check the queue.
         """
-        pmap_cmd = 'pmap -xq {}'.format(self.pid)
+        pmap_cmd = "pmap -xq {}".format(self.pid)
 
         while not self._should_stop:
             mem_total = 0
@@ -108,8 +109,10 @@ class MemoryMonitor(Thread):
                 except ValueError:
                     # This line doesn't contain memory related information.
                     continue
-                if self._guest_mem_start is None and \
-                   total_size == self.guest_mem_mib * 1024:
+                if (
+                    self._guest_mem_start is None
+                    and total_size == self.guest_mem_mib * 1024
+                ):
                     # This is the start of the guest's memory region.
                     self._guest_mem_start = address
                     continue
@@ -135,7 +138,8 @@ class MemoryMonitor(Thread):
         """Check that there are no samples over the threshold."""
         if not self.exceeded_queue.empty():
             raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold)
+                self.exceeded_queue.get(), self.threshold
+            )
 
     @property
     def current_rss(self):

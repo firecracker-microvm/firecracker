@@ -115,8 +115,9 @@ def test_serial_console_login(test_microvm_with_api):
     microvm.memory_monitor = None
 
     # Set up the microVM with 1 vCPU and a serial console.
-    microvm.basic_config(vcpu_count=1,
-                         boot_args='console=ttyS0 reboot=k panic=1 pci=off')
+    microvm.basic_config(
+        vcpu_count=1, boot_args="console=ttyS0 reboot=k panic=1 pci=off"
+    )
 
     microvm.start()
 
@@ -126,8 +127,7 @@ def test_serial_console_login(test_microvm_with_api):
 
     while not isinstance(current_state, TestFinished):
         output_char = serial.rx_char()
-        current_state = current_state.handle_input(
-            serial, output_char)
+        current_state = current_state.handle_input(serial, output_char)
 
 
 def get_total_mem_size(pid):
@@ -144,7 +144,7 @@ def send_bytes(tty, bytes_count, timeout=60):
     """Send data to the terminal."""
     start = time.time()
     for _ in range(bytes_count):
-        fcntl.ioctl(tty, termios.TIOCSTI, '\n')
+        fcntl.ioctl(tty, termios.TIOCSTI, "\n")
         current = time.time()
         if current - start > timeout:
             break
@@ -162,9 +162,11 @@ def test_serial_dos(test_microvm_with_api):
     microvm.memory_events_queue = None
 
     # Set up the microVM with 1 vCPU and a serial console.
-    microvm.basic_config(vcpu_count=1,
-                         add_root_device=False,
-                         boot_args='console=ttyS0 reboot=k panic=1 pci=off')
+    microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False,
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+    )
     microvm.start()
 
     # Open an fd for firecracker process terminal.
@@ -175,11 +177,11 @@ def test_serial_dos(test_microvm_with_api):
     before_size = get_total_mem_size(microvm.jailer_clone_pid)
     send_bytes(tty_fd, 100000000, timeout=1)
     after_size = get_total_mem_size(microvm.jailer_clone_pid)
-    assert before_size == after_size, "The memory size of the " \
-                                      "Firecracker process " \
-                                      "changed from {} to {}." \
-                                      .format(before_size,
-                                              after_size)
+    assert before_size == after_size, (
+        "The memory size of the "
+        "Firecracker process "
+        "changed from {} to {}.".format(before_size, after_size)
+    )
 
 
 def test_serial_block(test_microvm_with_api, network_config):
@@ -196,13 +198,13 @@ def test_serial_block(test_microvm_with_api, network_config):
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=512,
-        boot_args='console=ttyS0 reboot=k panic=1 pci=off'
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
 
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     # Configure the metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
     response = test_microvm.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
@@ -214,14 +216,11 @@ def test_serial_block(test_microvm_with_api, network_config):
 
     # Get an initial reading of missed writes to the serial.
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
-    init_count = fc_metrics['uart']['missed_write_count']
+    init_count = fc_metrics["uart"]["missed_write_count"]
 
     screen_pid = test_microvm.screen_pid
     # Stop `screen` process which captures stdout so we stop consuming stdout.
-    subprocess.check_call(
-        "kill -s STOP {}".format(screen_pid),
-        shell=True
-    )
+    subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
 
     # Generate a random text file.
     exit_code, _, _ = ssh_connection.execute_command(
@@ -229,20 +228,16 @@ def test_serial_block(test_microvm_with_api, network_config):
     )
 
     # Dump output to terminal
-    exit_code, _, _ = ssh_connection.execute_command(
-        "cat file.txt > /dev/ttyS0"
-    )
+    exit_code, _, _ = ssh_connection.execute_command("cat file.txt > /dev/ttyS0")
     assert exit_code == 0
 
     # Check that the vCPU isn't blocked.
-    exit_code, _, _ = ssh_connection.execute_command(
-        "cd /"
-    )
+    exit_code, _, _ = ssh_connection.execute_command("cd /")
     assert exit_code == 0
 
     # Check the metrics to see if the serial missed bytes.
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
-    last_count = fc_metrics['uart']['missed_write_count']
+    last_count = fc_metrics["uart"]["missed_write_count"]
 
     # Should be significantly more than before the `cat` command.
     assert last_count - init_count > 10000

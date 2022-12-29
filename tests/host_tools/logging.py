@@ -26,7 +26,7 @@ class Fifo:
             fd = os.open(path, os.O_NONBLOCK)
             self.fifo = os.fdopen(fd, "r")
         else:
-            self.fifo = open(path, "r", encoding='utf-8')
+            self.fifo = open(path, "r", encoding="utf-8")
 
         self.path = path
 
@@ -60,11 +60,7 @@ class Fifo:
         """
         exceptions_queue = Queue()
         metric_reader_thread = Thread(
-            target=self._do_thread_reader, args=(
-                exceptions_queue,
-                check_func,
-                *args
-            )
+            target=self._do_thread_reader, args=(exceptions_queue, check_func, *args)
         )
         metric_reader_thread.start()
         return exceptions_queue
@@ -83,14 +79,12 @@ class Fifo:
             if not data:
                 break
             try:
-                check_func(
-                    "{0}".format(data), *args
-                )
+                check_func("{0}".format(data), *args)
             # pylint: disable=broad-except
             # We need to propagate all type of exceptions to the main thread.
             except Exception:
                 exceptions_queue.put(sys.exc_info())
-            max_iter = max_iter-1
+            max_iter = max_iter - 1
         exceptions_queue.put("Done")
 
     def __del__(self):
