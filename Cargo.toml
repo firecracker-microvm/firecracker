@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/firecracker", "src/jailer", "src/seccompiler", "src/rebase-snap"]
+members = ["src/firecracker", "src/jailer", "src/seccompiler", "src/rebase-snap", "src/bit-fields"]
 default-members = ["src/firecracker"]
 
 [profile.dev]
