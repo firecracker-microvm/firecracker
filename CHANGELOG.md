@@ -5,6 +5,7 @@
 ### Changed
 
 - Improved error message when invalid network backend provided
+- Upgraded Rust toolchain from 1.64.0 to 1.66.0.
 
 ## [1.2.0]
 

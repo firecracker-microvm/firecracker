@@ -315,7 +315,7 @@ impl KvmVcpu {
         // MSRs defined by the template`
 
         arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)?;
+        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
         arch::x86_64::regs::setup_fpu(&self.fd)?;
         arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
         arch::x86_64::interrupts::set_lint(&self.fd)?;
