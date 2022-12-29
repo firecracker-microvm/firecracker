@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Upgraded Rust toolchain from 1.64.0 to 1.66.0.
+
 ## [1.1.4]
 
 ### Fixed
