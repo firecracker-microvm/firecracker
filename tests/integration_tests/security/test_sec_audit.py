@@ -12,8 +12,7 @@ from framework import defs
 
 @pytest.mark.skipif(
     get_cpu_vendor() != CpuVendor.INTEL,
-    reason="The audit is based on cargo.lock which "
-           "is identical on all platforms"
+    reason="The audit is based on cargo.lock which " "is identical on all platforms",
 )
 def test_cargo_audit():
     """

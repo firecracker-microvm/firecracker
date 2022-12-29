@@ -28,8 +28,7 @@ from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "snap_restore_performance"
-CONFIG_NAME_REL = "test_{}_config_{}.json"\
-    .format(TEST_ID, get_kernel_version(level=1))
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, get_kernel_version(level=1))
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
@@ -90,9 +89,7 @@ def construct_scratch_drives():
     """Create an array of scratch disks."""
     scratchdisks = ["vdb", "vdc", "vdd", "vde"]
     disk_files = [
-        drive_tools.FilesystemFile(
-            tempfile.mktemp(), size=64
-        ) for _ in scratchdisks
+        drive_tools.FilesystemFile(tempfile.mktemp(), size=64) for _ in scratchdisks
     ]
     return list(zip(scratchdisks, disk_files))
 
@@ -101,8 +98,7 @@ def default_lambda_consumer(env_id, workload):
     """Create a default lambda consumer for the snapshot restore test."""
     return st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG_DICT["measurements"],
-            SnapRestoreBaselinesProvider(env_id, workload)
+            CONFIG_DICT["measurements"], SnapRestoreBaselinesProvider(env_id, workload)
         ),
         func=consume_output,
         func_kwargs={},
@@ -110,8 +106,7 @@ def default_lambda_consumer(env_id, workload):
 
 
 def get_snap_restore_latency(
-    context, vcpus, mem_size, nets=1, blocks=1, all_devices=False,
-    iterations=10
+    context, vcpus, mem_size, nets=1, blocks=1, all_devices=False, iterations=10
 ):
     """Restore snapshots with various configs to measure latency."""
     vm_builder = context.custom["builder"]
@@ -149,9 +144,7 @@ def get_snap_restore_latency(
     extra_disk_paths = []
     if blocks > 1:
         for (name, diskfile) in scratch_drives[: (blocks - 1)]:
-            basevm.add_drive(
-                name, diskfile.path, use_ramdisk=True, io_engine="Sync"
-            )
+            basevm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0
 
@@ -161,9 +154,7 @@ def get_snap_restore_latency(
         )
         assert basevm.api_session.is_status_no_content(response.status_code)
 
-        response = basevm.vsock.put(
-            vsock_id="vsock0", guest_cid=3, uds_path="/v.sock"
-        )
+        response = basevm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
         assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
@@ -225,9 +216,7 @@ def consume_output(cons, result):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(300 * 1000)  # 1.40 hours
-@pytest.mark.parametrize(
-    "results_file_dumper", [CONFIG_NAME_ABS], indirect=True
-)
+@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
 def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
     """
     Test the performance of snapshot restore.
@@ -371,8 +360,7 @@ def snapshot_workload(context):
     file_dumper = context.custom["results_file_dumper"]
 
     st_core = core.Core(
-        name=TEST_ID, iterations=1,
-        custom={"cpu_model_name": get_cpu_model_name()}
+        name=TEST_ID, iterations=1, custom={"cpu_model_name": get_cpu_model_name()}
     )
 
     snapshot_scaling_vcpus(context, st_core, vcpu_count=10)

@@ -40,9 +40,7 @@ class DictProvider(Provider):
     UNIT_KEY = "unit"
     STATISTICS_KEY = "statistics"
 
-    def __init__(self,
-                 measurements: dict,
-                 baseline_provider: BaselineProvider):
+    def __init__(self, measurements: dict, baseline_provider: BaselineProvider):
         """
         Initialize metadata provider.
 
@@ -115,12 +113,14 @@ class DictProvider(Provider):
 
         self._measurements = {}
         for ms_name in measurements:
-            assert DictProvider.UNIT_KEY in measurements[ms_name], \
-                f"'{DictProvider.UNIT_KEY}' field is required for '" \
+            assert DictProvider.UNIT_KEY in measurements[ms_name], (
+                f"'{DictProvider.UNIT_KEY}' field is required for '"
                 f"{ms_name}' measurement definition."
-            assert DictProvider.STATISTICS_KEY in measurements[ms_name], \
-                f"'{DictProvider.STATISTICS_KEY}' field is required for '" \
+            )
+            assert DictProvider.STATISTICS_KEY in measurements[ms_name], (
+                f"'{DictProvider.STATISTICS_KEY}' field is required for '"
                 f"{ms_name}' measurement definition."
+            )
 
             unit = measurements[ms_name][DictProvider.UNIT_KEY]
             st_defs = measurements[ms_name][DictProvider.STATISTICS_KEY]
@@ -129,16 +129,20 @@ class DictProvider(Provider):
             for st_def in st_defs:
                 # Mandatory.
                 func_cls_name = st_def.get("function")
-                assert func_cls_name, f"Error in '{ms_name}' " \
-                                      "measurement definition: " \
-                                      "'function' field is required for " \
-                                      "measurement statistics definitions."
+                assert func_cls_name, (
+                    f"Error in '{ms_name}' "
+                    "measurement definition: "
+                    "'function' field is required for "
+                    "measurement statistics definitions."
+                )
 
                 func_cls = FunctionFactory.get(func_cls_name)
-                assert func_cls_name, f"Error in '{ms_name}' " \
-                                      "measurement definition: " \
-                                      f"'{func_cls_name}' is not a valid " \
-                                      f"statistic function."
+                assert func_cls_name, (
+                    f"Error in '{ms_name}' "
+                    "measurement definition: "
+                    f"'{func_cls_name}' is not a valid "
+                    f"statistic function."
+                )
 
                 name = st_def.get("name")
                 func = func_cls()
@@ -150,14 +154,14 @@ class DictProvider(Provider):
                 baseline = baseline_provider.get(ms_name, func.name)
                 if criteria_cls_name and baseline:
                     criteria_cls = CriteriaFactory.get(criteria_cls_name)
-                    assert criteria_cls, f"{criteria_cls_name} is not a " \
-                                         f"valid criteria."
+                    assert criteria_cls, (
+                        f"{criteria_cls_name} is not a " f"valid criteria."
+                    )
                     criteria = criteria_cls(baseline)
 
                 st_list.append(StatisticDef(func, criteria))
 
-            self._measurements[ms_name] = MeasurementDef(ms_name, unit,
-                                                         st_list)
+            self._measurements[ms_name] = MeasurementDef(ms_name, unit, st_list)
 
     @property
     def measurements(self):

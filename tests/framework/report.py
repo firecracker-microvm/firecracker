@@ -57,10 +57,9 @@ from framework import mpsing
 # Try to see if we're in a git repo. If yes, set the commit ID
 COMMIT_ID = ""
 try:
-    COMMIT_ID = subprocess.check_output(
-        "git rev-parse HEAD",
-        shell=True
-    ).decode().strip()
+    COMMIT_ID = (
+        subprocess.check_output("git rev-parse HEAD", shell=True).decode().strip()
+    )
 except subprocess.CalledProcessError:
     COMMIT_ID = "Out of tree build"
 
@@ -79,8 +78,9 @@ class Report(mpsing.MultiprocessSingleton):
     # accepted) and whether the item is filled from the docstring or not.
     # If not filled from the docstring, the test framework will add the content
     # through the test results.
-    ReportItem = namedtuple("ReportItem",
-                            ["value", "from_docstring", "one_of", "required"])
+    ReportItem = namedtuple(
+        "ReportItem", ["value", "from_docstring", "one_of", "required"]
+    )
 
     # Contains a test item name, the value, optionally defines what values
     # it accepts and whether the value is required.
@@ -88,28 +88,32 @@ class Report(mpsing.MultiprocessSingleton):
     doc_items = {
         # Internal test name representation
         "name": ReportItem("", False, None, False),
-
         # What the test does
         "description": ReportItem("", True, None, True),
-
         # If the test passed, failed or was skipped
         "outcome": ReportItem("", False, None, False),
-
         # How long the test took
         "duration": ReportItem(0, False, None, False),
-
         # What kind of test we're running. We only accept a predefined list
         # of tests.
-        "type": ReportItem("", True, ["build", "functional", "performance",
-                                      "security", "style", "negative",
-                                      "regression"], True),
-
+        "type": ReportItem(
+            "",
+            True,
+            [
+                "build",
+                "functional",
+                "performance",
+                "security",
+                "style",
+                "negative",
+                "regression",
+            ],
+            True,
+        ),
         # What we take into account to pass a test
         "criteria": ReportItem("", False, None, False),
-
         # Actual result compared to the criteria
         "result": ReportItem("", False, None, False),
-
         # Link to GitHub issue related to this test
         "issue": ReportItem("", True, None, False),
     }
@@ -118,17 +122,17 @@ class Report(mpsing.MultiprocessSingleton):
     # It's composed of the items containing True as 'from_docscring' in the
     # doc_items list.
     # To avoid subsequent regex calls, we only build the regex pattern once.
-    visible_items = \
-        re.compile("(@[%s]+:)" %
-                   "|".join([name for name, item in doc_items.items()
-                             if item.from_docstring]))
+    visible_items = re.compile(
+        "(@[%s]+:)"
+        % "|".join([name for name, item in doc_items.items() if item.from_docstring])
+    )
 
     # Test description is not necessarily specified by a preceding
     # "@description:" string, so we assume that any string at the beginning
     # of the docstring is the test description.
     default_item = "description"
 
-    class TestItem():
+    class TestItem:
         """Holds data about one test item."""
 
         def __init__(self, test_function):
@@ -167,16 +171,12 @@ class Report(mpsing.MultiprocessSingleton):
             crt_item = Report.default_item
 
             # Create a dict with default values
-            found_data = {
-                key: value.value
-                for (key, value) in Report.doc_items.items()}
+            found_data = {key: value.value for (key, value) in Report.doc_items.items()}
             found_data["name"] = test.nodeid
 
             # Handle None docstrings
             if not data:
-                raise ValueError(
-                    f"{found_data['name']}: Test requires docstring."
-                )
+                raise ValueError(f"{found_data['name']}: Test requires docstring.")
 
             # Split docstring by items enclosed by '@' and ':'.
             # The point here is to split strings like:
@@ -198,11 +198,11 @@ class Report(mpsing.MultiprocessSingleton):
                     continue
 
                 # Check if we need to validate the item as 'one_of'
-                if crt_doc_item.one_of and \
-                        item_value not in crt_doc_item.one_of:
+                if crt_doc_item.one_of and item_value not in crt_doc_item.one_of:
                     raise ValueError(
                         f"{crt_item} must be one of "
-                        f"{crt_doc_item.one_of}, not {item_value}")
+                        f"{crt_doc_item.one_of}, not {item_value}"
+                    )
 
                 # Check if the item was found twice
                 if crt_item in docstring_items:
@@ -216,14 +216,10 @@ class Report(mpsing.MultiprocessSingleton):
                     continue
 
                 if name not in docstring_items:
-                    raise ValueError(
-                        f"{found_data['name']}: Test {name} is required."
-                    )
+                    raise ValueError(f"{found_data['name']}: Test {name} is required.")
 
                 if docstring_items[name] == "":
-                    raise ValueError(
-                        f"{found_data['name']}: Test {name} is empty."
-                    )
+                    raise ValueError(f"{found_data['name']}: Test {name} is empty.")
 
             return {**found_data, **docstring_items}
 
@@ -267,8 +263,9 @@ class Report(mpsing.MultiprocessSingleton):
         self._data_loc.mkdir(exist_ok=True, parents=True)
 
         # Dump the JSON file
-        with open(self._data_loc / Report.FNAME_JSON, "w", encoding='utf-8') \
-                as json_file:
+        with open(
+            self._data_loc / Report.FNAME_JSON, "w", encoding="utf-8"
+        ) as json_file:
             total_duration = 0
             test_items = []
             for test_name in sorted(self._collected_items):
@@ -292,6 +289,6 @@ class Report(mpsing.MultiprocessSingleton):
                 "start_time_utc": str(self._start_time),
                 "end_time_utc": str(datetime.datetime.utcnow()),
                 "duration": total_duration,
-                "test_items": test_items
+                "test_items": test_items,
             }
             json.dump(json_data, json_file, indent=4)

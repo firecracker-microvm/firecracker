@@ -16,7 +16,7 @@ class CriteriaFactory:
     """Comparison criteria factory class."""
 
     @classmethod
-    def get(cls, criteria_cls_name) -> 'ComparisonCriteria':
+    def get(cls, criteria_cls_name) -> "ComparisonCriteria":
         """`criteria_cls_name` must be a valid criteria class name."""
         return locate(f"framework.stats.criteria.{criteria_cls_name}")
 
@@ -67,8 +67,7 @@ class ComparisonCriteria(ABC):
 
     def fail_msg(self, actual):
         """Return the default fail message."""
-        return self.name + f" failed. Target: '{self.target} vs Actual: " \
-                           f"'{actual}'."
+        return self.name + f" failed. Target: '{self.target} vs Actual: " f"'{actual}'."
 
 
 # pylint: disable=R0903
@@ -130,8 +129,10 @@ class EqualWith(ComparisonCriteria):
 
     def fail_msg(self, actual):
         """Return the `EqualWith` failure message."""
-        return self.name + f" failed. Target: '{self.target} +- " \
-                           f"{self.delta}' vs Actual: '{actual}'."
+        return (
+            self.name + f" failed. Target: '{self.target} +- "
+            f"{self.delta}' vs Actual: '{actual}'."
+        )
 
     def check(self, actual):
         """Compare the target and the actual."""

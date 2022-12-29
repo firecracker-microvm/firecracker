@@ -13,9 +13,8 @@ def test_markdown_style():
     """
     # Get all *.md files from the project
     md_files = utils.get_files_from(
-        find_path="..",
-        pattern="*.md",
-        exclude_names=["build"])
+        find_path="..", pattern="*.md", exclude_names=["build"]
+    )
 
     # Assert if somehow no markdown files were found.
     assert len(md_files) != 0

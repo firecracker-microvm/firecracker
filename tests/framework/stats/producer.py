@@ -27,8 +27,7 @@ class SSHCommand(Producer):
 
     def produce(self) -> Any:
         """Return the output of the executed ssh command."""
-        rc, stdout, stderr = \
-            self._ssh_connection.execute_command(self._cmd)
+        rc, stdout, stderr = self._ssh_connection.execute_command(self._cmd)
         assert rc == 0
         assert stderr.read() == ""
 

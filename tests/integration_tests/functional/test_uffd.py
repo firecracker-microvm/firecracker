@@ -31,9 +31,7 @@ def create_snapshot(bin_cloner_path):
 
     # Add a memory balloon.
     response = basevm.balloon.put(
-        amount_mib=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
 
@@ -48,8 +46,7 @@ def create_snapshot(bin_cloner_path):
     snapshot_builder = SnapshotBuilder(basevm)
 
     # Create base snapshot.
-    snapshot = snapshot_builder.create([root_disk.local_path()],
-                                       ssh_key)
+    snapshot = snapshot_builder.create([root_disk.local_path()], ssh_key)
 
     basevm.kill()
 
@@ -71,7 +68,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     working_dir = os.getcwd()
 
     os.chroot(vm.chroot())
-    os.chdir('/')
+    os.chdir("/")
     st = os.stat(handler_name)
     os.chmod(handler_name, st.st_mode | stat.S_IEXEC)
 
@@ -112,17 +109,16 @@ def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
 
     response = vm.snapshot.load(
-        mem_backend={
-            'type': SnapshotMemBackendType.UFFD,
-            'path': 'inexsistent'
-        },
-        snapshot_path=jailed_vmstate
+        mem_backend={"type": SnapshotMemBackendType.UFFD, "path": "inexsistent"},
+        snapshot_path=jailed_vmstate,
     )
 
     assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "Load microVM snapshot error: Cannot connect to UDS in order to " \
-           "send information on handling guest memory page-faults due to: " \
-           "No such file or directory (os error 2)" in response.text
+    assert (
+        "Load microVM snapshot error: Cannot connect to UDS in order to "
+        "send information on handling guest memory page-faults due to: "
+        "No such file or directory (os error 2)" in response.text
+    )
 
 
 def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
@@ -146,22 +142,19 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     jailed_sock_path = vm.create_jailed_resource(socket_path)
 
     response = vm.snapshot.load(
-        mem_backend={
-            'type': SnapshotMemBackendType.UFFD,
-            'path': jailed_sock_path
-        },
-        snapshot_path=jailed_vmstate
+        mem_backend={"type": SnapshotMemBackendType.UFFD, "path": jailed_sock_path},
+        snapshot_path=jailed_vmstate,
     )
 
     assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "Load microVM snapshot error: Cannot connect to UDS in order to" \
-           " send information on handling guest memory page-faults due to: " \
-           "Connection refused (os error 111)" in response.text
+    assert (
+        "Load microVM snapshot error: Cannot connect to UDS in order to"
+        " send information on handling guest memory page-faults due to: "
+        "Connection refused (os error 111)" in response.text
+    )
 
 
-def test_valid_handler(bin_cloner_path,
-                       test_microvm_with_api,
-                       uffd_handler_paths):
+def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test valid uffd handler scenario.
 
@@ -179,26 +172,20 @@ def test_valid_handler(bin_cloner_path,
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm,
-        uffd_handler_paths['valid_handler'],
-        snapshot.mem
+        vm, uffd_handler_paths["valid_handler"], snapshot.mem
     )
 
-    vm, _ = vm_builder.build_from_snapshot(snapshot, vm=vm,
-                                           resume=True,
-                                           uffd_path=SOCKET_PATH)
+    vm, _ = vm_builder.build_from_snapshot(
+        snapshot, vm=vm, resume=True, uffd_path=SOCKET_PATH
+    )
 
     # Inflate balloon.
     response = vm.balloon.patch(amount_mib=200)
-    assert vm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert vm.api_session.is_status_no_content(response.status_code)
 
     # Deflate balloon.
     response = vm.balloon.patch(amount_mib=0)
-    assert vm.api_session.is_status_no_content(
-        response.status_code
-    )
+    assert vm.api_session.is_status_no_content(response.status_code)
 
     # Verify if guest can run commands.
     ssh_connection = net_tools.SSHConnection(vm.ssh_config)
@@ -206,9 +193,7 @@ def test_valid_handler(bin_cloner_path,
     assert exit_code == 0
 
 
-def test_malicious_handler(bin_cloner_path,
-                           test_microvm_with_api,
-                           uffd_handler_paths):
+def test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test malicious uffd handler scenario.
 
@@ -232,23 +217,19 @@ def test_malicious_handler(bin_cloner_path,
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm,
-        uffd_handler_paths['malicious_handler'],
-        snapshot.mem
+        vm, uffd_handler_paths["malicious_handler"], snapshot.mem
     )
 
     # We expect Firecracker to freeze while resuming from a snapshot
     # due to the malicious handler's unavailability.
     try:
         vm_builder.build_from_snapshot(
-            snapshot, vm=vm,
-            resume=True,
-            uffd_path=SOCKET_PATH,
-            timeout=30
+            snapshot, vm=vm, resume=True, uffd_path=SOCKET_PATH, timeout=30
         )
         assert False
-    except (socket.timeout,
-            urllib3.exceptions.ReadTimeoutError,
-            requests.exceptions.ReadTimeout) \
-            as _err:
+    except (
+        socket.timeout,
+        urllib3.exceptions.ReadTimeoutError,
+        requests.exceptions.ReadTimeout,
+    ) as _err:
         assert True, _err

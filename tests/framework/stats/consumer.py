@@ -31,9 +31,7 @@ class Consumer(ABC):
     DATA_KEY = "_data"
 
     # pylint: disable=W0102
-    def __init__(self,
-                 metadata_provider: MetadataProvider = None,
-                 custom=None):
+    def __init__(self, metadata_provider: MetadataProvider = None, custom=None):
         """Initialize a consumer."""
         self._iteration = 0
         self._results = defaultdict()  # Aggregated results.
@@ -91,7 +89,8 @@ class Consumer(ABC):
             if ms_name not in self._measurements_defs:
                 self._failure_aggregator.add_row(
                     f"'{ms_name}' measurement does not have a "
-                    "corresponding measurement definition.")
+                    "corresponding measurement definition."
+                )
 
         if self._failure_aggregator.has_any():
             raise self._failure_aggregator
@@ -104,8 +103,9 @@ class Consumer(ABC):
         """Generate statistics as a dictionary."""
         self._validate()
         for ms_name in self._results:
-            self._statistics.setdefault(ms_name, {})[self.UNIT_KEY] \
-                = self._measurements_defs[ms_name].unit
+            self._statistics.setdefault(ms_name, {})[
+                self.UNIT_KEY
+            ] = self._measurements_defs[ms_name].unit
             has_data = Consumer.DATA_KEY in self._results[ms_name]
             st_defs = self._measurements_defs[ms_name].statistics
             for st_def in st_defs:
@@ -114,13 +114,12 @@ class Consumer(ABC):
                         self._failure_aggregator.add_row(
                             f"Processing '{st_def.name}' statistic failed due "
                             f"to lack of data points for '{ms_name}' "
-                            "measurement.")
+                            "measurement."
+                        )
                         continue
-                    self._statistics[ms_name][st_def.name] = \
-                        self._statistics[ms_name][st_def.name] = {
-                            "value": st_def.func(self._results[ms_name][
-                                                 self.DATA_KEY])
-                    }
+                    self._statistics[ms_name][st_def.name] = self._statistics[ms_name][
+                        st_def.name
+                    ] = {"value": st_def.func(self._results[ms_name][self.DATA_KEY])}
                 else:
                     self._statistics[ms_name][st_def.name] = {
                         "value": self._results[ms_name][st_def.name]
@@ -128,19 +127,16 @@ class Consumer(ABC):
 
                 pass_criteria = st_def.pass_criteria
                 if pass_criteria:
-                    self._statistics[ms_name][st_def.name][
-                        "pass_criteria"] = {
-                            pass_criteria.name: pass_criteria.baseline
+                    self._statistics[ms_name][st_def.name]["pass_criteria"] = {
+                        pass_criteria.name: pass_criteria.baseline
                     }
                     res = self._statistics[ms_name][st_def.name]["value"]
                     try:
                         pass_criteria.check(res)
-                        self._statistics[ms_name][st_def.name]["outcome"] = \
-                            "PASSED"
+                        self._statistics[ms_name][st_def.name]["outcome"] = "PASSED"
                     except CriteriaException as err:
                         # pylint: disable=W0707
-                        self._statistics[ms_name][st_def.name]["outcome"] = \
-                            "FAILED"
+                        self._statistics[ms_name][st_def.name]["outcome"] = "FAILED"
                         fail_msg = f"'{ms_name}/{st_def.name}': {err}"
                         self._failure_aggregator.add_row(fail_msg)
                         if fail_fast:
@@ -163,10 +159,12 @@ class LambdaConsumer(Consumer):
     signature: `def func_name(cons: Consumer, raw_output: Any, **kw_args)`.
     """
 
-    def __init__(self,
-                 func: Callable,
-                 func_kwargs=None,
-                 metadata_provider: MetadataProvider = None):
+    def __init__(
+        self,
+        func: Callable,
+        func_kwargs=None,
+        metadata_provider: MetadataProvider = None,
+    ):
         """Initialize the LambdaConsumer."""
         super().__init__(metadata_provider)
         self._func = func

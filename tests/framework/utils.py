@@ -91,10 +91,7 @@ class UffdHandler:
     def spawn(self):
         """Spawn handler process using arguments provided."""
         self._proc = subprocess.Popen(
-            self._args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=1
+            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1
         )
 
     def proc(self):
@@ -322,8 +319,7 @@ class ExceptionAggregator(Exception):
         return "\n\n".join(self.failures)
 
 
-def search_output_from_cmd(cmd: str,
-                           find_regex: typing.Pattern) -> typing.Match:
+def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match:
     """
     Run a shell command and search a given regex object in stdout.
 
@@ -343,12 +339,14 @@ def search_output_from_cmd(cmd: str,
     if content:
         return content
 
-    raise RuntimeError("Could not find '%s' in output for '%s'" %
-                       (find_regex.pattern, cmd))
+    raise RuntimeError(
+        "Could not find '%s' in output for '%s'" % (find_regex.pattern, cmd)
+    )
 
 
-def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
-                   recursive: bool = True):
+def get_files_from(
+    find_path: str, pattern: str, exclude_names: list = None, recursive: bool = True
+):
     """
     Return a list of files from a given path, recursively.
 
@@ -366,12 +364,11 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
             continue
         # Run glob inside the folder with the given pattern
         found.extend(
-            glob.glob(f"{find_path}/{path_dir.name}/**/{pattern}",
-                      recursive=recursive))
+            glob.glob(f"{find_path}/{path_dir.name}/**/{pattern}", recursive=recursive)
+        )
     # scandir will not look at the files matching the pattern in the
     # current directory.
-    found.extend(
-        glob.glob(f"{find_path}/./{pattern}"))
+    found.extend(glob.glob(f"{find_path}/./{pattern}"))
     return found
 
 
@@ -383,9 +380,9 @@ def get_free_mem_ssh(ssh_connection):
     :return: available mem column output of 'free'
     """
     _, stdout, stderr = ssh_connection.execute_command(
-        'cat /proc/meminfo | grep MemAvailable'
+        "cat /proc/meminfo | grep MemAvailable"
     )
-    assert stderr.read() == ''
+    assert stderr.read() == ""
 
     # Split "MemAvailable:   123456 kB" and validate it
     meminfo_data = stdout.read().split()
@@ -393,7 +390,7 @@ def get_free_mem_ssh(ssh_connection):
         # Return the middle element in the array
         return int(meminfo_data[1])
 
-    raise Exception('Available memory not found in `/proc/meminfo')
+    raise Exception("Available memory not found in `/proc/meminfo")
 
 
 def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
@@ -409,17 +406,12 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     if isinstance(cmd, list) or no_shell:
         # Create the async process
         proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=cwd)
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
+        )
     else:
         proc = subprocess.Popen(
-            cmd,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=cwd)
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
+        )
 
     # Capture stdout/stderr
     stdout, stderr = proc.communicate()
@@ -433,22 +425,17 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
 
     # If a non-zero return code was thrown, raise an exception
     if not ignore_return_code and proc.returncode != 0:
-        output_message += \
-            f"\nReturned error code: {proc.returncode}"
+        output_message += f"\nReturned error code: {proc.returncode}"
 
         if stderr != "":
-            output_message += \
-                f"\nstderr:\n{stderr.decode()}"
+            output_message += f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
     # Log the message with one call so that multiple statuses
     # don't get mixed up
     CMDLOG.debug(output_message)
 
-    return CommandReturn(
-        proc.returncode,
-        stdout.decode(),
-        stderr.decode())
+    return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
 async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
@@ -463,14 +450,12 @@ async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     if isinstance(cmd, list) or no_shell:
         # Create the async process
         proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
     else:
         proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
+            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
 
     # Capture stdout/stderr
     stdout, stderr = await proc.communicate()
@@ -484,22 +469,17 @@ async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
 
     # If a non-zero return code was thrown, raise an exception
     if not ignore_return_code and proc.returncode != 0:
-        output_message += \
-            f"\nReturned error code: {proc.returncode}"
+        output_message += f"\nReturned error code: {proc.returncode}"
 
         if stderr.decode() != "":
-            output_message += \
-                f"\nstderr:\n{stderr.decode()}"
+            output_message += f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
     # Log the message with one call so that multiple statuses
     # don't get mixed up
     CMDLOG.debug(output_message)
 
-    return CommandReturn(
-        proc.returncode,
-        stdout.decode(),
-        stderr.decode())
+    return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
 def run_cmd_list_async(cmd_list):
@@ -522,11 +502,7 @@ def run_cmd_list_async(cmd_list):
         cmds.append(run_cmd_async(cmd))
 
     # Wait until all are complete
-    loop.run_until_complete(
-        asyncio.gather(
-            *cmds
-        )
-    )
+    loop.run_until_complete(asyncio.gather(*cmds))
 
 
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
@@ -538,9 +514,9 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    return run_cmd_sync(cmd=cmd,
-                        ignore_return_code=ignore_return_code,
-                        no_shell=no_shell, cwd=cwd)
+    return run_cmd_sync(
+        cmd=cmd, ignore_return_code=ignore_return_code, no_shell=no_shell, cwd=cwd
+    )
 
 
 def eager_map(func, iterable):
@@ -552,16 +528,14 @@ def eager_map(func, iterable):
 def assert_seccomp_level(pid, seccomp_level):
     """Test that seccomp_level applies to all threads of a process."""
     # Get number of threads
-    cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
-        pid
-    )
+    cmd = "ps -T --no-headers -p {} | awk '{{print $2}}'".format(pid)
     process = run_cmd(cmd)
     threads_out_lines = process.stdout.splitlines()
     for tid in threads_out_lines:
         # Verify each thread's Seccomp status
-        cmd = 'cat /proc/{}/status | grep Seccomp:'.format(tid)
+        cmd = "cat /proc/{}/status | grep Seccomp:".format(tid)
         process = run_cmd(cmd)
-        seccomp_line = ''.join(process.stdout.split())
+        seccomp_line = "".join(process.stdout.split())
         assert seccomp_line == "Seccomp:" + seccomp_level
 
 
@@ -584,8 +558,7 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
             for task_id in task_ids:
                 if not cpu_percentages[thread_name].get(task_id):
                     cpu_percentages[thread_name][task_id] = []
-                cpu_percentages[thread_name][task_id].append(
-                    task_ids[task_id])
+                cpu_percentages[thread_name][task_id].append(task_ids[task_id])
         time.sleep(1)  # 1 second granularity.
     return cpu_percentages
 
@@ -628,8 +601,8 @@ def compare_versions(first, second):
     :param second: second version string
     :returns: 0 if equal, <0 if first < second, >0 if second < first
     """
-    first = list(map(int, first.split('.')))
-    second = list(map(int, second.split('.')))
+    first = list(map(int, first.split(".")))
+    second = list(map(int, second.split(".")))
 
     for i in range(3):
         diff = first[i] - second[i]
@@ -687,9 +660,9 @@ def get_kernel_version(level=2):
     linux_version = platform.release()
     actual_level = 0
     for idx, char in enumerate(linux_version):
-        if char == '.':
+        if char == ".":
             actual_level += 1
-        if actual_level > level or (not char.isdigit() and char != '.'):
+        if actual_level > level or (not char.isdigit() and char != "."):
             linux_version = linux_version[0:idx]
             break
     return linux_version
@@ -701,17 +674,15 @@ def is_io_uring_supported():
 
     ...version.
     """
-    return compare_versions(
-        get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING
-    ) >= 0
+    return compare_versions(get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING) >= 0
 
 
 def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     """Generate session token used for MMDS V2 requests."""
-    cmd = 'curl -m 2 -s'
-    cmd += ' -X PUT'
+    cmd = "curl -m 2 -s"
+    cmd += " -X PUT"
     cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
-    cmd += ' http://{}/latest/api/token'.format(ipv4_address)
+    cmd += " http://{}/latest/api/token".format(ipv4_address)
     _, stdout, _ = ssh_connection.execute_command(cmd)
     token = stdout.read()
 
@@ -720,38 +691,36 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
 
 def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
     """Build `GET` request to fetch metadata from MMDS."""
-    cmd = 'curl -m 2 -s'
+    cmd = "curl -m 2 -s"
 
     if token is not None:
-        cmd += ' -X GET'
+        cmd += " -X GET"
         cmd += ' -H  "X-metadata-token: {}"'.format(token)
 
     if app_json:
         cmd += ' -H "Accept: application/json"'
 
-    cmd += ' http://{}/'.format(ipv4_address)
+    cmd += " http://{}/".format(ipv4_address)
 
     return cmd
 
 
-def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None,
-                   fc_version=None):
+def configure_mmds(
+    test_microvm, iface_ids, version=None, ipv4_address=None, fc_version=None
+):
     """Configure mmds service."""
-    mmds_config = {
-        'network_interfaces': iface_ids
-    }
+    mmds_config = {"network_interfaces": iface_ids}
 
     if version is not None:
-        mmds_config['version'] = version
+        mmds_config["version"] = version
 
     # For versions prior to v1.0.0, the mmds config only contains
     # the ipv4_address.
-    if fc_version is not None and \
-            compare_versions(fc_version, "1.0.0") < 0:
+    if fc_version is not None and compare_versions(fc_version, "1.0.0") < 0:
         mmds_config = {}
 
     if ipv4_address:
-        mmds_config['ipv4_address'] = ipv4_address
+        mmds_config["ipv4_address"] = ipv4_address
 
     response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -761,20 +730,18 @@ def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None,
 
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
     """Start binary process into a screen session."""
-    start_cmd = 'screen -L -Logfile {logfile} ' \
-                '-dmS {session} {binary} {params}'
+    start_cmd = "screen -L -Logfile {logfile} " "-dmS {session} {binary} {params}"
     start_cmd = start_cmd.format(
         logfile=screen_log,
         session=session_name,
         binary=binary_path,
-        params=' '.join(binary_params)
+        params=" ".join(binary_params),
     )
 
     run_cmd(start_cmd)
 
     # Build a regex object to match (number).session_name
-    regex_object = re.compile(
-        r'([0-9]+)\.{}'.format(session_name))
+    regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
 
     # Run 'screen -ls' in a retry_call loop, 30 times with a 1s
     # delay between calls.
@@ -782,18 +749,17 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     # return the PID. Otherwise, a RuntimeError will be raised.
     screen_pid = retry_call(
         search_output_from_cmd,
-        fkwargs={
-            "cmd": 'screen -ls',
-            "find_regex": regex_object
-        },
+        fkwargs={"cmd": "screen -ls", "find_regex": regex_object},
         exceptions=RuntimeError,
         tries=30,
-        delay=1).group(1)
+        delay=1,
+    ).group(1)
 
-    binary_clone_pid = int(open(
-        '/proc/{0}/task/{0}/children'.format(screen_pid),
-        encoding='utf-8'
-    ).read().strip())
+    binary_clone_pid = int(
+        open("/proc/{0}/task/{0}/children".format(screen_pid), encoding="utf-8")
+        .read()
+        .strip()
+    )
 
     # Configure screen to flush stdout to file.
     flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
@@ -809,8 +775,8 @@ def sanitize_version_string(fc_version_string):
     if not fc_version_string[0].isnumeric():
         clean_version = clean_version[1:]
     # Strip the metadata appended to the tag
-    if clean_version.find('-') > -1:
-        clean_version = clean_version[:clean_version.index('-')]
+    if clean_version.find("-") > -1:
+        clean_version = clean_version[: clean_version.index("-")]
     else:
         # Just strip potential newlines
         clean_version = clean_version.strip()
