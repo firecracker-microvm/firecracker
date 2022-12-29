@@ -1,0 +1,21 @@
+[package]
+name = "bit-fields"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+license = "Apache-2.0"
+keywords = ["bit", "bitmask", "bitflags", "flags"]
+repository = "https://github.com/firecracker-microvm/firecracker"
+homepage = "https://firecracker-microvm.github.io/"
+documentation = "https://docs.rs/bit-fields"
+description = "A macro to generate structures which support bit flags and sub-bytes ranges."
+exclude = ["/src/example.rs"]
+
+[dependencies] 
+bit-fields-macros = { path = "../bit-fields-macros" }
+serde = { version = "1.0.139", features=["derive"] }
+thiserror = "1.0.32"
+
+[dev-dependencies]
+serde_json = "1.0.83"
+rand = "0.8.5"
