@@ -451,13 +451,32 @@ def microvm_factory(tmp_path, bin_cloner_path):
         def __init__(self, tmp_path, bin_cloner):
             self.tmp_path = tmp_path
             self.bin_cloner_path = bin_cloner
+            self.vms = []
 
-        def build(self):
+        def build(self, kernel=None, rootfs=None):
             """Build a fresh microvm."""
             vm = init_microvm(self.tmp_path, self.bin_cloner_path)
+            self.vms.append(vm)
+            if kernel is not None:
+                kernel_path = Path(kernel.local_path())
+                vm.kernel_file = kernel_path
+            if rootfs is not None:
+                rootfs_path = Path(rootfs.local_path())
+                rootfs_path2 = Path(vm.path) / rootfs_path.name
+                # TBD only iff ext4 / rw
+                shutil.copyfile(rootfs_path, rootfs_path2)
+                vm.rootfs_file = rootfs_path2
+                vm.ssh_config["ssh_key_path"] = rootfs.ssh_key().local_path()
             return vm
 
-    yield MicroVMFactory(tmp_path, bin_cloner_path)
+        def kill(self):
+            """Clean up all built VMs"""
+            for vm in self.vms:
+                vm.kill()
+
+    uvm_factory = MicroVMFactory(tmp_path, bin_cloner_path)
+    yield uvm_factory
+    uvm_factory.kill()
 
 
 @pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))
@@ -600,6 +619,25 @@ def pytest_generate_tests(metafunc):
             [(item, how_many) for item in image_list],
             ids=["{}, {} instance(s)".format(item, how_many) for item in image_list],
         )
+
+
+@pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
+def guest_kernel(request):
+    """Return all supported guest kernels."""
+    kernel = request.param
+    kernel.download()
+    return kernel
+
+
+@pytest.fixture(
+    params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda rootfs: rootfs.name()
+)
+def rootfs(request):
+    """Return all supported rootfs."""
+    rootfs = request.param
+    rootfs.download()
+    rootfs.ssh_key().download()
+    return rootfs
 
 
 TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
