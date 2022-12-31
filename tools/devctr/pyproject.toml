@@ -5,25 +5,30 @@ description = "Firecracker python dependencies"
 authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
-python = "3.10.4"
+aws-embedded-metrics = "*"
+black = "*"
 boto3 = "*"
 botocore = "*"
 dataclasses = "*"
+# We need to fix the gitlint version since version 0.17.0 has a problem:
+# https://pythonissues.com/issues/1410824
+gitlint = "0.16.0"
 nsenter = "*"
+openapi-spec-validator = "*"
+pandas = "*"
 psutil = "5.7.0"
-black = "*"
 pylint = "*"
 pytest = "*"
+pytest-json-report = "*"
 pytest-timeout = "*"
+pytest-xdist = "*"
+python = "3.10.4"
 PyYAML = "*"
 requests = "*"
 requests-unixsocket = "*"
 retry = "*"
+setproctitle = "*"
 typing-extensions = "*"
-gitlint = "0.16.0"
-pandas = "*"
-# We need to fix the gitlint version since version 0.17.0 has a problem:
-# https://pythonissues.com/issues/1410824
 
 [tool.poetry.dev-dependencies]
 
