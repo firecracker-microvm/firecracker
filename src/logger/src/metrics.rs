@@ -801,6 +801,10 @@ pub struct EntropyDeviceMetrics {
     pub entropy_bytes: SharedIncMetric,
     /// Number of errors while getting random bytes on host
     pub host_rng_fails: SharedIncMetric,
+    /// Number of times an entropy request was rate limited
+    pub entropy_rate_limiter_throttled: SharedIncMetric,
+    /// Number of events associated with the rate limiter
+    pub rate_limiter_event_count: SharedIncMetric,
 }
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
