@@ -15,6 +15,9 @@ impl Entropy {
         if let Err(err) = ops.add(Events::new(&self.queue_events()[RNG_QUEUE], EventSet::IN)) {
             error!("entropy: Failed to register queue event: {err}");
         }
+        if let Err(err) = ops.add(Events::new(self.rate_limiter(), EventSet::IN)) {
+            error!("entropy: Failed to register rate-limiter event: {err}");
+        }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
@@ -56,7 +59,8 @@ impl MutEventSubscriber for Entropy {
         let source = events.fd();
 
         if !event_set.contains(EventSet::IN) {
-            warn!("entropy: Received unknowon event: {event_set:?} from source {source}");
+            warn!("entropy: Received unknown event: {event_set:?} from source {source}");
+            return;
         }
 
         if !self.is_activated() {
@@ -66,6 +70,8 @@ impl MutEventSubscriber for Entropy {
 
         if source == self.queue_events()[RNG_QUEUE].as_raw_fd() {
             self.process_entropy_queue_event()
+        } else if source == self.rate_limiter().as_raw_fd() {
+            self.process_rate_limiter_event();
         } else if source == self.activate_event().as_raw_fd() {
             self.process_activate_event(ops)
         } else {

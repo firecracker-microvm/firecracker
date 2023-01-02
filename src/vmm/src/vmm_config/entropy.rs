@@ -7,15 +7,23 @@ use std::sync::{Arc, Mutex};
 use devices::virtio::rng::{Entropy, Error as EntropyError};
 use serde::{Deserialize, Serialize};
 
+use super::RateLimiterConfig;
+
 /// This struct represents the strongly typed equivalent of the json body from entropy device
 /// related requests.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct EntropyDeviceConfig {}
+pub struct EntropyDeviceConfig {
+    /// Configuration for RateLimiter of Entropy device
+    pub rate_limiter: Option<RateLimiterConfig>,
+}
 
 impl From<&Entropy> for EntropyDeviceConfig {
-    fn from(_dev: &Entropy) -> Self {
-        EntropyDeviceConfig::default()
+    fn from(dev: &Entropy) -> Self {
+        let rate_limiter: RateLimiterConfig = dev.rate_limiter().into();
+        EntropyDeviceConfig {
+            rate_limiter: rate_limiter.into_option(),
+        }
     }
 }
 
@@ -26,6 +34,9 @@ pub enum EntropyDeviceError {
     /// Error while create an entropy device
     #[error("Could not create Entropy device: {0}")]
     CreateDevice(#[from] EntropyError),
+    /// Error while creating rate limiter from configuration
+    #[error("Could not create RateLimiter from configuration: {0}")]
+    CreateRateLimiter(#[from] std::io::Error),
 }
 
 type Result<T> = std::result::Result<T, EntropyDeviceError>;
@@ -41,8 +52,12 @@ impl EntropyDeviceBuilder {
     }
 
     /// Build an entropy device and return a (counted) reference to it protected by a mutex
-    pub fn build(&mut self, _config: EntropyDeviceConfig) -> Result<Arc<Mutex<Entropy>>> {
-        let dev = Arc::new(Mutex::new(Entropy::new()?));
+    pub fn build(&mut self, config: EntropyDeviceConfig) -> Result<Arc<Mutex<Entropy>>> {
+        let rate_limiter = config
+            .rate_limiter
+            .map(RateLimiterConfig::try_into)
+            .transpose()?;
+        let dev = Arc::new(Mutex::new(Entropy::new(rate_limiter.unwrap_or_default())?));
         self.0 = Some(dev.clone());
 
         Ok(dev)
@@ -74,6 +89,8 @@ impl EntropyDeviceBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rate_limiter::RateLimiter;
+
     use super::*;
 
     #[test]
@@ -90,7 +107,7 @@ mod tests {
     #[test]
     fn test_set_device() {
         let mut builder = EntropyDeviceBuilder::new();
-        let device = Entropy::new().unwrap();
+        let device = Entropy::new(RateLimiter::default()).unwrap();
         assert!(builder.0.is_none());
         builder.set_device(Arc::new(Mutex::new(device)));
         assert!(builder.0.is_some());

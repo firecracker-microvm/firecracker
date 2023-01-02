@@ -710,7 +710,9 @@ pub mod tests {
     fn test_try_from_put_entropy() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{}";
+        let body = "{ \"rate_limiter\": { \"bandwidth\" : { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 }, \"ops\": { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 } } }";
         sender
             .write_all(http_request("PUT", "/entropy", Some(body)).as_bytes())
             .unwrap();
