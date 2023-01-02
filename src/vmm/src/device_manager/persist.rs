@@ -938,7 +938,9 @@ mod tests {
     "guest_cid": 3,
     "uds_path": "{}"
   }},
-  "entropy": {{}}
+  "entropy": {{
+    "rate_limiter": null
+  }}
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap()

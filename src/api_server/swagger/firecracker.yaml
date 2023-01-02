@@ -464,6 +464,13 @@ paths:
       description:
         Enables an entropy device that provides high-quality random data to the guest.
       operationId: putEntropyDevice
+      parameters:
+        - name: body
+          in: body
+          description: Guest entropy device properties
+          required: true
+          schema:
+            $ref: "#/definitions/EntropyDevice"
       responses:
         204:
           description: Entropy device created
@@ -1207,6 +1214,14 @@ definitions:
         enum:
           - Paused
           - Resumed
+
+  EntropyDevice:
+    type: object
+    description:
+      Defines an entropy device.
+    properties:
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   FirecrackerVersion:
     type: object

@@ -3,6 +3,8 @@
 
 //! Defines the structures needed for saving/restoring entropy devices.
 
+use rate_limiter::persist::RateLimiterState;
+use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -15,6 +17,7 @@ use crate::virtio::{VirtioDeviceState, TYPE_RNG};
 #[derive(Clone, Versionize)]
 pub struct EntropyState {
     virtio_state: VirtioDeviceState,
+    rate_limiter_state: RateLimiterState,
 }
 
 pub struct EntropyConstructorArgs(GuestMemoryMmap);
@@ -29,6 +32,7 @@ impl EntropyConstructorArgs {
 pub enum Error {
     CreateEntropy(EntropyError),
     VirtioState(VirtioStateError),
+    RestoreRateLimiter(std::io::Error),
 }
 
 impl Persist<'_> for Entropy {
@@ -39,6 +43,7 @@ impl Persist<'_> for Entropy {
     fn save(&self) -> Self::State {
         EntropyState {
             virtio_state: VirtioDeviceState::from_device(self),
+            rate_limiter_state: self.rate_limiter().save(),
         }
     }
 
@@ -53,7 +58,8 @@ impl Persist<'_> for Entropy {
             QUEUE_SIZE,
         )?;
 
-        let mut entropy = Entropy::new_with_queues(queues)?;
+        let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
+        let mut entropy = Entropy::new_with_queues(queues, rate_limiter)?;
         entropy.set_avail_features(state.virtio_state.avail_features);
         entropy.set_acked_features(state.virtio_state.acked_features);
         entropy.set_irq_status(state.virtio_state.interrupt_status);
@@ -77,7 +83,7 @@ mod tests {
     #[test]
     fn test_persistence() {
         let mut mem = vec![0u8; 4096];
-        let entropy = Entropy::new().unwrap();
+        let entropy = Entropy::new(RateLimiter::default()).unwrap();
 
         let version_map = VersionMap::new();
         <Entropy as Persist>::save(&entropy)
