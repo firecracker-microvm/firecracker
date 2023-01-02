@@ -47,7 +47,7 @@ def github_release(tag_version, repo, github_token):
         print("Done. Archive successfully created. sha256sum result:")
         sha256sums = release_tgz.with_suffix(release_tgz.suffix + ".sha256.txt")
         subprocess.run(
-            f"sha256sum {release_tgz} | awk '{{print $1}}' > {sha256sums}",
+            f"sha256sum {release_tgz} > {sha256sums}",
             check=True,
             shell=True,
         )
