@@ -38,8 +38,6 @@ pub struct ApiServer {
     /// FD on which we notify the VMM that we have sent at least one
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
-    /// If this flag is set, the API thread will go down.
-    shutdown_flag: bool,
 }
 
 impl ApiServer {
@@ -55,7 +53,6 @@ impl ApiServer {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-            shutdown_flag: false,
         }
     }
 
@@ -121,14 +118,6 @@ impl ApiServer {
                 let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
                     - request_processing_start_us;
                 debug!("Total previous API call duration: {} us.", delta_us);
-
-                if self.shutdown_flag {
-                    server.flush_outgoing_writes();
-                    debug!(
-                        "/shutdown-internal request received, API server thread now ending itself"
-                    );
-                    return;
-                }
             }
         }
     }
@@ -144,10 +133,6 @@ impl ApiServer {
                 let mut response = match req_action {
                     RequestAction::Sync(vmm_action) => {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-                    }
-                    RequestAction::ShutdownInternal => {
-                        self.shutdown_flag = true;
-                        Response::new(Version::Http11, StatusCode::NoContent)
                     }
                 };
                 if let Some(message) = parsing_info.take_deprecation_message() {
@@ -482,5 +467,39 @@ mod tests {
                               the limit of 50 allowed by server.\nAll previous \
                               unanswered requests will be dropped.\" }";
         assert_eq!(&buf[..], &error_message[..]);
+    }
+
+    #[test]
+    fn test_kill_switch() {
+        let mut tmp_socket = TempFile::new().unwrap();
+        tmp_socket.remove().unwrap();
+        let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let seccomp_filters = get_empty_filters();
+
+        let api_kill_switch = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let kill_switch = api_kill_switch.try_clone().unwrap();
+
+        let mut server = HttpServer::new(PathBuf::from(path_to_socket)).unwrap();
+        server.add_kill_switch(kill_switch).unwrap();
+
+        let api_thread = thread::Builder::new()
+            .name("fc_api_test".to_owned())
+            .spawn(move || {
+                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd).run(
+                    server,
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                    seccomp_filters.get("api").unwrap(),
+                    vmm::HTTP_MAX_PAYLOAD_SIZE,
+                )
+            })
+            .unwrap();
+        // Signal the API thread it should shut down.
+        api_kill_switch.write(1).unwrap();
+        // Verify API thread was brought down.
+        api_thread.join().unwrap();
     }
 }
