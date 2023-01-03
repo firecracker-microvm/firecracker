@@ -1,9 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Write;
 use std::os::unix::io::AsRawFd;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -241,19 +239,7 @@ pub(crate) fn run_with_api(
         )
     });
 
-    // We want to tell the API thread to shut down for a clean exit. But this is after
-    // the Vmm.stop() has been called, so it's a moment of internal finalization (as
-    // opposed to be something the client might call to shut the Vm down).  Since it's
-    // an internal signal implementing it with an HTTP request is probably not the ideal
-    // way to do it...but having another way would involve multiplexing micro-http server
-    // with some other communication mechanism, or enhancing micro-http with exit
-    // conditions.
-
-    // We also need to make sure the socket path is ready.
-    let mut sock = UnixStream::connect(bind_path).unwrap();
-    sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
-        .unwrap();
-
+    api_kill_switch.write(1).unwrap();
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
     api_thread.join().expect("Api thread should join");
