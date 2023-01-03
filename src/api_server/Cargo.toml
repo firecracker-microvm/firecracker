@@ -16,7 +16,7 @@ serde_json = "1.0.78"
 thiserror = "1.0.32"
 
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }

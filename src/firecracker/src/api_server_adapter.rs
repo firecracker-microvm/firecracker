@@ -147,6 +147,8 @@ pub(crate) fn run_with_api(
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
     let api_event_fd = EventFd::new(libc::EFD_SEMAPHORE).expect("Cannot create API Eventfd.");
+    // FD used to signal API thread to stop/shutdown.
+    let api_kill_switch = EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create API kill switch.");
 
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
@@ -159,7 +161,7 @@ pub(crate) fn run_with_api(
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
 
-    let server = match HttpServer::new(&bind_path) {
+    let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
         Err(ServerError::IOError(inner)) if inner.kind() == std::io::ErrorKind::AddrInUse => {
             let sock_path = bind_path.display().to_string();
@@ -169,6 +171,14 @@ pub(crate) fn run_with_api(
             return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
         }
     };
+
+    let api_kill_switch_clone = api_kill_switch
+        .try_clone()
+        .expect("Failed to clone API kill switch");
+
+    server
+        .add_kill_switch(api_kill_switch_clone)
+        .expect("Cannot add HTTP server kill switch");
 
     // Start the separate API thread.
     let api_thread = thread::Builder::new()
