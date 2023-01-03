@@ -97,6 +97,11 @@ impl ApiServer {
         loop {
             let request_vec = match server.requests() {
                 Ok(vec) => vec,
+                Err(ServerError::ShutdownEvent) => {
+                    server.flush_outgoing_writes();
+                    debug!("shutdown request received, API server thread ending.");
+                    return;
+                }
                 Err(err) => {
                     // print request error, but keep server running
                     error!("API Server error on retrieving incoming request: {}", err);
