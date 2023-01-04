@@ -11,5 +11,6 @@ license = "Apache-2.0"
 [dependencies]
 libc = "0.2.117"
 regex = { version = "1.5.5", default-features = false, features = ["std"] }
+thiserror = "1.0.32"
 
 utils = { path = "../utils" }

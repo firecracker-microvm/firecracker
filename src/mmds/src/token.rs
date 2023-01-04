@@ -3,10 +3,10 @@
 
 use std::convert::TryInto;
 use std::fs::File;
+use std::io;
 use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
-use std::{fmt, io};
 
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
@@ -45,44 +45,31 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum Error {
+    #[error("Failed to extract entropy from /dev/urandom entropy pool: {0}.")]
     /// Failed to extract entropy from pool.
     EntropyPool(io::Error),
     /// Failed to extract expiry from token sequence.
+    #[error("Failed to extract expiry value from token.")]
     ExpiryExtraction,
     /// Token authority has invalid state.
+    #[error("Invalid token authority state.")]
     InvalidState,
     /// Time to live value for token is invalid.
+    #[error(
+        "Invalid time to live value provided for token: {0}. Please provide a value between {} \
+         and {}.",
+        MIN_TOKEN_TTL_SECONDS,
+        MAX_TOKEN_TTL_SECONDS
+    )]
     InvalidTtlValue(u32),
     /// Token serialization failed.
+    #[error("Bincode serialization failed: {0}.")]
     Serialization(BincodeError),
     /// Failed to encrypt token.
+    #[error("Failed to encrypt token.")]
     TokenEncryption,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::EntropyPool(err) => {
-                write!(
-                    f,
-                    "Failed to extract entropy from /dev/urandom entropy pool: {}.",
-                    err
-                )
-            }
-            Error::ExpiryExtraction => write!(f, "Failed to extract expiry value from token."),
-            Error::InvalidState => write!(f, "Invalid token authority state."),
-            Error::InvalidTtlValue(value) => write!(
-                f,
-                "Invalid time to live value provided for token: {}. Please provide a value \
-                 between {} and {}.",
-                value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS,
-            ),
-            Error::Serialization(err) => write!(f, "Bincode serialization failed: {}.", err),
-            Error::TokenEncryption => write!(f, "Failed to encrypt token."),
-        }
-    }
 }
 
 pub struct TokenAuthority {
