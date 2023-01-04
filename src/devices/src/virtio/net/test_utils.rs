@@ -31,13 +31,19 @@ static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
 pub fn default_net() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-    let tap_dev_name = format!("net-device{}", next_tap);
+    // Id is the firecracker-facing identifier, e.g. local to the FC process. We thus do not need to
+    // make sure it is globally unique
+    let tap_device_id = format!("net-device{}", next_tap);
+    // This is the device name on the host, and thus needs to be unique between all firecracker
+    // processes. We cannot use the above counter to ensure this uniqueness (as it is
+    // per-process). Thus, ask the kernel to assign us a number.
+    let tap_if_name = "net-device%d";
 
     let guest_mac = default_guest_mac();
 
     let mut net = Net::new_with_tap(
-        format!("net-device{}", next_tap),
-        tap_dev_name,
+        tap_device_id,
+        tap_if_name,
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
@@ -54,13 +60,13 @@ pub fn default_net() -> Net {
 
 pub fn default_net_no_mmds() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-    let tap_dev_name = format!("net-device{}", next_tap);
+    let tap_device_id = format!("net-device{}", next_tap);
 
     let guest_mac = default_guest_mac();
 
     let net = Net::new_with_tap(
-        format!("net-device{}", next_tap),
-        tap_dev_name,
+        tap_device_id,
+        "net-device%d",
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
@@ -71,6 +77,7 @@ pub fn default_net_no_mmds() -> Net {
     net
 }
 
+#[derive(Debug)]
 pub enum ReadTapMock {
     Failure,
     MockFrame(Vec<u8>),
@@ -86,14 +93,26 @@ impl ReadTapMock {
     }
 }
 
-// Used to simulate tap read fails in tests.
+#[derive(Debug)]
+pub enum WriteTapMock {
+    Failure,
+    Success,
+}
+
+// Used to simulate tap read and write fails in tests.
+#[derive(Debug)]
 pub struct Mocks {
     pub(crate) read_tap: ReadTapMock,
+    pub(crate) write_tap: WriteTapMock,
 }
 
 impl Mocks {
     pub fn set_read_tap(&mut self, read_tap: ReadTapMock) {
         self.read_tap = read_tap;
+    }
+
+    pub fn set_write_tap(&mut self, write_tap: WriteTapMock) {
+        self.write_tap = write_tap;
     }
 }
 
@@ -103,6 +122,7 @@ impl Default for Mocks {
             read_tap: ReadTapMock::MockFrame(
                 utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
             ),
+            write_tap: WriteTapMock::Success,
         }
     }
 }
@@ -206,13 +226,7 @@ impl TapTrafficSimulator {
 
 pub fn create_socket() -> File {
     // SAFETY: This is safe since we check the return value.
-    let socket = unsafe {
-        libc::socket(
-            libc::AF_PACKET,
-            libc::SOCK_RAW,
-            libc::ETH_P_ALL.to_be() as i32,
-        )
-    };
+    let socket = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ALL.to_be()) };
     if socket < 0 {
         panic!("Unable to create tap socket");
     }
@@ -353,7 +367,7 @@ pub mod test {
     impl<'a> TestHelper<'a> {
         const QUEUE_SIZE: u16 = 16;
 
-        pub fn default() -> TestHelper<'a> {
+        pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
             let mem = vm_memory::test_utils::create_guest_memory_unguarded(
@@ -451,7 +465,7 @@ pub mod test {
 
         /// Generate a tap frame of `frame_len` and check that it is deferred
         pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
-            self.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+            self.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
             let used_idx = self.rxq.used.idx.get();
 
             // Inject frame to tap and run epoll.

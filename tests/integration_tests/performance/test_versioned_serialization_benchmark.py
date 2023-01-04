@@ -68,8 +68,8 @@ def _check_statistics(directory, mean):
         attribute = "no-crc"
 
     measure = BASELINES[proc_model[0]][bench][attribute]
-    low = measure["target"] - measure["delta"]
-    high = measure["target"] + measure["delta"]
+    low = round(measure["target"] - measure["delta"], 3)
+    high = round(measure["target"] + measure["delta"], 3)
     assert low <= mean <= high, "Benchmark result {} has changed!".format(directory)
 
     return directory, f"{mean} ms", f"{low} <= result <= {high}"

@@ -139,7 +139,7 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
             return Err(Error::PayloadTooBig);
         }
 
-        packet.bytes.shrink_unchecked(len as usize);
+        packet.bytes.shrink_unchecked(len);
         packet.payload_mut().copy_from_slice(payload);
         packet.set_len(len as u16);
 

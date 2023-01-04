@@ -419,7 +419,7 @@ impl Queue {
         mem.write_obj(u32::from(desc_index), used_elem)?;
 
         let len_addr = used_elem.unchecked_add(4);
-        mem.write_obj(len as u32, len_addr)?;
+        mem.write_obj(len, len_addr)?;
 
         self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
@@ -428,7 +428,7 @@ impl Queue {
         fence(Ordering::Release);
 
         let next_used_addr = used_ring.unchecked_add(2);
-        mem.write_obj(self.next_used.0 as u16, next_used_addr)
+        mem.write_obj(self.next_used.0, next_used_addr)
             .map_err(QueueError::UsedRing)
     }
 
