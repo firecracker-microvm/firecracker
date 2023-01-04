@@ -1,7 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vm_memory::ByteValued;
+use vm_memory_wrapper::ByteValued;
 
 use crate::bindings::io_uring_sqe;
 

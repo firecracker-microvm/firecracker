@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory_wrapper::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
@@ -130,17 +130,17 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }

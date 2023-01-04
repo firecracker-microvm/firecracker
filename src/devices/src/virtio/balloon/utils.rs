@@ -4,7 +4,7 @@
 use std::io;
 
 use logger::error;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory_wrapper::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 
@@ -118,7 +118,7 @@ pub(crate) fn remove_range(
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::Bytes;
+    use vm_memory_wrapper::Bytes;
 
     use super::*;
 
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn test_remove_range() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(
             &[(GuestAddress(0), 2 * page_size)],
             false,
         )
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn test_remove_range_on_restored() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(
             &[(GuestAddress(0), 2 * page_size)],
             false,
         )

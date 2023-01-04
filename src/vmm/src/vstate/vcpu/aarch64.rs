@@ -13,7 +13,7 @@ use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -192,7 +192,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
-    use vm_memory::GuestMemoryMmap;
+    use vm_memory_wrapper::GuestMemoryMmap;
 
     use super::*;
     use crate::vstate::vm::tests::setup_vm;

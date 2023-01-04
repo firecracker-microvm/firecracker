@@ -4,7 +4,7 @@
 use std::io::IoSlice;
 use std::ops::Deref;
 
-use vm_memory::{GuestMemory, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::DescriptorChain;
 
@@ -15,7 +15,7 @@ pub enum Error {
     WriteOnlyDescriptor,
     /// An error happened with guest memory handling
     #[error("Guest memory error: {0}")]
-    GuestMemory(#[from] vm_memory::GuestMemoryError),
+    GuestMemory(#[from] vm_memory_wrapper::GuestMemoryError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -132,8 +132,8 @@ impl<'a> IoVecBuffer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use vm_memory_wrapper::test_utils::create_anon_guest_memory;
+    use vm_memory_wrapper::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::{IoSlice, IoVecBuffer};
     use crate::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};

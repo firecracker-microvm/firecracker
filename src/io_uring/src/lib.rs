@@ -394,7 +394,7 @@ mod tests {
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
-    use vm_memory::{Bytes, MmapRegion, VolatileMemory};
+    use vm_memory_wrapper::{Bytes, MmapRegion, VolatileMemory};
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING

@@ -33,7 +33,7 @@ use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -66,7 +66,7 @@ pub enum StartMicrovmError {
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
-    GuestMemoryMmap(vm_memory::Error),
+    GuestMemoryMmap(vm_memory_wrapper::Error),
     /// Cannot load initrd due to an invalid memory configuration.
     InitrdLoad,
     /// Cannot load initrd due to an invalid image.
@@ -600,7 +600,7 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    vm_memory::create_guest_memory(
+    vm_memory_wrapper::create_guest_memory(
         &arch_mem_regions
             .iter()
             .map(|(addr, size)| (None, *addr, *size))
@@ -642,13 +642,13 @@ fn load_kernel(
 
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
-    vm_memory: &GuestMemoryMmap,
+    vm_memory_wrapper: &GuestMemoryMmap,
 ) -> std::result::Result<Option<InitrdConfig>, StartMicrovmError> {
     use self::StartMicrovmError::InitrdRead;
 
     Ok(match &boot_cfg.initrd_file {
         Some(f) => Some(load_initrd(
-            vm_memory,
+            vm_memory_wrapper,
             &mut f.try_clone().map_err(InitrdRead)?,
         )?),
         None => None,
@@ -657,12 +657,12 @@ fn load_initrd_from_config(
 
 /// Loads the initrd from a file into the given memory slice.
 ///
-/// * `vm_memory` - The guest memory the initrd is written to.
+/// * `vm_memory_wrapper` - The guest memory the initrd is written to.
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
 fn load_initrd<F>(
-    vm_memory: &GuestMemoryMmap,
+    vm_memory_wrapper: &GuestMemoryMmap,
     image: &mut F,
 ) -> std::result::Result<InitrdConfig, StartMicrovmError>
 where
@@ -686,10 +686,10 @@ where
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
 
     // Get the target address
-    let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
+    let address = arch::initrd_load_addr(vm_memory_wrapper, size).map_err(|_| InitrdLoad)?;
 
     // Load the image into memory
-    vm_memory
+    vm_memory_wrapper
         .read_from(GuestAddress(address), image, size)
         .map_err(|_| InitrdLoad)?;
 
@@ -859,7 +859,7 @@ pub fn configure_system_for_boot(
             .as_cstring()
             .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
 
-        linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
+        linux_loader::loader::load_cmdline::<vm_memory_wrapper::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
@@ -867,7 +867,7 @@ pub fn configure_system_for_boot(
         .map_err(LoadCommandline)?;
         arch::x86_64::configure_system(
             &vmm.guest_memory,
-            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            vm_memory_wrapper::GuestAddress(arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
             initrd,
             vcpus.len() as u8,
@@ -1025,7 +1025,7 @@ pub mod tests {
     use mmds::data_store::{Mmds, MmdsVersion};
     use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
-    use vm_memory::GuestMemory;
+    use vm_memory_wrapper::GuestMemory;
 
     use super::*;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
@@ -1260,7 +1260,7 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
+        vm_memory_wrapper::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
@@ -1274,7 +1274,7 @@ pub mod tests {
     #[test]
     // Test that loading the initrd is successful on different archs.
     fn test_load_initrd() {
-        use vm_memory::GuestMemory;
+        use vm_memory_wrapper::GuestMemory;
         let image = make_test_bin();
 
         let mem_size: usize = image.len() * 2 + arch::PAGE_SIZE;

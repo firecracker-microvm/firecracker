@@ -24,7 +24,7 @@ use utils::sock_ctrl_msg::ScmSocket;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{GuestMemory, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestMemory, GuestMemoryMmap};
 
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use vm_memory::GuestMemoryError;
+        use vm_memory_wrapper::GuestMemoryError;
 
         use crate::persist::CreateSnapshotError::*;
 

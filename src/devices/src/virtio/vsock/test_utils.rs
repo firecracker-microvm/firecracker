@@ -7,7 +7,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestAddress, GuestMemoryMmap};
 
 use crate::virtio::test_utils::VirtQueue as GuestQ;
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
@@ -121,9 +121,11 @@ impl TestContext {
     pub fn new() -> Self {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
-        let mem =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_SIZE)], false)
-                .unwrap();
+        let mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), MEM_SIZE)],
+            false,
+        )
+        .unwrap();
         Self {
             cid: CID,
             mem,

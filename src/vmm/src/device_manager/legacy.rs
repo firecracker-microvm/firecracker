@@ -166,15 +166,17 @@ impl PortIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use vm_memory::GuestAddress;
+    use vm_memory_wrapper::GuestAddress;
 
     use super::*;
 
     #[test]
     fn test_register_legacy_devices() {
-        let guest_mem =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0x0), 0x1000)], false)
-                .unwrap();
+        let guest_mem = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0x0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(

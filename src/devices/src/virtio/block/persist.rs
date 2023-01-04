@@ -14,7 +14,7 @@ use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
-use vm_memory::GuestMemoryMmap;
+use vm_memory_wrapper::GuestMemoryMmap;
 
 use super::*;
 use crate::virtio::block::device::FileEngineType;

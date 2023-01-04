@@ -34,6 +34,7 @@ from framework.utils import (
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import _configure_vm_from_json
 import host_tools.network as net_tools  # pylint: disable=import-error
+
 # restore directory
 os.chdir("..")
 

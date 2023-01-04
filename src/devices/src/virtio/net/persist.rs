@@ -17,7 +17,7 @@ use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
+use vm_memory_wrapper::GuestMemoryMmap;
 
 use super::device::Net;
 use super::{NUM_QUEUES, QUEUE_SIZE};

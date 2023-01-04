@@ -31,7 +31,7 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
-vm-memory = { path = "../vm-memory" }
+vm-memory-wrapper = { path = "../vm-memory-wrapper" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }

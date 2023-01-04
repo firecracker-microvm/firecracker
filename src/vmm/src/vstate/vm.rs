@@ -22,7 +22,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory_wrapper::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -199,7 +199,7 @@ impl Vm {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
-        self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
+        self.set_kvm_memory_ext_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
             .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
@@ -343,7 +343,7 @@ impl Vm {
             .map_err(RestoreStateError)
     }
 
-    pub(crate) fn set_kvm_memory_regions(
+    pub(crate) fn set_kvm_memory_ext_regions(
         &self,
         guest_mem: &GuestMemoryMmap,
         track_dirty_pages: bool,
@@ -399,7 +399,7 @@ pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::FromRawFd;
 
-    use vm_memory::GuestAddress;
+    use vm_memory_wrapper::GuestAddress;
 
     use super::*;
     use crate::vstate::system::KvmContext;
@@ -407,9 +407,11 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
-        let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
-                .unwrap();
+        let gm = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), mem_size)],
+            false,
+        )
+        .unwrap();
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
@@ -445,14 +447,16 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_vm_memory_init() {
+    fn test_vm_memory_ext_init() {
         let kvm_context = KvmContext::new().unwrap();
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
-        let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let gm = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         assert!(vm
             .memory_init(&gm, kvm_context.max_memslots(), true)
             .is_ok());
@@ -486,22 +490,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_set_kvm_memory_regions() {
+    fn test_set_kvm_memory_ext_regions() {
         let kvm_context = KvmContext::new().unwrap();
         let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
-        let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let gm = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
+        let res = vm.set_kvm_memory_ext_regions(&gm, false);
         assert!(res.is_ok());
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.
-        let gm =
-            vm_memory::test_utils::create_guest_memory_unguarded(&[(GuestAddress(0), 0x10)], false)
-                .unwrap();
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let gm = vm_memory_wrapper::test_utils::create_guest_memory_unguarded(
+            &[(GuestAddress(0), 0x10)],
+            false,
+        )
+        .unwrap();
+        let res = vm.set_kvm_memory_ext_regions(&gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"

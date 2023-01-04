@@ -10,7 +10,7 @@ use io_uring::restriction::Restriction;
 use io_uring::{Error as IoUringError, IoUring};
 use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
-use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory_wrapper::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::block::io::UserDataError;
 use crate::virtio::block::IO_URING_NUM_ENTRIES;
@@ -22,7 +22,7 @@ pub enum Error {
     Submit(std::io::Error),
     SyncAll(std::io::Error),
     EventFd(std::io::Error),
-    GuestMemory(vm_memory::GuestMemoryError),
+    GuestMemory(vm_memory_wrapper::GuestMemoryError),
 }
 
 pub struct AsyncFileEngine<T> {

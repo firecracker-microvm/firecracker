@@ -104,7 +104,7 @@ pub mod tests {
 
     use event_manager::{EventManager, SubscriberOps};
     use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
-    use vm_memory::{Bytes, GuestAddress};
+    use vm_memory_wrapper::{Bytes, GuestAddress};
 
     use super::*;
     use crate::virtio::block::device::FileEngineType;

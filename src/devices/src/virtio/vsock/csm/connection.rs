@@ -85,7 +85,7 @@ use std::time::{Duration, Instant};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestMemoryError, GuestMemoryMmap};
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;

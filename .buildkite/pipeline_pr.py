@@ -51,7 +51,7 @@ step_style = {
     "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
     "label": "🪶 Style",
     # we only install the required dependencies in x86_64
-    "agents": ["platform=x86_64.metal"]
+    "agents": ["platform=x86_64.metal"],
 }
 
 build_grp = group(

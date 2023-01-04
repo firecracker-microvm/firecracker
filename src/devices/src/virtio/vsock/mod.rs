@@ -17,7 +17,7 @@ use std::os::unix::io::AsRawFd;
 
 use packet::VsockPacket;
 use utils::epoll::EventSet;
-use vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestMemoryError, GuestMemoryMmap};
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;

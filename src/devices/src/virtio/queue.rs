@@ -11,7 +11,7 @@ use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
 use logger::error;
-use vm_memory::{
+use vm_memory_wrapper::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
 
@@ -535,8 +535,8 @@ impl Queue {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use vm_memory_wrapper::test_utils::create_anon_guest_memory;
+    use vm_memory_wrapper::{GuestAddress, GuestMemoryMmap};
 
     pub use super::*;
     use crate::virtio::test_utils::VirtQueue;

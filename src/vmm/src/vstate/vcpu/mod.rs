@@ -669,7 +669,7 @@ mod tests {
     use linux_loader::loader::KernelLoader;
     use utils::errno;
     use utils::signal::validate_signal_num;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use vm_memory_wrapper::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder::StartMicrovmError;
@@ -874,7 +874,7 @@ mod tests {
         (vm, vcpu, gm)
     }
 
-    fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
+    fn load_good_kernel(vm_memory_wrapper: &GuestMemoryMmap) -> GuestAddress {
         use std::fs::File;
         use std::path::PathBuf;
 
@@ -889,7 +889,7 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         let entry_addr = linux_loader::loader::elf::Elf::load(
-            vm_memory,
+            vm_memory_wrapper,
             Some(GuestAddress(arch::get_kernel_start())),
             &mut kernel_file,
             Some(GuestAddress(arch::get_kernel_start())),
@@ -897,7 +897,7 @@ mod tests {
         .map_err(StartMicrovmError::KernelLoader);
         #[cfg(target_arch = "aarch64")]
         let entry_addr =
-            linux_loader::loader::pe::PE::load(vm_memory, None, &mut kernel_file, None)
+            linux_loader::loader::pe::PE::load(vm_memory_wrapper, None, &mut kernel_file, None)
                 .map_err(StartMicrovmError::KernelLoader);
         entry_addr.unwrap().kernel_load
     }

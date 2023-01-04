@@ -14,7 +14,7 @@ pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory_wrapper::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
 use super::{io as block_io, Error, SECTOR_SHIFT};
@@ -402,8 +402,8 @@ impl Request {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{Address, GuestAddress, GuestMemory};
+    use vm_memory_wrapper::test_utils::create_anon_guest_memory;
+    use vm_memory_wrapper::{Address, GuestAddress, GuestMemory};
 
     use super::*;
     use crate::virtio::queue::tests::*;

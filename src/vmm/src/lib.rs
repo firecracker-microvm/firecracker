@@ -56,7 +56,7 @@ use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory_wrapper::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 #[cfg(target_arch = "x86_64")]
@@ -583,7 +583,7 @@ impl Vmm {
         // example, if this function were to be exposed through the VMM controller, the VMM
         // resources should cache the flag.
         self.vm
-            .set_kvm_memory_regions(&self.guest_memory, enable)
+            .set_kvm_memory_ext_regions(&self.guest_memory, enable)
             .map_err(Error::Vm)
     }
 

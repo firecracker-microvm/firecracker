@@ -11,7 +11,7 @@ use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
+use vm_memory_wrapper::GuestMemoryMmap;
 
 use super::*;
 use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};

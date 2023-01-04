@@ -8,7 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 libc = "0.2.117"
 utils = { path = "../utils" }
-vm-memory = { path="../vm-memory" }
+vm-memory-wrapper = { path="../vm-memory-wrapper" }
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 [dev-dependencies]

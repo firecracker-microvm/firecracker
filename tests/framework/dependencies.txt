@@ -89,6 +89,7 @@
  'vm-allocator',
  'vm-fdt',
  'vm-memory',
+ 'vm-memory-wrapper',
  'vm-superio',
  'vmm',
  'vmm-sys-util']

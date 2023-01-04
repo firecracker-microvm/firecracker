@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use logger::warn;
 use utils::byte_order;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::{GuestAddress, GuestMemoryMmap};
 
 use super::{device_status, *};
 use crate::bus::BusDevice;
@@ -329,7 +329,7 @@ impl BusDevice for MmioTransport {
 pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
     use utils::eventfd::EventFd;
-    use vm_memory::GuestMemoryMmap;
+    use vm_memory_wrapper::GuestMemoryMmap;
 
     use super::*;
 
@@ -431,9 +431,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new() {
-        let m =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let m = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
@@ -465,9 +467,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_read() {
-        let m =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let m = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
@@ -545,9 +549,11 @@ pub(crate) mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
-        let m =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let m = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
         let mut d = MmioTransport::new(m, dummy_dev.clone());
         let mut buf = vec![0; 5];
@@ -706,9 +712,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_activate() {
-        let m =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let m = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         assert!(!d.are_queues_valid());
@@ -826,9 +834,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_reset() {
-        let m =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
-                .unwrap();
+        let m = vm_memory_wrapper::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
         let mut buf = vec![0; 4];
 

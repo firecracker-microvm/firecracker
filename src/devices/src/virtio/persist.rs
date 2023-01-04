@@ -11,8 +11,8 @@ use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::address::Address;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::address::Address;
+use vm_memory_wrapper::{GuestAddress, GuestMemoryMmap};
 
 use super::device::*;
 use super::queue::*;

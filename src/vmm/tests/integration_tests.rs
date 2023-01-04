@@ -207,7 +207,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 }
 
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
-    use vm_memory::GuestMemoryMmap;
+    use vm_memory_wrapper::GuestMemoryMmap;
     use vmm::memory_snapshot::SnapshotMemory;
 
     let mut event_manager = EventManager::new().unwrap();

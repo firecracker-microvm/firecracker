@@ -11,7 +11,7 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
-use vm_memory::{Bytes, MmapRegion, VolatileMemory};
+use vm_memory_wrapper::{Bytes, MmapRegion, VolatileMemory};
 
 mod test_utils;
 use io_uring::operation::{OpCode, Operation};

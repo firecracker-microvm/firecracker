@@ -1,0 +1,12 @@
+[package]
+name = "vm-memory-wrapper"
+version = "0.3.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+libc = "0.2.117"
+vm-memory = { version = "0.10.0", features = ["backend-mmap", "backend-bitmap"] }
+
+utils = { path = "../utils" }

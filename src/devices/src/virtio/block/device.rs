@@ -24,7 +24,7 @@ use virtio_gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::GuestMemoryMmap;
+use vm_memory_wrapper::GuestMemoryMmap;
 
 use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
@@ -638,7 +638,7 @@ pub(crate) mod tests {
     use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
-    use vm_memory::{Address, Bytes, GuestAddress};
+    use vm_memory_wrapper::{Address, Bytes, GuestAddress};
 
     use super::*;
     use crate::check_metric_after_block;

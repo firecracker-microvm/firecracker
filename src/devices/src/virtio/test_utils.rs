@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory_wrapper::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
@@ -21,7 +21,8 @@ macro_rules! check_metric_after_block {
 }
 
 pub fn default_mem() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap()
+    vm_memory_wrapper::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
+        .unwrap()
 }
 
 pub fn initialize_virtqueue(vq: &VirtQueue) {
@@ -82,7 +83,7 @@ pub struct SomeplaceInMemory<'a, T> {
 // The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
 impl<'a, T> SomeplaceInMemory<'a, T>
 where
-    T: vm_memory::ByteValued,
+    T: vm_memory_wrapper::ByteValued,
 {
     fn new(location: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
         SomeplaceInMemory {
@@ -197,7 +198,7 @@ pub struct VirtqRing<'a, T> {
 
 impl<'a, T> VirtqRing<'a, T>
 where
-    T: vm_memory::ByteValued,
+    T: vm_memory_wrapper::ByteValued,
 {
     fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16, alignment: usize) -> Self {
         assert_eq!(start.0 & (alignment as u64 - 1), 0);
@@ -241,7 +242,7 @@ pub struct VirtqUsedElem {
 }
 
 // SAFETY: `VirtqUsedElem` is a POD and contains no padding.
-unsafe impl vm_memory::ByteValued for VirtqUsedElem {}
+unsafe impl vm_memory_wrapper::ByteValued for VirtqUsedElem {}
 
 pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
 pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;

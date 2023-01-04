@@ -7,7 +7,7 @@ pub mod persist;
 pub mod test_utils;
 mod utils;
 
-use vm_memory::GuestMemoryError;
+use vm_memory_wrapper::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 pub use self::event_handler::*;

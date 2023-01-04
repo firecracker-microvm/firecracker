@@ -26,7 +26,7 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_MAC,
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
+use vm_memory_wrapper::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
@@ -832,7 +832,7 @@ pub mod tests {
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
     };
-    use vm_memory::{Address, GuestMemory};
+    use vm_memory_wrapper::{Address, GuestMemory};
 
     use super::*;
     use crate::check_metric_after_block;
