@@ -10,40 +10,12 @@ from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
 import framework.utils_cpuid as cpuid_utils
+import framework.utils_cpu_templates as cputmpl_utils
 import host_tools.network as net_tools
 
 
-# All existing CPU templates available on Intel
-INTEL_TEMPLATES = ["C3", "T2", "T2CL", "T2S"]
-# All existing CPU templates available on AMD
-AMD_TEMPLATES = ["T2A"]
-# All existing CPU templates
-ALL_TEMPLATES = INTEL_TEMPLATES + AMD_TEMPLATES
 # CPU templates designed to provide instruction set feature parity
 INST_SET_TEMPLATES = ["T2A", "T2CL"]
-
-
-def get_supported_templates():
-    """
-    Returns the list of CPU templates supported by the platform.
-    """
-    vendor = cpuid_utils.get_cpu_vendor()
-    if vendor == cpuid_utils.CpuVendor.INTEL:
-        return INTEL_TEMPLATES
-    if vendor == cpuid_utils.CpuVendor.AMD:
-        return AMD_TEMPLATES
-    return []
-
-
-SUPPORTED_TEMPLATES = get_supported_templates()
-
-
-def intersection(lst1, lst2):
-    """
-    Returns the list that is the intersection of two lists.
-    """
-    lst3 = [value for value in lst1 if value in lst2]
-    return lst3
 
 
 def get_guest_kernel_ver(vm):
@@ -133,7 +105,8 @@ def _test_cpuid_feat_flags_matrix(
 
 
 @pytest.mark.parametrize(
-    "cpu_template", intersection(ALL_TEMPLATES, SUPPORTED_TEMPLATES)
+    "cpu_template",
+    cputmpl_utils.select_supported_cpu_templates(cputmpl_utils.ALL_TEMPLATES),
 )
 def test_feat_parity_cpuid_mpx(bin_cloner_path, network_config, cpu_template):
     """
@@ -156,7 +129,8 @@ def test_feat_parity_cpuid_mpx(bin_cloner_path, network_config, cpu_template):
 
 
 @pytest.mark.parametrize(
-    "cpu_template", intersection(INST_SET_TEMPLATES + ["T2"], SUPPORTED_TEMPLATES)
+    "cpu_template",
+    cputmpl_utils.select_supported_cpu_templates(INST_SET_TEMPLATES + ["T2"]),
 )
 def test_feat_parity_cpuid_inst_set(bin_cloner_path, network_config, cpu_template):
     """
@@ -236,7 +210,7 @@ def test_feat_parity_cpuid_inst_set(bin_cloner_path, network_config, cpu_templat
 
 
 @pytest.mark.parametrize(
-    "cpu_template", intersection(INST_SET_TEMPLATES, SUPPORTED_TEMPLATES)
+    "cpu_template", cputmpl_utils.select_supported_cpu_templates(INST_SET_TEMPLATES)
 )
 def test_feat_parity_cpuid_sec(bin_cloner_path, network_config, cpu_template):
     """
@@ -363,7 +337,7 @@ def _test_msr_arch_cap(context):
 
 
 @pytest.mark.parametrize(
-    "cpu_template", intersection(INST_SET_TEMPLATES, SUPPORTED_TEMPLATES)
+    "cpu_template", cputmpl_utils.select_supported_cpu_templates(INST_SET_TEMPLATES)
 )
 def test_feat_parity_msr_arch_cap(bin_cloner_path, network_config, cpu_template):
     """
