@@ -97,36 +97,23 @@ impl<'de> Deserialize<'de> for Comment {
 }
 
 /// Seccomp errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum Error {
     /// Attempting to add an empty vector of rules to the rule chain of a syscall.
+    #[error("The seccomp rules vector is empty.")]
     EmptyRulesVector,
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    #[error("The seccomp filter contains too many BPF instructions.")]
     FilterTooLarge,
     /// Argument number that exceeds the maximum value.
+    #[error("The seccomp rule contains an invalid argument number.")]
     InvalidArgumentNumber,
     /// Error related to the target arch.
+    #[error("{0:?}")]
     Arch(TargetArchError),
     /// Conflicting rules in filter.
+    #[error("Syscall {0} has conflicting rules.")]
     ConflictingRules(i64),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            EmptyRulesVector => write!(f, "The seccomp rules vector is empty."),
-            FilterTooLarge => write!(f, "The seccomp filter contains too many BPF instructions."),
-            InvalidArgumentNumber => {
-                write!(f, "The seccomp rule contains an invalid argument number.")
-            }
-            Arch(ref err) => write!(f, "{:?}", err),
-            ConflictingRules(ref syscall_number) => {
-                write!(f, "Syscall {} has conflicting rules.", syscall_number)
-            }
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;

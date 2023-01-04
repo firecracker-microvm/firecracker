@@ -6,8 +6,6 @@
 mod connection;
 mod txbuf;
 
-use std::fmt;
-
 pub use connection::VsockConnection;
 
 pub mod defs {
@@ -25,35 +23,18 @@ pub mod defs {
     pub const CONN_SHUTDOWN_TIMEOUT_MS: u64 = 2000;
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Attempted to push data to a full TX buffer.
+    #[error("Attempted to push data to a full TX buffer")]
     TxBufFull,
     /// An I/O error occurred, when attempting to flush the connection TX buffer.
+    #[error("An I/O error occurred, when attempting to flush the connection TX buffer: {0}")]
     TxBufFlush(std::io::Error),
     /// An I/O error occurred, when attempting to write data to the host-side stream.
+    #[error("An I/O error occurred, when attempting to write data to the host-side stream: {0}")]
     StreamWrite(std::io::Error),
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::TxBufFull => write!(f, "Attempted to push data to a full TX buffer"),
-            Self::TxBufFlush(err) => write!(
-                f,
-                "An I/O error occurred, when attempting to flush the connection TX buffer: {}",
-                err
-            ),
-            Self::StreamWrite(err) => write!(
-                f,
-                "An I/O error occurred, when attempting to write data to the host-side stream: {}",
-                err
-            ),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 type Result<T> = std::result::Result<T, Error>;
 

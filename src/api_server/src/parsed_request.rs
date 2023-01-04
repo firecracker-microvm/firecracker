@@ -255,41 +255,23 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
     }
 }
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub(crate) enum Error {
     // The resource ID is empty.
+    #[error("The ID cannot be empty.")]
     EmptyID,
     // A generic error, with a given status code and message to be turned into a fault message.
+    #[error("{1}")]
     Generic(StatusCode, String),
     // The resource ID must only contain alphanumeric characters and '_'.
+    #[error("API Resource IDs can only contain alphanumeric characters and underscores.")]
     InvalidID,
     // The HTTP method & request path combination is not valid.
+    #[error("Invalid request method and/or path: {} {0}.", std::str::from_utf8(.1.raw()).expect("Cannot convert from UTF-8"))]
     InvalidPathMethod(String, Method),
     // An error occurred when deserializing the json body of a request.
+    #[error("An error occurred when deserializing the json body of a request: {0}.")]
     SerdeJson(serde_json::Error),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::EmptyID => write!(f, "The ID cannot be empty."),
-            Error::Generic(_, ref desc) => write!(f, "{desc}"),
-            Error::InvalidID => write!(
-                f,
-                "API Resource IDs can only contain alphanumeric characters and underscores."
-            ),
-            Error::InvalidPathMethod(ref path, ref method) => write!(
-                f,
-                "Invalid request method and/or path: {} {}.",
-                std::str::from_utf8(method.raw()).expect("Cannot convert from UTF-8"),
-                path
-            ),
-            Error::SerdeJson(ref err) => write!(
-                f,
-                "An error occurred when deserializing the json body of a request: {err}."
-            ),
-        }
-    }
 }
 
 // It's convenient to turn errors into HTTP responses directly.
