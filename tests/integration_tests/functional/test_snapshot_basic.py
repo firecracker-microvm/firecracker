@@ -525,7 +525,7 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     """
     Create large diff snapshot seccomp regression test.
 
-    When creating a diff snapshot of a microVM with a large memory size, an
+    When creating a diff snapshot of a microVM with a large memory size, a
     mmap(MAP_PRIVATE|MAP_ANONYMOUS) is issued. Test that the default seccomp
     filter allows it.
 
@@ -534,6 +534,10 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     """
     vm = test_microvm_with_api
     vm.spawn()
+    # Our memory monitor does not have the necessary logic for dealing
+    # with multiple memory region layout so temporarily disabling it.
+    # GitHub Issue #3349.
+    vm.memory_monitor = None
     vm.basic_config(mem_size_mib=16 * 1024, track_dirty_pages=True)
 
     vm.start()
