@@ -310,3 +310,175 @@ impl<'a> VirtQueue<'a> {
         assert_eq!(used_elem.len, expected_len);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test {
+
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    use event_manager::{EventManager, MutEventSubscriber, SubscriberId, SubscriberOps};
+    use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+    use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
+    use crate::virtio::{Queue, VirtioDevice, MAX_BUFFER_SIZE, VIRTQ_DESC_F_NEXT};
+
+    pub fn create_virtio_mem() -> GuestMemoryMmap {
+        utils::vm_memory::test_utils::create_guest_memory_unguarded(
+            &[(GuestAddress(0), MAX_BUFFER_SIZE)],
+            false,
+        )
+        .unwrap()
+    }
+
+    /// Provides functionality necessary for testing a VirtIO device with
+    /// [`VirtioTestHelper`](VirtioTestHelper)
+    pub trait VirtioTestDevice: VirtioDevice {
+        /// Replace the queues used by the device
+        fn set_queues(&mut self, queues: Vec<Queue>);
+        /// Number of queues this device supports
+        fn num_queues() -> usize;
+    }
+
+    /// A helper type to allow testing VirtIO devices
+    ///
+    /// `VirtioTestHelper` provides functionality to allow testing a VirtIO device by
+    /// 1. Emulating the guest size of things (essentially the handling of Virtqueues) and
+    /// 2. Emulating an event loop that handles device specific events
+    ///
+    /// It creates and handles a guest memory address space, which uses for keeping the
+    /// Virtqueues of the device and storing data, i.e. storing data described by DescriptorChains
+    /// that the guest would pass to the device during normal operation
+    pub struct VirtioTestHelper<'a, T>
+    where
+        T: VirtioTestDevice + MutEventSubscriber,
+    {
+        event_manager: EventManager<Arc<Mutex<T>>>,
+        _subscriber_id: SubscriberId,
+        device: Arc<Mutex<T>>,
+        virtqueues: Vec<VirtQueue<'a>>,
+    }
+
+    impl<'a, T> VirtioTestHelper<'a, T>
+    where
+        T: VirtioTestDevice + MutEventSubscriber,
+    {
+        const QUEUE_SIZE: u16 = 16;
+
+        // Helper function to create a set of Virtqueues for the device
+        fn create_virtqueues(mem: &'a GuestMemoryMmap, num_queues: usize) -> Vec<VirtQueue> {
+            (0..num_queues)
+                .scan(GuestAddress(0), |next_addr, _| {
+                    let vqueue = VirtQueue::new(*next_addr, mem, Self::QUEUE_SIZE);
+                    // Address for the next virt queue will be the first aligned address after
+                    // the end of this one.
+                    *next_addr = vqueue.end().unchecked_align_up(VirtqDesc::ALIGNMENT);
+                    Some(vqueue)
+                })
+                .collect::<Vec<_>>()
+        }
+
+        /// Create a new Virtio Device test helper
+        pub fn new(mem: &'a GuestMemoryMmap, mut device: T) -> VirtioTestHelper<'a, T> {
+            let mut event_manager = EventManager::new().unwrap();
+
+            let virtqueues = Self::create_virtqueues(mem, T::num_queues());
+            let queues = virtqueues.iter().map(|vq| vq.create_queue()).collect();
+            device.set_queues(queues);
+            let device = Arc::new(Mutex::new(device));
+            let _subscriber_id = event_manager.add_subscriber(device.clone());
+
+            Self {
+                event_manager,
+                _subscriber_id,
+                device,
+                virtqueues,
+            }
+        }
+
+        /// Get a (locked) reference to the device
+        pub fn device(&mut self) -> MutexGuard<T> {
+            self.device.lock().unwrap()
+        }
+
+        /// Activate the device
+        pub fn activate_device(&mut self, mem: &'a GuestMemoryMmap) {
+            self.device.lock().unwrap().activate(mem.clone()).unwrap();
+            // Process the activate event
+            let ev_count = self.event_manager.run_with_timeout(100).unwrap();
+            assert_eq!(ev_count, 1);
+        }
+
+        /// Get the start of the data region
+        ///
+        /// The first address that can be used for data in the guest memory mmap
+        /// is the first address after the memory occupied by the last Virtqueue
+        /// used by the device
+        pub fn data_address(&self) -> u64 {
+            self.virtqueues.last().unwrap().end().raw_value()
+        }
+
+        /// Add a new Descriptor in one of the device's queues
+        ///
+        /// This function adds in one of the queues of the device a DescriptorChain at some offset
+        /// in the "data range" of the guest memory. The number of descriptors to create is passed
+        /// as a list of descriptors (a triple of (index, length, flags)).
+        ///
+        /// The total size of the buffer is the sum of all lengths of this list of descriptors.
+        /// The fist descriptor will be stored at `self.data_address() + addr_offset`. Subsequent
+        /// descriptors will be placed at random addresses after that.
+        ///
+        /// # Arguments
+        ///
+        /// * `queue` - The index of the device queue to use
+        /// * `addr_offset` - Offset within the data region where to put the first descriptor
+        /// * `desc_list` - List of descriptors to create in the chain
+        pub fn add_desc_chain(
+            &mut self,
+            queue: usize,
+            addr_offset: u64,
+            desc_list: &[(u16, u32, u16)],
+        ) {
+            let device = self.device.lock().unwrap();
+
+            let event_fd = &device.queue_events()[queue];
+            let vq = &self.virtqueues[queue];
+
+            // Create the descriptor chain
+            let mut iter = desc_list.iter().peekable();
+            let mut addr = self.data_address() + addr_offset;
+            while let Some(&(index, len, flags)) = iter.next() {
+                let desc = &vq.dtable[index as usize];
+                desc.set(addr, len, flags, 0);
+                if let Some(&&(next_index, _, _)) = iter.peek() {
+                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
+                    desc.next.set(next_index);
+                }
+
+                addr += u64::from(len);
+                // Add small random gaps between descriptor addresses in order to make sure we
+                // don't blindly read contiguous memory.
+                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
+            }
+
+            // Mark the chain as available.
+            if let Some(&(index, _, _)) = desc_list.first() {
+                let ring_index = vq.avail.idx.get();
+                vq.avail.ring[ring_index as usize].set(index);
+                vq.avail.idx.set(ring_index + 1);
+            }
+            event_fd.write(1).unwrap();
+        }
+
+        /// Emulate the device for a period of time
+        ///
+        /// # Arguments
+        ///
+        /// * `msec` - The amount pf time in milliseconds for which to Emulate
+        pub fn emulate_for_msec(
+            &mut self,
+            msec: i32,
+        ) -> std::result::Result<usize, event_manager::Error> {
+            self.event_manager.run_with_timeout(msec)
+        }
+    }
+}
