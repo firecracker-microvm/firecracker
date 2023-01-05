@@ -143,6 +143,9 @@ class Microvm:
         self.logging_thread = None
         self._screen_pid = None
 
+        # Initalize memory monitor
+        self._memory_monitor = None
+
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
         # private key is populated by microvms with ssh capabilities and the
@@ -155,8 +158,6 @@ class Microvm:
         # Deal with memory monitoring.
         if monitor_memory:
             self._memory_monitor = mem_tools.MemoryMonitor()
-        else:
-            self._memory_monitor = None
 
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
@@ -206,9 +207,10 @@ class Microvm:
             # different from the jailer pid that was previously killed.
             utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
 
-        if self._memory_monitor and self._memory_monitor.is_alive():
-            self._memory_monitor.signal_stop()
-            self._memory_monitor.join(timeout=1)
+        if self._memory_monitor:
+            if self._memory_monitor.is_alive():
+                self._memory_monitor.signal_stop()
+                self._memory_monitor.join(timeout=1)
             self._memory_monitor.check_samples()
 
         if self._cpu_load_monitor:

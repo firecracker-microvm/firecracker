@@ -11,17 +11,16 @@ from framework import utils
 class MemoryUsageExceededException(Exception):
     """A custom exception containing details on excessive memory usage."""
 
-    def __init__(self, usage, threshold):
+    def __init__(self, usage, threshold, out):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            "Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n".format(
-                usage, threshold
-            )
+            f"Memory usage ({usage} KiB) exceeded maximum threshold "
+            f"({threshold} KiB).\n {out} \n"
         )
 
 
 class MemoryMonitor(Thread):
-    """Class to represent a RSS memory monitor for a Firecracker process.
+    """Class to represent an RSS memory monitor for a Firecracker process.
 
     The guest's memory region is skipped, as the main interest is the
     VMM memory usage.
@@ -37,6 +36,7 @@ class MemoryMonitor(Thread):
         self._guest_mem_mib = None
         self._guest_mem_start = None
         self._exceeded_queue = Queue()
+        self._pmap_out = None
         self._threshold = self.MEMORY_THRESHOLD
         self._should_stop = False
         self._current_rss = 0
@@ -123,6 +123,7 @@ class MemoryMonitor(Thread):
                 self._current_rss = mem_total
             if mem_total > self.threshold:
                 self.exceeded_queue.put(mem_total)
+                self._pmap_out = stdout
                 return
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
@@ -138,7 +139,7 @@ class MemoryMonitor(Thread):
         """Check that there are no samples over the threshold."""
         if not self.exceeded_queue.empty():
             raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold
+                self.exceeded_queue.get(), self.threshold, self._pmap_out
             )
 
     @property
