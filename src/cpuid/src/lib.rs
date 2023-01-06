@@ -32,9 +32,13 @@
 
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
+extern crate core;
+
 use std::convert::TryFrom;
 #[cfg(cpuid)]
 use std::mem::{size_of, transmute};
+
+use serde::{Deserialize, Serialize};
 
 /// cpuid utility functions.
 pub mod common;
@@ -349,7 +353,7 @@ pub enum CpuidTryFromRawCpuid {
 }
 
 /// CPUID information
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cpuid {
     /// Intel CPUID specific information.
     Intel(IntelCpuid),
@@ -458,7 +462,7 @@ impl From<Cpuid> for kvm_bindings::CpuId {
 }
 
 /// CPUID index values `leaf` and `subleaf`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CpuidKey {
     /// CPUID leaf.
     pub leaf: u32,
@@ -625,5 +629,71 @@ impl From<RawKvmCpuidEntry> for (CpuidKey, CpuidEntry) {
                 result: CpuidRegisters { eax, ebx, ecx, edx },
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
+    use kvm_ioctls::Kvm;
+
+    use crate::{Cpuid, RawCpuid};
+
+    #[cfg(target_arch = "x86_64")]
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_serialization_lifecycle() {
+        let supported_cpuid_result = supported_cpuid();
+        if let Ok(supported_cpuid) = supported_cpuid_result {
+            let json_serialization_result = serde_json::to_string(&supported_cpuid);
+            assert!(
+                json_serialization_result.is_ok(),
+                "Failed to serialize Cpuid structure into a JSON string"
+            );
+
+            if let Ok(supported_cpuid_serialized) = json_serialization_result {
+                let json_deserialization_result =
+                    serde_json::from_str::<Cpuid>(&supported_cpuid_serialized);
+                assert!(
+                    json_deserialization_result.is_ok(),
+                    "Failed to deserialize JSON string of CPUID into Cpuid data type"
+                );
+
+                // Check that the deserialized type equals the originally supported
+                // CPUID data retrieved by KVM
+                if let Ok(cpuid_deser) = json_deserialization_result {
+                    assert_eq!(
+                        cpuid_deser, supported_cpuid,
+                        "Deserialized CPUID struct does not equal original instance of CPUID"
+                    );
+                }
+            }
+        }
+    }
+
+    fn supported_cpuid() -> Result<Cpuid, String> {
+        let kvm_result = Kvm::new();
+
+        match kvm_result.as_ref() {
+            Ok(kvm) => {
+                let kvm_cpuid_result = kvm.get_supported_cpuid(KVM_MAX_CPUID_ENTRIES);
+                match kvm_cpuid_result {
+                    Ok(kvm_cpuid) => {
+                        let raw_cpuid = RawCpuid::from(kvm_cpuid);
+                        let cpuid_result = Cpuid::try_from(raw_cpuid);
+
+                        match cpuid_result {
+                            Ok(cpuid) => Ok(cpuid),
+                            Err(err) => Err(format!(
+                                "Error converting raw CPUID to Cpuid type\n{:?}",
+                                err
+                            )),
+                        }
+                    }
+                    Err(_) => Err(String::from("Error retrieving supported CPUID via KVM")),
+                }
+            }
+            Err(_) => Err(String::from("Error creating handle for KVM")),
+        }
     }
 }

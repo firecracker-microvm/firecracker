@@ -119,12 +119,12 @@ impl super::AmdCpuid {
     fn process_cpuid(&mut self) {
         // Some versions of kernel may return the 0xB leaf for AMD even if this is an
         // Intel-specific leaf. Remove it.
-        self.0.remove(&CpuidKey::leaf(0xB));
+        self.cpuid_tree.remove(&CpuidKey::leaf(0xB));
 
         // Pass-through host CPUID for leaves 0x8000001e and 0x8000001d.
         {
             // 0x8000001e - Processor Topology Information
-            self.0.insert(
+            self.cpuid_tree.insert(
                 CpuidKey::leaf(0x8000001e),
                 CpuidEntry {
                     flags: KvmCpuidFlags::empty(),
@@ -151,7 +151,7 @@ impl super::AmdCpuid {
                 if super::registers::Leaf8000001dEax::from(result.eax).cache_type() == 0 {
                     break;
                 }
-                self.0.insert(
+                self.cpuid_tree.insert(
                     CpuidKey::subleaf(0x8000001d, subleaf),
                     CpuidEntry {
                         flags: KvmCpuidFlags::SIGNIFICANT_INDEX,

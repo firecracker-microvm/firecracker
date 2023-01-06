@@ -24,7 +24,7 @@ impl IndexLeaf<0x8000001d> for AmdCpuid {
         // SAFETY: Transmuting reference to same sized types is safe.
         unsafe {
             Leaf8000001d(transmute_vec(
-                self.0
+                self.cpuid_tree
                     .range(CpuidKey::leaf(0x8000001d)..CpuidKey::leaf(0x8000001e))
                     .map(|(_, v)| transmute::<_, &'a Leaf8000001dSubleaf>(&v.result))
                     .collect(),
@@ -41,7 +41,7 @@ impl IndexLeafMut<0x8000001d> for AmdCpuid {
         // SAFETY: Transmuting reference to same sized types is safe.
         unsafe {
             Leaf8000001dMut(transmute_vec(
-                self.0
+                self.cpuid_tree
                     .range_mut(CpuidKey::leaf(0x8000001d)..CpuidKey::leaf(0x8000001e))
                     .map(|(_, v)| transmute::<_, &'a mut Leaf8000001dSubleaf>(&mut v.result))
                     .collect(),

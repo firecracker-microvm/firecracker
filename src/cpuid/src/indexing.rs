@@ -41,7 +41,7 @@ macro_rules! index_leaf {
             type Output<'a> = Option<&'a $leaf>;
             #[inline]
             fn index_leaf<'a>(&'a self) -> Self::Output<'a> {
-                self.0
+                self.cpuid_tree
                     .get(&$crate::CpuidKey::leaf($index))
                     // SAFETY: Transmuting reference to same sized types is safe.
                     .map(|entry| unsafe { std::mem::transmute::<_, &$leaf>(&entry.result) })
@@ -51,7 +51,7 @@ macro_rules! index_leaf {
             type Output<'a> = Option<&'a mut $leaf>;
             #[inline]
             fn index_leaf_mut<'a>(&'a mut self) -> Self::Output<'a> {
-                self.0
+                self.cpuid_tree
                     .get_mut(&$crate::CpuidKey::leaf($index))
                     // SAFETY: Transmuting reference to same sized types is safe.
                     .map(|entry| unsafe { std::mem::transmute::<_, &mut $leaf>(&mut entry.result) })

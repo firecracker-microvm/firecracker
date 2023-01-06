@@ -10,6 +10,9 @@
 #[cfg(cpuid)]
 use std::convert::TryInto;
 
+use serde::{Deserialize, Serialize};
+use serde_json_any_key::any_key_map;
+
 /// Leaf structs.
 mod leaves;
 
@@ -30,20 +33,25 @@ use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 /// A structure matching the Intel CPUID specification as described in
 /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Combined Volumes 2A, 2B, 2C, and 2D: Instruction Set Reference, A-Z](https://cdrdv2.intel.com/v1/dl/getContent/671110)
 /// .
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct IntelCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IntelCpuid {
+    /// Ordered map containing CPUID leaves as keys
+    /// with their register's respective values
+    #[serde(with = "any_key_map")]
+    pub cpuid_tree: std::collections::BTreeMap<CpuidKey, CpuidEntry>,
+}
 
 impl CpuidTrait for IntelCpuid {
     /// Gets a given sub-leaf.
     #[inline]
     fn get(&self, key: &CpuidKey) -> Option<&CpuidEntry> {
-        self.0.get(key)
+        self.cpuid_tree.get(key)
     }
 
     /// Gets a given sub-leaf.
     #[inline]
     fn get_mut(&mut self, key: &CpuidKey) -> Option<&mut CpuidEntry> {
-        self.0.get_mut(key)
+        self.cpuid_tree.get_mut(key)
     }
 }
 
@@ -147,12 +155,13 @@ impl IntelCpuid {
 impl From<RawCpuid> for IntelCpuid {
     #[inline]
     fn from(raw_cpuid: RawCpuid) -> Self {
-        let map = raw_cpuid
-            .iter()
-            .cloned()
-            .map(<(CpuidKey, CpuidEntry)>::from)
-            .collect();
-        Self(map)
+        IntelCpuid {
+            cpuid_tree: raw_cpuid
+                .iter()
+                .cloned()
+                .map(<(CpuidKey, CpuidEntry)>::from)
+                .collect(),
+        }
     }
 }
 
@@ -160,7 +169,7 @@ impl From<IntelCpuid> for RawCpuid {
     #[inline]
     fn from(intel_cpuid: IntelCpuid) -> Self {
         let entries = intel_cpuid
-            .0
+            .cpuid_tree
             .into_iter()
             .map(RawKvmCpuidEntry::from)
             .collect::<Vec<_>>();
