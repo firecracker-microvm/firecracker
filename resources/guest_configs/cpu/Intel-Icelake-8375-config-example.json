@@ -1,0 +1,339 @@
+{
+    "Intel": {
+        "cpuid_tree": {
+            "{\"leaf\":0,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":13,
+                    "ebx":1970169159,
+                    "ecx":1818588270,
+                    "edx":1231384169
+                }
+            },
+            "{\"leaf\":1,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":394918,
+                    "ebx":260048896,
+                    "ecx":1996108291,
+                    "edx":260832255
+                }
+            },
+            "{\"leaf\":2,\"subleaf\":0}": {
+                "flags":6,
+                "result": {
+                    "eax":16711425,
+                    "ebx":240,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":3,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":4,\"subleaf\":0}": {
+                "flags":1,
+                "result": {
+                    "eax":4227875105,
+                    "ebx":46137407,
+                    "ecx":63,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":4,\"subleaf\":1}": {
+                "flags":1,
+                "result": {
+                    "eax":4227875106,
+                    "ebx":29360191,
+                    "ecx":63,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":4,\"subleaf\":2}": {
+                "flags":1,
+                "result": {
+                    "eax":4227875139,
+                    "ebx":79691839,
+                    "ecx":1023,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":4,\"subleaf\":3}": {
+                "flags":1,
+                "result": {
+                    "eax":4229939555,
+                    "ebx":46137407,
+                    "ecx":73727,
+                    "edx":4
+                }
+            },
+            "{\"leaf\":4,\"subleaf\":4}": {
+                "flags":1,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":5,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":6,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":4,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":7,\"subleaf\":0}": {
+                "flags":1,
+                "result": {
+                    "eax":0,
+                    "ebx":4055828395,
+                    "ecx":81930,
+                    "edx":2885682176
+                }
+            },
+            "{\"leaf\":8,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":9,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":10,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":137365506,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":1540
+                }
+            },
+            "{\"leaf\":11,\"subleaf\":0}": {
+                "flags":1,
+                "result": {
+                    "eax":1,
+                    "ebx":2,
+                    "ecx":256,
+                    "edx":15
+                }
+            },
+            "{\"leaf\":11,\"subleaf\":1}": {
+                "flags":1,
+                "result": {
+                    "eax":7,
+                    "ebx":64,
+                    "ecx":513,
+                    "edx":15
+                }
+            },
+            "{\"leaf\":11,\"subleaf\":2}": {
+                "flags":1,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":2,
+                    "edx":15
+                }
+            },
+            "{\"leaf\":12,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":0}": {
+                "flags":1,
+                "result": {
+                    "eax":743,
+                    "ebx":2696,
+                    "ecx":2696,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":1}": {
+                "flags":1,
+                "result": {
+                    "eax":15,
+                    "ebx":2440,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":2}": {
+                "flags":1,
+                "result": {
+                    "eax":256,
+                    "ebx":576,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":5}": {
+                "flags":1,
+                "result": {
+                    "eax":64,
+                    "ebx":1088,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":6}": {
+                "flags":1,
+                "result": {
+                    "eax":512,
+                    "ebx":1152,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":7}": {
+                "flags":1,
+                "result": {
+                    "eax":1024,
+                    "ebx":1664,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":13,\"subleaf\":9}": {
+                "flags":1,
+                "result": {
+                    "eax":8,
+                    "ebx":2688,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":1073741824,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":1073741825,
+                    "ebx":1263359563,
+                    "ecx":1447775574,
+                    "edx":77
+                }
+            },
+            "{\"leaf\":1073741825,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":16778491,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483648,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":2147483656,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483649,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":289,
+                    "edx":739248128
+                }
+            },
+            "{\"leaf\":2147483650,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483651,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483652,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483653,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483654,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            },
+            "{\"leaf\":2147483655,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":0,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":256
+                }
+            },
+            "{\"leaf\":2147483656,\"subleaf\":0}": {
+                "flags":0,
+                "result": {
+                    "eax":14638,
+                    "ebx":0,
+                    "ecx":0,
+                    "edx":0
+                }
+            }
+        }
+    }
+}
