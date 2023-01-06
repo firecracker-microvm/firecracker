@@ -50,6 +50,27 @@ pub enum GetMaxCpusPerPackageError {
     Overflow,
 }
 
+/// The maximum number of logical processors per package is computed as the closest
+/// power of 2 higher or equal to the CPU count configured by the user.
+const fn get_max_cpus_per_package(
+    cpu_count: u8,
+) -> Result<u8, GetMaxCpusPerPackageError> {
+    // This match is better than but approximately equivalent to
+    // `2.pow((cpu_count as f32).log2().ceil() as u8)` (`2^ceil(log_2(c))`).
+    match cpu_count {
+        0 => Err(GetMaxCpusPerPackageError::Underflow),
+        1 => Ok(1),
+        2 => Ok(2),
+        3..=4 => Ok(4),
+        5..=8 => Ok(8),
+        9..=16 => Ok(16),
+        17..=32 => Ok(32),
+        33..=64 => Ok(64),
+        65..=128 => Ok(128),
+        129..=u8::MAX => Err(GetMaxCpusPerPackageError::Overflow),
+    }
+}
+
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.
 #[allow(clippy::multiple_inherent_impl)]
@@ -79,27 +100,6 @@ impl super::Cpuid {
 
             /// CPU is running on a hypervisor.
             pub const HYPERVISOR_BITINDEX: u8 = 31;
-
-            /// The maximum number of logical processors per package is computed as the closest
-            /// power of 2 higher or equal to the CPU count configured by the user.
-            const fn get_max_cpus_per_package(
-                cpu_count: u8,
-            ) -> Result<u8, GetMaxCpusPerPackageError> {
-                // This match is better than but approximately equivalent to
-                // `2.pow((cpu_count as f32).log2().ceil() as u8)` (`2^ceil(log_2(c))`).
-                match cpu_count {
-                    0 => Err(GetMaxCpusPerPackageError::Underflow),
-                    1 => Ok(1),
-                    2 => Ok(2),
-                    3..=4 => Ok(4),
-                    5..=8 => Ok(8),
-                    9..=16 => Ok(16),
-                    17..=32 => Ok(32),
-                    33..=64 => Ok(64),
-                    65..=128 => Ok(128),
-                    129..=u8::MAX => Err(GetMaxCpusPerPackageError::Overflow),
-                }
-            }
 
             let leaf_1 = self
                 .leaf_mut::<0x1>()
@@ -147,5 +147,31 @@ impl super::Cpuid {
                 .normalize(cpu_index, cpu_count, cpu_bits)
                 .map_err(NormalizeCpuidError::Amd),
         }
+    }
+}
+
+#[cfg(tests)]
+mod tets {
+    use super::*;
+
+    #[test]
+    fn test_get_max_cpus_per_package() {
+        assert_eq!(get_max_cpus_per_package(0), Err(GetMaxCpusPerPackageError::Underflow));
+        assert_eq!(get_max_cpus_per_package(1), Ok(1));
+        assert_eq!(get_max_cpus_per_package(2), Ok(2));
+        assert_eq!(get_max_cpus_per_package(3), Ok(4));
+        assert_eq!(get_max_cpus_per_package(4), Ok(4));
+        assert_eq!(get_max_cpus_per_package(5), Ok(8));
+        assert_eq!(get_max_cpus_per_package(8), Ok(16));
+        assert_eq!(get_max_cpus_per_package(9), Ok(9));
+        assert_eq!(get_max_cpus_per_package(16), Ok(16));
+        assert_eq!(get_max_cpus_per_package(17), Ok(32));
+        assert_eq!(get_max_cpus_per_package(32), Ok(32));
+        assert_eq!(get_max_cpus_per_package(33), Ok(64));
+        assert_eq!(get_max_cpus_per_package(64), Ok(64));
+        assert_eq!(get_max_cpus_per_package(65), Ok(128));
+        assert_eq!(get_max_cpus_per_package(128), Ok(128));
+        assert_eq!(get_max_cpus_per_package(129), Err(GetMaxCpusPerPackageError::Overflow));
+        assert_eq!(get_max_cpus_per_package(u8::MAX), Err(GetMaxCpusPerPackageError::Overflow));
     }
 }
