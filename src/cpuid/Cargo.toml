@@ -8,9 +8,14 @@ license = "Apache-2.0"
 [dependencies]
 kvm-bindings = { version = "0.6.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.12.0"
-derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 thiserror = "1.0.32"
 
 utils = { path = "../utils"}
 arch = { path = "../arch" }
 arch_gen = { path = "../arch_gen" }
+
+bit-fields = { path = "../bit-fields" }
+
+phf = { version = "0.11.1", features = ["macros"] }
+serde = { version = "1.0.138", features=["derive"] }
+log = "0.4.17"

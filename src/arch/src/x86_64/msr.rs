@@ -282,7 +282,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 }
 
 /// Error type for [`set_msrs`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum SetMSRsError {
     /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
     #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]

@@ -280,9 +280,9 @@ mod tests {
 
     #[test]
     fn test_display_cpu_features_template() {
-        assert_eq!(CpuFeaturesTemplate::C3.to_string(), "C3".to_string());
-        assert_eq!(CpuFeaturesTemplate::T2.to_string(), "T2".to_string());
-        assert_eq!(CpuFeaturesTemplate::T2S.to_string(), "T2S".to_string());
+        assert_eq!(CpuFeaturesTemplate::C3.to_string(), String::from("C3"));
+        assert_eq!(CpuFeaturesTemplate::T2.to_string(), String::from("T2"));
+        assert_eq!(CpuFeaturesTemplate::T2S.to_string(), String::from("T2S"));
     }
 
     #[test]
