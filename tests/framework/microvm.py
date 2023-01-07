@@ -934,6 +934,7 @@ class Microvm:
         self.logging_thread = utils.StoppableThread(
             target=monitor_fd, args=(weakref.ref(self), log_fifo.path), daemon=True
         )
+        self.logging_thread.daemon = True
         self.logging_thread.start()
 
     def __del__(self):
