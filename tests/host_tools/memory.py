@@ -41,6 +41,7 @@ class MemoryMonitor(Thread):
         self._should_stop = False
         self._current_rss = 0
         self._lock = Lock()
+        self.daemon = True
 
     @property
     def pid(self):
