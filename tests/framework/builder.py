@@ -169,6 +169,7 @@ class MicrovmBuilder:
             track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )
+        vm.memory_monitor.guest_mem_mib = microvm_config["mem_size_mib"]
         assert vm.api_session.is_status_no_content(response.status_code)
 
         vm.vcpus_count = int(microvm_config["vcpu_count"])

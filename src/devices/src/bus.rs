@@ -9,8 +9,8 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
+use std::result;
 use std::sync::{Arc, Mutex};
-use std::{fmt, result};
 
 use crate::virtio::AsAny;
 
@@ -26,20 +26,11 @@ pub trait BusDevice: AsAny + Send {
     fn write(&mut self, offset: u64, data: &[u8]) {}
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The insertion failed because the new device overlapped with an old device.
+    #[error("New device overlaps with an old device.")]
     Overlap,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            Overlap => write!(f, "New device overlaps with an old device."),
-        }
-    }
 }
 
 pub type Result<T> = result::Result<T, Error>;

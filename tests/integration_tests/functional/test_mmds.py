@@ -9,7 +9,7 @@ import string
 import os
 import time
 import pytest
-from framework.artifacts import DEFAULT_DEV_NAME, NetIfaceConfig, ArtifactCollection
+from framework.artifacts import NetIfaceConfig, ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import (
     generate_mmds_session_token,
@@ -57,6 +57,7 @@ def _validate_mmds_snapshot(
     vm_instance,
     vm_builder,
     version,
+    iface_cfg,
     target_fc_version=None,
     fc_path=None,
     jailer_path=None,
@@ -72,7 +73,7 @@ def _validate_mmds_snapshot(
     configure_mmds(
         basevm,
         version=version,
-        iface_ids=[DEFAULT_DEV_NAME],
+        iface_ids=[iface_cfg.dev_name],
         ipv4_address=ipv4_address,
         fc_version=target_fc_version,
     )
@@ -86,7 +87,7 @@ def _validate_mmds_snapshot(
         expected_mmds_config = {
             "version": version,
             "ipv4_address": ipv4_address,
-            "network_interfaces": [DEFAULT_DEV_NAME],
+            "network_interfaces": [iface_cfg.dev_name],
         }
         response = basevm.full_cfg.get()
         assert basevm.api_session.is_status_ok(response.status_code)
@@ -682,10 +683,11 @@ def test_mmds_snapshot(bin_cloner_path, version):
     @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano(net_ifaces=[NetIfaceConfig()])
+    iface_cfg = NetIfaceConfig()
+    vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
 
     # Validate current version.
-    _validate_mmds_snapshot(vm_instance, vm_builder, version)
+    _validate_mmds_snapshot(vm_instance, vm_builder, version, iface_cfg)
 
     # Validate restoring in past versions.
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -699,7 +701,8 @@ def test_mmds_snapshot(bin_cloner_path, version):
         max_version=get_firecracker_version_from_toml(),
     )
     for firecracker in firecracker_artifacts:
-        vm_instance = vm_builder.build_vm_nano(net_ifaces=[NetIfaceConfig()])
+        iface_cfg = NetIfaceConfig()
+        vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
         firecracker.download()
         jailer = firecracker.jailer()
         jailer.download()
@@ -716,6 +719,7 @@ def test_mmds_snapshot(bin_cloner_path, version):
             vm_instance,
             vm_builder,
             mmds_version,
+            iface_cfg,
             target_fc_version=target_version,
             fc_path=firecracker.local_path(),
             jailer_path=jailer.local_path(),
@@ -775,7 +779,11 @@ def test_mmds_older_snapshot(bin_cloner_path):
             assert basevm.api_session.is_status_no_content(response.status_code)
 
         _validate_mmds_snapshot(
-            vm_instance, vm_builder, mmds_version, target_fc_version=fc_version
+            vm_instance,
+            vm_builder,
+            mmds_version,
+            net_iface,
+            target_fc_version=fc_version,
         )
 
 

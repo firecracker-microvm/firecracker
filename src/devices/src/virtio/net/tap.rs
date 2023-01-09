@@ -6,13 +6,16 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::{Error as IoError, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, IoSlice, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_ioc_nr, ioctl_iow_nr};
+
+#[cfg(test)]
+use crate::virtio::net::test_utils::Mocks;
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -57,6 +60,9 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 pub struct Tap {
     tap_file: File,
     pub(crate) if_name: [u8; IFACE_NAME_MAX_LEN],
+
+    #[cfg(test)]
+    pub(crate) mocks: Mocks,
 }
 
 // Returns a byte vector representing the contents of a null terminated C string which
@@ -140,6 +146,9 @@ impl Tap {
             tap_file: tuntap,
             // SAFETY: Safe since only the name is accessed, and it's cloned out.
             if_name: unsafe { ifreq.ifr_ifrn.ifrn_name },
+
+            #[cfg(test)]
+            mocks: Mocks::default(),
         })
     }
 
@@ -184,6 +193,10 @@ impl Write for Tap {
         self.tap_file.write(buf)
     }
 
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<usize> {
+        self.tap_file.write_vectored(bufs)
+    }
+
     fn flush(&mut self) -> IoResult<()> {
         Ok(())
     }
@@ -224,6 +237,13 @@ pub mod tests {
         assert_eq!(b"tap0\0\0\0\0\0\0\0\0\0\0\0\0", &tap.if_name);
         assert_eq!("tap0", tap.if_name_as_str());
 
+        // Test using '%d' to have the kernel assign an unused name,
+        // and that we correctly copy back that generated name
+        let tap = Tap::open_named("tap%d").unwrap();
+        // '%d' should be replaced with _some_ number, although we don't know what was the next
+        // available one. Just assert that '%d' definitely isn't there anymore.
+        assert_ne!(b"tap%d", &tap.if_name[..5]);
+
         // 16 characters - too long.
         let name = "a123456789abcdef";
         match Tap::open_named(name) {
@@ -255,6 +275,7 @@ pub mod tests {
         let faulty_tap = Tap {
             tap_file: unsafe { File::from_raw_fd(-2) },
             if_name: [0x01; 16],
+            mocks: Default::default(),
         };
         assert_eq!(
             faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),

@@ -143,6 +143,9 @@ class Microvm:
         self.logging_thread = None
         self._screen_pid = None
 
+        # Initalize memory monitor
+        self._memory_monitor = None
+
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
         # private key is populated by microvms with ssh capabilities and the
@@ -155,8 +158,6 @@ class Microvm:
         # Deal with memory monitoring.
         if monitor_memory:
             self._memory_monitor = mem_tools.MemoryMonitor()
-        else:
-            self._memory_monitor = None
 
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
@@ -206,9 +207,10 @@ class Microvm:
             # different from the jailer pid that was previously killed.
             utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
 
-        if self._memory_monitor and self._memory_monitor.is_alive():
-            self._memory_monitor.signal_stop()
-            self._memory_monitor.join(timeout=1)
+        if self._memory_monitor:
+            if self._memory_monitor.is_alive():
+                self._memory_monitor.signal_stop()
+                self._memory_monitor.join(timeout=1)
             self._memory_monitor.check_samples()
 
         if self._cpu_load_monitor:
@@ -782,10 +784,13 @@ class Microvm:
         """
         # Create tap before configuring interface.
         tapname = tapname or (self.id[:8] + "tap" + iface_id)
-        (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-        tap = self.create_tap_and_ssh_config(
-            host_ip, guest_ip, network_config.get_netmask_len(), tapname
-        )
+        # The guest is hardcoded to expect an IP in a /30 network,
+        # so we request the IPs to be aligned on a /30 network
+        # See https://github.com/firecracker-microvm/firecracker/blob/main/resources/tests/fcnet-setup.sh#L21
+        # file:../../resources/tests/fcnet-setup.sh#L21
+        netmask_len = 30
+        (host_ip, guest_ip) = network_config.get_next_available_ips(2, netmask_len)
+        tap = self.create_tap_and_ssh_config(host_ip, guest_ip, netmask_len, tapname)
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
         response = self.network.put(
@@ -929,6 +934,7 @@ class Microvm:
         self.logging_thread = utils.StoppableThread(
             target=monitor_fd, args=(weakref.ref(self), log_fifo.path), daemon=True
         )
+        self.logging_thread.daemon = True
         self.logging_thread.start()
 
     def __del__(self):

@@ -232,7 +232,8 @@ def _g2h_send_ping(context):
     # Gather results and verify pass criteria.
     try:
         result = st_core.run_exercise()
+        file_dumper.dump(result)
     except core.CoreException as err:
         handle_failure(file_dumper, err)
-
-    file_dumper.dump(result)
+    finally:
+        basevm.kill()

@@ -4,10 +4,11 @@
 
 import os
 import platform
+from pathlib import Path
 
 from framework import utils
 from framework import defs
-
+from framework.with_filelock import with_filelock
 from framework.defs import (
     FC_BINARY_NAME,
     FC_WORKSPACE_DIR,
@@ -28,6 +29,7 @@ RELEASE_BINARIES_REL_PATH = "{}/release/".format(DEFAULT_BUILD_TARGET)
 CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
 
 
+@with_filelock
 def cargo_build(path, extra_args="", src_dir="", extra_env=""):
     """Trigger build depending on flags provided."""
     cmd = "CARGO_TARGET_DIR={} {} cargo build {}".format(path, extra_env, extra_args)
@@ -49,6 +51,7 @@ def cargo_test(path, extra_args=""):
     utils.run_cmd(cmd)
 
 
+@with_filelock
 def get_firecracker_binaries():
     """Build the Firecracker and Jailer binaries if they don't exist.
 
@@ -56,28 +59,22 @@ def get_firecracker_binaries():
     building them in case they do not exist at the specified root_path.
     """
     target = DEFAULT_BUILD_TARGET
-    out_dir = "{target_dir}/{target}/release".format(
-        target_dir=FC_WORKSPACE_TARGET_DIR, target=target
-    )
-    fc_bin_path = "{}/{}".format(out_dir, FC_BINARY_NAME)
-    jailer_bin_path = "{}/{}".format(out_dir, JAILER_BINARY_NAME)
+    target_dir = FC_WORKSPACE_TARGET_DIR
+    out_dir = Path(f"{target_dir}/{target}/release")
+    fc_bin_path = out_dir / FC_BINARY_NAME
+    jailer_bin_path = out_dir / JAILER_BINARY_NAME
 
-    if getattr(get_firecracker_binaries, "binaries_built", False):
-        return fc_bin_path, jailer_bin_path
+    if not fc_bin_path.exists():
+        cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
+        flags = 'RUSTFLAGS="{}"'.format(get_rustflags())
+        cargo_default_cmd = f"cargo build --release --target {target}"
+        cargo_jailer_cmd = f"cargo build -p jailer --release --target {target}"
+        cmd = "{0} && {1} {2} && {1} {3}".format(
+            cd_cmd, flags, cargo_default_cmd, cargo_jailer_cmd
+        )
 
-    cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
-    flags = 'RUSTFLAGS="{}"'.format(get_rustflags())
-    cargo_default_cmd = "cargo build --release --target {}".format(target)
-    cargo_jailer_cmd = "cargo build -p jailer --release --target {}".format(target)
-    cmd = "{0} && {1} {2} && {1} {3}".format(
-        cd_cmd, flags, cargo_default_cmd, cargo_jailer_cmd
-    )
-
-    utils.run_cmd(cmd)
-
-    utils.run_cmd("strip --strip-debug {} {}".format(fc_bin_path, jailer_bin_path))
-
-    setattr(get_firecracker_binaries, "binaries_built", True)
+        utils.run_cmd(cmd)
+        utils.run_cmd(f"strip --strip-debug {fc_bin_path} {jailer_bin_path}")
 
     return fc_bin_path, jailer_bin_path
 
@@ -90,6 +87,7 @@ def get_rustflags():
     return rustflags
 
 
+@with_filelock
 def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     """
     Run seccompiler-bin.
@@ -120,6 +118,7 @@ def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     assert rc == 0
 
 
+@with_filelock
 def run_rebase_snap_bin(base_snap, diff_snap):
     """
     Run apply_diff_snap.

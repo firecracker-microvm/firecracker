@@ -3,6 +3,8 @@
 
 # Pytest fixtures and redefined-outer-name don't mix well. Disable it.
 # pylint:disable=redefined-outer-name
+# We import some fixtures that are unused. Disable that too.
+# pylint:disable=unused-import
 
 """Imported by pytest at the start of every test session.
 
@@ -79,26 +81,29 @@ be run on every microvm image in the bucket, each as a separate test case.
   by the MicrovmImageFetcher, but not by the fixture template.
 """
 
+import inspect
+import json
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
 import uuid
-import json
+from pathlib import Path
 
 import pytest
 
 import host_tools.cargo_build as build_tools
-import host_tools.network as net_tools
-from host_tools import proc
+from host_tools.ip_generator import network_config, subnet_generator
 from framework import utils
 from framework import defs
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
-from framework.scheduler import PytestScheduler
 from framework.utils import get_firecracker_version_from_toml
+from framework.with_filelock import with_filelock
+from framework.properties import GLOBAL_PROPS
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
@@ -111,15 +116,6 @@ if sys.version_info < (3, 6):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
-
-
-# Style related tests and dependency enforcements are run only on Intel.
-if "Intel" not in proc.proc_type():
-    TEST_DIR = "integration_tests"
-    collect_ignore = [
-        os.path.join(SCRIPT_FOLDER, "{}/style".format(TEST_DIR)),
-        os.path.join(SCRIPT_FOLDER, "{}/build/test_dependencies.py".format(TEST_DIR)),
-    ]
 
 
 def _test_images_s3_bucket():
@@ -209,15 +205,8 @@ def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None)
 
 
 def pytest_configure(config):
-    """Pytest hook - initialization.
-
-    Initialize the test scheduler and IPC services.
-    """
+    """Pytest hook - initialization"""
     config.addinivalue_line("markers", "nonci: mark test as nonci.")
-    PytestScheduler.instance().register_mp_singleton(
-        net_tools.UniqueIPv4Generator.instance()
-    )
-    config.pluginmanager.register(PytestScheduler.instance())
 
 
 def pytest_addoption(parser):
@@ -227,7 +216,51 @@ def pytest_addoption(parser):
         action="store_true",
         help="Flag to dump test results to the test_results folder.",
     )
-    return PytestScheduler.instance().do_pytest_addoption(parser)
+    parser.addoption("--nonci", action="store_true", help="run tests marked with nonci")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Pytest hook. Skip some tests."""
+    skip_markers = {}
+
+    for skip_marker_name in ["nonci"]:
+        if not config.getoption(f"--{skip_marker_name}"):
+            skip_markers[skip_marker_name] = pytest.mark.skip(
+                reason=f"Skipping {skip_marker_name} test"
+            )
+
+    for item in items:
+        for skip_marker_name, skip_marker in skip_markers.items():
+            if skip_marker_name in item.keywords:
+                item.add_marker(skip_marker)
+
+
+def pytest_runtest_makereport(item, call):
+    """Decorate test results with additional properties."""
+    if call.when != "setup":
+        return
+
+    for prop_name, prop_val in GLOBAL_PROPS.items():
+        # if record_testsuite_property worked with xdist we could use that
+        # https://docs.pytest.org/en/7.1.x/reference/reference.html#record-testsuite-property
+        # to record the properties once per report. But here we record each
+        # prop per test. It just results in larger report files.
+        item.user_properties.append((prop_name, prop_val))
+
+    function_docstring = inspect.getdoc(item.function)
+    description = []
+    attributes = {}
+    for line in function_docstring.split("\n"):
+        # extract tags like @type, @issue, etc
+        match = re.match(r"\s*@(?P<attr>\w+):\s*(?P<value>\w+)", line)
+        if match:
+            attr, value = match["attr"], match["value"]
+            attributes[attr] = value
+        else:
+            description.append(line)
+    for attr_name, attr_value in attributes.items():
+        item.user_properties.append((attr_name, attr_value))
+    item.user_properties.append(("description", "".join(description)))
 
 
 def test_session_root_path():
@@ -272,10 +305,13 @@ def results_file_dumper(request):
     return NopResultsDumper()
 
 
+@with_filelock
 def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
     """Build a source file with gcc."""
-    compile_cmd = "gcc {} -o {} {}".format(src_file, output_file, extra_flags)
-    utils.run_cmd(compile_cmd)
+    output_file = Path(output_file)
+    if not output_file.exists():
+        compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
+        utils.run_cmd(compile_cmd)
 
 
 @pytest.fixture(scope="session")
@@ -415,19 +451,32 @@ def microvm_factory(tmp_path, bin_cloner_path):
         def __init__(self, tmp_path, bin_cloner):
             self.tmp_path = tmp_path
             self.bin_cloner_path = bin_cloner
+            self.vms = []
 
-        def build(self):
+        def build(self, kernel=None, rootfs=None):
             """Build a fresh microvm."""
             vm = init_microvm(self.tmp_path, self.bin_cloner_path)
+            self.vms.append(vm)
+            if kernel is not None:
+                kernel_path = Path(kernel.local_path())
+                vm.kernel_file = kernel_path
+            if rootfs is not None:
+                rootfs_path = Path(rootfs.local_path())
+                rootfs_path2 = Path(vm.path) / rootfs_path.name
+                # TBD only iff ext4 / rw
+                shutil.copyfile(rootfs_path, rootfs_path2)
+                vm.rootfs_file = rootfs_path2
+                vm.ssh_config["ssh_key_path"] = rootfs.ssh_key().local_path()
             return vm
 
-    yield MicroVMFactory(tmp_path, bin_cloner_path)
+        def kill(self):
+            """Clean up all built VMs"""
+            for vm in self.vms:
+                vm.kill()
 
-
-@pytest.fixture
-def network_config():
-    """Yield a UniqueIPv4Generator."""
-    yield net_tools.UniqueIPv4Generator.instance()
+    uvm_factory = MicroVMFactory(tmp_path, bin_cloner_path)
+    yield uvm_factory
+    uvm_factory.kill()
 
 
 @pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))
@@ -446,39 +495,6 @@ def test_microvm_any(request, microvm):
 
     MICROVM_S3_FETCHER.init_vm_resources(request.param, microvm)
     yield microvm
-
-
-@pytest.fixture
-def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
-    """Yield one or more microvms based on the context provided.
-
-    `context` is a dynamically parameterized fixture created inside the special
-    function `pytest_generate_tests` and it holds a tuple containing the name
-    of the guest image used to spawn a microvm and the number of microvms
-    to spawn.
-    """
-    microvms = []
-    (microvm_resources, how_many) = context
-
-    # When the context specifies multiple microvms, we use the first vm to
-    # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-    MICROVM_S3_FETCHER.init_vm_resources(microvm_resources, first_vm)
-    microvms.append(first_vm)
-
-    # It is safe to do this as the dynamically generated fixture `context`
-    # asserts that the `how_many` parameter is always positive
-    # (i.e strictly greater than 0).
-    for _ in range(how_many - 1):
-        vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-        MICROVM_S3_FETCHER.hardlink_vm_resources(microvm_resources, first_vm, vm)
-        microvms.append(vm)
-
-    yield microvms
-
-    for i in range(how_many):
-        microvms[i].kill()
-        shutil.rmtree(os.path.join(test_fc_session_root_path, microvms[i].id))
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -533,43 +549,23 @@ def firecracker_release(request):
     return firecracker
 
 
-def pytest_generate_tests(metafunc):
-    """Implement customized parametrization scheme.
+@pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
+def guest_kernel(request):
+    """Return all supported guest kernels."""
+    kernel = request.param
+    kernel.download()
+    return kernel
 
-    This is a special hook which is called by the pytest infrastructure when
-    collecting a test function. The `metafunc` contains the requesting test
-    context. Amongst other things, the `metafunc` provides the list of fixture
-    names that the calling test function is using.  If we find a fixture that
-    is called `context`, we check the calling function through the
-    `metafunc.function` field for the `_pool_size` attribute which we
-    previously set with a decorator. Then we create the list of parameters
-    for this fixture.
-    The parameter will be a list of tuples of the form (cap, pool_size).
-    For each parameter from the list (i.e. tuple) a different test case
-    scenario will be created.
-    """
-    if "context" in metafunc.fixturenames:
-        # In order to create the params for the current fixture, we need the
-        # capability and the number of vms we want to spawn.
 
-        # 1. Look if the test function set the pool size through the decorator.
-        # If it did not, we set it to 1.
-        how_many = int(getattr(metafunc.function, "_pool_size", None))
-        assert how_many > 0
-
-        # 2. Check if the test function set the capability field through
-        # the decorator. If it did not, we set it to any.
-        cap = getattr(metafunc.function, "_capability", "*")
-
-        # 3. Before parametrization, get the list of images that have the
-        # desired capability. By parametrize-ing the fixture with it, we
-        # trigger tests cases for each of them.
-        image_list = MICROVM_S3_FETCHER.list_microvm_images(capability_filter=[cap])
-        metafunc.parametrize(
-            "context",
-            [(item, how_many) for item in image_list],
-            ids=["{}, {} instance(s)".format(item, how_many) for item in image_list],
-        )
+@pytest.fixture(
+    params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda rootfs: rootfs.name()
+)
+def rootfs(request):
+    """Return all supported rootfs."""
+    rootfs = request.param
+    rootfs.download()
+    rootfs.ssh_key().download()
+    return rootfs
 
 
 TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (

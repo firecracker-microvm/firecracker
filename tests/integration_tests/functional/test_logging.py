@@ -48,7 +48,7 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
     e.g. with THREAD NAME as TN
     `2018-09-09T12:52:00.123456789 [MYID:TN:WARN:/path/to/file.rs:52] warning`
     """
-    (timestamp, tag, _) = log_str.split(" ")[:3]
+    timestamp, tag_and_msg = log_str.split(" ", maxsplit=1)
     timestamp = timestamp[:-10]
     strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
 
@@ -58,9 +58,9 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         pattern += ":(" + "|".join(LOG_LEVELS) + ")"
     if show_origin:
         pattern += ":([^:]+/[^:]+):([0-9]+)"
-    pattern += "\\]"
+    pattern += "\\].*"
 
-    mo = re.match(pattern, tag)
+    mo = re.match(pattern, tag_and_msg)
     assert mo is not None
 
     if show_level:

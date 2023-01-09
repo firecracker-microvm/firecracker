@@ -34,30 +34,17 @@ use crate::syscall_table::SyscallTable;
 type Result<T> = result::Result<T, Error>;
 
 /// Errors compiling Filters into BPF.
-#[derive(Debug, PartialEq, derive_more::From)]
+#[derive(Debug, PartialEq, derive_more::From, thiserror::Error)]
 pub(crate) enum Error {
     /// Filter and default actions are equal.
+    #[error("`filter_action` and `default_action` are equal.")]
     IdenticalActions,
     /// Error from the SeccompFilter.
+    #[error("{0}")]
     SeccompFilter(SeccompFilterError),
     /// Invalid syscall name for the given arch.
+    #[error("Invalid syscall name: {0} for given arch: {1:?}.")]
     SyscallName(String, TargetArch),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            IdenticalActions => write!(f, "`filter_action` and `default_action` are equal."),
-            SeccompFilter(ref err) => write!(f, "{}", err),
-            SyscallName(ref syscall_name, ref arch) => write!(
-                f,
-                "Invalid syscall name: {} for given arch: {:?}.",
-                syscall_name, arch
-            ),
-        }
-    }
 }
 
 /// Deserializable object that represents the Json filter file.

@@ -4,8 +4,16 @@
 
 import os
 import ast
+
 import pytest
+
 from framework import utils
+from host_tools import proc
+
+
+pytestmark = pytest.mark.skipif(
+    "Intel" not in proc.proc_type(), reason="test only runs on Intel"
+)
 
 
 def test_licenses():

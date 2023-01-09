@@ -8,6 +8,7 @@ import pytest
 
 import host_tools.cargo_build as host
 
+
 MACHINE = platform.machine()
 """ Platform definition used to select the correct size target"""
 
@@ -15,35 +16,25 @@ SIZES_DICT = {
     "x86_64": {
         "FC_BINARY_SIZE_TARGET": 2520632,
         "JAILER_BINARY_SIZE_TARGET": 850224,
-        "FC_BINARY_SIZE_LIMIT": 2646663,
-        "JAILER_BINARY_SIZE_LIMIT": 892735,
     },
     "aarch64": {
         "FC_BINARY_SIZE_TARGET": 2322392,
         "JAILER_BINARY_SIZE_TARGET": 851152,
-        "FC_BINARY_SIZE_LIMIT": 2438511,
-        "JAILER_BINARY_SIZE_LIMIT": 893709,
     },
 }
 
 FC_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_TARGET"]
 """Firecracker target binary size in bytes"""
 
-FC_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_LIMIT"]
-"""Firecracker maximum binary size in bytes"""
-
 JAILER_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_TARGET"]
 """Jailer target binary size in bytes"""
-
-JAILER_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_LIMIT"]
-"""Jailer maximum binary size in bytes"""
 
 BINARY_SIZE_TOLERANCE = 0.05
 """Tolerance of 5% allowed for binary size"""
 
 
 @pytest.mark.timeout(500)
-def test_firecracker_binary_size():
+def test_firecracker_binary_size(record_property):
     """
     Test if the size of the firecracker binary is within expected ranges.
 
@@ -56,17 +47,16 @@ def test_firecracker_binary_size():
         fc_binary,
         FC_BINARY_SIZE_TARGET,
         BINARY_SIZE_TOLERANCE,
-        FC_BINARY_SIZE_LIMIT,
     )
 
-    return (
-        f"{result} B",
-        f"{FC_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
+    record_property(
+        "firecracker_binary_size",
+        f"{result}B ({FC_BINARY_SIZE_TARGET}B ±{BINARY_SIZE_TOLERANCE:.0%})",
     )
 
 
 @pytest.mark.timeout(500)
-def test_jailer_binary_size():
+def test_jailer_binary_size(record_property):
     """
     Test if the size of the jailer binary is within expected ranges.
 
@@ -79,16 +69,15 @@ def test_jailer_binary_size():
         jailer_binary,
         JAILER_BINARY_SIZE_TARGET,
         BINARY_SIZE_TOLERANCE,
-        JAILER_BINARY_SIZE_LIMIT,
     )
 
-    return (
-        f"{result} B",
-        f"{JAILER_BINARY_SIZE_TARGET} +/- {BINARY_SIZE_TOLERANCE * 100}% B",
+    record_property(
+        "jailer_binary_size",
+        f"{result}B ({JAILER_BINARY_SIZE_TARGET}B ±{BINARY_SIZE_TOLERANCE:.0%})",
     )
 
 
-def check_binary_size(name, binary_path, size_target, tolerance, limit):
+def check_binary_size(name, binary_path, size_target, tolerance):
     """Check if the specified binary falls within the expected range."""
     # Get the size of the release binary.
     binary_size = os.path.getsize(binary_path)
@@ -118,14 +107,4 @@ def check_binary_size(name, binary_path, size_target, tolerance, limit):
     )
 
     assert binary_size < size_target * (1 + tolerance), binary_high_msg
-
-    binary_limit_msg = (
-        "Current {} binary size of {} bytes is above the limit"
-        " of {} bytes with {} bytes.\n".format(
-            name, binary_size, limit, binary_size - limit
-        )
-    )
-
-    assert binary_size < limit, binary_limit_msg
-
     return binary_size

@@ -113,7 +113,7 @@ impl Persist<'_> for Net {
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
         let mut net = Net::new_with_tap(
             state.id.clone(),
-            state.tap_if_name.clone(),
+            &state.tap_if_name,
             state.config_space.guest_mac_v2,
             rx_rate_limiter,
             tx_rate_limiter,

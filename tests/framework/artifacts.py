@@ -93,11 +93,12 @@ class Artifact:
         """Save the artifact in the folder specified target_path."""
         assert self.bucket is not None
         self._local_folder = target_folder
-        Path(self.local_dir()).mkdir(parents=True, exist_ok=True)
-        if force or not os.path.exists(self.local_path()):
-            self._bucket.download_file(self._key, self.local_path())
+        local_path = Path(self.local_path())
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        if force or not local_path.exists():
+            self._bucket.download_file(self._key, local_path)
             # Artifacts are read-only by design.
-            os.chmod(self.local_path(), S_IREAD)
+            local_path.chmod(0o400)
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -273,7 +274,12 @@ class DiskArtifact(Artifact):
         """Return a ssh key artifact."""
         # Replace extension.
         key_file_path = str(Path(self.key).with_suffix(".id_rsa"))
-        return Artifact(self.bucket, key_file_path, artifact_type=ArtifactType.SSH_KEY)
+        return Artifact(
+            self.bucket,
+            key_file_path,
+            artifact_type=ArtifactType.SSH_KEY,
+            local_folder=self._local_folder,
+        )
 
 
 class FirecrackerArtifact(Artifact):
