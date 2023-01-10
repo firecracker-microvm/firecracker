@@ -108,13 +108,16 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
     && npm install -g @apidevtools/swagger-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the Rust toolchain
+# Install the Rust toolchain.
+# chmod is needed to make CARGO_HOME writable from non-root users.
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit \
     && cargo install --locked cargo-deny \
-    && cargo install --version $GRCOV_VERSION grcov
+    && cargo install --version $GRCOV_VERSION grcov \
+    && mkdir -p $CARGO_HOME/git \
+    && chmod -R ugo+w $CARGO_HOME/git $CARGO_HOME/registry/src $CARGO_HOME/registry/cache
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/x86_64-linux-musl \

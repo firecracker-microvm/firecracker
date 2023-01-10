@@ -104,10 +104,13 @@ RUN cd "$TMP_POETRY_DIR" \
     &&  poetry install --no-dev --no-interaction
 
 # Install the Rust toolchain
+# chmod is needed to make CARGO_HOME writable from non-root users.
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install --version $GRCOV_VERSION grcov
+    && cargo install --version $GRCOV_VERSION grcov \
+    && mkdir -p $CARGO_HOME/git \
+    && chmod -R ugo+w $CARGO_HOME/git $CARGO_HOME/registry/src $CARGO_HOME/registry/cache
 
 RUN ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
 
