@@ -14,12 +14,28 @@ from pathlib import Path
 import boto3
 import botocore.client
 
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, SUPPORTED_KERNELS
-from framework.utils import compare_versions
+from framework.defs import (
+    DEFAULT_TEST_SESSION_ROOT_PATH,
+    SUPPORTED_KERNELS,
+    SUPPORTED_KERNELS_NO_SVE,
+)
+from framework.utils import compare_versions, get_kernel_version
+from framework.utils_cpuid import get_instance_type
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
-
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
+
+
+def select_supported_kernels():
+    """Select kernels supported by the current combination of kernel and instance type."""
+    supported_kernels = SUPPORTED_KERNELS
+    kernel_version = get_kernel_version(level=1)
+    instance_type = get_instance_type()
+
+    if instance_type == "c7g.metal" and kernel_version == "4.14":
+        supported_kernels = SUPPORTED_KERNELS_NO_SVE
+
+    return supported_kernels
 
 
 class ArtifactType(Enum):
@@ -463,7 +479,7 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        supported_kernels = {f"vmlinux-{sup}.bin" for sup in SUPPORTED_KERNELS}
+        supported_kernels = {f"vmlinux-{sup}.bin" for sup in select_supported_kernels()}
         valid_kernels = [
             kernel for kernel in kernels if Path(kernel.key).name in supported_kernels
         ]
