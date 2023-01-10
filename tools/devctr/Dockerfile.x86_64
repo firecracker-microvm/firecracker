@@ -109,10 +109,9 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
-    && rustup component add rustfmt clippy clippy-preview llvm-tools-preview \
-    && rustup install --profile minimal "stable" \
+    && rustup component add llvm-tools-preview \
     && cargo install +"stable" cargo-audit \
     && cargo install --locked cargo-deny \
     && cargo install --version $GRCOV_VERSION grcov

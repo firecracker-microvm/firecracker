@@ -104,9 +104,9 @@ RUN cd "$TMP_POETRY_DIR" \
     &&  poetry install --no-dev --no-interaction
 
 # Install the Rust toolchain
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add aarch64-unknown-linux-musl \
-    && rustup component add clippy llvm-tools-preview \
+    && rustup component add llvm-tools-preview \
     && cargo install --version $GRCOV_VERSION grcov
 
 RUN ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
