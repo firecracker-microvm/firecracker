@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::similar_names, clippy::unreadable_literal)]
 
-use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
+use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry, Supports};
 
 /// Indexing implementations.
 mod indexing;
@@ -39,6 +39,26 @@ impl CpuidTrait for AmdCpuid {
     #[inline]
     fn get_mut(&mut self, key: &CpuidKey) -> Option<&mut CpuidEntry> {
         self.0.get_mut(key)
+    }
+}
+
+/// Error type for [`<AmdCpuidNotSupported as Supports>::supports`].
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[error("AmdCpuidNotSupported.")]
+pub struct AmdCpuidNotSupported;
+
+impl Supports for AmdCpuid {
+    type Error = AmdCpuidNotSupported;
+    /// Checks if `self` is a able to support `other`.
+    ///
+    /// Checks if a process from an environment with CPUID `other` could be continued in an
+    /// environment with the CPUID `self`.
+    #[inline]
+    fn supports(&self, _other: &Self) -> Result<(), Self::Error> {
+        // We don't currently implement support checking for AMD, therefore we allow all templates,
+        // presuming support.
+        Ok(())
     }
 }
 

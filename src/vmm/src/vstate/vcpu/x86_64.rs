@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 use arch::x86_64::interrupts;
 use arch::x86_64::msr::{ArchCapaMSRFlags, SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
+use cpuid::Supports;
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_msr_entry, kvm_regs, kvm_sregs,
     kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
@@ -206,6 +207,8 @@ pub enum KvmVcpuConfigureError {
     /// Failed get KVM supported CPUID structure.
     #[error("Failed to get KVM supported CPUID structure: {0}")]
     KvmGetSupportedCpuid(cpuid::KvmGetSupportedCpuidError),
+    #[error("KVM does not support the given CPUID or specified template: {0}")]
+    KvmUnsupportedCpuid(cpuid::CpuidNotSupported),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to push MSR entry to FamStructWrapper.")]
@@ -291,8 +294,20 @@ impl KvmVcpu {
             )
             .map_err(KvmVcpuConfigureError::NormalizeCpuidError)?;
 
-        // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::from(config_cpuid);
+        // Check support and set our CPUID.
+        let kvm_cpuid = {
+            // Get KVM supported CPUID.
+            let supported_cpuid = cpuid::Cpuid::kvm_get_supported_cpuid()
+                .map_err(KvmVcpuConfigureError::KvmGetSupportedCpuid)?;
+
+            // Checks KVM supports the given template.
+            supported_cpuid
+                .supports(&config_cpuid)
+                .map_err(KvmVcpuConfigureError::KvmUnsupportedCpuid)?;
+
+            // Set CPUID.
+            kvm_bindings::CpuId::from(config_cpuid)
+        };
 
         // Set CPUID in the KVM
         self.fd

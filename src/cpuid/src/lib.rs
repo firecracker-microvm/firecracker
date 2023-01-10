@@ -68,6 +68,11 @@ pub use normalize::{FeatureInformationError, GetMaxCpusPerPackageError, Normaliz
 /// Register bit fields (shared between AMD and Intel).
 mod registers;
 
+/// Supports implementations.
+mod supports;
+pub(crate) use supports::warn_support;
+pub use supports::*;
+
 /// To store the brand string we have 3 leaves, each with 4 registers, each with 4 bytes.
 pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 
@@ -302,6 +307,20 @@ impl CpuidTrait for kvm_bindings::CpuId {
     }
 }
 
+/// Error type for [`<Cpuid as Supports>::supports`].
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum CpuidNotSupported {
+    /// Intel.
+    #[error("Intel: {0}")]
+    Intel(crate::intel::IntelCpuidNotSupported),
+    /// Amd.
+    #[error("Amd: {0}")]
+    Amd(crate::amd::AmdCpuidNotSupported),
+    /// Different manufacturer IDs.
+    #[error("Different manufacturer IDs.")]
+    Incompatible,
+}
+
 /// Error type for [`apply_brand_string`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 #[error("Missing brand string leaves 0x80000002, 0x80000003 and 0x80000004.")]
@@ -410,6 +429,23 @@ impl CpuidTrait for Cpuid {
         match self {
             Self::Intel(intel_cpuid) => intel_cpuid.get_mut(key),
             Self::Amd(amd_cpuid) => amd_cpuid.get_mut(key),
+        }
+    }
+}
+
+impl Supports for Cpuid {
+    type Error = CpuidNotSupported;
+
+    /// Compare support of `self` to support `other`.
+    ///
+    /// For checking if a process from an environment with cpuid `other` could be continued in the
+    /// environment with the cpuid `self`.
+    #[inline]
+    fn supports(&self, other: &Self) -> Result<(), Self::Error> {
+        match (self, other) {
+            (Self::Intel(a), Self::Intel(b)) => a.supports(b).map_err(CpuidNotSupported::Intel),
+            (Self::Amd(a), Self::Amd(b)) => a.supports(b).map_err(CpuidNotSupported::Amd),
+            _ => Err(CpuidNotSupported::Incompatible),
         }
     }
 }

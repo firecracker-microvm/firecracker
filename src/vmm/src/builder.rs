@@ -11,6 +11,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use arch::InitrdConfig;
+#[cfg(target_arch = "x86_64")]
+use cpuid::Supports;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
 use devices::legacy::{
@@ -436,6 +438,14 @@ pub enum BuildMicrovmFromSnapshotError {
     #[cfg(target_arch = "x86_64")]
     #[error("Failed to create new CPUID structure from given snapshot: {0}")]
     CpuidNewError(cpuid::CpuidTryFromRawCpuid),
+    /// The CPUID specification from the snapshot contains features unsupported by and/or fields
+    /// outside the supported range, of the KVM.
+    #[cfg(target_arch = "x86_64")]
+    #[error(
+        "The CPUID specification from the snapshot contains features unsupported by and/or fields \
+         outside the supported range, of the KVM: {0}"
+    )]
+    UnsupportedCPUID(cpuid::CpuidNotSupported),
     /// Failed get KVM supported CPUID structure.
     #[cfg(target_arch = "x86_64")]
     #[error("Failed to get KVM supported CPUID structure: {0}")]
@@ -511,6 +521,53 @@ pub fn build_microvm_from_snapshot(
 
     #[cfg(target_arch = "x86_64")]
     {
+        let snapshot_cpuid = {
+            let raw_snapshot_cpuid =
+                cpuid::RawCpuid::from(microvm_state.vcpu_states[0].cpuid.clone());
+
+            // TODO Prevent `microvm_state.vcpu_states[0].cpuid` containing duplicate and invalid
+            // leaves. Do not save snapshots with invalid leaves.
+            //
+            // We need to do this as `microvm_state.vcpu_states[0].cpuid` contains many invalid
+            // leaves if we do not remove them they will overwrite valid leaves (e.g. a trailing
+            // invalid leaf marked as `function: 0, index: 0, eax: 0, ebx: 0, ecx: 0, edx: 0` would
+            // overwrite the manufactuer id). Ideally it should not contain these leaves as this is
+            // wasting memory.
+            //
+            // We cannot remove leaves with 0 in all registers as neither AMD nor Intel note that 0
+            // in all registers means a leaf is invalid. Thus we go off the arbitrary ordering of
+            // `microvm_state.vcpu_states[0].cpuid` and only retain the earliest leaf for which
+            // there are duplicates.
+            //
+            // On the case of support, Intel comes the closest to saying something useful with:
+            // > If a value entered for CPUID.EAX is less than or equal to the maximum input value
+            // > and the leaf is not supported on that processor then 0 is returned in all the
+            // > registers.
+            // Importantly, this allows us to infer a leaf will contain 0 in all registers if we
+            // know a leaf is unsupported. It does not allow us to infer a leaf is unsupported if we
+            // know it contains 0 in all registers. The case that a leaf is supported and contains 0
+            // in all registers is allowed. So this is not really useful.
+            let mut existing = std::collections::HashSet::new();
+            let trimmed_raw_snapshot_cpuid = raw_snapshot_cpuid
+                .iter()
+                .cloned()
+                .filter(|entry|
+                // If already present this returns false, filtering out this element
+                existing.insert((entry.function,entry.index)))
+                .collect::<cpuid::RawCpuid>();
+
+            cpuid::Cpuid::try_from(trimmed_raw_snapshot_cpuid)
+                .map_err(BuildMicrovmFromSnapshotError::CpuidNewError)?
+        };
+
+        // Get KVM supported CPUID
+        let supported_cpuid = cpuid::Cpuid::kvm_get_supported_cpuid()?;
+
+        // Check snapshot CPUID supported by KVM.
+        supported_cpuid
+            .supports(&snapshot_cpuid)
+            .map_err(BuildMicrovmFromSnapshotError::UnsupportedCPUID)?;
+
         // Scale TSC to match, extract the TSC freq from the state if specified
         if let Some(state_tsc) = microvm_state.vcpu_states[0].tsc_khz {
             // Scale the TSC frequency for all VCPUs. If a TSC frequency is not specified in the
