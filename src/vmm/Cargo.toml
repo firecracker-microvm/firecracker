@@ -35,6 +35,7 @@ vm-memory = { path = "../vm-memory" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
+cpuid-templates = { path = "../cpuid-templates" }
 
 [dev-dependencies]
 criterion = "0.4.0"
