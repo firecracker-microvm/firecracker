@@ -15,6 +15,9 @@ ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
 # By default we don't provide a poetry.lock file
 ARG POETRY_LOCK_PATH="/dev/null/*"
+# grcov 0.8.* requires GLIBC >2.27, this is not present in ubuntu 18.04, when we update the docker
+# container with a newer version of ubuntu we can also update this.
+ARG GRCOV_VERSION="0.7.1"
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -101,20 +104,10 @@ RUN cd "$TMP_POETRY_DIR" \
     &&  poetry install --no-dev --no-interaction
 
 # Install the Rust toolchain
-#
-RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
-        && rustup target add aarch64-unknown-linux-musl \
-        && rustup component add clippy \
-        && cd "$TMP_BUILD_DIR" \
-                    && cargo install cargo-kcov \
-                    && cargo kcov --print-install-kcov-sh | sh \
-        && rm -rf "$CARGO_HOME/registry" \
-        && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
-        && rm -rf "$CARGO_HOME/git" \
-        && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
-    && cd / \
-    && rm -rf "$TMP_BUILD_DIR"
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+    && rustup target add aarch64-unknown-linux-musl \
+    && rustup component add clippy llvm-tools-preview \
+    && cargo install --version $GRCOV_VERSION grcov
 
 RUN ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
 
