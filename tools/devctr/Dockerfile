@@ -48,14 +48,11 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        # for swagger-cli
-        npm \
         # for mdl
         ruby \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
-    && gem install mdl \
-    && npm install -g @apidevtools/swagger-cli
+    && gem install mdl
 
 
 COPY tools/devctr /tmp/poetry
