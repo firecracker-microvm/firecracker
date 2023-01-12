@@ -164,7 +164,7 @@ fn update_extended_feature_info_entry(
 }
 
 /// Sets up the cpuid entries for a given VCPU following a C3 template.
-struct C3CpuidTransformer {}
+struct C3CpuidTransformer;
 
 impl CpuidTransformer for C3CpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
