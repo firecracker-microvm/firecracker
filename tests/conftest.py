@@ -129,6 +129,7 @@ def _test_images_s3_bucket():
 
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
+METRICS = get_metrics_logger()
 
 
 # pylint: disable=too-few-public-methods
@@ -268,6 +269,32 @@ def record_props(request, record_property):
     record_property("description", "".join(description))
 
 
+def pytest_runtest_logreport(report):
+    """Send general test metrics to CloudWatch"""
+    if report.when == "call":
+        dimensions = {
+            "test": report.nodeid,
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_linux_version": global_props.host_linux_version,
+        }
+        METRICS.set_property("result", report.outcome)
+        for prop_name, prop_val in report.user_properties:
+            METRICS.set_property(prop_name, prop_val)
+        METRICS.set_dimensions(dimensions)
+        METRICS.put_metric(
+            "duration",
+            report.duration,
+            unit="Seconds",
+        )
+        METRICS.put_metric(
+            "failed",
+            1 if report.outcome == "FAILED" else 0,
+            unit="Count",
+        )
+        METRICS.flush()
+
+
 @pytest.fixture()
 def metrics(request):
     """Fixture to pass the metrics scope
@@ -316,7 +343,6 @@ def test_fc_session_root_path():
 @pytest.fixture
 def test_session_tmp_path(test_fc_session_root_path):
     """Yield a random temporary directory. Destroyed on teardown."""
-
     tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
     yield tmp_path
     shutil.rmtree(tmp_path)
