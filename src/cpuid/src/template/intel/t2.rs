@@ -165,7 +165,7 @@ pub(crate) fn update_extended_feature_info_entry(
 }
 
 /// Sets up the cpuid entries for a given VCPU following a T2 template.
-struct T2CpuidTransformer {}
+struct T2CpuidTransformer;
 
 impl CpuidTransformer for T2CpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
