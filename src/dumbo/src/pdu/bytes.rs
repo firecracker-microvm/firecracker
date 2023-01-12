@@ -112,9 +112,11 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     ///
     /// # Panics
     ///
-    /// This method will panic if `offset` is invalid.
+    /// If `value` cannot be written into `self` at the given `offset` (e.g. if `offset > self.len()
+    /// - size_of::<u16>()`).
     #[inline]
     fn htons_unchecked(&mut self, offset: usize, value: u16) {
+        assert!(offset <= self.len() - std::mem::size_of::<u16>());
         byte_order::write_be_u16(&mut self[offset..], value)
     }
 
@@ -122,9 +124,11 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     ///
     /// # Panics
     ///
-    /// This method will panic if `offset` is invalid.
+    /// If `value` cannot be written into `self` at the given `offset` (e.g. if `offset > self.len()
+    /// - size_of::<u32>()`).
     #[inline]
     fn htonl_unchecked(&mut self, offset: usize, value: u32) {
+        assert!(offset <= self.len() - std::mem::size_of::<u32>());
         byte_order::write_be_u32(&mut self[offset..], value)
     }
 }
@@ -191,6 +195,22 @@ impl<'a, T: NetworkBytesMut> NetworkBytesMut for InnerBytes<'a, T> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_htons_unchecked() {
+        let mut buf = [u8::default(); std::mem::size_of::<u16>()];
+        let mut a = buf.as_mut();
+        a.htons_unchecked(1, u16::default());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_htonl_unchecked() {
+        let mut buf = [u8::default(); std::mem::size_of::<u32>()];
+        let mut a = buf.as_mut();
+        a.htonl_unchecked(1, u32::default());
+    }
 
     #[test]
     fn test_network_bytes() {
