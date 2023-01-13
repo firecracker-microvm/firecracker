@@ -14,7 +14,7 @@ use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
-use super::iovec::IoVecBuffer;
+use crate::virtio::iovec::IoVecBuffer;
 #[cfg(test)]
 use crate::virtio::net::test_utils::Mocks;
 
