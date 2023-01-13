@@ -90,7 +90,7 @@ class UffdHandler:
     def spawn(self):
         """Spawn handler process using arguments provided."""
         self._proc = subprocess.Popen(
-            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1
+            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
     def proc(self):
