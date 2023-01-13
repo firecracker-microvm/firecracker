@@ -20,7 +20,6 @@ from framework.utils import (
 )
 from conftest import _test_images_s3_bucket
 
-import host_tools.network as net_tools
 import host_tools.logging as log_tools
 
 # Minimum lifetime of token.
@@ -100,7 +99,7 @@ def _validate_mmds_snapshot(
 
     snapshot_builder = SnapshotBuilder(basevm)
 
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
+    ssh_connection = basevm.ssh
     _run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
     # Generate token if needed.
@@ -135,7 +134,7 @@ def _validate_mmds_snapshot(
         snapshot, resume=True, fc_binary=fc_path, jailer_binary=jailer_path
     )
 
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+    ssh_connection = microvm.ssh
 
     # Check the reported mmds config. In versions up to (including) v1.0.0 this
     # was not populated after restore.
@@ -229,7 +228,7 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     _run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
@@ -304,7 +303,7 @@ def test_json_response(test_microvm_with_api, network_config, version):
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
     _run_guest_cmd(ssh_connection, cmd, "")
@@ -371,7 +370,7 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
     _run_guest_cmd(ssh_connection, cmd, "")
@@ -440,7 +439,7 @@ def test_larger_than_mss_payloads(test_microvm_with_api, network_config, version
     test_microvm.start()
 
     # Make sure MTU is 1500 bytes.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     _run_guest_cmd(ssh_connection, "ip link set dev eth0 mtu 1500", "")
 
@@ -564,7 +563,7 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     _run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
 
@@ -815,7 +814,7 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
 
     test_microvm.basic_config(vcpu_count=1)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
 
     _run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
 

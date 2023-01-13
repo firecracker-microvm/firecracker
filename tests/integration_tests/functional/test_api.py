@@ -91,10 +91,8 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
 
     test_microvm.start()
 
-    ssh_conn = net_tools.SSHConnection(test_microvm.ssh_config)
-
     # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = ssh_conn.execute_command("sync")
+    rc, _, stderr = test_microvm.ssh.execute_command("sync")
     assert rc == 0
     assert stderr.read() == ""
 

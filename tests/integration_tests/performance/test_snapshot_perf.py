@@ -24,7 +24,6 @@ from framework.utils_cpuid import get_instance_type
 from framework.stats import core, consumer, producer, types, criteria, function
 from integration_tests.performance.utils import handle_failure
 
-import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
 # How many latencies do we sample per test.
@@ -216,10 +215,8 @@ def snapshot_resume_producer(logger, vm_builder, snapshot, snapshot_type, use_ra
     )
 
     # Attempt to connect to resumed microvm.
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     value = 0
@@ -387,10 +384,9 @@ def _test_snapshot_resume_latency(context):
     )
     basevm = vm_instance.vm
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Check if guest works.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = basevm.ssh.execute_command("ls")
     assert exit_code == 0
 
     logger.info("Create {}.".format(snapshot_type))
@@ -473,10 +469,9 @@ def test_older_snapshot_resume_latency(
     )
     basevm = vm_instance.vm
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Check if guest works.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = basevm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # The snapshot builder expects disks as paths, not artifacts.

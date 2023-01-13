@@ -27,7 +27,6 @@ from framework.utils import (
     DictQuery,
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-import host_tools.network as net_tools
 
 TEST_ID = "network_tcp_throughput"
 kernel_version = get_kernel_version(level=1)
@@ -138,12 +137,11 @@ def produce_iperf_output(
         )
 
         modes_len = len(modes)
-        ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
         for client_idx in range(load_factor * basevm.vcpus_count):
             futures.append(
                 executor.submit(
                     spawn_iperf_client,
-                    ssh_connection,
+                    basevm.ssh,
                     client_idx,
                     # Distribute the modes evenly.
                     modes[client_idx % modes_len],

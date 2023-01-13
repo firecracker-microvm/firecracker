@@ -18,6 +18,7 @@ import select
 import shutil
 import time
 import weakref
+from functools import cached_property
 from pathlib import Path
 
 from threading import Lock
@@ -830,6 +831,11 @@ class Microvm:
         )
         assert response.ok
         return True
+
+    @cached_property
+    def ssh(self):
+        """Return a cached SSH connection"""
+        return net_tools.SSHConnection(self.ssh_config)
 
     def start_console_logger(self, log_fifo):
         """

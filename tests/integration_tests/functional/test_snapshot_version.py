@@ -7,8 +7,6 @@ import pytest
 from framework.artifacts import NetIfaceConfig
 from framework.builder import SnapshotBuilder, MicrovmBuilder
 
-import host_tools.network as net_tools  # pylint: disable=import-error
-
 # Firecracker v0.23 used 16 IRQ lines. For virtio devices,
 # IRQs are available from 5 to 23, so the maximum number
 # of devices allowed at the same time was 11.
@@ -33,9 +31,8 @@ def _create_and_start_microvm_with_net_devices(
     test_microvm.start()
 
     if network_config is not None:
-        ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
         # Verify if guest can run commands.
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
         assert exit_code == 0
 
 
@@ -131,7 +128,7 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
     # we can be sure that the block device was activated.
     iface = NetIfaceConfig()
     test_microvm.ssh_config["hostname"] = iface.guest_ip
-    _ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    test_microvm.ssh.run("true")
 
     # Create directory and files for saving snapshot state and memory.
     snapshot_builder = SnapshotBuilder(test_microvm)

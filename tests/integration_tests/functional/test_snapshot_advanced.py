@@ -9,7 +9,6 @@ import pytest
 from test_balloon import _test_rss_memory_lower
 from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
 
@@ -147,13 +146,12 @@ def validate_all_devices(logger, microvm, ifaces, drives, balloon):
     for iface in ifaces:
         logger.info("Testing net device %s", iface.dev_name)
         microvm.ssh_config["hostname"] = iface.guest_ip
-        ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = microvm.ssh.execute_command("sync")
 
     # Drop page cache.
     # Ensure further reads are going to be served from emulation layer.
     cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
-    exit_code, _, _ = ssh_connection.execute_command(cmd)
+    exit_code, _, _ = microvm.ssh.execute_command(cmd)
     assert exit_code == 0
 
     # Validate checksum of /dev/vdX/test.
@@ -163,12 +161,12 @@ def validate_all_devices(logger, microvm, ifaces, drives, balloon):
         # Mount block device.
         logger.info("Testing drive %s", drive)
         cmd = "mount /dev/{drive} /mnt/{drive}".format(drive=drive)
-        exit_code, _, _ = ssh_connection.execute_command(cmd)
+        exit_code, _, _ = microvm.ssh.execute_command(cmd)
         assert exit_code == 0
 
         # Validate checksum.
         cmd = "md5sum /mnt/{}/test | cut -d ' ' -f 1".format(drive)
-        exit_code, stdout, _ = ssh_connection.execute_command(cmd)
+        exit_code, stdout, _ = microvm.ssh.execute_command(cmd)
         assert exit_code == 0
         assert stdout.read().strip() == "ab893875d697a3145af5eed5309bee26"
         logger.info("* checksum OK.")
@@ -231,26 +229,25 @@ def create_snapshot_helper(
     # Iterate and validate connectivity on all ifaces after boot.
     for iface in ifaces:
         vm.ssh_config["hostname"] = iface.guest_ip
-        ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = vm.ssh.execute_command("sync")
         assert exit_code == 0
 
     # Mount scratch drives in guest.
     for blk in test_drives:
         # Create mount point and mount each device.
         cmd = "mkdir -p /mnt/{blk} && mount /dev/{blk} /mnt/{blk}".format(blk=blk)
-        exit_code, _, _ = ssh_connection.execute_command(cmd)
+        exit_code, _, _ = vm.ssh.execute_command(cmd)
         assert exit_code == 0
 
         # Create file using dd using O_DIRECT.
         # After resume we will compute md5sum on these files.
         dd = "dd if=/dev/zero of=/mnt/{}/test bs=4096 count=10 oflag=direct"
-        exit_code, _, _ = ssh_connection.execute_command(dd.format(blk))
+        exit_code, _, _ = vm.ssh.execute_command(dd.format(blk))
         assert exit_code == 0
 
         # Unmount the device.
         cmd = "umount /dev/{}".format(blk)
-        exit_code, _, _ = ssh_connection.execute_command(cmd)
+        exit_code, _, _ = vm.ssh.execute_command(cmd)
         assert exit_code == 0
 
     # Create a snapshot builder from a microvm.
