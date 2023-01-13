@@ -107,7 +107,11 @@ RUN cd "$TMP_POETRY_DIR" \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install --version $GRCOV_VERSION grcov
+    && cargo install --version $GRCOV_VERSION grcov \
+    && rm -rf "$CARGO_HOME/registry" \
+    && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
+    && rm -rf "$CARGO_HOME/git" \
+    && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
 
 RUN ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
 
