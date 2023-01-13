@@ -4,7 +4,6 @@
 import time
 
 from framework import utils
-import host_tools.network as net_tools
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
@@ -31,8 +30,7 @@ def test_high_ingress_traffic(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    ssh_connection.execute_command("{} -sD\n".format(IPERF_BINARY))
+    test_microvm.ssh.execute_command("{} -sD\n".format(IPERF_BINARY))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
@@ -49,7 +47,7 @@ def test_high_ingress_traffic(test_microvm_with_api, network_config):
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    exit_code, _, _ = ssh_connection.execute_command("echo success\n")
+    exit_code, _, _ = test_microvm.ssh.execute_command("echo success\n")
     assert exit_code == 0
 
 

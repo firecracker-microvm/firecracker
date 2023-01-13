@@ -10,7 +10,6 @@ import pytest
 import requests
 
 from framework import utils
-from host_tools.network import SSHConnection
 
 
 CHECKER_URL = "https://meltdown.ovh"
@@ -94,8 +93,7 @@ def run_spectre_meltdown_checker_on_guest(
     spectre_meltdown_checker,
 ):
     """Run the spectre / meltdown checker on guest"""
-    conn = SSHConnection(microvm.ssh_config)
     remote_path = f"/bin/{CHECKER_FILENAME}"
-    conn.scp_file(spectre_meltdown_checker, remote_path)
-    ecode, stdout, stderr = conn.execute_command(f"sh {remote_path} --explain")
+    microvm.ssh.scp_file(spectre_meltdown_checker, remote_path)
+    ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
     assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"

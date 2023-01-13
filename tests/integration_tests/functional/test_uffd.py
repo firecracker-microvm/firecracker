@@ -16,8 +16,6 @@ from framework.artifacts import SnapshotMemBackendType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.utils import run_cmd, UffdHandler
 
-import host_tools.network as net_tools
-
 SOCKET_PATH = "/firecracker-uffd.sock"
 
 
@@ -36,10 +34,9 @@ def create_snapshot(bin_cloner_path):
     assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.execute_command("sync")
     assert exit_code == 0
 
     # Create a snapshot builder from a microvm.
@@ -188,8 +185,7 @@ def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_path
     assert vm.api_session.is_status_no_content(response.status_code)
 
     # Verify if guest can run commands.
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = vm.ssh.execute_command("sync")
     assert exit_code == 0
 
 

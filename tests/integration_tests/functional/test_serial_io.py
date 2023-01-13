@@ -15,7 +15,6 @@ from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.artifacts import SnapshotType
 from framework import utils
 import host_tools.logging as log_tools
-import host_tools.network as net_tools
 
 PLATFORM = platform.machine()
 
@@ -212,7 +211,6 @@ def test_serial_block(test_microvm_with_api, network_config):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Get an initial reading of missed writes to the serial.
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
@@ -223,16 +221,16 @@ def test_serial_block(test_microvm_with_api, network_config):
     subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
 
     # Generate a random text file.
-    exit_code, _, _ = ssh_connection.execute_command(
+    exit_code, _, _ = test_microvm.ssh.execute_command(
         "base64 /dev/urandom | head -c 100000 > file.txt"
     )
 
     # Dump output to terminal
-    exit_code, _, _ = ssh_connection.execute_command("cat file.txt > /dev/ttyS0")
+    exit_code, _, _ = test_microvm.ssh.execute_command("cat file.txt > /dev/ttyS0")
     assert exit_code == 0
 
     # Check that the vCPU isn't blocked.
-    exit_code, _, _ = ssh_connection.execute_command("cd /")
+    exit_code, _, _ = test_microvm.ssh.execute_command("cd /")
     assert exit_code == 0
 
     # Check the metrics to see if the serial missed bytes.

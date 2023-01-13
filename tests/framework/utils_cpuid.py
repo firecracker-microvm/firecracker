@@ -9,7 +9,6 @@ from enum import Enum, auto
 
 from framework.utils import run_cmd
 from framework.utils_imdsv2 import imdsv2_get
-import host_tools.network as net_tools
 
 ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"}
 
@@ -56,8 +55,7 @@ def check_guest_cpuid_output(
     vm, guest_cmd, expected_header, expected_separator, expected_key_value_store
 ):
     """Parse cpuid output inside guest and match with expected one."""
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    _, stdout, stderr = vm.ssh.execute_command(guest_cmd)
 
     assert stderr.read() == ""
     while True:
@@ -127,10 +125,8 @@ def get_guest_cpuid(vm):
      - register ("eax", "ebx", "ecx" or "edx")
     and the value is the register value (integer).
     """
-    ssh_conn = net_tools.SSHConnection(vm.ssh_config)
-
     read_cpuid_cmd = "cpuid -1 --raw | grep -v CPU"
-    _, stdout, stderr = ssh_conn.execute_command(read_cpuid_cmd)
+    _, stdout, stderr = vm.ssh.execute_command(read_cpuid_cmd)
     assert stderr.read() == ""
 
     return build_cpuid_dict(stdout)

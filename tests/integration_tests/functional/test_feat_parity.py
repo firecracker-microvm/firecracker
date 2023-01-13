@@ -10,7 +10,6 @@ from framework.artifacts import DiskArtifact
 from framework.builder import MicrovmBuilder
 import framework.utils_cpuid as cpuid_utils
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
-import host_tools.network as net_tools
 
 
 # CPU templates designed to provide instruction set feature parity
@@ -320,10 +319,9 @@ def test_feat_parity_msr_arch_cap(
     vm = create_vm(vm_builder, inst_set_cpu_template, microvm, guest_kernel, disk)
     vm.start()
 
-    ssh_conn = net_tools.SSHConnection(vm.ssh_config)
     arch_capabilities_addr = "0x10a"
     rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"
-    _, stdout, stderr = ssh_conn.execute_command(rdmsr_cmd)
+    _, stdout, stderr = vm.ssh.execute_command(rdmsr_cmd)
 
     if inst_set_cpu_template == "T2CL":
         assert stderr.read() == ""

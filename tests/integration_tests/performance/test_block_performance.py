@@ -27,7 +27,6 @@ from framework.utils import (
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.drive as drive_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.stats as st
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
@@ -389,7 +388,6 @@ def fio_workload(context):
         )
     )
 
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
     env_id = (
         f"{context.kernel.name()}/{context.disk.name()}/"
         f"{io_engine.lower()}_{context.microvm.name()}"
@@ -403,7 +401,7 @@ def fio_workload(context):
                 func_kwargs={
                     "env_id": env_id,
                     "basevm": basevm,
-                    "ssh_conn": ssh_connection,
+                    "ssh_conn": basevm.ssh,
                     "mode": mode,
                     "bs": bs,
                 },

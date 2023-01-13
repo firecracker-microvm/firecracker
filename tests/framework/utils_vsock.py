@@ -10,8 +10,6 @@ from threading import Thread, Event
 import re
 from framework import utils
 
-from host_tools.network import SSHConnection
-
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
 TEST_CONNECTION_COUNT = 50
@@ -178,9 +176,8 @@ def check_host_connections(vm, uds_path, blob_path, blob_hash):
     the hashes they computed for the data echoed back by the server are
     checked against `blob_hash`.
     """
-    conn = SSHConnection(vm.ssh_config)
     cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = conn.execute_command(cmd)
+    ecode, _, _ = vm.ssh.run(cmd)
     assert ecode == 0
 
     workers = []
@@ -205,13 +202,12 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     """
     echo_server = HostEchoServer(vm, server_port_path)
     echo_server.start()
-    conn = SSHConnection(vm.ssh_config)
 
     # Increase maximum process count for the ssh service.
     # Avoids: "bash: fork: retry: Resource temporarily unavailable"
     # Needed to execute the bash script that tests for concurrent
     # vsock guest initiated connections.
-    ecode, _, _ = conn.execute_command(
+    ecode, _, _ = vm.ssh.run(
         "echo 1024 > \
         /sys/fs/cgroup/pids/system.slice/ssh.service/pids.max"
     )
@@ -240,7 +236,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
-    ecode, _, _ = conn.execute_command(cmd)
+    ecode, _, _ = vm.ssh.run(cmd)
 
     echo_server.exit()
     assert echo_server.error is None
