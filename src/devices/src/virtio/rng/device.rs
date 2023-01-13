@@ -5,7 +5,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::{debug, error};
+use logger::{debug, error, IncMetric, METRICS};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use utils::eventfd::EventFd;
@@ -83,7 +83,10 @@ impl Entropy {
 
     fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32> {
         let mut rand_bytes = vec![0; iovec.len()];
-        OsRng.try_fill_bytes(&mut rand_bytes)?;
+        OsRng.try_fill_bytes(&mut rand_bytes).map_err(|err| {
+            METRICS.entropy.host_rng_fails.inc();
+            err
+        })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
         Ok(iovec.write_at(&rand_bytes, 0).unwrap().try_into().unwrap())
@@ -96,13 +99,23 @@ impl Entropy {
         let mut used_any = false;
         while let Some(desc) = self.queues[RNG_QUEUE].pop(mem) {
             let index = desc.index;
+            METRICS.entropy.entropy_event_count.inc();
+
             let bytes = match IoVecBufferMut::from_descriptor_chain(mem, desc) {
-                Ok(mut iovec) => self.handle_one(&mut iovec).unwrap_or_else(|err| {
-                    error!("entropy: {err}");
-                    0
-                }),
+                Ok(mut iovec) => {
+                    debug!(
+                        "entropy: guest request for {} bytes of entropy",
+                        iovec.len()
+                    );
+                    self.handle_one(&mut iovec).unwrap_or_else(|err| {
+                        error!("entropy: {err}");
+                        METRICS.entropy.entropy_event_fails.inc();
+                        0
+                    })
+                }
                 Err(err) => {
                     error!("entropy: Could not parse descriptor chain: {err}");
+                    METRICS.entropy.entropy_event_fails.inc();
                     0
                 }
             };
@@ -110,9 +123,11 @@ impl Entropy {
             match self.queues[RNG_QUEUE].add_used(mem, index, bytes) {
                 Ok(_) => {
                     used_any = true;
+                    METRICS.entropy.entropy_bytes.add(bytes as usize);
                 }
                 Err(err) => {
                     error!("entropy: Could not add used descriptor to queue: {err}");
+                    METRICS.entropy.entropy_event_fails.inc();
                     // If we are not able to add a buffer to the used queue, something
                     // is probably seriously wrong, so just stop processing additional
                     // buffers
@@ -122,15 +137,20 @@ impl Entropy {
         }
 
         if used_any {
-            self.signal_used_queue()
-                .unwrap_or_else(|err| error!("entropy: {err:?}"));
+            self.signal_used_queue().unwrap_or_else(|err| {
+                error!("entropy: {err:?}");
+                METRICS.entropy.entropy_event_fails.inc()
+            });
         }
     }
 
     pub(crate) fn process_entropy_queue_event(&mut self) {
         match self.queue_events[RNG_QUEUE].read() {
             Ok(_) => self.process_entropy_queue(),
-            Err(err) => error!("Failed to read entropy queue event: {err}"),
+            Err(err) => {
+                error!("Failed to read entropy queue event: {err}");
+                METRICS.entropy.entropy_event_fails.inc();
+            }
         }
     }
 
@@ -207,6 +227,7 @@ impl VirtioDevice for Entropy {
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         self.activate_event.write(1).map_err(|err| {
             error!("entropy: Cannot write to activate_evt: {err}");
+            METRICS.entropy.activate_fails.inc();
             super::super::ActivateError::BadActivate
         })?;
         self.device_state = DeviceState::Activated(mem);
@@ -346,5 +367,46 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         let mut iovec = IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap();
         assert!(entropy_dev.handle_one(&mut iovec).is_ok());
+    }
+
+    #[test]
+    fn test_entropy_event() {
+        let mem = create_virtio_mem();
+        let mut th = VirtioTestHelper::<Entropy>::new(&mem, default_entropy());
+
+        th.activate_device(&mem);
+
+        // Add a read-only descriptor (this should fail)
+        th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, 0)]);
+
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_fails.count(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_count.count(), 1);
+        assert_eq!(METRICS.entropy.entropy_bytes.count(), 0);
+        assert_eq!(METRICS.entropy.host_rng_fails.count(), 0);
+
+        // Add two good descriptors
+        th.add_desc_chain(RNG_QUEUE, 0, &[(1, 10, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(RNG_QUEUE, 100, &[(2, 20, VIRTQ_DESC_F_WRITE)]);
+
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_fails.count(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_count.count(), 3);
+        assert_eq!(METRICS.entropy.entropy_bytes.count(), 30);
+
+        th.add_desc_chain(
+            RNG_QUEUE,
+            0,
+            &[
+                (3, 128, VIRTQ_DESC_F_WRITE),
+                (4, 128, VIRTQ_DESC_F_WRITE),
+                (5, 256, VIRTQ_DESC_F_WRITE),
+            ],
+        );
+
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_fails.count(), 1);
+        assert_eq!(METRICS.entropy.entropy_event_count.count(), 4);
+        assert_eq!(METRICS.entropy.entropy_bytes.count(), 542);
     }
 }
