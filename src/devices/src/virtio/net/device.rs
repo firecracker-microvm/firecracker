@@ -30,7 +30,7 @@ use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
-use crate::virtio::net::iovec::IoVecBuffer;
+use crate::virtio::iovec::IoVecBuffer;
 use crate::virtio::net::tap::Tap;
 use crate::virtio::net::{
     Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
