@@ -114,7 +114,11 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_TOOL
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit \
     && cargo install --locked cargo-deny \
-    && cargo install --version $GRCOV_VERSION grcov
+    && cargo install --version $GRCOV_VERSION grcov \
+    && rm -rf "$CARGO_HOME/registry" \
+    && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
+    && rm -rf "$CARGO_HOME/git" \
+    && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/x86_64-linux-musl \
