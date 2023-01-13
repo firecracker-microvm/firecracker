@@ -151,6 +151,28 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
+pub struct DescriptorIterator<'a>(Option<DescriptorChain<'a>>);
+
+impl<'a> IntoIterator for DescriptorChain<'a> {
+    type Item = DescriptorChain<'a>;
+    type IntoIter = DescriptorIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DescriptorIterator(Some(self))
+    }
+}
+
+impl<'a> Iterator for DescriptorIterator<'a> {
+    type Item = DescriptorChain<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.take().map(|desc| {
+            self.0 = desc.next_descriptor();
+            desc
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// A virtio queue's parameters.
 pub struct Queue {
