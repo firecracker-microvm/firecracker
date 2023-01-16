@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring codebase style compliance for the OpenAPI specification."""
 
-import os
+from pathlib import Path
+
 import yaml
-from framework import utils
+from openapi_spec_validator import validate_spec
+from openapi_spec_validator.readers import read_from_filename
 
 
 def check_yaml_style(yaml_spec):
@@ -18,13 +20,9 @@ def check_yaml_style(yaml_spec):
 
 
 def validate_swagger(swagger_spec):
-    """Fail if OpenApi spec is not followed."""
-    validate_cmd = "swagger-cli validate {}".format(swagger_spec)
-    retcode, stdout, _ = utils.run_cmd(validate_cmd)
-
-    # Verify validity.
-    assert "is valid" in stdout
-    assert retcode == 0
+    """Fail if OpenAPI spec is not followed."""
+    spec_dict, _ = read_from_filename(swagger_spec)
+    validate_spec(spec_dict)
 
 
 def test_firecracker_swagger():
@@ -33,8 +31,6 @@ def test_firecracker_swagger():
 
     @type: style
     """
-    swagger_spec = os.path.normpath(
-        os.path.join(os.getcwd(), "../src/api_server/swagger/firecracker.yaml")
-    )
+    swagger_spec = Path("../src/api_server/swagger/firecracker.yaml")
     check_yaml_style(swagger_spec)
     validate_swagger(swagger_spec)
