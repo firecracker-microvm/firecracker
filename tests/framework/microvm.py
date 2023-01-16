@@ -17,6 +17,7 @@ import re
 import select
 import shutil
 import time
+import uuid
 import weakref
 from functools import cached_property
 from pathlib import Path
@@ -25,6 +26,7 @@ from threading import Lock
 from retry import retry
 
 import host_tools.logging as log_tools
+import host_tools.cargo_build as build_tools
 import host_tools.cpu_load as cpu_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
@@ -76,14 +78,16 @@ class Microvm:
     def __init__(
         self,
         resource_path,
-        fc_binary_path,
-        jailer_binary_path,
-        microvm_id,
+        fc_binary_path=None,
+        jailer_binary_path=None,
+        microvm_id=None,
         monitor_memory=True,
         bin_cloner_path=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
+        if microvm_id is None:
+            microvm_id = str(uuid.uuid4())
         self._microvm_id = microvm_id
 
         # Compose the paths to the resources specific to this microvm.
@@ -95,6 +99,10 @@ class Microvm:
         self.initrd_file = ""
 
         # The binaries this microvm will use to start.
+        if fc_binary_path is None:
+            fc_binary_path, _ = build_tools.get_firecracker_binaries()
+        if jailer_binary_path is None:
+            _, jailer_binary_path = build_tools.get_firecracker_binaries()
         self._fc_binary_path = fc_binary_path
         assert os.path.exists(self._fc_binary_path)
         self._jailer_binary_path = jailer_binary_path

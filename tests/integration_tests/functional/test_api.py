@@ -16,7 +16,6 @@ import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 
-from conftest import init_microvm
 from framework.utils import is_io_uring_supported
 from framework.artifacts import (
     NetIfaceConfig,
@@ -1406,14 +1405,13 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
 
 # pylint: disable=protected-access
-def test_negative_snapshot_load_api(bin_cloner_path):
+def test_negative_snapshot_load_api(microvm_factory):
     """
     Test snapshot load API.
 
     @type: negative
     """
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm = init_microvm(vm_builder.root_path, vm_builder.bin_cloner_path)
+    vm = microvm_factory.build()
     vm.spawn()
 
     # Specifying both `mem_backend` and 'mem_file_path` should fail.

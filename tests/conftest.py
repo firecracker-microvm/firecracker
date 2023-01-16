@@ -89,7 +89,6 @@ import re
 import shutil
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 
 import pytest
@@ -166,34 +165,6 @@ class JsonFileDumper(ResultsDumperInterface):
             json.dump(result, file_fd)
             file_fd.write("\n")  # Add newline cause Py JSON does not
             file_fd.flush()
-
-
-def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None):
-    """Auxiliary function for instantiating a microvm and setting it up."""
-    microvm_id = str(uuid.uuid4())
-
-    # Update permissions for custom binaries.
-    if fc_binary is not None:
-        os.chmod(fc_binary, 0o555)
-    if jailer_binary is not None:
-        os.chmod(jailer_binary, 0o555)
-
-    if fc_binary is None or jailer_binary is None:
-        fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
-
-    # Make sure we always have both binaries.
-    assert fc_binary
-    assert jailer_binary
-
-    vm = Microvm(
-        resource_path=root_path,
-        fc_binary_path=fc_binary,
-        jailer_binary_path=jailer_binary,
-        microvm_id=microvm_id,
-        bin_cloner_path=bin_cloner_path,
-    )
-    vm.setup()
-    return vm
 
 
 def pytest_configure(config):
@@ -454,7 +425,11 @@ def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
-    vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
+    vm = Microvm(
+        resource_path=test_fc_session_root_path,
+        bin_cloner_path=bin_cloner_path,
+    )
+    vm.setup()
     yield vm
     vm.kill()
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
@@ -483,7 +458,11 @@ def microvm_factory(tmp_path, bin_cloner_path):
 
         def build(self, kernel=None, rootfs=None):
             """Build a fresh microvm."""
-            vm = init_microvm(self.tmp_path, self.bin_cloner_path)
+            vm = Microvm(
+                resource_path=self.tmp_path,
+                bin_cloner_path=self.bin_cloner_path,
+            )
+            vm.setup()
             self.vms.append(vm)
             if kernel is not None:
                 kernel_path = Path(kernel.local_path())
