@@ -3,6 +3,7 @@
 """Utilities for measuring memory utilization for a process."""
 from queue import Queue
 import time
+import platform
 from threading import Thread, Lock
 
 from framework import utils
@@ -28,6 +29,7 @@ class MemoryMonitor(Thread):
 
     MEMORY_THRESHOLD = 5 * 1024
     MEMORY_SAMPLE_TIMEOUT_S = 1
+    X86_MEMORY_GAP_START = 3407872
 
     def __init__(self):
         """Initialize monitor attributes."""
@@ -94,6 +96,12 @@ class MemoryMonitor(Thread):
         while not self._should_stop:
             mem_total = 0
             try:
+                if (
+                    platform.machine() == "x86_64"
+                    and (self.guest_mem_mib * 1024) > self.X86_MEMORY_GAP_START
+                ):
+                    # TODO Remove when <https://github.com/firecracker-microvm/firecracker/issues/3349> is closed.
+                    return
                 _, stdout, _ = utils.run_cmd(pmap_cmd)
                 pmap_out = stdout.split("\n")
 
