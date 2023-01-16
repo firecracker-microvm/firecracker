@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # pylint: disable=wrong-import-position
 # The test infra assumes it is running from the `tests` directory.
 os.chdir("tests")
-from conftest import _test_images_s3_bucket, _gcc_compile, init_microvm
+from conftest import _test_images_s3_bucket, _gcc_compile
 from framework.artifacts import (
     ArtifactCollection,
     ArtifactSet,
@@ -26,6 +26,7 @@ from framework.artifacts import (
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.matrix import TestMatrix, TestContext
+from framework.microvm import Microvm
 from framework.utils import (
     generate_mmds_session_token,
     generate_mmds_get_request,
@@ -94,8 +95,11 @@ def setup_vm(context):
         f"Creating snapshot of microVM with kernel {context.kernel.name()}"
         f" and disk {context.disk.name()}."
     )
-
-    vm = init_microvm(root_path, bin_cloner_path)
+    vm = Microvm(
+        resource_path=root_path,
+        bin_cloner_path=bin_cloner_path,
+    )
+    vm.setup()
 
     # Change kernel name to match the one in the config file.
     kernel_full_path = os.path.join(vm.path, DEST_KERNEL_NAME)
