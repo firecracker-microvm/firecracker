@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
@@ -33,44 +32,35 @@ use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 use vm_memory::GuestAddress;
 
 /// Errors for MMIO device manager.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Allocation logic error.
+    #[error("Failed to allocate requested resource: {0}")]
     Allocator(vm_allocator::Error),
     /// Failed to insert device on the bus.
+    #[error("Failed to insert device on the bus: {0}")]
     BusInsert(devices::BusError),
     /// Appending to kernel command line failed.
+    #[error("Failed to allocate requested resourc: {0}")]
     Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found on the bus.
+    #[error("Failed to find the device on the bus.")]
     DeviceNotFound,
     /// Incorrect device type.
+    #[error("Invalid device type found on the MMIO bus.")]
     InvalidDeviceType,
     /// Internal device error.
+    #[error("{0}")]
     InternalDeviceError(String),
     /// Invalid configuration attempted.
+    #[error("Invalid MMIO IRQ configuration.")]
     InvalidIrqConfig,
     /// Registering an IO Event failed.
+    #[error("Failed to register IO event: {0}")]
     RegisterIoEvent(kvm_ioctls::Error),
     /// Registering an IRQ FD failed.
+    #[error("Failed to register irqfd: {0}")]
     RegisterIrqFd(kvm_ioctls::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Allocator(err) => write!(f, "Failed to allocate requested resource: {err}"),
-            Error::BusInsert(err) => write!(f, "Failed to insert device on the bus: {err}",),
-            Error::Cmdline(err) => {
-                write!(f, "Failed to add device to the kernel command line: {err}")
-            }
-            Error::DeviceNotFound => write!(f, "Failed to find the device on the bus"),
-            Error::InvalidDeviceType => write!(f, "Invalid device type found on the MMIO bus"),
-            Error::InternalDeviceError(err) => write!(f, "{err}"),
-            Error::InvalidIrqConfig => write!(f, "Invalid MMIO IRQ configuration"),
-            Error::RegisterIoEvent(err) => write!(f, "Failed to register IO event: {err}"),
-            Error::RegisterIrqFd(err) => write!(f, "Failed to register irqfd: {err}"),
-        }
-    }
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
