@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 use std::convert::TryInto;
-use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -18,35 +17,27 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
 
-type Result<T> = result::Result<T, DriveError>;
-
 /// Errors associated with the operations allowed on a drive.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DriveError {
     /// Could not create a Block Device.
+    #[error("Unable to create the block device: {0:?}")]
     CreateBlockDevice(BlockError),
     /// Failed to create a `RateLimiter` object.
+    #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
     /// Error during block device update (patch).
+    #[error("Unable to patch the block device: {0}")]
     DeviceUpdate(VmmError),
     /// The block device path is invalid.
+    #[error("Invalid block device path: {0}")]
     InvalidBlockDevicePath(String),
     /// A root block device was already added.
+    #[error("A root block device already exists!")]
     RootBlockDeviceAlreadyAdded,
 }
 
-impl Display for DriveError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::DriveError::*;
-        match self {
-            CreateBlockDevice(err) => write!(f, "Unable to create the block device: {err:?}"),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {err}"),
-            DeviceUpdate(err) => write!(f, "Unable to patch the block device: {err}"),
-            InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {path}"),
-            RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
-        }
-    }
-}
+type Result<T> = result::Result<T, DriveError>;
 
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
