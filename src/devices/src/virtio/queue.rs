@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::cmp::min;
-use std::fmt;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
@@ -26,26 +25,14 @@ pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 // which fulfills the explicit constraint of GuestMemoryMmap::read_obj_from_addr().
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum QueueError {
     /// Descriptor index out of bounds.
+    #[error("Descriptor index out of bounds: {0}.")]
     DescIndexOutOfBounds(u16),
     /// Attempted an invalid write into the used ring.
-    UsedRing(GuestMemoryError),
-}
-
-impl fmt::Display for QueueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::QueueError::*;
-
-        match self {
-            DescIndexOutOfBounds(val) => write!(f, "Descriptor index out of bounds: {val}"),
-            UsedRing(err) => write!(
-                f,
-                "Failed to write value into the virtio queue used ring: {err}"
-            ),
-        }
-    }
+    #[error("Failed to write value into the virtio queue used ring: {0}")]
+    UsedRing(#[from] GuestMemoryError),
 }
 
 /// A virtio descriptor constraints with C representative.
