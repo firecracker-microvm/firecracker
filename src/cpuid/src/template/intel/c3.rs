@@ -99,7 +99,7 @@ fn update_structured_extended_entry(
             .write_bit(ecx::OSPKE_BITINDEX, false)
             .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
             .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false)
-            .write_bit(ecx::LA57, false)
+            .write_bit(ecx::LA57_BITINDEX, false)
             .write_bit(ecx::RDPID_BITINDEX, false)
             .write_bit(ecx::SGX_LC_BITINDEX, false);
 
@@ -164,7 +164,7 @@ fn update_extended_feature_info_entry(
 }
 
 /// Sets up the cpuid entries for a given VCPU following a C3 template.
-struct C3CpuidTransformer {}
+struct C3CpuidTransformer;
 
 impl CpuidTransformer for C3CpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {

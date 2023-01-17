@@ -104,6 +104,7 @@ from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
 from framework.properties import GLOBAL_PROPS
+from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
@@ -566,6 +567,12 @@ def rootfs(request):
     rootfs.download()
     rootfs.ssh_key().download()
     return rootfs
+
+
+@pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
+def cpu_template(request):
+    """Return all CPU templates supported by the vendor."""
+    return request.param
 
 
 TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (

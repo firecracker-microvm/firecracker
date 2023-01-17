@@ -9,7 +9,7 @@ use crate::template::intel::validate_vendor_id;
 use crate::transformer::*;
 
 /// Sets up the cpuid entries for a given VCPU following a T2S template.
-struct T2SCpuidTransformer {}
+struct T2SCpuidTransformer;
 
 impl CpuidTransformer for T2SCpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {

@@ -248,6 +248,10 @@ pub enum CpuFeaturesTemplate {
     T2S,
     /// No CPU template is used.
     None,
+    /// T2CL Template.
+    T2CL,
+    /// T2A Template.
+    T2A,
 }
 
 /// Utility methods for handling CPU template types
@@ -263,6 +267,8 @@ impl fmt::Display for CpuFeaturesTemplate {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
+            CpuFeaturesTemplate::T2CL => write!(f, "T2CL"),
+            CpuFeaturesTemplate::T2A => write!(f, "T2A"),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
     }
