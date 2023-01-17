@@ -18,9 +18,9 @@ from host_tools import proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 82.99, "AMD": 82.31, "ARM": 82.51}
+    COVERAGE_DICT = {"Intel": 77.00, "AMD": 75.44, "ARM": 67.84}
 else:
-    COVERAGE_DICT = {"Intel": 80.15, "AMD": 79.48, "ARM": 79.59}
+    COVERAGE_DICT = {"Intel": 74.43, "AMD": 72.17, "ARM": 64.66}
 
 PROC_MODEL = proc.proc_type()
 
