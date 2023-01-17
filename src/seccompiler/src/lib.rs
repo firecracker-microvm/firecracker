@@ -13,8 +13,8 @@ mod common;
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
-use bincode::{DefaultOptions, Error as BincodeError, Options};
 
+use bincode::{DefaultOptions, Error as BincodeError, Options};
 use common::BPF_MAX_LEN;
 // Re-export the data types needed for calling the helper functions.
 pub use common::{sock_filter, BpfProgram};
