@@ -56,7 +56,6 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 name = "api_server"
 version = "0.1.0"
 dependencies = [
- "derive_more",
  "libc",
  "logger",
  "micro_http",
@@ -285,7 +284,6 @@ version = "0.1.0"
 dependencies = [
  "arch",
  "arch_gen",
- "derive_more",
  "kvm-bindings",
  "kvm-ioctls",
  "thiserror",
@@ -1090,7 +1088,6 @@ name = "seccompiler"
 version = "1.2.0"
 dependencies = [
  "bincode",
- "derive_more",
  "libc",
  "serde",
  "serde_json",

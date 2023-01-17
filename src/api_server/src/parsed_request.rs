@@ -255,7 +255,7 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
     }
 }
 
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     // The resource ID is empty.
     #[error("The ID cannot be empty.")]
@@ -271,7 +271,7 @@ pub(crate) enum Error {
     InvalidPathMethod(String, Method),
     // An error occurred when deserializing the json body of a request.
     #[error("An error occurred when deserializing the json body of a request: {0}.")]
-    SerdeJson(serde_json::Error),
+    SerdeJson(#[from] serde_json::Error),
 }
 
 // It's convenient to turn errors into HTTP responses directly.
