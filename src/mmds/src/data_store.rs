@@ -46,7 +46,7 @@ pub enum OutputFormat {
     Imds,
 }
 
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("The MMDS patch request doesn't fit.")]
     DataStoreLimitExceeded,
@@ -55,7 +55,7 @@ pub enum Error {
     #[error("The MMDS data store is not initialized.")]
     NotInitialized,
     #[error("Token Authority error: {0}")]
-    TokenAuthority(TokenError),
+    TokenAuthority(#[from] TokenError),
     #[error("Cannot retrieve value. The value has an unsupported type.")]
     UnsupportedValueType,
 }

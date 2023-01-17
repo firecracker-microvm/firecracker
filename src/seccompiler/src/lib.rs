@@ -11,11 +11,10 @@
 mod common;
 
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::sync::Arc;
-
 use bincode::{DefaultOptions, Error as BincodeError, Options};
+
 use common::BPF_MAX_LEN;
 // Re-export the data types needed for calling the helper functions.
 pub use common::{sock_filter, BpfProgram};
@@ -35,45 +34,22 @@ struct sock_fprog {
 pub type BpfProgramRef<'a> = &'a [sock_filter];
 
 /// Binary filter deserialization errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DeserializationError {
     /// Error when doing bincode deserialization.
+    #[error("Bincode deserialization failed: {0}")]
     Bincode(BincodeError),
 }
 
-impl Display for DeserializationError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::DeserializationError::*;
-
-        match *self {
-            Bincode(ref err) => write!(f, "Bincode deserialization failed: {}", err),
-        }
-    }
-}
-
 /// Filter installation errors.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InstallationError {
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    #[error("Filter length exceeds the maximum size of {BPF_MAX_LEN} instructions ")]
     FilterTooLarge,
     /// Error returned by `prctl`.
+    #[error("`prctl` syscall failed with error code: {0}")]
     Prctl(i32),
-}
-impl std::error::Error for InstallationError {}
-
-impl Display for InstallationError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::InstallationError::*;
-
-        match *self {
-            FilterTooLarge => write!(
-                f,
-                "Filter length exceeds the maximum size of {} instructions ",
-                BPF_MAX_LEN
-            ),
-            Prctl(ref errno) => write!(f, "`prctl` syscall failed with error code: {}", errno),
-        }
-    }
 }
 
 /// Deserialize a BPF file into a collection of usable BPF filters.
@@ -156,6 +132,7 @@ mod tests {
 
     use super::*;
     use crate::common::BpfProgram;
+
     #[test]
     fn test_deserialize_binary() {
         // Malformed bincode binary.

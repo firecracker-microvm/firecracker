@@ -34,14 +34,14 @@ use crate::syscall_table::SyscallTable;
 type Result<T> = result::Result<T, Error>;
 
 /// Errors compiling Filters into BPF.
-#[derive(Debug, PartialEq, derive_more::From, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum Error {
     /// Filter and default actions are equal.
     #[error("`filter_action` and `default_action` are equal.")]
     IdenticalActions,
     /// Error from the SeccompFilter.
     #[error("{0}")]
-    SeccompFilter(SeccompFilterError),
+    SeccompFilter(#[from] SeccompFilterError),
     /// Invalid syscall name for the given arch.
     #[error("Invalid syscall name: {0} for given arch: {1:?}.")]
     SyscallName(String, TargetArch),

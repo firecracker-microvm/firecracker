@@ -45,11 +45,11 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to extract entropy from /dev/urandom entropy pool: {0}.")]
     /// Failed to extract entropy from pool.
-    EntropyPool(io::Error),
+    EntropyPool(#[from] io::Error),
     /// Failed to extract expiry from token sequence.
     #[error("Failed to extract expiry value from token.")]
     ExpiryExtraction,
@@ -66,7 +66,7 @@ pub enum Error {
     InvalidTtlValue(u32),
     /// Token serialization failed.
     #[error("Bincode serialization failed: {0}.")]
-    Serialization(BincodeError),
+    Serialization(#[from] BincodeError),
     /// Failed to encrypt token.
     #[error("Failed to encrypt token.")]
     TokenEncryption,
