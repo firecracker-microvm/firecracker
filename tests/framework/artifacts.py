@@ -463,11 +463,11 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        valid_kernels = list(
-            filter(
-                lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS), kernels
-            )
-        )
+        supported_kernels = {f"vmlinux-{sup}.bin" for sup in SUPPORTED_KERNELS}
+        valid_kernels = [
+            kernel for kernel in kernels if Path(kernel.key).name in supported_kernels
+        ]
+
         return valid_kernels
 
     def disks(self, keyword=None):
