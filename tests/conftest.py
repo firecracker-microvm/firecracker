@@ -532,9 +532,9 @@ def firecracker_artifacts(*args, **kwargs):
 def firecracker_release(request, record_property):
     """Return all supported firecracker binaries."""
     firecracker = request.param
+    firecracker.download(perms=0o555)
+    firecracker.jailer().download(perms=0o555)
     record_property("firecracker_release", firecracker.version)
-    firecracker.download()
-    firecracker.jailer().download()
     return firecracker
 
 

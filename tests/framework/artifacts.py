@@ -111,7 +111,7 @@ class Artifact:
             platform.machine(),
         )
 
-    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False):
+    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False, perms=None):
         """Save the artifact in the folder specified target_path."""
         assert self.bucket is not None
         self._local_folder = target_folder
@@ -120,7 +120,9 @@ class Artifact:
         if force or not local_path.exists():
             self._bucket.download_file(self._key, local_path)
             # Artifacts are read-only by design.
-            local_path.chmod(0o400)
+            if perms is None:
+                perms = 0o400
+            local_path.chmod(perms)
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -279,7 +281,6 @@ class ArtifactCollection:
                 )
         return artifacts
 
-
     def microvms(self, keyword=None):
         """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
@@ -300,25 +301,23 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        # Filter out binaries with versions older than the `min_version` arg.
-        if min_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, min_version) >= 0,
-                    firecrackers,
-                )
-            )
+        res = []
+        for fc in firecrackers:
+            # Filter out binaries with versions older than `min_version`
+            if (
+                min_version is not None
+                and compare_versions(fc.version, min_version) < 0
+            ):
+                continue
+            # Filter out binaries with versions newer than `max_version`
+            if (
+                max_version is not None
+                and compare_versions(fc.version, max_version) > 0
+            ):
+                continue
+            res.append(fc)
 
-        # Filter out binaries with versions newer than the `max_version` arg.
-        if max_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, max_version) <= 0,
-                    firecrackers,
-                )
-            )
-
-        return firecrackers
+        return res
 
     def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
