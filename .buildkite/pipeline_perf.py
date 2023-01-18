@@ -10,21 +10,12 @@ import json
 from common import group, DEFAULT_INSTANCES, DEFAULT_KERNELS
 
 perf_test = {
-    "block": [
-        {
-            "label": "🖴 Block Performance - Sync",
-            "test_path": "integration_tests/performance/test_block_performance.py::test_block_performance_sync",
-            "devtool_opts": "-r 16834m -c 1-10 -m 0",
-            "timeout_in_minutes": 120,
-        },
-        {
-            "label": "🖴 Block Performance - Async",
-            "test_path": "integration_tests/performance/test_block_performance.py::test_block_performance_async",
-            "devtool_opts": "-r 16834m -c 1-10 -m 0",
-            "kernels": ["linux_5.10"],
-            "timeout_in_minutes": 120,
-        },
-    ],
+    "block": {
+        "label": "🖴 Block Performance",
+        "test_path": "integration_tests/performance/test_block_performance.py",
+        "devtool_opts": "-r 16834m -c 1-10 -m 0",
+        "timeout_in_minutes": 240,
+    },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_restore_performance.py",
