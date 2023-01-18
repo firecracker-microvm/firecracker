@@ -161,3 +161,23 @@ pub fn intel_msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collecti
 
     msrs
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(cpuid)]
+    use super::*;
+
+    #[cfg(cpuid)]
+    #[test]
+    fn get_cpuid_invalid_leaf() {
+        let max_leaf =
+            // SAFETY: This is safe because the host supports the `cpuid` instruction
+            unsafe { std::arch::x86_64::__get_cpuid_max(0).0 };
+        let max_leaf_plus_one = max_leaf + 1;
+
+        assert_eq!(
+            get_cpuid(max_leaf_plus_one, 0),
+            Err(GetCpuidError::UnsupportedLeaf(max_leaf_plus_one))
+        );
+    }
+}
