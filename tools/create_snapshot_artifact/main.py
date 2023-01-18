@@ -16,16 +16,10 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # pylint: disable=wrong-import-position
 # The test infra assumes it is running from the `tests` directory.
 os.chdir("tests")
-import host_tools.network as net_tools  # pylint: disable=import-error
-from conftest import _gcc_compile
-from framework.artifacts import (
-    ArtifactCollection,
-    ArtifactSet,
-    create_net_devices_configuration,
-)
+from conftest import ARTIFACTS_COLLECTION as ARTIFACTS, _gcc_compile
+from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, _test_images_s3_bucket
-from framework.matrix import TestContext, TestMatrix
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.microvm import Microvm
 from framework.utils import (
     generate_mmds_get_request,
@@ -34,7 +28,6 @@ from framework.utils import (
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import _configure_vm_from_json
-
 # restore directory
 os.chdir("..")
 
@@ -86,14 +79,11 @@ def populate_mmds(microvm, data_store):
     assert response.json() == data_store
 
 
-def setup_vm(context):
+def setup_vm(root_path, bin_cloner_path, kernel, disk):
     """Init microVM using context provided."""
-    root_path = context.custom["session_root_path"]
-    bin_cloner_path = context.custom["bin_cloner_path"]
-
     print(
-        f"Creating snapshot of microVM with kernel {context.kernel.name()}"
-        f" and disk {context.disk.name()}."
+        f"Creating snapshot of microVM with kernel {kernel.name()}"
+        f" and disk {disk.name()}."
     )
     vm = Microvm(
         resource_path=root_path,
@@ -102,11 +92,11 @@ def setup_vm(context):
 
     # Change kernel name to match the one in the config file.
     kernel_full_path = os.path.join(vm.path, DEST_KERNEL_NAME)
-    shutil.copyfile(context.kernel.local_path(), kernel_full_path)
+    shutil.copyfile(kernel.local_path(), kernel_full_path)
     vm.kernel_file = kernel_full_path
 
-    rootfs_full_path = os.path.join(vm.path, context.disk.name())
-    shutil.copyfile(context.disk.local_path(), rootfs_full_path)
+    rootfs_full_path = os.path.join(vm.path, disk.name())
+    shutil.copyfile(disk.local_path(), rootfs_full_path)
     vm.rootfs_file = rootfs_full_path
 
     return vm
@@ -191,6 +181,7 @@ def main():
     """
     # Create directory dedicated to store snapshot artifacts for
     # each guest kernel version.
+    print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     os.mkdir(SNAPSHOT_ARTIFACTS_ROOT_DIR)
 
@@ -204,29 +195,21 @@ def main():
     )
 
     # Fetch kernel and rootfs artifacts from S3 bucket.
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+    kernels = ARTIFACTS.kernels()
+    disks = ARTIFACTS.disks(keyword="ubuntu")
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
         cpu_templates.extend(["C3", "T2", "T2S"])
 
     for cpu_template in cpu_templates:
-        # Create a test context.
-        test_context = TestContext()
-        test_context.custom = {
-            "bin_cloner_path": bin_cloner_path,
-            "session_root_path": root_path,
-            "cpu_template": cpu_template,
-        }
-
-        # Create the test matrix.
-        test_matrix = TestMatrix(
-            context=test_context, artifact_sets=[kernel_artifacts, disk_artifacts]
-        )
-
-        test_matrix.run_test(create_snapshots)
+        for kernel in kernels:
+            kernel.download()
+            for rootfs in disks:
+                rootfs.download()
+                print(kernel, rootfs, cpu_template)
+                vm = setup_vm(root_path, bin_cloner_path, kernel, rootfs)
+                create_snapshots(vm, rootfs, kernel, cpu_template)
 
 
 def add_cpu_template(template, json_data):
@@ -235,16 +218,13 @@ def add_cpu_template(template, json_data):
     return json_data
 
 
-def create_snapshots(context):
+def create_snapshots(vm, rootfs, kernel, cpu_template):
     """Snapshot microVM built from vm configuration file."""
-    vm = setup_vm(context)
-
     # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
+    ssh_key = rootfs.ssh_key()
     ssh_key.download(vm.path)
     vm.ssh_config["ssh_key_path"] = ssh_key.local_path()
     os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
-    cpu_template = context.custom["cpu_template"]
 
     fn = partial(add_cpu_template, cpu_template)
     _configure_vm_from_json(vm, VM_CONFIG_FILE, json_xform=fn)
@@ -272,12 +252,11 @@ def create_snapshots(context):
     # Iterate and validate connectivity on all ifaces after boot.
     for iface in net_ifaces:
         vm.ssh_config["hostname"] = iface.guest_ip
-        ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = vm.ssh.execute_command("sync")
         assert exit_code == 0
 
     # Validate MMDS.
-    validate_mmds(ssh_connection, data_store)
+    validate_mmds(vm.ssh, data_store)
 
     # Create a snapshot builder from a microVM.
     snapshot_builder = SnapshotBuilder(vm)
@@ -288,7 +267,7 @@ def create_snapshots(context):
     )
 
     copy_snapshot_artifacts(
-        snapshot, vm.rootfs_file, context.kernel.name(), ssh_key, cpu_template
+        snapshot, vm.rootfs_file, kernel.name(), ssh_key, cpu_template
     )
 
     vm.kill()
