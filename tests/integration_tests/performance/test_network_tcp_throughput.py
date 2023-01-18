@@ -2,19 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network throughput of Firecracker uVMs."""
 
+import concurrent.futures
 import json
-import logging
 import os
 import time
-import concurrent.futures
+
 import pytest
 
-from conftest import _test_images_s3_bucket
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
-from framework.artifacts import ArtifactCollection, ArtifactSet, DEFAULT_HOST_IP
-from framework.matrix import TestMatrix, TestContext
-from framework.builder import MicrovmBuilder
+from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import core, consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -308,92 +305,55 @@ def pipes(basevm, host_ip, current_avail_cpu, env_id):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
+@pytest.mark.parametrize("vcpus", [1, 2])
 @pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
-def test_network_tcp_throughput(bin_cloner_path, results_file_dumper):
+def test_network_tcp_throughput(
+    microvm_factory,
+    network_config,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    results_file_dumper,
+):
     """
-    Test network throughput for multiple vm confgurations.
+    Iperf between guest and host in both directions for TCP workload.
 
     @type: performance
     """
-    logger = logging.getLogger(TEST_ID)
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
-    logger.info("Testing on processor %s", get_cpu_model_name())
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
+    vm.ssh_network_config(network_config, "1")
+    vm.start()
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "name": TEST_ID,
-        "results_file_dumper": results_file_dumper,
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(iperf_workload)
-
-
-def iperf_workload(context):
-    """Iperf between guest and host in both directions for TCP workload."""
-    vm_builder = context.custom["builder"]
-    logger = context.custom["logger"]
-    file_dumper = context.custom["results_file_dumper"]
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from artifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[rw_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        monitor_memory=False,
-    )
-    basevm = vm_instance.vm
-    basevm.start()
+    microvm_cfg = f"{vcpus}vcpu_1024mb.json"
     custom = {
-        "microvm": context.microvm.name(),
-        "kernel": context.kernel.name(),
-        "disk": context.disk.name(),
+        "microvm": microvm_cfg,
+        "kernel": guest_kernel.name(),
+        "disk": rootfs.name(),
         "cpu_model_name": get_cpu_model_name(),
     }
     st_core = core.Core(name=TEST_ID, iterations=1, custom=custom)
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
-    assert CpuMap.len() >= 2 + basevm.vcpus_count
+    assert CpuMap.len() >= 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     current_avail_cpu = 0
-    assert basevm.pin_vmm(current_avail_cpu), "Failed to pin firecracker thread."
+    assert vm.pin_vmm(current_avail_cpu), "Failed to pin firecracker thread."
     current_avail_cpu += 1
-    assert basevm.pin_api(current_avail_cpu), "Failed to pin fc_api thread."
-    for i in range(basevm.vcpus_count):
+    assert vm.pin_api(current_avail_cpu), "Failed to pin fc_api thread."
+    for i in range(vm.vcpus_count):
         current_avail_cpu += 1
-        assert basevm.pin_vcpu(
-            i, current_avail_cpu
-        ), f"Failed to pin fc_vcpu {i} thread."
-
-    logger.info(
-        'Testing with microvm: "{}", kernel {}, disk {}'.format(
-            context.microvm.name(), context.kernel.name(), context.disk.name()
-        )
-    )
+        assert vm.pin_vcpu(i, current_avail_cpu), f"Failed to pin fc_vcpu {i} thread."
 
     for cons, prod, tag in pipes(
-        basevm,
+        vm,
         DEFAULT_HOST_IP,
         current_avail_cpu + 1,
-        f"{context.kernel.name()}/{context.disk.name()}/" f"{context.microvm.name()}",
+        f"{guest_kernel.name()}/{rootfs.name()}/{microvm_cfg}",
     ):
         st_core.add_pipe(prod, cons, tag)
 
@@ -401,7 +361,6 @@ def iperf_workload(context):
     # criteria.
     try:
         result = st_core.run_exercise()
+        results_file_dumper.dump(result)
     except core.CoreException as err:
-        handle_failure(file_dumper, err)
-
-    file_dumper.dump(result)
+        handle_failure(results_file_dumper, err)
