@@ -4,16 +4,12 @@
 
 import concurrent
 import json
-import logging
 import os
-from enum import Enum
 import shutil
+from enum import Enum
+
 import pytest
 
-from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.builder import MicrovmBuilder
-from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -80,7 +76,7 @@ class BlockBaselinesProvider(BaselineProvider):
         return None
 
 
-def run_fio(env_id, basevm, ssh_conn, mode, bs):
+def run_fio(env_id, basevm, mode, bs):
     """Run a fio test in the specified mode with block size bs."""
     logs_path = f"{basevm.jailer.chroot_base_with_id()}/{env_id}/{mode}{bs}"
 
@@ -107,17 +103,17 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
         .build()
     )
 
-    rc, _, stderr = ssh_conn.execute_command(
+    rc, _, stderr = basevm.ssh.execute_command(
         "echo 'none' > /sys/block/vdb/queue/scheduler"
     )
     assert rc == 0, stderr.read()
     assert stderr.read() == ""
 
     # First, flush all guest cached data to host, then drop guest FS caches.
-    rc, _, stderr = ssh_conn.execute_command("sync")
+    rc, _, stderr = basevm.ssh.execute_command("sync")
     assert rc == 0, stderr.read()
     assert stderr.read() == ""
-    rc, _, stderr = ssh_conn.execute_command("echo 3 > /proc/sys/vm/drop_caches")
+    rc, _, stderr = basevm.ssh.execute_command("echo 3 > /proc/sys/vm/drop_caches")
     assert rc == 0, stderr.read()
     assert stderr.read() == ""
 
@@ -135,7 +131,7 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
         )
 
         # Print the fio command in the log and run it
-        rc, _, stderr = ssh_conn.execute_command(cmd)
+        rc, _, stderr = basevm.ssh.execute_command(cmd)
         assert rc == 0, stderr.read()
         assert stderr.read() == ""
 
@@ -144,8 +140,8 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
 
         os.makedirs(logs_path)
 
-        ssh_conn.scp_get_file("*.log", logs_path)
-        rc, _, stderr = ssh_conn.execute_command("rm *.log")
+        basevm.ssh.scp_get_file("*.log", logs_path)
+        rc, _, stderr = basevm.ssh.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
         result = {}
@@ -262,140 +258,59 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
-@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
-def test_block_performance_async(bin_cloner_path, results_file_dumper):
+@pytest.mark.parametrize("vcpus", [1, 2])
+@pytest.mark.parametrize("io_engine", ["Sync", "Async"])
+def test_block_performance(
+    microvm_factory,
+    network_config,
+    results_file_dumper,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    io_engine,
+):
     """
-    Test block performance for multiple vm configurations.
+    Execute block device emulation benchmarking scenarios.
 
     @type: performance
     """
-    logger = logging.getLogger(TEST_ID)
+    if io_engine == "Async" and not is_io_uring_supported():
+        pytest.skip("io_uring is not supported")
 
-    if not is_io_uring_supported():
-        logger.info("io_uring is not supported. Skipping..")
-        pytest.skip("Cannot run async if io_uring is not supported")
+    microvm_cfg = f"{vcpus}vcpu_1024mb"
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    vm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    vm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
-
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
-
-    logger.info("Testing on processor %s", get_cpu_model_name())
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "name": TEST_ID,
-        "results_file_dumper": results_file_dumper,
-        "io_engine": "Async",
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[vm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(fio_workload)
-
-
-@pytest.mark.nonci
-@pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
-@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
-def test_block_performance_sync(bin_cloner_path, results_file_dumper):
-    """
-    Test block performance for multiple vm configurations.
-
-    @type: performance
-    """
-    logger = logging.getLogger(TEST_ID)
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    vm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    vm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
-
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
-
-    logger.info("Testing on processor %s", get_cpu_model_name())
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "name": TEST_ID,
-        "results_file_dumper": results_file_dumper,
-        "io_engine": "Sync",
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[vm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(fio_workload)
-
-
-def fio_workload(context):
-    """Execute block device emulation benchmarking scenarios."""
-    vm_builder = context.custom["builder"]
-    logger = context.custom["logger"]
-    file_dumper = context.custom["results_file_dumper"]
-    io_engine = context.custom["io_engine"]
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from artifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[rw_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        monitor_memory=False,
-    )
-    basevm = vm_instance.vm
-
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
+    vm.ssh_network_config(network_config, "1")
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
-        os.path.join(basevm.fsfiles, "scratch"), CONFIG["block_device_size"]
+        os.path.join(vm.fsfiles, "scratch"), CONFIG["block_device_size"]
     )
-    basevm.add_drive("scratch", fs.path, io_engine=io_engine)
-    basevm.start()
+    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.start()
 
     # Get names of threads in Firecracker.
     current_cpu_id = 0
-    basevm.pin_vmm(current_cpu_id)
+    vm.pin_vmm(current_cpu_id)
     current_cpu_id += 1
-    basevm.pin_api(current_cpu_id)
-    for vcpu_id in range(basevm.vcpus_count):
+    vm.pin_api(current_cpu_id)
+    for vcpu_id in range(vm.vcpus_count):
         current_cpu_id += 1
-        basevm.pin_vcpu(vcpu_id, current_cpu_id)
+        vm.pin_vcpu(vcpu_id, current_cpu_id)
 
     st_core = core.Core(
         name=TEST_ID,
         iterations=1,
         custom={
-            "microvm": context.microvm.name(),
-            "kernel": context.kernel.name(),
-            "disk": context.disk.name(),
+            "microvm": microvm_cfg,
+            "kernel": guest_kernel.name(),
+            "disk": rootfs.name(),
             "cpu_model_name": get_cpu_model_name(),
         },
     )
 
-    logger.info(
-        'Testing with microvm: "{}", kernel {}, disk {}'.format(
-            context.microvm.name(), context.kernel.name(), context.disk.name()
-        )
-    )
-
-    env_id = (
-        f"{context.kernel.name()}/{context.disk.name()}/"
-        f"{io_engine.lower()}_{context.microvm.name()}"
-    )
+    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{io_engine.lower()}_{microvm_cfg}"
 
     for mode in CONFIG["fio_modes"]:
         for bs in CONFIG["fio_blk_sizes"]:
@@ -404,8 +319,7 @@ def fio_workload(context):
                 func=run_fio,
                 func_kwargs={
                     "env_id": env_id,
-                    "basevm": basevm,
-                    "ssh_conn": basevm.ssh,
+                    "basevm": vm,
                     "mode": mode,
                     "bs": bs,
                 },
@@ -416,11 +330,11 @@ def fio_workload(context):
                 ),
                 func=consume_fio_output,
                 func_kwargs={
-                    "numjobs": basevm.vcpus_count,
+                    "numjobs": vm.vcpus_count,
                     "mode": mode,
                     "bs": bs,
                     "env_id": env_id,
-                    "logs_path": basevm.jailer.chroot_base_with_id(),
+                    "logs_path": vm.jailer.chroot_base_with_id(),
                 },
             )
             st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
@@ -429,6 +343,6 @@ def fio_workload(context):
     try:
         result = st_core.run_exercise()
     except core.CoreException as err:
-        handle_failure(file_dumper, err)
+        handle_failure(results_file_dumper, err)
 
-    file_dumper.dump(result)
+    results_file_dumper.dump(result)
