@@ -90,6 +90,17 @@ impl super::CpuidTrait for RawCpuid {
     }
 }
 
+/// Error type for [`RawCpuid::push`].
+#[derive(Debug, thiserror::Error)]
+pub enum RawCpuidPushError {
+    /// Failed to push an element as this results in an overflow.
+    #[error("Failed to push an element as this results in an overflow.")]
+    Overflow,
+    /// Failed to push element as this results in an invalid layout.
+    #[error("Failed to push element as this results in an invalid layout.")]
+    Layout(std::alloc::LayoutError),
+}
+
 impl RawCpuid {
     /// Alias for [`RawCpuid::default()`].
     #[inline]
@@ -121,86 +132,53 @@ impl RawCpuid {
         self.iter_mut()
             .find(|entry| entry.function == leaf && entry.index == sub_leaf)
     }
-    /// Resizes allocated memory.
-    ///
-    /// # Errors
-    ///
-    /// When failing to construct a layout.
-    #[allow(clippy::cast_ptr_alignment, clippy::else_if_without_else)]
-    fn resize(&mut self, n: u32) -> Result<(), RawCpuidResizeError> {
-        // alloc
-        if self.nent == 0 && n > 0 {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let new_len = unsafe { usize::try_from(n).unwrap_unchecked() };
-
-            let new_layout =
-                Layout::array::<RawKvmCpuidEntry>(new_len).map_err(RawCpuidResizeError)?;
-
-            // SAFETY: Always safe.
-            let new_ptr = unsafe { std::alloc::alloc(new_layout) };
-            self.entries = match NonNull::new(new_ptr.cast::<RawKvmCpuidEntry>()) {
-                Some(p) => p,
-                None => std::alloc::handle_alloc_error(new_layout),
-            };
-        }
-        // realloc
-        else if self.nent > 0 && n > 0 {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let new_len = unsafe { usize::try_from(n).unwrap_unchecked() };
-
-            let new_layout =
-                Layout::array::<RawKvmCpuidEntry>(new_len).map_err(RawCpuidResizeError)?;
-
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let len = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
-
-            let old_layout = Layout::array::<RawKvmCpuidEntry>(len).map_err(RawCpuidResizeError)?;
-            let old_ptr = self.entries.as_ptr().cast::<u8>();
-            // SAFETY: Always safe.
-            let new_ptr = unsafe { std::alloc::realloc(old_ptr, old_layout, new_layout.size()) };
-
-            self.entries = match NonNull::new(new_ptr.cast::<RawKvmCpuidEntry>()) {
-                Some(p) => p,
-                None => std::alloc::handle_alloc_error(new_layout),
-            };
-        }
-        // dealloc
-        else if self.nent > 0 && n == 0 {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let len = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
-
-            let old_layout = Layout::array::<RawKvmCpuidEntry>(len).map_err(RawCpuidResizeError)?;
-            let old_ptr = self.entries.as_ptr().cast::<u8>();
-            // SAFETY: Always safe.
-            unsafe { std::alloc::dealloc(old_ptr, old_layout) };
-            self.entries = NonNull::dangling();
-        }
-        self.nent = n;
-        Ok(())
-    }
 
     /// Pushes entry onto end.
     ///
     /// # Errors
     ///
     /// On resize failure.
-    #[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
+    #[allow(clippy::cast_ptr_alignment)]
     #[inline]
-    pub fn push(&mut self, entry: RawKvmCpuidEntry) -> Result<(), RawCpuidResizeError> {
-        self.resize(self.nent + 1)?;
+    pub fn push(&mut self, entry: RawKvmCpuidEntry) -> Result<(), RawCpuidPushError> {
+        let new = self
+            .nent
+            .checked_add(1)
+            .ok_or(RawCpuidPushError::Overflow)?;
+        let new_layout =
+            // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only
+            // fail on 16-bit platforms.
+            Layout::array::<RawKvmCpuidEntry>(unsafe { usize::try_from(new).unwrap_unchecked() })
+                .map_err(RawCpuidPushError::Layout)?;
+        // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only fail
+        // on 16-bit platforms.
+        let nent_usize = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
 
-        // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-        // converted into it.
-        let len = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
+        let new_ptr = if self.nent == 0 {
+            // SAFETY: Always safe.
+            unsafe { std::alloc::alloc(new_layout) }
+        } else {
+            let old_layout =
+                Layout::array::<RawKvmCpuidEntry>(nent_usize).map_err(RawCpuidPushError::Layout)?;
+            let old_ptr = self.entries.as_ptr().cast::<u8>();
+            // SAFETY: Always safe.
+            unsafe { std::alloc::realloc(old_ptr, old_layout, new_layout.size()) }
+        };
 
-        // SAFETY: Always safe.
+        self.entries = match NonNull::new(new_ptr.cast::<RawKvmCpuidEntry>()) {
+            Some(ptr) => ptr,
+            None => std::alloc::handle_alloc_error(new_layout),
+        };
+
+        // SAFETY: `self.entries.as_ptr().add(net)` is within the allocated range. Only 64-bit
+        // platforms are supported and converting `u32` to `usize` can only fail on 16-bit
+        // platforms.
         unsafe {
-            std::ptr::write(self.entries.as_ptr().add(len), entry);
+            std::ptr::write(self.entries.as_ptr().add(nent_usize), entry);
         }
+
+        self.nent = new;
+
         Ok(())
     }
     /// Pops entry from end.
@@ -210,45 +188,52 @@ impl RawCpuid {
     /// On allocation failure.
     #[inline]
     pub fn pop(&mut self) -> Option<RawKvmCpuidEntry> {
-        (self.nent > 0).then(|| {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let len = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
-            // SAFETY: When `self.entries.as_ptr().add(u_nent)` contains a valid value.
-            let rtn = unsafe { std::ptr::read(self.entries.as_ptr().add(len)) };
-
-            // SAFETY: We check before `self.nent > 0` therefore unwrapping here is safe.
-            let new_nent = unsafe { self.nent.checked_sub(1).unwrap_unchecked() };
-
-            // Since we are decreasing the size `resize` should never panic.
-            #[allow(clippy::unwrap_used)]
-            self.resize(new_nent).unwrap();
-
-            rtn
-        })
+        if let Some(new) = self.nent.checked_sub(1) {
+            self.nent = new;
+            // SAFETY: We know the pointer is valid. Only 64-bit platforms are supported and
+            // converting `u32` to `usize` can only fail on 16-bit platforms.
+            unsafe {
+                Some(std::ptr::read(
+                    self.entries
+                        .as_ptr()
+                        .add(usize::try_from(self.nent).unwrap_unchecked()),
+                ))
+            }
+        } else {
+            None
+        }
     }
 }
 
+#[allow(clippy::cast_ptr_alignment, clippy::unwrap_used)]
 impl Clone for RawCpuid {
-    #[allow(clippy::indexing_slicing)]
     #[inline]
     fn clone(&self) -> Self {
-        let mut new_raw_cpuid = Self::new();
-
-        // Since we are cloning an existing structure with this size, we can presume resizing to
-        // this size is safe.
-        #[allow(clippy::unwrap_used)]
-        new_raw_cpuid.resize(self.nent).unwrap();
-
-        for i in 0..self.nent {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let index = unsafe { usize::try_from(i).unwrap_unchecked() };
-
-            new_raw_cpuid[index] = self[index].clone();
+        if self.nent == 0 {
+            Self::new()
+        } else {
+            // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only
+            // fail on 16-bit platforms.
+            let nent_usize = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
+            let layout = Layout::array::<RawKvmCpuidEntry>(nent_usize).unwrap();
+            // SAFETY: Always safe.
+            let ptr = unsafe { std::alloc::alloc(layout) };
+            let entries = match NonNull::new(ptr.cast::<RawKvmCpuidEntry>()) {
+                Some(p) => p,
+                None => std::alloc::handle_alloc_error(layout),
+            };
+            // SAFETY: `entries` is newly allocated so will not overlap `self.entries`, and both are
+            // non-null.
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.entries.as_ptr(), entries.as_ptr(), nent_usize);
+            }
+            Self {
+                nent: self.nent,
+                padding: Padding::default(),
+                entries,
+                _marker: PhantomData,
+            }
         }
-
-        new_raw_cpuid
     }
 }
 
@@ -349,12 +334,16 @@ impl Drop for RawCpuid {
     #[inline]
     fn drop(&mut self) {
         if self.nent != 0 {
+            let cap = self.nent;
+
+            // Drop elements
+            while self.pop().is_some() {}
+
+            // Deallocate memory
+            let layout = Layout::array::<RawKvmCpuidEntry>(usize::try_from(cap).unwrap()).unwrap();
             // SAFETY: Always safe.
             unsafe {
-                std::alloc::dealloc(
-                    self.entries.as_ptr().cast::<u8>(),
-                    Layout::array::<RawKvmCpuidEntry>(usize::try_from(self.nent).unwrap()).unwrap(),
-                );
+                std::alloc::dealloc(self.entries.as_ptr().cast::<u8>(), layout);
             }
         }
     }
@@ -544,6 +533,151 @@ mod tests {
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 
     use super::*;
+    use crate::{CpuidRegisters, CpuidTrait};
+
+    #[test]
+    fn raw_cpuid_resize_error_debug() {
+        let layout_error = std::alloc::Layout::array::<u8>(usize::MAX).unwrap_err();
+        assert_eq!(
+            format!("{:?}", RawCpuidResizeError(layout_error)),
+            "RawCpuidResizeError(LayoutError)"
+        );
+    }
+    #[test]
+    fn raw_cpuid_resize_error_display() {
+        let layout_error = std::alloc::Layout::array::<u8>(usize::MAX).unwrap_err();
+        assert_eq!(
+            RawCpuidResizeError(layout_error).to_string(),
+            "Failed to resize: invalid parameters to Layout::from_size_align"
+        );
+    }
+
+    #[test]
+    fn raw_cpuid_debug() {
+        let mut raw_cpuid = RawCpuid::new();
+        raw_cpuid
+            .push(RawKvmCpuidEntry {
+                function: 0,
+                index: 0,
+                flags: KvmCpuidFlags::empty(),
+                eax: 0,
+                ebx: 0,
+                ecx: 0,
+                edx: 0,
+                padding: Padding::default(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            format!("{raw_cpuid:?}"),
+            format!(
+                "RawCpuid {{ nent: 1, padding: Padding(core::mem::maybe_uninit::MaybeUninit<[u8; \
+                 4]>), entries: {:?}, _marker: PhantomData<cpuid::cpuid_ffi::RawKvmCpuidEntry> }}",
+                raw_cpuid.entries
+            )
+        );
+    }
+
+    #[test]
+    fn raw_cpuid_nent() {
+        let raw_cpuid = RawCpuid::new();
+        assert_eq!(raw_cpuid.nent(), 0);
+    }
+
+    #[test]
+    fn raw_cpuid_cpuid_trait_get_mut() {
+        let mut raw_cpuid = RawCpuid::new();
+        raw_cpuid
+            .push(RawKvmCpuidEntry {
+                function: 0,
+                index: 0,
+                flags: KvmCpuidFlags::empty(),
+                eax: 0,
+                ebx: 0,
+                ecx: 0,
+                edx: 0,
+                padding: Padding::default(),
+            })
+            .unwrap();
+
+        let mut_leaf = <RawCpuid as CpuidTrait>::get_mut(
+            &mut raw_cpuid,
+            &CpuidKey {
+                leaf: 0,
+                subleaf: 0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            mut_leaf,
+            &mut CpuidEntry {
+                flags: KvmCpuidFlags::empty(),
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0,
+                    ecx: 0,
+                    edx: 0,
+                }
+            }
+        );
+        let set_result = CpuidRegisters {
+            eax: 1,
+            ebx: 2,
+            ecx: 3,
+            edx: 4,
+        };
+        mut_leaf.result = set_result.clone();
+
+        let leaf = <RawCpuid as CpuidTrait>::get(
+            &raw_cpuid,
+            &CpuidKey {
+                leaf: 0,
+                subleaf: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            leaf,
+            &CpuidEntry {
+                flags: KvmCpuidFlags::empty(),
+                result: set_result
+            }
+        );
+    }
+
+    #[test]
+    fn raw_cpuid_get_mut() {
+        let mut entry = RawKvmCpuidEntry {
+            function: 0,
+            index: 0,
+            flags: KvmCpuidFlags::empty(),
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: Padding::default(),
+        };
+        let mut raw_cpuid = RawCpuid::new();
+        raw_cpuid.push(entry.clone()).unwrap();
+
+        let mut_leaf = raw_cpuid.get_mut(0, 0).unwrap();
+        assert_eq!(mut_leaf, &mut entry);
+        let new_entry = RawKvmCpuidEntry {
+            function: 0,
+            index: 0,
+            flags: KvmCpuidFlags::empty(),
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: Padding::default(),
+        };
+        *mut_leaf = new_entry.clone();
+
+        let leaf = raw_cpuid.get(0, 0).unwrap();
+        assert_eq!(leaf, &new_entry);
+    }
 
     #[test]
     fn kvm_set_cpuid() {
