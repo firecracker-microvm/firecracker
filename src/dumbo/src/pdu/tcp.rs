@@ -527,6 +527,9 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
                 return Err(Error::EmptyPayload);
             }
 
+            // Copy `room_for_payload` bytes into `payload_buf` using `offset=0`.
+            // Guaranteed not to panic since we checked above that:
+            // `offset + room_for_payload <= payload_buf.len()`.
             payload_buf.read_to_slice(
                 0,
                 &mut segment.bytes[segment_len..segment_len + room_for_payload],
