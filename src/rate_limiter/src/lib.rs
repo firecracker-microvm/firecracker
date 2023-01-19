@@ -161,13 +161,20 @@ impl TokenBucket {
     fn auto_replenish(&mut self) {
         // Compute time passed since last refill/update.
         let time_delta = self.last_update.elapsed().as_nanos() as u64;
-        self.last_update = Instant::now();
 
         // At each 'time_delta' nanoseconds the bucket should refill with:
         // refill_amount = (time_delta * size) / (complete_refill_time_ms * 1_000_000)
         // `processed_capacity` and `processed_refill_time` are the result of simplifying above
         // fraction formula with their greatest-common-factor.
         let tokens = (time_delta * self.processed_capacity) / self.processed_refill_time;
+
+        // We increment `self.last_update` by the minimum time required to generate `tokens`, in the
+        // case where we have the time to generate `1.8` tokens but only generate `x` tokens due to
+        // integer arithmetic this will carry the time required to generate 0.8th of a token over to
+        // the next call, such that if the next call where to generate `2.3` tokens it would instead
+        // generate `3.1` tokens. This minimizes dropping tokens at high frequencies.
+        self.last_update +=
+            Duration::from_nanos((tokens * self.processed_refill_time) / self.processed_capacity);
         self.budget = std::cmp::min(self.budget + tokens, self.size);
     }
 
@@ -558,6 +565,60 @@ pub(crate) mod tests {
                 TokenType::Ops => self.ops.as_ref(),
             }
         }
+    }
+
+    #[test]
+    fn test_token_bucket_auto_replenish_one() {
+        // These values will give 1 token every 100 milliseconds
+        const SIZE: u64 = 10;
+        const TIME: u64 = 1000;
+        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        tb.reduce(SIZE);
+        assert_eq!(tb.budget(), 0);
+
+        // Auto-replenishing after 10 milliseconds should not yield any tokens
+        thread::sleep(Duration::from_millis(10));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 0);
+
+        // Neither after 20.
+        thread::sleep(Duration::from_millis(10));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 0);
+
+        // We should get 1 token after 100 millis
+        thread::sleep(Duration::from_millis(80));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 1);
+
+        // So, 5 after 500 millis
+        thread::sleep(Duration::from_millis(400));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 5);
+
+        // And be fully replenished after 1 second.
+        // Wait more here to make sure we do not overshoot
+        thread::sleep(Duration::from_millis(1000));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 10);
+    }
+
+    #[test]
+    fn test_token_bucket_auto_replenish_two() {
+        const SIZE: u64 = 1000;
+        const TIME: u64 = 1000;
+        let time = Duration::from_millis(TIME);
+
+        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        tb.reduce(SIZE);
+        assert_eq!(tb.budget(), 0);
+
+        let now = Instant::now();
+        while now.elapsed() < time {
+            tb.auto_replenish();
+        }
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), SIZE);
     }
 
     #[test]
