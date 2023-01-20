@@ -140,6 +140,10 @@ impl<'a> VirtqDesc<'a> {
         self.next.set(next);
     }
 
+    pub fn memory(&self) -> &'a GuestMemoryMmap {
+        self.addr.mem
+    }
+
     pub fn set_data(&mut self, data: &[u8]) {
         assert!(self.len.get() as usize >= data.len());
         let mem = self.addr.mem;
@@ -257,6 +261,10 @@ impl<'a> VirtQueue<'a> {
             avail,
             used,
         }
+    }
+
+    pub fn memory(&self) -> &'a GuestMemoryMmap {
+        self.used.flags.mem
     }
 
     pub fn size(&self) -> u16 {
