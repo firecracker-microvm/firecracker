@@ -407,7 +407,7 @@ mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue, VirtqDesc};
+    use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 
@@ -452,248 +452,196 @@ mod tests {
         assert_eq!(RequestType::from(42), RequestType::Unsupported(42));
     }
 
-    struct RequestVirtQueue<'a> {
-        mem: &'a GuestMemoryMmap,
-        vq: VirtQueue<'a>,
-    }
-
-    impl<'a> RequestVirtQueue<'a> {
-        const HDR_DESC: usize = 0;
-        const DATA_DESC: usize = 1;
-        const STATUS_DESC: usize = 2;
-
-        fn new(start: GuestAddress, mem: &'a GuestMemoryMmap) -> RequestVirtQueue<'a> {
-            let vq = VirtQueue::new(start, mem, 16);
-
-            // Begin construction of the virtqueue.
-            // Set the head descriptor index(0) in the avail ring at index 0.
-            vq.avail.ring[0].set(Self::HDR_DESC as u16);
-            vq.avail.idx.set(1);
-
-            RequestVirtQueue { mem, vq }
-        }
-
-        fn set_hdr_desc(&mut self, addr: u64, len: u32, flags: u16, hdr: RequestHeader) {
-            self.vq.dtable[Self::HDR_DESC].set(addr, len, flags, Self::DATA_DESC as u16);
-            self.vq.dtable[Self::HDR_DESC].set_data(hdr.as_slice());
-        }
-
-        fn mut_hdr_desc(&mut self) -> &VirtqDesc<'a> {
-            &mut self.vq.dtable[Self::HDR_DESC]
-        }
-
-        fn hdr(&self) -> &RequestHeader {
-            let hdr_desc = &self.vq.dtable[Self::HDR_DESC];
-            let host_addr = self
-                .mem
-                .get_host_address(GuestAddress(hdr_desc.addr.get()))
-                .unwrap() as *const _;
-            unsafe { &*host_addr }
-        }
-
-        fn mut_hdr(&mut self) -> &mut RequestHeader {
-            let host_addr = self
-                .mem
-                .get_host_address(GuestAddress(self.mut_hdr_desc().addr.get()))
-                .unwrap()
-                .cast();
-            unsafe { &mut *host_addr }
-        }
-
-        fn set_data_desc(&mut self, addr: u64, len: u32, flags: u16) {
-            self.vq.dtable[Self::DATA_DESC].set(addr, len, flags, Self::STATUS_DESC as u16);
-        }
-
-        fn mut_data_desc(&mut self) -> &VirtqDesc<'a> {
-            &mut self.vq.dtable[Self::DATA_DESC]
-        }
-
-        fn set_status_desc(&mut self, addr: u64, len: u32, flags: u16) {
-            self.vq.dtable[Self::STATUS_DESC].set(addr, len, flags, 0);
-        }
-
-        fn mut_status_desc(&mut self) -> &VirtqDesc<'a> {
-            &mut self.vq.dtable[Self::STATUS_DESC]
-        }
-
+    impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
         fn check_parse_err(&self, _e: Error) {
-            let mut q = self.vq.create_queue();
+            let mut q = self.driver_queue.create_queue();
+            let memory = self.driver_queue.memory();
+
             assert!(matches!(
-                Request::parse(&q.pop(self.mem).unwrap(), self.mem, NUM_DISK_SECTORS),
+                Request::parse(&q.pop(memory).unwrap(), memory, NUM_DISK_SECTORS),
                 Err(_e)
             ));
         }
 
         fn check_parse(&self, check_data: bool) {
-            let mut q = self.vq.create_queue();
+            let mut q = self.driver_queue.create_queue();
+            let memory = self.driver_queue.memory();
             let request =
-                Request::parse(&q.pop(self.mem).unwrap(), self.mem, NUM_DISK_SECTORS).unwrap();
-            assert_eq!(request.r#type, RequestType::from(self.hdr().request_type));
-            assert_eq!(request.sector, self.hdr().sector);
+                Request::parse(&q.pop(memory).unwrap(), memory, NUM_DISK_SECTORS).unwrap();
+            let expected_header = self.header();
+
+            assert_eq!(
+                request.r#type,
+                RequestType::from(expected_header.request_type)
+            );
+            assert_eq!(request.sector, expected_header.sector);
 
             if check_data {
-                let data_desc = &self.vq.dtable[Self::DATA_DESC];
-                assert_eq!(request.data_addr.raw_value(), data_desc.addr.get());
-                assert_eq!(request.data_len, data_desc.len.get());
+                assert_eq!(request.data_addr.raw_value(), self.data_desc.addr.get());
+                assert_eq!(request.data_len, self.data_desc.len.get());
             }
 
-            let status_desc = &self.vq.dtable[Self::STATUS_DESC];
-            assert_eq!(request.status_addr.raw_value(), status_desc.addr.get());
+            assert_eq!(request.status_addr.raw_value(), self.status_desc.addr.get());
         }
     }
 
     #[test]
     fn test_parse_generic() {
         let mem = &default_mem();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
+        let request_header = RequestHeader::new(100, 114);
+        chain.set_header(request_header);
 
         // Write only request type descriptor.
-        let request_header = RequestHeader::new(100, 114);
-        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, request_header);
-        queue.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
+        chain.header_desc.flags.set(VIRTQ_DESC_F_WRITE);
+        chain.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
 
         // Chain too short: no DATA_DESCRIPTOR.
-        queue.mut_hdr_desc().flags.set(0);
-        queue.check_parse_err(Error::DescriptorChainTooShort);
+        chain.header_desc.flags.set(0);
+        chain.check_parse_err(Error::DescriptorChainTooShort);
 
         // Chain too short: no status descriptor.
-        queue.mut_hdr_desc().flags.set(VIRTQ_DESC_F_NEXT);
-        queue.set_data_desc(0x2000, 0x1000, 0);
-        queue.check_parse_err(Error::DescriptorChainTooShort);
+        chain.header_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.flags.set(0);
+        chain.check_parse_err(Error::DescriptorChainTooShort);
 
         // Status descriptor not writable.
-        queue.set_status_desc(0x3000, 0, 0);
-        queue.mut_data_desc().flags.set(VIRTQ_DESC_F_NEXT);
-        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.status_desc.flags.set(0);
+        chain.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
 
         // Status descriptor too small.
-        queue.mut_status_desc().flags.set(VIRTQ_DESC_F_WRITE);
-        queue.check_parse_err(Error::DescriptorLengthTooSmall);
+        chain.status_desc.flags.set(VIRTQ_DESC_F_WRITE);
+        chain.status_desc.len.set(0);
+        chain.check_parse_err(Error::DescriptorLengthTooSmall);
 
         // Fix status descriptor length.
-        queue.mut_status_desc().len.set(0x1000);
+        chain.status_desc.len.set(0x1000);
+
         // Invalid guest address for the status descriptor. Parsing will still succeed
         // as the operation that will fail happens when executing the request.
-        queue
-            .mut_status_desc()
-            .addr
-            .set(mem.last_addr().raw_value());
-        queue.check_parse(true);
+        chain.status_desc.addr.set(mem.last_addr().raw_value());
+        chain.check_parse(true);
 
         // Fix status descriptor addr.
-        queue.mut_status_desc().addr.set(0x3000);
+        chain.status_desc.addr.set(0x3000);
+
         // Invalid guest address for the data descriptor. Parsing will still succeed
         // as the operation that will fail happens when executing the request.
-        queue.mut_data_desc().addr.set(mem.last_addr().raw_value());
-        queue.check_parse(true);
+        chain.data_desc.addr.set(mem.last_addr().raw_value());
+        chain.check_parse(true);
 
         // Fix data descriptor addr.
-        queue.mut_data_desc().addr.set(0x2000);
-        queue.check_parse(true);
+        chain.data_desc.addr.set(0x2000);
+        chain.check_parse(true);
     }
 
     #[test]
     fn test_parse_in() {
         let mem = &default_mem();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
 
-        let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
-        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        let mut request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
+        chain.set_header(request_header);
 
         // Read only data descriptor for IN.
-        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
-        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
 
         // data_len is not multiple of 512 for IN.
-        queue
-            .mut_data_desc()
+        chain
+            .data_desc
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        queue.mut_data_desc().len.set(513);
-        queue.check_parse_err(Error::InvalidDataLength);
+        chain.data_desc.len.set(513);
+        chain.check_parse_err(Error::InvalidDataLength);
 
         // sector is to big.
-        queue.mut_data_desc().len.set(512);
-        queue.mut_hdr().sector = NUM_DISK_SECTORS;
-        queue.check_parse_err(Error::InvalidOffset);
+        request_header.sector = NUM_DISK_SECTORS;
+        chain.data_desc.len.set(512);
+        chain.set_header(request_header);
+        chain.check_parse_err(Error::InvalidOffset);
 
         // Fix data descriptor.
-        queue.mut_hdr().sector = NUM_DISK_SECTORS - 1;
-        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
-        queue.check_parse(true);
+        request_header.sector = NUM_DISK_SECTORS - 1;
+        chain.set_header(request_header);
+        chain.check_parse(true);
     }
 
     #[test]
     fn test_parse_out() {
         let mem = &default_mem();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
 
-        let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
-        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        let mut request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
+        chain.set_header(request_header);
 
         // Write only data descriptor for OUT.
-        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        queue.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
+        chain
+            .data_desc
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        chain.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
 
         // data_len is not multiple of 512 for IN.
-        queue.mut_data_desc().flags.set(VIRTQ_DESC_F_NEXT);
-        queue.mut_data_desc().len.set(1000);
-        queue.check_parse_err(Error::InvalidDataLength);
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.len.set(1000);
+        chain.check_parse_err(Error::InvalidDataLength);
 
         // sector is to big.
-        queue.mut_data_desc().len.set(1024);
-        queue.mut_hdr().sector = NUM_DISK_SECTORS - 1;
-        queue.check_parse_err(Error::InvalidOffset);
+        request_header.sector = NUM_DISK_SECTORS - 1;
+        chain.data_desc.len.set(1024);
+        chain.set_header(request_header);
+        chain.check_parse_err(Error::InvalidOffset);
 
-        // Fix data descriptor.
-        queue.mut_hdr().sector = NUM_DISK_SECTORS - 2;
-        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
-        queue.check_parse(true);
+        // Fix header descriptor.
+        request_header.sector = NUM_DISK_SECTORS - 2;
+        chain.set_header(request_header);
+        chain.check_parse(true);
     }
 
     #[test]
     fn test_parse_flush() {
         let mem = &default_mem();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
 
         // Flush request with a data descriptor.
         let request_header = RequestHeader::new(VIRTIO_BLK_T_FLUSH, 50);
-        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
-        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
-        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
-        queue.check_parse(true);
+        chain.set_header(request_header);
+        chain.check_parse(true);
 
         // Flush request without a data descriptor.
-        queue
-            .mut_hdr_desc()
-            .next
-            .set(RequestVirtQueue::STATUS_DESC as u16);
-        queue.check_parse(false);
+        chain.header_desc.next.set(2);
+        chain.check_parse(false);
     }
 
     #[test]
     fn test_parse_get_id() {
         let mem = &default_mem();
-        let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_GET_ID, 15);
-        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        chain.set_header(request_header);
 
         // Read only data descriptor for GetDeviceId.
-        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
-        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
 
         // data_len is < VIRTIO_BLK_ID_BYTES for GetDeviceID.
-        queue
-            .mut_data_desc()
+        chain
+            .data_desc
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        queue.mut_data_desc().len.set(VIRTIO_BLK_ID_BYTES - 1);
-        queue.check_parse_err(Error::InvalidDataLength);
+        chain.data_desc.len.set(VIRTIO_BLK_ID_BYTES - 1);
+        chain.check_parse_err(Error::InvalidDataLength);
 
-        queue.mut_data_desc().len.set(VIRTIO_BLK_ID_BYTES);
-        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
-        queue.check_parse(true);
+        chain.data_desc.len.set(VIRTIO_BLK_ID_BYTES);
+        chain.check_parse(true);
     }
 
     use std::convert::TryInto;
@@ -703,6 +651,8 @@ mod tests {
     use proptest::arbitrary::Arbitrary;
     use proptest::prelude::*;
     use proptest::strategy::{Map, Strategy, TupleUnion};
+
+    use crate::virtio::block::test_utils::RequestDescriptorChain;
 
     // Implements a "strategy" for producing arbitrary values of RequestType.
     // This can also be generated by a derive macro from `proptest_derive`, but the crate
@@ -845,8 +795,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut rq = RequestVirtQueue::new(GuestAddress(base_addr), &mem);
-        let q = rq.vq.create_queue();
+        let vq = VirtQueue::new(GuestAddress(base_addr), &mem, 16);
+        let chain = RequestDescriptorChain::new(&vq);
+        let q = vq.create_queue();
 
         // Make sure that data_len is a multiple of 512
         // and that 512 <= data_len <= (4096 + 512).
@@ -860,29 +811,29 @@ mod tests {
             sector: sector & (NUM_DISK_SECTORS - sectors_len),
             data_addr,
         };
-        let request_header = RequestHeader::new(virtio_request_id, request.sector);
+        let mut request_header = RequestHeader::new(virtio_request_id, request.sector);
 
-        rq.set_hdr_desc(
-            req_type_addr.0,
-            max_desc_len as u32,
-            VIRTQ_DESC_F_NEXT,
-            request_header,
-        );
+        chain.header_desc.addr.set(req_type_addr.0);
+        chain.header_desc.len.set(max_desc_len as u32);
+        chain.set_header(request_header);
+
         // Flush requests have no data desc.
         if request.r#type == RequestType::Flush {
             request.data_addr = GuestAddress(0);
             request.data_len = 0;
-            rq.mut_hdr_desc()
-                .next
-                .set(RequestVirtQueue::STATUS_DESC as u16);
+            chain.header_desc.next.set(2);
         } else {
-            rq.set_data_desc(
+            chain.data_desc.set(
                 request.data_addr.0,
                 request.data_len,
                 request_type_flags(request.r#type),
-            )
+                2,
+            );
         }
-        rq.set_status_desc(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE);
+
+        chain
+            .status_desc
+            .set(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE, 0);
 
         // Flip a coin - should we generate a valid request or an error.
         if *coins.next().unwrap() {
@@ -890,11 +841,11 @@ mod tests {
         }
 
         // This is the initial correct value.
-        let data_desc_flags = &rq.mut_data_desc().flags;
+        let data_desc_flags = &chain.data_desc.flags;
 
         // Flip coin - corrupt the status desc len.
         if *coins.next().unwrap() {
-            rq.mut_status_desc().len.set(0);
+            chain.status_desc.len.set(0);
             return (Err(Error::DescriptorLengthTooSmall), mem, q);
         }
 
@@ -907,7 +858,7 @@ mod tests {
 
         // Flip coin - req type desc is write only.
         if *coins.next().unwrap() {
-            let hdr_desc_flags = &rq.mut_hdr_desc().flags;
+            let hdr_desc_flags = &chain.header_desc.flags;
             hdr_desc_flags.set(hdr_desc_flags.get() | VIRTQ_DESC_F_WRITE);
             return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
         }
@@ -934,14 +885,16 @@ mod tests {
             match request.r#type {
                 RequestType::In | RequestType::Out => {
                     // data_len is not a multiple of 512
-                    rq.mut_data_desc()
+                    chain
+                        .data_desc
                         .len
                         .set(valid_data_len + (data_len % 511) + 1);
                     return (Err(Error::InvalidDataLength), mem, q);
                 }
                 RequestType::GetDeviceID => {
                     // data_len is < VIRTIO_BLK_ID_BYTES
-                    rq.mut_data_desc()
+                    chain
+                        .data_desc
                         .len
                         .set(data_len & (VIRTIO_BLK_ID_BYTES - 1));
                     return (Err(Error::InvalidDataLength), mem, q);
@@ -954,7 +907,8 @@ mod tests {
         if *coins.next().unwrap() {
             match request.r#type {
                 RequestType::In | RequestType::Out => {
-                    rq.mut_hdr().sector = (sector | NUM_DISK_SECTORS) + 1;
+                    request_header.sector = (sector | NUM_DISK_SECTORS) + 1;
+                    chain.set_header(request_header);
                     return (Err(Error::InvalidOffset), mem, q);
                 }
                 _ => {}
@@ -962,7 +916,7 @@ mod tests {
         }
 
         // Simulate no status descriptor.
-        rq.mut_hdr_desc().flags.set(0);
+        chain.header_desc.flags.set(0);
         (Err(Error::DescriptorChainTooShort), mem, q)
     }
 
