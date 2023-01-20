@@ -643,12 +643,12 @@ pub(crate) mod tests {
     use super::*;
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
-        default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
-        simulate_async_completion_event, simulate_queue_and_async_completion_events,
-        simulate_queue_event,
+        default_block, default_engine_type_for_kv, read_blk_req_descriptors, set_queue,
+        set_rate_limiter, simulate_async_completion_event,
+        simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::IO_URING_NUM_ENTRIES;
 
     #[test]
@@ -764,7 +764,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -790,7 +790,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
         // Read at out of bounds address.
@@ -851,7 +851,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -900,7 +900,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
@@ -929,7 +929,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
         vq.dtable[1].set(0xf000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -963,7 +963,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
@@ -1003,7 +1003,7 @@ pub(crate) mod tests {
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
             block.activate(mem.clone()).unwrap();
-            initialize_virtqueue(&vq);
+            read_blk_req_descriptors(&vq);
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
             vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT, 2);
@@ -1220,7 +1220,7 @@ pub(crate) mod tests {
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
             block.activate(mem.clone()).unwrap();
-            initialize_virtqueue(&vq);
+            read_blk_req_descriptors(&vq);
             vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1259,7 +1259,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
@@ -1303,7 +1303,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
@@ -1507,7 +1507,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
@@ -1573,7 +1573,7 @@ pub(crate) mod tests {
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
