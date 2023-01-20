@@ -407,13 +407,13 @@ mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
+    use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue, VirtqDesc};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 
     #[test]
     fn test_read_request_header() {
-        let mem = create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let mem = single_region_mem(0x1000);
         let addr = GuestAddress(0);
         let sector = 123_454_321;
 
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn test_parse_generic() {
-        let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let mem = &default_mem();
         let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         // Write only request type descriptor.
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_parse_in() {
-        let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let mem = &default_mem();
         let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_parse_out() {
-        let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let mem = &default_mem();
         let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
@@ -653,7 +653,7 @@ mod tests {
 
     #[test]
     fn test_parse_flush() {
-        let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let mem = &default_mem();
         let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         // Flush request with a data descriptor.
@@ -673,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_parse_get_id() {
-        let mem = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let mem = &default_mem();
         let mut queue = RequestVirtQueue::new(GuestAddress(0), mem);
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_GET_ID, 15);

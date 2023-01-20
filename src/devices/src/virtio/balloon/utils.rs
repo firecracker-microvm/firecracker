@@ -178,11 +178,7 @@ mod tests {
     #[test]
     fn test_remove_range() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 2 * page_size)],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem(2 * page_size);
 
         // Fill the memory with ones.
         let ones = vec![1u8; 2 * page_size];
@@ -223,11 +219,7 @@ mod tests {
     #[test]
     fn test_remove_range_on_restored() {
         let page_size: usize = 0x1000;
-        let mem = vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 2 * page_size)],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem(2 * page_size);
 
         // Fill the memory with ones.
         let ones = vec![1u8; 2 * page_size];
@@ -268,6 +260,8 @@ mod tests {
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use proptest::prelude::*;
+
+    use crate::virtio::test_utils::single_region_mem;
 
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32

@@ -20,8 +20,17 @@ macro_rules! check_metric_after_block {
     }};
 }
 
+/// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
+/// address 0
+pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
+    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), region_size)], false)
+        .unwrap()
+}
+
+/// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
+/// guest physical address 0
 pub fn default_mem() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap()
+    single_region_mem(0x10000)
 }
 
 pub struct InputData {
