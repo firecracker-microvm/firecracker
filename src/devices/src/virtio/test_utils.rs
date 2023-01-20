@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
-use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::virtio::Queue;
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -22,42 +22,6 @@ macro_rules! check_metric_after_block {
 
 pub fn default_mem() -> GuestMemoryMmap {
     vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap()
-}
-
-pub fn initialize_virtqueue(vq: &VirtQueue) {
-    let request_type_desc: usize = 0;
-    let data_desc: usize = 1;
-    let status_desc: usize = 2;
-
-    let request_addr: u64 = 0x1000;
-    let data_addr: u64 = 0x2000;
-    let status_addr: u64 = 0x3000;
-    let len = 0x1000;
-
-    // Set the request type descriptor.
-    vq.avail.ring[request_type_desc].set(request_type_desc as u16);
-    vq.dtable[request_type_desc].set(request_addr, len, VIRTQ_DESC_F_NEXT, data_desc as u16);
-
-    // Set the data descriptor.
-    vq.avail.ring[data_desc].set(data_desc as u16);
-    vq.dtable[data_desc].set(
-        data_addr,
-        len,
-        VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-        status_desc as u16,
-    );
-
-    // Set the status descriptor.
-    vq.avail.ring[status_desc].set(status_desc as u16);
-    vq.dtable[status_desc].set(
-        status_addr,
-        len,
-        VIRTQ_DESC_F_WRITE,
-        (status_desc + 1) as u16,
-    );
-
-    // Mark the next available descriptor.
-    vq.avail.idx.set(1);
 }
 
 pub struct InputData {

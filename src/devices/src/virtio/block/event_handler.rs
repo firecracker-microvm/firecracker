@@ -109,10 +109,10 @@ pub mod tests {
     use super::*;
     use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::{
-        default_block, set_queue, simulate_async_completion_event,
+        default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
     use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use crate::virtio::test_utils::{default_mem, VirtQueue};
 
     #[test]
     fn test_event_handler() {
@@ -121,7 +121,7 @@ pub mod tests {
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
-        initialize_virtqueue(&vq);
+        read_blk_req_descriptors(&vq);
 
         let block = Arc::new(Mutex::new(block));
         let _id = event_manager.add_subscriber(block.clone());

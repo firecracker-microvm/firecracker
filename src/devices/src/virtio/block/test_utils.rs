@@ -15,6 +15,8 @@ use utils::tempfile::TempFile;
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
+use crate::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::virtio::test_utils::VirtQueue;
 #[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
@@ -107,4 +109,49 @@ pub fn simulate_queue_and_async_completion_events(b: &mut Block, expected_irq: b
             simulate_queue_event(b, Some(expected_irq));
         }
     }
+}
+
+/// Puts a descriptor chain of length three into the given [`VirtQueue`].
+///
+/// This chain follows the skeleton of a block device request, e.g. the first
+/// descriptor offers space for the header (readonly), the second descriptor offers space
+/// for the data (set to writeonly, if you want a write request, update to readonly),
+/// and the last descriptor for the device-written status field (writeonly).
+///
+/// The head of the chain is made available as the first descriptor to be processed, by
+/// setting avail_idx to 1.
+pub fn read_blk_req_descriptors(vq: &VirtQueue) {
+    let request_type_desc: usize = 0;
+    let data_desc: usize = 1;
+    let status_desc: usize = 2;
+
+    let request_addr: u64 = 0x1000;
+    let data_addr: u64 = 0x2000;
+    let status_addr: u64 = 0x3000;
+    let len = 0x1000;
+
+    // Set the request type descriptor.
+    vq.avail.ring[request_type_desc].set(request_type_desc as u16);
+    vq.dtable[request_type_desc].set(request_addr, len, VIRTQ_DESC_F_NEXT, data_desc as u16);
+
+    // Set the data descriptor.
+    vq.avail.ring[data_desc].set(data_desc as u16);
+    vq.dtable[data_desc].set(
+        data_addr,
+        len,
+        VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+        status_desc as u16,
+    );
+
+    // Set the status descriptor.
+    vq.avail.ring[status_desc].set(status_desc as u16);
+    vq.dtable[status_desc].set(
+        status_addr,
+        len,
+        VIRTQ_DESC_F_WRITE,
+        (status_desc + 1) as u16,
+    );
+
+    // Mark the next available descriptor.
+    vq.avail.idx.set(1);
 }
