@@ -27,11 +27,11 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
 
-    /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
+    /// Reads `buf.len()` bytes from `self` into `buf`, starting at `offset`.
     ///
     /// # Panics
     ///
-    /// Panics if `offset + buf.len()` < `self.len()`.
+    /// Panics if `offset + buf.len()` > `self.len()`.
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]);
 }
 
