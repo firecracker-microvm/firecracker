@@ -1359,12 +1359,8 @@ pub(crate) mod tests {
         }
     }
 
-    fn add_flush_requests_batch(
-        block: &mut Block,
-        mem: &GuestMemoryMmap,
-        vq: &VirtQueue,
-        count: u16,
-    ) {
+    fn add_flush_requests_batch(block: &mut Block, vq: &VirtQueue, count: u16) {
+        let mem = vq.memory();
         vq.avail.idx.set(0);
         vq.used.idx.set(0);
         set_queue(block, 0, vq.create_queue());
@@ -1402,7 +1398,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn check_flush_requests_batch(count: u16, mem: &GuestMemoryMmap, vq: &VirtQueue) {
+    fn check_flush_requests_batch(count: u16, vq: &VirtQueue) {
         let used_idx = vq.used.idx.get();
         assert_eq!(used_idx, count);
 
@@ -1411,7 +1407,9 @@ pub(crate) mod tests {
             let status_addr = vq.dtable[used.id as usize + 1].addr.get();
             assert_eq!(used.len, 1);
             assert_eq!(
-                mem.read_obj::<u8>(GuestAddress(status_addr)).unwrap(),
+                vq.memory()
+                    .read_obj::<u8>(GuestAddress(status_addr))
+                    .unwrap(),
                 VIRTIO_BLK_S_OK as u8
             );
         }
@@ -1431,14 +1429,14 @@ pub(crate) mod tests {
             block.activate(mem.clone()).unwrap();
 
             // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
-            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.is_io_engine_throttled);
             simulate_async_completion_event(&mut block, true);
-            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &vq);
 
             // Run scenario that triggers FullSqError : Add sq_size + 10 flush requests.
-            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES + 10);
+            add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES + 10);
             simulate_queue_event(&mut block, Some(false));
             assert!(block.is_io_engine_throttled);
             // When the async_completion_event is triggered:
@@ -1447,12 +1445,12 @@ pub(crate) mod tests {
             // 3. process_queue() should be called again.
             simulate_async_completion_event(&mut block, true);
             assert!(!block.is_io_engine_throttled);
-            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &vq);
             // check that process_queue() was called again resulting in the processing of the
             // remaining 10 ops.
             simulate_async_completion_event(&mut block, true);
             assert!(!block.is_io_engine_throttled);
-            check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &vq);
         }
 
         // FullCQueue Error
@@ -1465,21 +1463,21 @@ pub(crate) mod tests {
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
             // completion. Then try to push another entry.
-            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.is_io_engine_throttled);
             thread::sleep(Duration::from_millis(150));
-            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.is_io_engine_throttled);
             thread::sleep(Duration::from_millis(150));
 
-            add_flush_requests_batch(&mut block, &mem, &vq, 1);
+            add_flush_requests_batch(&mut block, &vq, 1);
             simulate_queue_event(&mut block, Some(false));
             assert!(block.is_io_engine_throttled);
             simulate_async_completion_event(&mut block, true);
             assert!(!block.is_io_engine_throttled);
-            check_flush_requests_batch(IO_URING_NUM_ENTRIES * 2, &mem, &vq);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES * 2, &vq);
         }
     }
 
@@ -1492,12 +1490,12 @@ pub(crate) mod tests {
         block.activate(mem.clone()).unwrap();
 
         // Add a batch of flush requests.
-        add_flush_requests_batch(&mut block, &mem, &vq, 5);
+        add_flush_requests_batch(&mut block, &vq, 5);
         simulate_queue_event(&mut block, None);
         block.prepare_save();
 
         // Check that all the pending flush requests were processed during `prepare_save()`.
-        check_flush_requests_batch(5, &mem, &vq);
+        check_flush_requests_batch(5, &vq);
     }
 
     #[test]
