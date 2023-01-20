@@ -315,11 +315,6 @@ pub fn default_guest_mac() -> MacAddr {
     MacAddr::parse_str("11:22:33:44:55:66").unwrap()
 }
 
-pub fn default_guest_memory() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
-        .expect("Cannot initialize memory")
-}
-
 pub fn set_mac(net: &mut Net, mac: MacAddr) {
     net.guest_mac = Some(mac);
     net.config_space.guest_mac = mac;
