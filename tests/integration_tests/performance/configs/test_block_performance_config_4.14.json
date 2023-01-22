@@ -95,40 +95,40 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52206,
-                                                    "delta_percentage": 10
-                                                },
-                                                "randread-bs4096": {
-                                                    "target": 106167,
+                                                    "target": 52860,
                                                     "delta_percentage": 8
                                                 },
+                                                "randread-bs4096": {
+                                                    "target": 106720,
+                                                    "delta_percentage": 7
+                                                },
                                                 "read-bs4096": {
-                                                    "target": 106911,
+                                                    "target": 107403,
                                                     "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 52844,
-                                                    "delta_percentage": 8
+                                                    "target": 53193,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 118126,
+                                                    "target": 118094,
                                                     "delta_percentage": 6
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 257512,
-                                                    "delta_percentage": 7
+                                                    "target": 256744,
+                                                    "delta_percentage": 6
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 267482,
-                                                    "delta_percentage": 8
+                                                    "target": 264348,
+                                                    "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 124157,
-                                                    "delta_percentage": 6
+                                                    "target": 123663,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -139,40 +139,40 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52506,
-                                                    "delta_percentage": 7
+                                                    "target": 52807,
+                                                    "delta_percentage": 8
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 105479,
-                                                    "delta_percentage": 6
+                                                    "target": 106312,
+                                                    "delta_percentage": 8
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 106962,
+                                                    "target": 107472,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 52971,
-                                                    "delta_percentage": 8
+                                                    "target": 53176,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 116698,
-                                                    "delta_percentage": 5
+                                                    "target": 114275,
+                                                    "delta_percentage": 6
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 237938,
-                                                    "delta_percentage": 13
+                                                    "target": 238752,
+                                                    "delta_percentage": 10
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 231587,
-                                                    "delta_percentage": 7
+                                                    "target": 224429,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 118710,
-                                                    "delta_percentage": 6
+                                                    "target": 117602,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -185,24 +185,24 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52204,
-                                                    "delta_percentage": 10
+                                                    "target": 52864,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 52840,
-                                                    "delta_percentage": 8
+                                                    "target": 53188,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 118125,
+                                                    "target": 118090,
                                                     "delta_percentage": 6
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 124141,
-                                                    "delta_percentage": 6
+                                                    "target": 123661,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -213,24 +213,24 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52500,
-                                                    "delta_percentage": 7
+                                                    "target": 52802,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 52977,
-                                                    "delta_percentage": 8
+                                                    "target": 53173,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 116702,
-                                                    "delta_percentage": 5
+                                                    "target": 114274,
+                                                    "delta_percentage": 6
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 118709,
-                                                    "delta_percentage": 6
+                                                    "target": 117597,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -243,40 +243,40 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 208823,
-                                                    "delta_percentage": 10
-                                                },
-                                                "randread-bs4096": {
-                                                    "target": 424667,
+                                                    "target": 211440,
                                                     "delta_percentage": 8
                                                 },
+                                                "randread-bs4096": {
+                                                    "target": 426880,
+                                                    "delta_percentage": 7
+                                                },
                                                 "read-bs4096": {
-                                                    "target": 427642,
+                                                    "target": 429610,
                                                     "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 211373,
-                                                    "delta_percentage": 8
+                                                    "target": 212770,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 472500,
+                                                    "target": 472377,
                                                     "delta_percentage": 6
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 1030049,
-                                                    "delta_percentage": 7
+                                                    "target": 1026972,
+                                                    "delta_percentage": 6
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 1069929,
-                                                    "delta_percentage": 8
+                                                    "target": 1057392,
+                                                    "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 496629,
-                                                    "delta_percentage": 6
+                                                    "target": 494649,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -287,40 +287,40 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 210022,
-                                                    "delta_percentage": 7
+                                                    "target": 211226,
+                                                    "delta_percentage": 8
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 421915,
-                                                    "delta_percentage": 6
+                                                    "target": 425249,
+                                                    "delta_percentage": 8
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 427848,
+                                                    "target": 429887,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 211882,
-                                                    "delta_percentage": 8
+                                                    "target": 212704,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 466792,
-                                                    "delta_percentage": 5
+                                                    "target": 457102,
+                                                    "delta_percentage": 6
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 951755,
-                                                    "delta_percentage": 13
+                                                    "target": 955010,
+                                                    "delta_percentage": 10
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 926349,
-                                                    "delta_percentage": 7
+                                                    "target": 897718,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 474842,
-                                                    "delta_percentage": 6
+                                                    "target": 470409,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -333,24 +333,24 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 208815,
-                                                    "delta_percentage": 10
+                                                    "target": 211454,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 211358,
-                                                    "delta_percentage": 8
+                                                    "target": 212749,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 472498,
+                                                    "target": 472358,
                                                     "delta_percentage": 6
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 496565,
-                                                    "delta_percentage": 6
+                                                    "target": 494645,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -361,24 +361,24 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 210002,
-                                                    "delta_percentage": 7
+                                                    "target": 211209,
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 211908,
-                                                    "delta_percentage": 8
+                                                    "target": 212694,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 466810,
-                                                    "delta_percentage": 5
+                                                    "target": 457097,
+                                                    "delta_percentage": 6
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 474838,
-                                                    "delta_percentage": 6
+                                                    "target": 470389,
+                                                    "delta_percentage": 7
                                                 }
                                             }
                                         }
@@ -459,12 +459,12 @@
                                                     "delta_percentage": 5
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 169,
-                                                    "delta_percentage": 10
+                                                    "target": 170,
+                                                    "delta_percentage": 9
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 169,
-                                                    "delta_percentage": 9
+                                                    "target": 165,
+                                                    "delta_percentage": 10
                                                 },
                                                 "readwrite-bs4096": {
                                                     "target": 171,
@@ -481,8 +481,8 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52,
-                                                    "delta_percentage": 10
+                                                    "target": 53,
+                                                    "delta_percentage": 8
                                                 },
                                                 "randread-bs4096": {
                                                     "target": 50,
@@ -493,8 +493,8 @@
                                                     "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 50,
-                                                    "delta_percentage": 9
+                                                    "target": 51,
+                                                    "delta_percentage": 8
                                                 }
                                             }
                                         },
@@ -509,12 +509,12 @@
                                                     "delta_percentage": 5
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 79,
-                                                    "delta_percentage": 6
+                                                    "target": 78,
+                                                    "delta_percentage": 5
                                                 },
                                                 "readwrite-bs4096": {
                                                     "target": 78,
-                                                    "delta_percentage": 6
+                                                    "delta_percentage": 5
                                                 }
                                             }
                                         }
@@ -525,19 +525,19 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 52,
-                                                    "delta_percentage": 7
-                                                },
-                                                "randread-bs4096": {
-                                                    "target": 49,
-                                                    "delta_percentage": 6
-                                                },
-                                                "read-bs4096": {
-                                                    "target": 48,
+                                                    "target": 53,
                                                     "delta_percentage": 8
                                                 },
-                                                "readwrite-bs4096": {
+                                                "randread-bs4096": {
                                                     "target": 50,
+                                                    "delta_percentage": 8
+                                                },
+                                                "read-bs4096": {
+                                                    "target": 49,
+                                                    "delta_percentage": 7
+                                                },
+                                                "readwrite-bs4096": {
+                                                    "target": 51,
                                                     "delta_percentage": 8
                                                 }
                                             }
@@ -545,19 +545,19 @@
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 78,
+                                                    "target": 77,
                                                     "delta_percentage": 5
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 74,
-                                                    "delta_percentage": 10
+                                                    "target": 75,
+                                                    "delta_percentage": 9
                                                 },
                                                 "read-bs4096": {
                                                     "target": 71,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 76,
+                                                    "target": 75,
                                                     "delta_percentage": 7
                                                 }
                                             }
@@ -576,39 +576,39 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 84293,
-                                                    "delta_percentage": 16
+                                                    "target": 86203,
+                                                    "delta_percentage": 14
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 171245,
-                                                    "delta_percentage": 19
+                                                    "target": 173668,
+                                                    "delta_percentage": 17
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 180123,
-                                                    "delta_percentage": 20
+                                                    "target": 181287,
+                                                    "delta_percentage": 18
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 84463,
-                                                    "delta_percentage": 14
+                                                    "target": 87463,
+                                                    "delta_percentage": 15
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 191605,
-                                                    "delta_percentage": 8
+                                                    "target": 191635,
+                                                    "delta_percentage": 7
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 415356,
+                                                    "target": 412346,
                                                     "delta_percentage": 8
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 426063,
-                                                    "delta_percentage": 8
+                                                    "target": 425083,
+                                                    "delta_percentage": 9
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 199238,
+                                                    "target": 198636,
                                                     "delta_percentage": 7
                                                 }
                                             }
@@ -620,39 +620,39 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 85195,
+                                                    "target": 86507,
                                                     "delta_percentage": 15
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 170551,
-                                                    "delta_percentage": 20
+                                                    "target": 177115,
+                                                    "delta_percentage": 17
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 182673,
-                                                    "delta_percentage": 16
+                                                    "target": 187016,
+                                                    "delta_percentage": 11
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 85810,
-                                                    "delta_percentage": 15
+                                                    "target": 87645,
+                                                    "delta_percentage": 13
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 179851,
+                                                    "target": 177568,
                                                     "delta_percentage": 7
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 417436,
-                                                    "delta_percentage": 8
+                                                    "target": 413774,
+                                                    "delta_percentage": 7
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 423820,
+                                                    "target": 424097,
                                                     "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 194759,
+                                                    "target": 193062,
                                                     "delta_percentage": 8
                                                 }
                                             }
@@ -666,12 +666,12 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 84294,
-                                                    "delta_percentage": 16
+                                                    "target": 86204,
+                                                    "delta_percentage": 14
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 84466,
-                                                    "delta_percentage": 14
+                                                    "target": 87466,
+                                                    "delta_percentage": 15
                                                 }
                                             }
                                         },
@@ -679,11 +679,11 @@
                                             "Avg": {
                                                 "randrw-bs4096": {
                                                     "target": 191614,
-                                                    "delta_percentage": 8
+                                                    "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 199231,
-                                                    "delta_percentage": 7
+                                                    "target": 198627,
+                                                    "delta_percentage": 8
                                                 }
                                             }
                                         }
@@ -694,23 +694,23 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 85194,
+                                                    "target": 86506,
                                                     "delta_percentage": 15
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 85809,
-                                                    "delta_percentage": 15
+                                                    "target": 87641,
+                                                    "delta_percentage": 13
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 179853,
+                                                    "target": 177556,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 194762,
+                                                    "target": 193057,
                                                     "delta_percentage": 8
                                                 }
                                             }
@@ -724,39 +724,39 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 337172,
-                                                    "delta_percentage": 16
+                                                    "target": 344810,
+                                                    "delta_percentage": 14
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 684979,
-                                                    "delta_percentage": 19
+                                                    "target": 694672,
+                                                    "delta_percentage": 17
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 720490,
-                                                    "delta_percentage": 20
+                                                    "target": 725146,
+                                                    "delta_percentage": 18
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 337853,
-                                                    "delta_percentage": 14
+                                                    "target": 349852,
+                                                    "delta_percentage": 15
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 766420,
-                                                    "delta_percentage": 8
+                                                    "target": 766539,
+                                                    "delta_percentage": 7
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 1661424,
+                                                    "target": 1649386,
                                                     "delta_percentage": 8
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 1704251,
-                                                    "delta_percentage": 8
+                                                    "target": 1700334,
+                                                    "delta_percentage": 9
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 796951,
+                                                    "target": 794546,
                                                     "delta_percentage": 7
                                                 }
                                             }
@@ -768,39 +768,39 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 340781,
+                                                    "target": 346028,
                                                     "delta_percentage": 15
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 682205,
-                                                    "delta_percentage": 20
+                                                    "target": 708461,
+                                                    "delta_percentage": 17
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 730693,
-                                                    "delta_percentage": 16
+                                                    "target": 748062,
+                                                    "delta_percentage": 11
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 343239,
-                                                    "delta_percentage": 15
+                                                    "target": 350581,
+                                                    "delta_percentage": 13
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 719405,
+                                                    "target": 710271,
                                                     "delta_percentage": 7
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 1669746,
-                                                    "delta_percentage": 8
+                                                    "target": 1655097,
+                                                    "delta_percentage": 7
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 1695282,
+                                                    "target": 1696389,
                                                     "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 779036,
+                                                    "target": 772248,
                                                     "delta_percentage": 8
                                                 }
                                             }
@@ -814,24 +814,24 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 337175,
-                                                    "delta_percentage": 16
+                                                    "target": 344815,
+                                                    "delta_percentage": 14
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 337862,
-                                                    "delta_percentage": 14
+                                                    "target": 349865,
+                                                    "delta_percentage": 15
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 766456,
-                                                    "delta_percentage": 8
+                                                    "target": 766455,
+                                                    "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 796923,
-                                                    "delta_percentage": 7
+                                                    "target": 794507,
+                                                    "delta_percentage": 8
                                                 }
                                             }
                                         }
@@ -842,23 +842,23 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 340775,
+                                                    "target": 346025,
                                                     "delta_percentage": 15
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 343238,
-                                                    "delta_percentage": 15
+                                                    "target": 350565,
+                                                    "delta_percentage": 13
                                                 }
                                             }
                                         },
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 719414,
+                                                    "target": 710226,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 779048,
+                                                    "target": 772228,
                                                     "delta_percentage": 8
                                                 }
                                             }
@@ -936,7 +936,7 @@
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 172,
+                                                    "target": 171,
                                                     "delta_percentage": 5
                                                 },
                                                 "randread-bs4096": {
@@ -962,19 +962,19 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 49,
-                                                    "delta_percentage": 11
+                                                    "target": 50,
+                                                    "delta_percentage": 10
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 45,
-                                                    "delta_percentage": 11
+                                                    "target": 46,
+                                                    "delta_percentage": 10
                                                 },
                                                 "read-bs4096": {
                                                     "target": 45,
-                                                    "delta_percentage": 11
+                                                    "delta_percentage": 8
                                                 },
                                                 "readwrite-bs4096": {
-                                                    "target": 46,
+                                                    "target": 47,
                                                     "delta_percentage": 10
                                                 }
                                             }
@@ -982,20 +982,20 @@
                                         "sync_2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 74,
+                                                    "target": 75,
                                                     "delta_percentage": 6
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 71,
-                                                    "delta_percentage": 7
+                                                    "target": 72,
+                                                    "delta_percentage": 6
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 70,
+                                                    "target": 71,
                                                     "delta_percentage": 7
                                                 },
                                                 "readwrite-bs4096": {
                                                     "target": 73,
-                                                    "delta_percentage": 7
+                                                    "delta_percentage": 6
                                                 }
                                             }
                                         }
@@ -1006,19 +1006,19 @@
                                         "sync_1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "randrw-bs4096": {
-                                                    "target": 49,
+                                                    "target": 50,
                                                     "delta_percentage": 11
                                                 },
                                                 "randread-bs4096": {
-                                                    "target": 45,
-                                                    "delta_percentage": 12
-                                                },
-                                                "read-bs4096": {
-                                                    "target": 44,
+                                                    "target": 46,
                                                     "delta_percentage": 10
                                                 },
+                                                "read-bs4096": {
+                                                    "target": 45,
+                                                    "delta_percentage": 8
+                                                },
                                                 "readwrite-bs4096": {
-                                                    "target": 46,
+                                                    "target": 47,
                                                     "delta_percentage": 11
                                                 }
                                             }
@@ -1034,7 +1034,7 @@
                                                     "delta_percentage": 6
                                                 },
                                                 "read-bs4096": {
-                                                    "target": 68,
+                                                    "target": 69,
                                                     "delta_percentage": 6
                                                 },
                                                 "readwrite-bs4096": {
