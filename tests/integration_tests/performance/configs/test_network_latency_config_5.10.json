@@ -32,7 +32,7 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.23,
+                                                    "target": 0.231,
                                                     "delta_percentage": 2.1
                                                 }
                                             }
@@ -44,8 +44,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.242,
-                                                    "delta_percentage": 4.1
+                                                    "target": 0.24,
+                                                    "delta_percentage": 3.1
                                                 }
                                             }
                                         }
@@ -89,8 +89,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.257,
-                                                    "delta_percentage": 4.1
+                                                    "target": 0.26,
+                                                    "delta_percentage": 2.1
                                                 }
                                             }
                                         }
@@ -101,8 +101,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.269,
-                                                    "delta_percentage": 2.1
+                                                    "target": 0.271,
+                                                    "delta_percentage": 3.1
                                                 }
                                             }
                                         }
