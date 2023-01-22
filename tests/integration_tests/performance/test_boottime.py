@@ -4,13 +4,34 @@
 
 import re
 import platform
+from framework.utils_cpuid import get_instance_type, get_cpu_model_name
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
-# NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
+# NOTE: For aarch64 most of the boot time is spent by the kernel to unpack the
 # initramfs in RAM. This time is influenced by the size and the compression
-# method of the used initrd image.
-INITRD_BOOT_TIME_US = 180000 if platform.machine() == "x86_64" else 205000
+# method of the used initrd image. The boot time for Skylake is greater than
+# other x86-64 CPUs, since L1TF mitigation (unconditional L1D cache flush) is
+# enabled.
+INITRD_BOOT_TIME_US = {
+    "x86_64": {
+        "m5d.metal": {
+            "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz": 230000,
+            "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz": 180000,
+        },
+        "m6i.metal": {
+            "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz": 180000,
+        },
+        "m6a.metal": {
+            "AMD EPYC 7R13 48-Core Processor": 180000,
+        },
+    },
+    "aarch64": {
+        "m6g.metal": {
+            "ARM_NEOVERSE_N1": 205000,
+        }
+    },
+}
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
@@ -69,9 +90,12 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property):
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
     _tap = _configure_and_run_vm(vm, initrd=True)
-    boottime_us = _test_microvm_boottime(vm, max_time_us=INITRD_BOOT_TIME_US)
+    max_time_us = INITRD_BOOT_TIME_US[platform.machine()][get_instance_type()][
+        get_cpu_model_name()
+    ]
+    boottime_us = _test_microvm_boottime(vm, max_time_us=max_time_us)
     print(f"Boot time with initrd is: {boottime_us} us")
-    record_property("boottime_initrd", f"{boottime_us} us < {INITRD_BOOT_TIME_US} us")
+    record_property("boottime_initrd", f"{boottime_us} us < {max_time_us} us")
 
 
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
