@@ -71,7 +71,7 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property):
     _tap = _configure_and_run_vm(vm, initrd=True)
     boottime_us = _test_microvm_boottime(vm, max_time_us=INITRD_BOOT_TIME_US)
     print(f"Boot time with initrd is: {boottime_us} us")
-    record_property("boottime_initrd", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
+    record_property("boottime_initrd", f"{boottime_us} us < {INITRD_BOOT_TIME_US} us")
 
 
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
