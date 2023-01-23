@@ -67,3 +67,32 @@ impl From<IntelCpuid> for RawCpuid {
         Self::from(entries)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get() {
+        let cpuid = IntelCpuid(std::collections::BTreeMap::new());
+        assert_eq!(
+            cpuid.get(&CpuidKey {
+                leaf: 0,
+                subleaf: 0
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn get_mut() {
+        let mut cpuid = IntelCpuid(std::collections::BTreeMap::new());
+        assert_eq!(
+            cpuid.get_mut(&CpuidKey {
+                leaf: 0,
+                subleaf: 0
+            }),
+            None
+        );
+    }
+}
