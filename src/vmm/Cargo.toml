@@ -24,6 +24,7 @@ vm-allocator = "0.1.0"
 vm-fdt = "0.2.0"
 vm-superio = "0.7.0"
 
+bit-fields = { path = "../bit-fields" }
 devices = { path = "../devices" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
