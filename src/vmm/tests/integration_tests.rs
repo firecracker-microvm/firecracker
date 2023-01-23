@@ -378,7 +378,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
     assert_eq!(
         validate_cpu_vendor(&microvm_state),
         Err(vmm::persist::ValidateCpuVendorError::Snapshot(
-            cpuid::common::Error::NotSupported
+            cpuid::common::Leaf0NotFoundInCpuid
         ))
     );
 }
