@@ -26,7 +26,9 @@ use vm_memory::{GuestMemory, GuestMemoryMmap};
 use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 #[cfg(target_arch = "x86_64")]
-use crate::cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+use crate::cpuid::common::get_vendor_id_from_host;
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
@@ -347,10 +349,10 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(crate::cpuid::common::Error),
+    Host(#[from] crate::cpuid::common::GetCpuidError),
     /// Failed to read snapshot vendor.
     #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(crate::cpuid::common::Error),
+    Snapshot(#[from] crate::cpuid::common::Leaf0NotFoundInCpuid),
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -364,12 +366,15 @@ pub enum ValidateCpuVendorError {
 pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<bool, ValidateCpuVendorError> {
-    let host_vendor_id = get_vendor_id_from_host().map_err(ValidateCpuVendorError::Host)?;
+    let host_vendor_id = get_vendor_id_from_host()?;
 
-    let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
+    let snapshot_vendor_id = microvm_state.vcpu_states[0]
+        .cpuid
+        .manufacturer_id()
+        .ok_or(crate::cpuid::common::Leaf0NotFoundInCpuid)
         .map_err(|err| {
             error!("Snapshot CPU vendor is missing.");
-            ValidateCpuVendorError::Snapshot(err)
+            err
         })?;
 
     if host_vendor_id == snapshot_vendor_id {
