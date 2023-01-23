@@ -496,8 +496,7 @@ macro_rules! shift {
         } else if $x == $max {
             $ty
         } else {
-            // TODO Use `unreachable!()` here when panicking in const context is stabilized.
-            0
+            unreachable!()
         }
     }};
 }
