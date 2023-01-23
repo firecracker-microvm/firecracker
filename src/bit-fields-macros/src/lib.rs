@@ -14,9 +14,9 @@
     clippy::exhaustive_enums,
     clippy::exhaustive_structs,
     clippy::unseparated_literal_suffix,
-    clippy::mod_module_files
+    clippy::mod_module_files,
+    clippy::missing_trait_methods
 )]
-#![allow(clippy::missing_trait_methods)]
 
 //! Procedural macros for the `bit-fields` crate.
 

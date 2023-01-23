@@ -731,8 +731,6 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
-    /// Failures in configuring the CPUID.
-    pub filter_cpuid: SharedIncMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.
