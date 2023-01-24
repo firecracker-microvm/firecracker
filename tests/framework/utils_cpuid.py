@@ -11,7 +11,7 @@ from framework.utils import run_cmd
 from framework.utils_imdsv2 import imdsv2_get
 import host_tools.network as net_tools
 
-ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1"}
+ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"}
 
 
 class CpuVendor(Enum):
