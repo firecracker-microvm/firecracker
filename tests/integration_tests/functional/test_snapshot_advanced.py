@@ -39,8 +39,9 @@ def test_restore_old_to_current(bin_cloner_path, firecracker_release):
         pytest.skip("incompatible with aarch64 and Firecracker <1.1.4")
 
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
-    logger = logging.getLogger("old_snapshot_many_devices")
+    logger = logging.getLogger("old_snapshot_to_current")
     builder = MicrovmBuilder(bin_cloner_path)
+
     jailer = firecracker_release.jailer()
     logger.info("Using Firecracker: %s", firecracker_release.local_path())
     logger.info("Using Jailer: %s", jailer.local_path())
@@ -84,7 +85,7 @@ def test_restore_current_to_old(bin_cloner_path, firecracker_release):
         pytest.skip("incompatible with Firecracker <1.2.0")
 
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
-    logger = logging.getLogger("old_snapshot_version_many_devices")
+    logger = logging.getLogger("current_snapshot_to_old")
     builder = MicrovmBuilder(bin_cloner_path)
     jailer = firecracker_release.jailer()
     logger.info("Creating snapshot with local build")
