@@ -56,8 +56,8 @@ Client A initiates connection to Server A in [figure below](#vsock-connections):
 1. Guest: `accept()` the new connection.
 1. Host: `read()` "OK `<assigned_hostside_port>`\n".
 
-The channel is established between the sockets obtained at steps 3 (host)
-and 5 (guest).
+The channel is established between the sockets obtained at steps 4 (host)
+and 6 (guest).
 
 ### Guest-Initiated Connections
 
