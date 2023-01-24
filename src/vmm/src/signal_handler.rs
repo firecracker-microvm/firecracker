@@ -173,7 +173,7 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    use std::{env, process, thread};
+    use std::{process, thread};
 
     use libc::syscall;
     use seccompiler::sock_filter;
@@ -182,8 +182,6 @@ mod tests {
 
     #[test]
     fn test_signal_handler() {
-        let run_with_kcov = env::var("CARGO_WRAPPER").unwrap_or_else(|_| "".to_string()) == *"kcov";
-
         let child = thread::spawn(move || {
             assert!(register_signal_handlers().is_ok());
 
@@ -239,23 +237,14 @@ mod tests {
         });
         assert!(child.join().is_ok());
 
-        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on
-        // x86_64 and thus not reach Firecracker:
-        // https://github.com/SimonKagstrom/kcov/blob/a8b60c43fb33f56553a2bb20633e3b59a08abae1/src/engines/ptrace.cc#L187
-        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad
-        // syscall if we run with kcov and we are on x86_64.
-        if !(cfg!(target_arch = "x86_64") && run_with_kcov) {
-            assert!(METRICS.seccomp.num_faults.fetch() >= 1);
-        }
+        assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         assert!(METRICS.signals.sigbus.fetch() >= 1);
         assert!(METRICS.signals.sigsegv.fetch() >= 1);
         assert!(METRICS.signals.sigxfsz.fetch() >= 1);
         assert!(METRICS.signals.sigxcpu.fetch() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.fetch() >= 1);
-        if !(cfg!(target_arch = "aarch64") && run_with_kcov) {
-            assert!(METRICS.signals.sigill.fetch() >= 1);
-        }
+        assert!(METRICS.signals.sigill.fetch() >= 1);
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
