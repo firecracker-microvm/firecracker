@@ -42,6 +42,16 @@ DATA_PARSERS = {
     "network_latency": LatencyDataParser,
 }
 
+TESTS = [
+        "block_performance",
+        "network_latency",
+        "network_tcp_throughput",
+        "snap_restore_performance",
+        "vsock_throughput",
+]
+
+INSTANCES = ["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal", "c7g.metal"]
+
 
 def get_data_files(args) -> List[str]:
     """Return a list of files that contain results for this test."""
@@ -99,13 +109,7 @@ def main():
         help="Performance test for which baselines \
                             are calculated.",
         action="store",
-        choices=[
-            "block_performance",
-            "network_latency",
-            "network_tcp_throughput",
-            "snap_restore_performance",
-            "vsock_throughput",
-        ],
+        choices=TESTS,
         required=True,
     )
     parser.add_argument(
@@ -123,7 +127,7 @@ def main():
         help="Instance type on which the baselines \
                             were obtained.",
         action="store",
-        choices=["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal"],
+        choices=INSTANCES,
         required=True,
     )
     args = parser.parse_args()
