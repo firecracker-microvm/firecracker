@@ -28,12 +28,12 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/logger" \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
-    -d "{
+    -d '{
              "log_path": "logs.fifo",
              "level": "Warning",
              "show_level": false,
              "show_log_origin": false
-    }"
+    }'
 ```
 
 Details about the required and optional fields can be found in the
