@@ -111,7 +111,7 @@ impl Persist<'_> for Net {
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)?;
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
-        let mut net = Net::new_with_tap(
+        let mut net = Net::new(
             state.id.clone(),
             &state.tap_if_name,
             state.config_space.guest_mac_v2,
