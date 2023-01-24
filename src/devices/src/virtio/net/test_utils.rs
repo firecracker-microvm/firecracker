@@ -41,7 +41,7 @@ pub fn default_net() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let mut net = Net::new_with_tap(
+    let mut net = Net::new(
         tap_device_id,
         tap_if_name,
         Some(guest_mac),
@@ -64,7 +64,7 @@ pub fn default_net_no_mmds() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new_with_tap(
+    let net = Net::new(
         tap_device_id,
         "net-device%d",
         Some(guest_mac),
