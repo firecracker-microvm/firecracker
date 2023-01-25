@@ -11,7 +11,7 @@ prepare_fc_rootfs() {
     SSH_DIR="$BUILD_DIR/ssh"
     RESOURCE_DIR="$2"
 
-    packages="udev systemd-sysv openssh-server iproute2 strings"
+    packages="udev systemd-sysv openssh-server iproute2"
 
     # msr-tools is only supported on x86-64.
     arch=$(uname -m)
