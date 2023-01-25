@@ -29,7 +29,7 @@ def test_startup_time_new_pid_ns(test_microvm_with_api, record_property):
 
 def test_startup_time_daemonize(test_microvm_with_api, record_property):
     """
-    Check startup time when jailer spawns Firecracker in a new PID ns.
+    Check startup time when jailer detaches Firecracker from the controlling terminal.
 
     @type: performance
     """
