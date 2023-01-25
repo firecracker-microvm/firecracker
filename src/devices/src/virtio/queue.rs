@@ -539,7 +539,7 @@ pub(crate) mod tests {
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     pub use super::*;
-    use crate::virtio::test_utils::VirtQueue;
+    use crate::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
     use crate::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
 
     impl Queue {
@@ -604,7 +604,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_queue_validation() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -673,7 +673,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_queue_processing() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
@@ -775,7 +775,7 @@ pub(crate) mod tests {
         // with valid available ring indexes while it produces an error with invalid
         // indexes.
         // No notification suppression enabled.
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x6000)], false).unwrap();
+        let m = &single_region_mem(0x6000);
 
         // We set up a queue of size 4.
         let vq = VirtQueue::new(GuestAddress(0), m, 4);
@@ -825,7 +825,7 @@ pub(crate) mod tests {
         // with valid available ring indexes while it produces an error with invalid
         // indexes.
         // Notification suppression is enabled.
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x6000)], false).unwrap();
+        let m = &single_region_mem(0x6000);
 
         // We set up a queue of size 4.
         let vq = VirtQueue::new(GuestAddress(0), m, 4);
@@ -854,7 +854,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -898,7 +898,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_used_event() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let q = vq.create_queue();
@@ -913,7 +913,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_set_avail_event() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -928,7 +928,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_needs_kick() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
@@ -976,7 +976,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_try_enable_notification() {
-        let m = &create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 

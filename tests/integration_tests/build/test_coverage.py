@@ -39,7 +39,7 @@ TARGET = f"{ARCH}-unknown-linux-gnu"
 
 # We allow coverage to have a max difference of `COVERAGE_MAX_DELTA` as percentage before failing
 # the test (currently 0.05%).
-COVERAGE_MAX_DELTA = 0.0005
+COVERAGE_MAX_DELTA = 0.05
 
 
 @pytest.mark.timeout(400)
@@ -96,19 +96,11 @@ def test_coverage(monkeypatch, record_property):
     coverage_str = index_contents[start + 1 : end]
     coverage = float(coverage_str)
 
-    # Compare coverage.
-    high = coverage_target * (1.0 + COVERAGE_MAX_DELTA)
-    low = coverage_target * (1.0 - COVERAGE_MAX_DELTA)
-
     # Record coverage.
     record_property(
-        "coverage", f"{coverage}% {coverage_target}% ±{COVERAGE_MAX_DELTA:.2%}%"
+        "coverage", f"{coverage}% {coverage_target}% ±{COVERAGE_MAX_DELTA:.2f}%"
     )
 
-    # Assert coverage within delta.
-    assert (
-        coverage >= low
-    ), f"Current code coverage ({coverage:.2f}%) is more than {COVERAGE_MAX_DELTA:.2%}% below the target ({coverage_target:.2f}%)"
-    assert (
-        coverage <= high
-    ), f"Current code coverage ({coverage:.2f}%) is more than {COVERAGE_MAX_DELTA:.2%}% above the target ({coverage_target:.2f}%)"
+    assert coverage == pytest.approx(
+        coverage_target, abs=COVERAGE_MAX_DELTA
+    ), f"Current code coverage ({coverage:.2f}%) deviates more than {COVERAGE_MAX_DELTA:.2f}% from target ({coverage_target:.2f})"
