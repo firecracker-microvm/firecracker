@@ -18,6 +18,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 MB_TO_PAGES = 256
+STATS_POLLING_INTERVAL_S = 1
 
 
 @retry(delay=0.5, tries=10)
@@ -480,7 +481,9 @@ def test_stats_update(test_microvm_with_api, network_config):
 
     # Add a memory balloon with stats enabled.
     response = test_microvm.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -505,7 +508,7 @@ def test_stats_update(test_microvm_with_api, network_config):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Wait out the polling interval, then get the updated stats.
-    time.sleep(1)
+    time.sleep(STATS_POLLING_INTERVAL_S)
     next_stats = test_microvm.balloon.get_stats().json()
     assert initial_stats["available_memory"] != next_stats["available_memory"]
 
@@ -568,7 +571,9 @@ def _test_balloon_snapshot(context):
 
     # Add a memory balloon with stats enabled.
     response = basevm.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
 
@@ -615,7 +620,8 @@ def _test_balloon_snapshot(context):
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.jailer_clone_pid
 
-    # Get the stats right after we take a snapshot.
+    # Wait out the polling interval, then get the updated stats.
+    time.sleep(STATS_POLLING_INTERVAL_S)
     stats_after_snap = microvm.balloon.get_stats().json()
 
     # Check memory usage.
