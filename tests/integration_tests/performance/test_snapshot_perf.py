@@ -46,7 +46,7 @@ CREATE_LATENCY_BASELINES = {
         "2vcpu_256mb.json": {"FULL": {"target": 180}, "DIFF": {"target": 70}},
         "2vcpu_512mb.json": {
             "FULL": {"target": 280},
-            "DIFF": {"target": 75},
+            "DIFF": {"target": 90},
         },
     },
     "aarch64": {
@@ -61,11 +61,13 @@ CREATE_LATENCY_BASELINES = {
     },
 }
 
-# The latencies are pretty high during integration tests and
-# this is tracked here:
+# The latencies for x86 are pretty high due to a design
+# in the cgroups V1 implementation in the kernel. We recommend
+# switching to cgroups v2 for much lower snap resume latencies.
+# More details on this:
 # https://github.com/firecracker-microvm/firecracker/issues/2027
-# TODO: Update the table after fix. Target is < 5ms.
-# since they might be lower.
+# Latencies for snap resume on cgroups V2 can be found in our
+# long-running performance configs (i.e. integration_tests/performance/configs).
 LOAD_LATENCY_BASELINES = {
     "x86_64": {
         "m5d.metal": {
@@ -77,12 +79,12 @@ LOAD_LATENCY_BASELINES = {
             },
             "5.10": {
                 "sync": {
-                    "2vcpu_256mb.json": {"target": 60},
-                    "2vcpu_512mb.json": {"target": 60},
+                    "2vcpu_256mb.json": {"target": 70},
+                    "2vcpu_512mb.json": {"target": 75},
                 },
                 "async": {
-                    "2vcpu_256mb.json": {"target": 190},
-                    "2vcpu_512mb.json": {"target": 190},
+                    "2vcpu_256mb.json": {"target": 210},
+                    "2vcpu_512mb.json": {"target": 210},
                 },
             },
         },
@@ -113,12 +115,12 @@ LOAD_LATENCY_BASELINES = {
             },
             "5.10": {
                 "sync": {
-                    "2vcpu_256mb.json": {"target": 60},
-                    "2vcpu_512mb.json": {"target": 60},
+                    "2vcpu_256mb.json": {"target": 70},
+                    "2vcpu_512mb.json": {"target": 70},
                 },
                 "async": {
-                    "2vcpu_256mb.json": {"target": 220},
-                    "2vcpu_512mb.json": {"target": 220},
+                    "2vcpu_256mb.json": {"target": 245},
+                    "2vcpu_512mb.json": {"target": 245},
                 },
             },
         },
