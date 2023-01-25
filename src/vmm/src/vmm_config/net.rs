@@ -161,7 +161,7 @@ impl NetBuilder {
             .map_err(NetworkInterfaceError::CreateRateLimiter)?;
 
         // Create and return the Net device
-        devices::virtio::net::Net::new_with_tap(
+        devices::virtio::net::Net::new(
             cfg.iface_id,
             &cfg.host_dev_name,
             cfg.guest_mac,
@@ -343,7 +343,7 @@ mod tests {
         let host_dev_name = "dev";
         let guest_mac = "01:23:45:67:89:0b";
 
-        let net = Net::new_with_tap(
+        let net = Net::new(
             net_id.to_string(),
             host_dev_name,
             Some(MacAddr::parse_str(guest_mac).unwrap()),

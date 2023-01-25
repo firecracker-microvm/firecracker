@@ -125,26 +125,13 @@ pub struct Net {
 }
 
 impl Net {
-    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
-        tap_if_name: &str,
+        tap: Tap,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self> {
-        let tap = Tap::open_named(tap_if_name).map_err(Error::TapOpen)?;
-
-        // Set offload flags to match the virtio features below.
-        tap.set_offload(
-            net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
-        )
-        .map_err(Error::TapSetOffload)?;
-
-        let vnet_hdr_size = vnet_hdr_len() as i32;
-        tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(Error::TapSetVnetHdrSize)?;
-
         let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
@@ -189,6 +176,29 @@ impl Net {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             mmds_ns: None,
         })
+    }
+
+    /// Create a new virtio network device with the given TAP interface.
+    pub fn new(
+        id: String,
+        tap_if_name: &str,
+        guest_mac: Option<MacAddr>,
+        rx_rate_limiter: RateLimiter,
+        tx_rate_limiter: RateLimiter,
+    ) -> Result<Self> {
+        let tap = Tap::open_named(tap_if_name).map_err(Error::TapOpen)?;
+
+        // Set offload flags to match the virtio features below.
+        tap.set_offload(
+            net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
+        )
+        .map_err(Error::TapSetOffload)?;
+
+        let vnet_hdr_size = vnet_hdr_len() as i32;
+        tap.set_vnet_hdr_size(vnet_hdr_size)
+            .map_err(Error::TapSetVnetHdrSize)?;
+
+        Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
 
     /// Provides the ID of this net device.

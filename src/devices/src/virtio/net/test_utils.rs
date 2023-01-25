@@ -41,7 +41,7 @@ pub fn default_net() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let mut net = Net::new_with_tap(
+    let mut net = Net::new(
         tap_device_id,
         tap_if_name,
         Some(guest_mac),
@@ -64,7 +64,7 @@ pub fn default_net_no_mmds() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new_with_tap(
+    let net = Net::new(
         tap_device_id,
         "net-device%d",
         Some(guest_mac),
@@ -313,11 +313,6 @@ pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, Devi
 
 pub fn default_guest_mac() -> MacAddr {
     MacAddr::parse_str("11:22:33:44:55:66").unwrap()
-}
-
-pub fn default_guest_memory() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
-        .expect("Cannot initialize memory")
 }
 
 pub fn set_mac(net: &mut Net, mac: MacAddr) {

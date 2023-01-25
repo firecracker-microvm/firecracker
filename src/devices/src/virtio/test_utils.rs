@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
-use crate::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::virtio::Queue;
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -20,44 +20,17 @@ macro_rules! check_metric_after_block {
     }};
 }
 
-pub fn default_mem() -> GuestMemoryMmap {
-    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false).unwrap()
+/// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
+/// address 0
+pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
+    vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), region_size)], false)
+        .unwrap()
 }
 
-pub fn initialize_virtqueue(vq: &VirtQueue) {
-    let request_type_desc: usize = 0;
-    let data_desc: usize = 1;
-    let status_desc: usize = 2;
-
-    let request_addr: u64 = 0x1000;
-    let data_addr: u64 = 0x2000;
-    let status_addr: u64 = 0x3000;
-    let len = 0x1000;
-
-    // Set the request type descriptor.
-    vq.avail.ring[request_type_desc].set(request_type_desc as u16);
-    vq.dtable[request_type_desc].set(request_addr, len, VIRTQ_DESC_F_NEXT, data_desc as u16);
-
-    // Set the data descriptor.
-    vq.avail.ring[data_desc].set(data_desc as u16);
-    vq.dtable[data_desc].set(
-        data_addr,
-        len,
-        VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-        status_desc as u16,
-    );
-
-    // Set the status descriptor.
-    vq.avail.ring[status_desc].set(status_desc as u16);
-    vq.dtable[status_desc].set(
-        status_addr,
-        len,
-        VIRTQ_DESC_F_WRITE,
-        (status_desc + 1) as u16,
-    );
-
-    // Mark the next available descriptor.
-    vq.avail.idx.set(1);
+/// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
+/// guest physical address 0
+pub fn default_mem() -> GuestMemoryMmap {
+    single_region_mem(0x10000)
 }
 
 pub struct InputData {
@@ -165,6 +138,10 @@ impl<'a> VirtqDesc<'a> {
         self.len.set(len);
         self.flags.set(flags);
         self.next.set(next);
+    }
+
+    pub fn memory(&self) -> &'a GuestMemoryMmap {
+        self.addr.mem
     }
 
     pub fn set_data(&mut self, data: &[u8]) {
@@ -284,6 +261,10 @@ impl<'a> VirtQueue<'a> {
             avail,
             used,
         }
+    }
+
+    pub fn memory(&self) -> &'a GuestMemoryMmap {
+        self.used.flags.mem
     }
 
     pub fn size(&self) -> u16 {

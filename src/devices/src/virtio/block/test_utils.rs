@@ -11,13 +11,16 @@ use std::time::Duration;
 use rate_limiter::RateLimiter;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
+use vm_memory::{Bytes, GuestAddress};
 
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
+use crate::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
 use crate::virtio::IrqType;
-use crate::virtio::{Block, CacheType, Queue};
+use crate::virtio::{Block, CacheType, Queue, RequestHeader};
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> Block {
@@ -107,4 +110,92 @@ pub fn simulate_queue_and_async_completion_events(b: &mut Block, expected_irq: b
             simulate_queue_event(b, Some(expected_irq));
         }
     }
+}
+
+/// Structure encapsulating the virtq descriptors of a single request to the block device
+pub struct RequestDescriptorChain<'a, 'b> {
+    pub driver_queue: &'b VirtQueue<'a>,
+
+    pub header_desc: &'b VirtqDesc<'a>,
+    pub data_desc: &'b VirtqDesc<'a>,
+    pub status_desc: &'b VirtqDesc<'a>,
+}
+
+impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
+    /// Creates a new [`RequestDescriptor´] chain in the given [`VirtQueue`]
+    ///
+    /// The header, data and status descriptors are put into the first three indices in
+    /// the queue's descriptor table. They point to address 0x1000, 0x2000 and 0x3000 in guest
+    /// memory, respectively, and each have their `len` set to 0x1000.
+    ///
+    /// The data descriptor is initialized to be write_only
+    pub fn new(vq: &'b VirtQueue<'a>) -> Self {
+        read_blk_req_descriptors(vq);
+
+        RequestDescriptorChain {
+            driver_queue: vq,
+            header_desc: &vq.dtable[0],
+            data_desc: &vq.dtable[1],
+            status_desc: &vq.dtable[2],
+        }
+    }
+
+    pub fn header(&self) -> RequestHeader {
+        self.header_desc
+            .memory()
+            .read_obj(GuestAddress(self.header_desc.addr.get()))
+            .unwrap()
+    }
+
+    pub fn set_header(&self, header: RequestHeader) {
+        self.header_desc
+            .memory()
+            .write_obj(header, GuestAddress(self.header_desc.addr.get()))
+            .unwrap()
+    }
+}
+
+/// Puts a descriptor chain of length three into the given [`VirtQueue`].
+///
+/// This chain follows the skeleton of a block device request, e.g. the first
+/// descriptor offers space for the header (readonly), the second descriptor offers space
+/// for the data (set to writeonly, if you want a write request, update to readonly),
+/// and the last descriptor for the device-written status field (writeonly).
+///
+/// The head of the chain is made available as the first descriptor to be processed, by
+/// setting avail_idx to 1.
+pub fn read_blk_req_descriptors(vq: &VirtQueue) {
+    let request_type_desc: usize = 0;
+    let data_desc: usize = 1;
+    let status_desc: usize = 2;
+
+    let request_addr: u64 = 0x1000;
+    let data_addr: u64 = 0x2000;
+    let status_addr: u64 = 0x3000;
+    let len = 0x1000;
+
+    // Set the request type descriptor.
+    vq.avail.ring[request_type_desc].set(request_type_desc as u16);
+    vq.dtable[request_type_desc].set(request_addr, len, VIRTQ_DESC_F_NEXT, data_desc as u16);
+
+    // Set the data descriptor.
+    vq.avail.ring[data_desc].set(data_desc as u16);
+    vq.dtable[data_desc].set(
+        data_addr,
+        len,
+        VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+        status_desc as u16,
+    );
+
+    // Set the status descriptor.
+    vq.avail.ring[status_desc].set(status_desc as u16);
+    vq.dtable[status_desc].set(
+        status_addr,
+        len,
+        VIRTQ_DESC_F_WRITE,
+        (status_desc + 1) as u16,
+    );
+
+    // Mark the next available descriptor.
+    vq.avail.idx.set(1);
 }
