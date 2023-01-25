@@ -30,7 +30,12 @@ def select_supported_kernels():
     """Select kernels supported by the current combination of kernel and instance type."""
     supported_kernels = SUPPORTED_KERNELS
     kernel_version = get_kernel_version(level=1)
-    instance_type = get_instance_type()
+    try:
+        instance_type = get_instance_type()
+    # in case we are not in EC2, return the default
+    # pylint: disable=broad-except
+    except Exception:
+        return supported_kernels
 
     if instance_type == "c7g.metal" and kernel_version == "4.14":
         supported_kernels = SUPPORTED_KERNELS_NO_SVE
