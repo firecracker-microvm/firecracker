@@ -87,6 +87,21 @@ Your contribution needs to meet the following standards:
   Co-authored-by: <B full name> <B email>
   ```
 
+- Usage of `unsafe` should be documented with a justification (over its safe
+  alternative where one exists) and an explanation on why it cannot produce
+  undefined behavior. E.g.
+
+  ```rust
+  // Test creating a resource.
+  // JUSTIFICATION: This cannot be accomplished without unsafe as
+  // `external_function()` returns `RawFd`. An alternative here still uses
+  // unsafe e.g. `drop(unsafe { OwnedFd::from_raw_fd(external_function()) });`.
+  // SAFETY: `external_function()` returns a valid file descriptor.
+  unsafe {
+      libc::close(external_function());
+  }
+  ```
+
 - Document your pull requests. Include the reasoning behind each change, and
   the testing done.
 - Acknowledge Firecracker's [Apache 2.0 license](LICENSE) and certify that no
