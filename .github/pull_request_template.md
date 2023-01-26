@@ -13,7 +13,6 @@ the terms of the Apache 2.0 license.
 
 ## PR Checklist
 
-- [ ] All commits in this PR are signed (`git commit -s`).
 - [ ] If a specific issue led to this PR, this PR closes the issue.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Any required documentation changes (code and docs) are included in this PR.
