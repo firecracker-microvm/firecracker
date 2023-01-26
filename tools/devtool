@@ -469,7 +469,7 @@ cmd_help() {
     echo "        will be passed through to pytest."
     echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
     echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
-    echo "        -r, --ramdisk size[k|m|g]    Use a ramdisk of `size` MB for
+    echo "        -r, --ramdisk size[k|m|g]    Use a ramdisk of 'size' MB for
                                                the entire test session (e.g
                                                stored artifacts, Firecracker
                                                binaries, logs/metrics FIFOs
