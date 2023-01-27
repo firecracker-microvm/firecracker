@@ -13,6 +13,9 @@ pub enum NormalizeCpuidError {
     /// Provided `cpu_bits` is >=8.
     #[error("Provided `cpu_bits` is >=8: {0}.")]
     CpuBits(u8),
+    /// Failed to passthrough cache topology.
+    #[error("Failed to passthrough cache topology: {0}")]
+    PassthroughCacheTopology(#[from] PassthroughCacheTopologyError),
     /// Missing leaf 0x80000000.
     #[error("Missing leaf 0x80000000.")]
     MissingLeaf0x80000000,
@@ -31,6 +34,17 @@ pub enum NormalizeCpuidError {
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
     BrandString(MissingBrandStringLeaves),
+}
+
+/// Error type for setting cache topology section of [`AmdCpuid::normalize`].
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum PassthroughCacheTopologyError {
+    /// Failed to get the host vendor id.
+    #[error("Failed to get the host vendor id: {0}")]
+    NoVendorId(crate::common::GetCpuidError),
+    /// The host vendor id does not match AMD.
+    #[error("The host vendor id does not match AMD.")]
+    BadVendorId,
 }
 
 /// Error type for setting leaf 0x80000008 section of [`AmdCpuid::normalize`].
@@ -106,7 +120,7 @@ impl super::AmdCpuid {
             .checked_shl(u32::from(cpu_bits))
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
 
-        self.process_cpuid();
+        self.passthrough_cache_topology()?;
         self.update_largest_extended_fn_entry()?;
         self.update_extended_feature_fn_entry()?;
         self.update_amd_feature_entry(cpu_count)?;
@@ -117,8 +131,21 @@ impl super::AmdCpuid {
         Ok(())
     }
 
-    /// Process CPUID.
-    fn process_cpuid(&mut self) {
+    /// Passthrough cache topology.
+    ///
+    /// # Errors
+    ///
+    /// This function passes through leaves from the host CPUID, if this does not match the AMD
+    /// specification it is possible to enter an indefinite loop. To avoid this, this will return an
+    /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
+    fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
+        if crate::common::get_vendor_id_from_host()
+            .map_err(PassthroughCacheTopologyError::NoVendorId)?
+            != *crate::VENDOR_ID_AMD
+        {
+            return Err(PassthroughCacheTopologyError::BadVendorId);
+        }
+
         // Some versions of kernel may return the 0xB leaf for AMD even if this is an
         // Intel-specific leaf. Remove it.
         self.0.remove(&CpuidKey::leaf(0xB));
@@ -145,11 +172,15 @@ impl super::AmdCpuid {
                 });
                 // From 'AMD64 Architecture Programmer’s Manual Volume 3: General-Purpose and System
                 // Instructions':
+                //
                 // > To gather information for all cache levels, software must repeatedly execute
                 // > CPUID with 8000_001Dh in EAX and ECX set to increasing values beginning with 0
                 // > until a value of 00h is returned in the field CacheType (EAX[4:0]) indicating
                 // > no more cache descriptions are available for this processor. If CPUID
                 // > Fn8000_0001_ECX[TopologyExtensions] = 0, then CPUID Fn8000_001Dh is reserved.
+                //
+                // On non-AMD hosts this condition may never be true thus this loop may be
+                // indefinite.
                 if super::registers::Leaf8000001dEax::from(result.eax).cache_type() == 0 {
                     break;
                 }
@@ -162,6 +193,7 @@ impl super::AmdCpuid {
                 );
             }
         }
+        Ok(())
     }
 
     /// Update largest extended fn entry.
