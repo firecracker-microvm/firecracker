@@ -46,6 +46,7 @@ pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResu
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
     // SAFETY: Always safe.
     get_cpuid(0, 0).map(|vendor_entry| unsafe {
+        // The ordering of the vendor string is ebx,edx,ecx this is not a mistake.
         std::mem::transmute::<[u32; 3], [u8; 12]>([
             vendor_entry.ebx,
             vendor_entry.edx,
@@ -67,7 +68,7 @@ pub struct Leaf0NotFoundInCpuid;
 pub fn msrs_to_save_by_cpuid(
     cpuid: &kvm_bindings::CpuId,
 ) -> Result<std::collections::HashSet<u32>, Leaf0NotFoundInCpuid> {
-    let vendor_id = cpuid.manufacturer_id().ok_or(Leaf0NotFoundInCpuid)?;
+    let vendor_id = cpuid.vendor_id().ok_or(Leaf0NotFoundInCpuid)?;
     match &vendor_id {
         super::VENDOR_ID_INTEL => Ok(intel_msrs_to_save_by_cpuid(cpuid)),
         // We don't have MSR-CPUID dependencies set for other vendors yet.
