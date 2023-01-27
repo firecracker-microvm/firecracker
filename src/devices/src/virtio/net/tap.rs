@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::{Error as IoError, IoSlice, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
@@ -14,6 +14,7 @@ use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
+use super::iovec::IoVecBuffer;
 #[cfg(test)]
 use crate::virtio::net::test_utils::Mocks;
 
@@ -180,6 +181,20 @@ impl Tap {
 
         Ok(())
     }
+
+    /// Write an `IoVecBuffer` to tap
+    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> IoResult<usize> {
+        let iovcnt = buffer.iovec_count() as i32;
+        let iov = buffer.as_iovec_ptr();
+
+        // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBuffer` implementation and we check the return value.
+        let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(ret as usize)
+    }
 }
 
 impl Read for Tap {
@@ -191,10 +206,6 @@ impl Read for Tap {
 impl Write for Tap {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         self.tap_file.write(buf)
-    }
-
-    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<usize> {
-        self.tap_file.write_vectored(bufs)
     }
 
     fn flush(&mut self) -> IoResult<()> {
@@ -327,6 +338,41 @@ pub mod tests {
         assert_eq!(
             &read_buf[..PACKET_SIZE - VNET_HDR_SIZE],
             &packet[VNET_HDR_SIZE..]
+        );
+    }
+
+    #[test]
+    fn test_write_iovec() {
+        let mut tap = Tap::open_named("").unwrap();
+        enable(&tap);
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
+
+        let mut fragment1 = utils::rand::rand_bytes(PAYLOAD_SIZE);
+        fragment1.as_mut_slice()[..ETH_HLEN as usize].copy_from_slice(&[0; ETH_HLEN as usize]);
+        let fragment2 = utils::rand::rand_bytes(PAYLOAD_SIZE);
+        let fragment3 = utils::rand::rand_bytes(PAYLOAD_SIZE);
+
+        let scattered = IoVecBuffer::from(vec![
+            fragment1.as_slice(),
+            fragment2.as_slice(),
+            fragment3.as_slice(),
+        ]);
+
+        assert!(tap.write_iovec(&scattered).is_ok());
+
+        let mut read_buf = vec![0u8; scattered.len()];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));
+        assert_eq!(
+            &read_buf[..PAYLOAD_SIZE - VNET_HDR_SIZE],
+            &fragment1[VNET_HDR_SIZE..]
+        );
+        assert_eq!(
+            &read_buf[PAYLOAD_SIZE - VNET_HDR_SIZE..2 * PAYLOAD_SIZE - VNET_HDR_SIZE],
+            fragment2
+        );
+        assert_eq!(
+            &read_buf[2 * PAYLOAD_SIZE - VNET_HDR_SIZE..3 * PAYLOAD_SIZE - VNET_HDR_SIZE],
+            fragment3
         );
     }
 }

@@ -632,7 +632,7 @@ impl Net {
 
     #[cfg(not(test))]
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
-        tap.write_vectored(buf)
+        tap.write_iovec(buf)
     }
 
     pub fn process_rx_queue_event(&mut self) {
@@ -876,7 +876,7 @@ pub mod tests {
 
         pub(crate) fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> io::Result<usize> {
             match tap.mocks.write_tap {
-                WriteTapMock::Success => tap.write_vectored(buf),
+                WriteTapMock::Success => tap.write_iovec(buf),
                 WriteTapMock::Failure => Err(io::Error::new(
                     io::ErrorKind::Other,
                     "Write tap mock failure.",
