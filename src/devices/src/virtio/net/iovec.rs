@@ -1,9 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::IoSlice;
-use std::ops::Deref;
-
+use libc::{c_void, iovec, size_t};
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::DescriptorChain;
@@ -20,30 +18,22 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// This is essentially a wrapper of a `Vec<IoSlice>` which can be passed `writev`.
+/// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed `libc::writev`.
 ///
 /// It describes a buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
 #[derive(Debug)]
-pub(crate) struct IoVecBuffer<'a> {
+pub(crate) struct IoVecBuffer {
     // container of the memory regions included in this IO vector
-    vecs: Vec<IoSlice<'a>>,
+    vecs: Vec<iovec>,
     // Total length of the IoVecBuffer
     len: usize,
 }
 
-impl<'a> Deref for IoVecBuffer<'a> {
-    type Target = [IoSlice<'a>];
-
-    fn deref(&self) -> &Self::Target {
-        self.vecs.as_slice()
-    }
-}
-
-impl<'a> IoVecBuffer<'a> {
+impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
-    pub fn from_descriptor_chain(mem: &'a GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
+    pub fn from_descriptor_chain(mem: &GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
@@ -53,11 +43,17 @@ impl<'a> IoVecBuffer<'a> {
                 return Err(Error::WriteOnlyDescriptor);
             }
 
-            let ptr = mem.get_slice(desc.addr, desc.len as usize)?.as_ptr();
-            // SAFETY: This is safe since we get `ptr` from `get_slice` which also checks the
-            // length of the descriptor
-            let slice = unsafe { std::slice::from_raw_parts(ptr, desc.len as usize) };
-            vecs.push(IoSlice::new(slice));
+            // We use get_slice instead of `get_host_address` here in order to have the whole
+            // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+            // region in the GuestMemoryMmap.
+            let iov_base = mem
+                .get_slice(desc.addr, desc.len as usize)?
+                .as_ptr()
+                .cast::<c_void>();
+            vecs.push(iovec {
+                iov_base,
+                iov_len: desc.len as size_t,
+            });
             len += desc.len as usize;
 
             next_descriptor = desc.next_descriptor();
@@ -69,6 +65,16 @@ impl<'a> IoVecBuffer<'a> {
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Returns a pointer to the memory keeping the `iovec` structs
+    pub fn as_iovec_ptr(&self) -> *const iovec {
+        self.vecs.as_ptr()
+    }
+
+    /// Returns the length of the `iovec` array.
+    pub fn iovec_count(&self) -> usize {
+        self.vecs.len()
     }
 
     /// Reads a number of bytes from the `IoVecBuffer` starting at a given offset.
@@ -96,7 +102,7 @@ impl<'a> IoVecBuffer<'a> {
 
         for seg in self.vecs.iter() {
             let seg_start = seg_end;
-            seg_end = seg_start + seg.len();
+            seg_end = seg_start + seg.iov_len;
 
             // If the beginning of the segment is past the end we are done
             if last <= seg_start {
@@ -117,11 +123,28 @@ impl<'a> IoVecBuffer<'a> {
             let end = if last < seg_end {
                 last - seg_start
             } else {
-                seg.len()
+                seg.iov_len
             };
 
             let buf_end = buf_start + end - start;
-            buf[buf_start..buf_end].copy_from_slice(&seg[start..end]);
+
+            let buf_ptr = buf[buf_start..buf_end].as_mut_ptr();
+
+            // SAFETY:
+            // The call to `std::ptr::add` is safe because `seg.iov_base` is a valid pointer (it's
+            // the pointer to a valid guest memory region (`GuestMemoryMmap` implementation checked
+            // its boundaries) and `start` is less than `seg.iov_len`.
+            //
+            // The call to `copy_nonoverlapping` is safe because:
+            // 1. `buf_ptr` is a pointer valid for writing `buf_end - buf_start + 1` bytes.
+            // 2. `seg_ptr` is a pointer valid for reading `buf_end - buf_start + 1` bytes.
+            // 3. Both pointers pointers are pointing to `u8`, so they are properly aligned.
+            // 4. The memory regions these pointers point to are not overlapping. `seg_ptr` points
+            //    to guest physical memory, whereas `buf_ptr` to Firecracaker-owned memory.
+            unsafe {
+                let seg_ptr = (seg.iov_base as *const u8).add(start);
+                std::ptr::copy_nonoverlapping(seg_ptr, buf_ptr, buf_end - buf_start + 1);
+            }
 
             buf_start = buf_end;
         }
@@ -132,19 +155,41 @@ impl<'a> IoVecBuffer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use libc::{c_void, iovec};
     use vm_memory::test_utils::create_anon_guest_memory;
     use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
-    use super::{IoSlice, IoVecBuffer};
+    use super::IoVecBuffer;
     use crate::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::virtio::test_utils::VirtQueue;
 
-    impl<'a> From<&'a [u8]> for IoVecBuffer<'a> {
+    impl<'a> From<&'a [u8]> for IoVecBuffer {
         fn from(buf: &'a [u8]) -> Self {
             Self {
-                vecs: vec![IoSlice::new(buf)],
+                vecs: vec![iovec {
+                    iov_base: buf.as_ptr() as *mut c_void,
+                    iov_len: buf.len(),
+                }],
                 len: buf.len(),
             }
+        }
+    }
+
+    impl<'a> From<Vec<&'a [u8]>> for IoVecBuffer {
+        fn from(buffer: Vec<&'a [u8]>) -> Self {
+            let mut len = 0;
+            let vecs = buffer
+                .into_iter()
+                .map(|slice| {
+                    len += slice.len();
+                    iovec {
+                        iov_base: slice.as_ptr() as *mut c_void,
+                        iov_len: slice.len(),
+                    }
+                })
+                .collect();
+
+            Self { vecs, len }
         }
     }
 
