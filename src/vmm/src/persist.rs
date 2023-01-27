@@ -368,7 +368,7 @@ pub fn validate_cpu_vendor(
 
     let snapshot_vendor_id = microvm_state.vcpu_states[0]
         .cpuid
-        .manufacturer_id()
+        .vendor_id()
         .ok_or(cpuid::common::Leaf0NotFoundInCpuid)
         .map_err(|err| {
             error!("Snapshot CPU vendor is missing.");
