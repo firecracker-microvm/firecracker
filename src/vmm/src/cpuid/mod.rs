@@ -126,10 +126,10 @@ pub trait CpuidTrait {
     /// cannot be found in CPUID (e.g. leaf 0x0 is missing).
     #[inline]
     #[must_use]
-    fn manufacturer_id(&self) -> Option<[u8; 12]> {
+    fn vendor_id(&self) -> Option<[u8; 12]> {
         let leaf_0 = self.get(&CpuidKey::leaf(0x0))?;
 
-        // The ordering of the manufacturer string is ebx,edx,ecx this is not a mistake.
+        // The ordering of the vendor string is ebx,edx,ecx this is not a mistake.
         let (ebx, edx, ecx) = (
             leaf_0.result.ebx.to_ne_bytes(),
             leaf_0.result.edx.to_ne_bytes(),
@@ -343,7 +343,7 @@ pub enum CpuidTryFromRawCpuid {
         "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are \
          supported)."
     )]
-    UnsupportedManufacturer([u8; 12]),
+    UnsupportedVendor([u8; 12]),
 }
 
 /// CPUID information
@@ -422,16 +422,14 @@ impl TryFrom<RawCpuid> for Cpuid {
 
     #[inline]
     fn try_from(raw_cpuid: RawCpuid) -> Result<Self, Self::Error> {
-        let manufacturer_id = raw_cpuid
-            .manufacturer_id()
+        let vendor_id = raw_cpuid
+            .vendor_id()
             .ok_or(CpuidTryFromRawCpuid::MissingLeaf0)?;
 
-        match std::str::from_utf8(&manufacturer_id) {
+        match std::str::from_utf8(&vendor_id) {
             Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(raw_cpuid))),
             Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(raw_cpuid))),
-            _ => Err(CpuidTryFromRawCpuid::UnsupportedManufacturer(
-                manufacturer_id,
-            )),
+            _ => Err(CpuidTryFromRawCpuid::UnsupportedVendor(vendor_id)),
         }
     }
 }
