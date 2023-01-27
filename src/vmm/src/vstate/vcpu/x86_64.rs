@@ -282,14 +282,14 @@ impl KvmVcpu {
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match vcpu_config.cpu_template {
+            CpuFeaturesTemplate::C3 => cpuid_templates::c3(),
             CpuFeaturesTemplate::T2 => cpuid_templates::t2(),
             CpuFeaturesTemplate::T2S => cpuid_templates::t2s(),
-            CpuFeaturesTemplate::C3 => cpuid_templates::c3(),
+            CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl(),
+            CpuFeaturesTemplate::T2A => cpuid_templates::t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
-            CpuFeaturesTemplate::T2CL | CpuFeaturesTemplate::T2A | CpuFeaturesTemplate::None => {
-                cpuid::Cpuid::try_from(cpuid::RawCpuid::from(cpuid))
-                    .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
-            }
+            CpuFeaturesTemplate::None => cpuid::Cpuid::try_from(cpuid::RawCpuid::from(cpuid))
+                .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
         };
 
         // Apply machine specific changes to CPUID.
