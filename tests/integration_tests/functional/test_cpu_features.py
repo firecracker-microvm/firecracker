@@ -20,6 +20,7 @@ from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
 from framework.defs import SUPPORTED_KERNELS
+from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 import framework.utils_cpuid as cpuid_utils
 import host_tools.network as net_tools
 
@@ -186,25 +187,35 @@ MSR_EXCEPTION_LIST = [
     "0xc0000083",  # MSR_CSTAR
     "0xc0000100",  # MSR_FS_BASE
     "0xc0000101",  # MSR_GS_BASE
+    # MSRs below are required only on T2A, however,
+    # we are adding them to the common exception list to keep things simple
+    "0x834"     ,  # LVT Performance Monitor Interrupt Register
+    "0xc0010007",  # MSR_K7_PERFCTR3
+    "0xc001020b",  # Performance Event Counter MSR_F15H_PERF_CTR5
+    "0xc0011029",  # MSR_F10H_DECFG also referred to as MSR_AMD64_DE_CFG
 ]
 # fmt: on
 
+# CPU templates which support MSR test
+MSR_SUPPORTED_TEMPLATES = ["T2A", "T2S"]
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
+
+@pytest.fixture(
+    name="msr_cpu_template",
+    params=set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES),
 )
-@pytest.mark.skipif(
-    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
-    reason="CPU templates are only available on Intel.",
-)
+def msr_cpu_template_fxt(request):
+    """CPU template fixture for MSR read/write supported CPU templates"""
+    return request.param
+
+
 @pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_KERNELS}",
 )
-@pytest.mark.parametrize("cpu_template", ["T2S"])
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_rdmsr(bin_cloner_path, network_config, cpu_template):
+def test_cpu_rdmsr(bin_cloner_path, network_config, msr_cpu_template):
     """
     Test MSRs that are available to the Guest.
 
@@ -242,7 +253,7 @@ def test_cpu_rdmsr(bin_cloner_path, network_config, cpu_template):
     test_context.custom = {
         "builder": MicrovmBuilder(bin_cloner_path),
         "network_config": network_config,
-        "cpu_template": cpu_template,
+        "cpu_template": msr_cpu_template,
     }
     test_matrix = TestMatrix(
         context=test_context,
@@ -280,9 +291,13 @@ def _test_cpu_rdmsr(context):
     # Baselines are taken by running `msr_reader.sh` on:
     #  * host running kernel 4.14 and guest 4.14 with the `bionic-msrtools` rootfs
     #  * host running kernel 4.14 and guest 5.10 with the `bionic-msrtools` rootfs
-    baseline_df = pd.read_csv(
-        f"../resources/tests/msr/msr_list_{cpu_template}_{utils.get_kernel_version(level=1)}.csv"
-    )
+    #  * host running kernel 5.10 and guest 4.14 with the `bionic-msrtools` rootfs
+    #  * host running kernel 5.10 and guest 5.10 with the `bionic-msrtools` rootfs
+    host_kv = utils.get_kernel_version(level=1)
+    guest_kv = re.search("vmlinux-(.*).bin", context.kernel.name()).group(1)
+    baseline_file_name = f"msr_list_{cpu_template}_{host_kv}host_{guest_kv}guest.csv"
+    baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
+    baseline_df = pd.read_csv(baseline_file_path)
 
     # We first want to see if the same set of MSRs are exposed in the microvm.
     # Drop the VALUE columns and compare the 2 dataframes.
@@ -303,22 +318,6 @@ def _test_cpu_rdmsr(context):
     baseline_val_df = baseline_val_df[
         baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
     ]
-
-    # Also some MSRs are different based on Guest configuration and kernel used.
-    # Guest Kernel 5.10 sets up some MSRs differently.
-    if context.kernel.name() == "vmlinux-5.10.bin":
-        guest_msrs_5_10 = {
-            # See https://github.com/torvalds/linux/commit/1db2a6e1e29ff994443a9eef7cf3d26104c777a7
-            "0x3a": "0x1",  # MSR_IA32_FEAT_CTL
-            # See https://github.com/torvalds/linux/commit/229b969b3d38bc28bcd55841ee7ca9a9afb922f3
-            "0x808": "0x10",  # IA32_X2APIC_TPR
-            "0x80a": "0x10",  # IA32_X2APIC_PPR
-            # `arch/x86/include/asm/irq_vectors.h` to see how LOCAL_TIMER_VECTOR changed
-            "0x832": "0x400ec",  # IA32_X2APIC_LVT_TIMER
-        }
-
-        for key, value in guest_msrs_5_10.items():
-            baseline_val_df.loc[baseline_val_df["MSR_ADDR"] == key, "VALUE"] = value
 
     # Compare values
     val_diff = pd.concat(
