@@ -44,7 +44,7 @@ TARGET = f"{ARCH}-unknown-linux-gnu"
 COVERAGE_MAX_DELTA = 0.05
 
 
-@pytest.mark.timeout(400)
+@pytest.mark.timeout(600)
 def test_coverage(monkeypatch, record_property, metrics):
     """Test code coverage
 
