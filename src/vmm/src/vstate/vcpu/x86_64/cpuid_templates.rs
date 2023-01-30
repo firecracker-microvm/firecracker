@@ -1418,7 +1418,6 @@ pub fn t2() -> Cpuid {
 ///    0x80860000 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0xc0000000 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 /// ```
-
 pub fn t2s() -> Cpuid {
     Cpuid::Intel(IntelCpuid({
         let mut map = std::collections::BTreeMap::new();
@@ -2754,6 +2753,7 @@ pub fn t2cl() -> Cpuid {
         map
     }))
 }
+
 /// This is translated from `cpuid -r` within a T2A guest microVM on an ec2 m6a.metal instance:
 ///
 /// ```text

@@ -27,7 +27,7 @@ pub enum NormalizeCpuidError {
     ExtendedTopology(#[from] ExtendedTopologyError),
     /// Failed to get brand string.
     #[error("Failed to get brand string: {0}")]
-    GetBrandString(super::DefaultBrandStringError),
+    GetBrandString(DefaultBrandStringError),
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
     ApplyBrandString(crate::MissingBrandStringLeaves),
@@ -313,11 +313,211 @@ impl super::IntelCpuid {
 
     /// Update brand string entry
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
+        // Get host brand string.
+        let host_brand_string: [u8; BRAND_STRING_LENGTH] = crate::host_brand_string();
+
         let default_brand_string =
-            Self::default_brand_string().map_err(NormalizeCpuidError::GetBrandString)?;
+            default_brand_string(host_brand_string).map_err(NormalizeCpuidError::GetBrandString)?;
 
         self.apply_brand_string(&default_brand_string)
             .map_err(NormalizeCpuidError::ApplyBrandString)?;
         Ok(())
+    }
+}
+
+/// Error type for [`IntelCpuid::default_brand_string`].
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum DefaultBrandStringError {
+    /// Missing frequency.
+    #[error("Missing frequency: {0:?}.")]
+    MissingFrequency([u8; crate::BRAND_STRING_LENGTH]),
+    /// Missing space.
+    #[error("Missing space: {0:?}.")]
+    MissingSpace([u8; crate::BRAND_STRING_LENGTH]),
+    /// Insufficient space in brand string.
+    #[error("Insufficient space in brand string.")]
+    Overflow,
+}
+
+/// Normalize brand string to a generic Xeon(R) processor, with the actual CPU frequency
+///
+/// # Errors
+///
+/// When unable to parse the host brand string.
+/// `brand_string.try_into().unwrap()` cannot panic as we know
+/// `brand_string.len() == BRAND_STRING_LENGTH`
+///
+/// # Panics
+///
+/// Never.
+// As we pass through host frequency, we require CPUID and thus `cfg(cpuid)`.
+// TODO: Use `split_array_ref`
+// (https://github.com/firecracker-microvm/firecracker/issues/3347)
+#[allow(
+    clippy::indexing_slicing,
+    clippy::integer_arithmetic,
+    clippy::arithmetic_side_effects
+)]
+#[inline]
+fn default_brand_string(
+    // Host brand string.
+    // This should look like b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz".
+    host_brand_string: [u8; BRAND_STRING_LENGTH],
+) -> Result<[u8; BRAND_STRING_LENGTH], DefaultBrandStringError> {
+    /// We always use this brand string.
+    const DEFAULT_BRAND_STRING_BASE: &[u8] = b"Intel(R) Xeon(R) Processor @";
+
+    // The slice of the host string before the frequency suffix
+    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
+    let (before, after) = 'outer: {
+        for i in 0..host_brand_string.len() {
+            // Find position of b"THz" or b"GHz" or b"MHz"
+            if let [b'T' | b'G' | b'M', b'H', b'z', ..] = host_brand_string[i..] {
+                break 'outer Ok(host_brand_string.split_at(i));
+            }
+        }
+        Err(DefaultBrandStringError::MissingFrequency(host_brand_string))
+    }?;
+    debug_assert_eq!(
+        before.len().checked_add(after.len()),
+        Some(BRAND_STRING_LENGTH)
+    );
+
+    // We iterate from the end until hitting a space, getting the frequency number
+    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
+    let (_, frequency) = 'outer: {
+        for i in (0..before.len()).rev() {
+            let c = before[i];
+            match c {
+                b' ' => break 'outer Ok(before.split_at(i)),
+                b'0'..=b'9' | b'.' => continue,
+                _ => break,
+            }
+        }
+        Err(DefaultBrandStringError::MissingSpace(host_brand_string))
+    }?;
+    debug_assert!(frequency.len() <= before.len());
+
+    debug_assert!(
+        matches!(frequency.len().checked_add(after.len()), Some(x) if x <= BRAND_STRING_LENGTH)
+    );
+    debug_assert!(DEFAULT_BRAND_STRING_BASE.len() <= BRAND_STRING_LENGTH);
+    debug_assert!(BRAND_STRING_LENGTH.checked_mul(2).is_some());
+
+    // As `DEFAULT_BRAND_STRING_BASE.len() + frequency.len() + after.len()` is guaranteed
+    // to be less than or equal to  `2*BRAND_STRING_LENGTH` and we know
+    // `2*BRAND_STRING_LENGTH <= usize::MAX` since `BRAND_STRING_LENGTH==48`, this is always
+    // safe.
+    let len = DEFAULT_BRAND_STRING_BASE.len() + frequency.len() + after.len();
+
+    let brand_string = DEFAULT_BRAND_STRING_BASE
+        .iter()
+        .copied()
+        // Include frequency e.g. "3.00"
+        .chain(frequency.iter().copied())
+        // Include frequency suffix e.g. "GHz"
+        .chain(after.iter().copied())
+        // Pad with 0s to `BRAND_STRING_LENGTH`
+        .chain(
+            std::iter::repeat(b'\0').take(
+                BRAND_STRING_LENGTH
+                    .checked_sub(len)
+                    .ok_or(DefaultBrandStringError::Overflow)?,
+            ),
+        )
+        .collect::<Vec<_>>();
+    debug_assert_eq!(brand_string.len(), BRAND_STRING_LENGTH);
+
+    // SAFETY: Padding ensures `brand_string.len() == BRAND_STRING_LENGTH`.
+    Ok(unsafe { brand_string.try_into().unwrap_unchecked() })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::unwrap_used,
+        clippy::as_conversions
+    )]
+
+    use super::*;
+
+    #[test]
+    fn default_brand_string_test() {
+        let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz\0\0";
+        let ok_result = default_brand_string(*brand_string);
+        let expected = Ok(*b"Intel(R) Xeon(R) Processor @ 3.00GHz\0\0\0\0\0\0\0\0\0\0\0\0");
+        assert_eq!(
+            ok_result,
+            expected,
+            "{:?} != {:?}",
+            ok_result.as_ref().map(|s| unsafe {
+                std::ffi::CStr::from_ptr((s as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }),
+            expected.as_ref().map(|s| unsafe {
+                std::ffi::CStr::from_ptr((s as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            })
+        );
+    }
+    #[test]
+    fn default_brand_string_test_missing_frequency() {
+        let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ \0\0\0\0\0\0\0\0\0";
+        let result = default_brand_string(*brand_string);
+        let expected = Err(DefaultBrandStringError::MissingFrequency(*brand_string));
+        assert_eq!(
+            result,
+            expected,
+            "{:?} != {:?}",
+            result.as_ref().map(|s| unsafe {
+                std::ffi::CStr::from_ptr((s as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }),
+            unsafe {
+                std::ffi::CStr::from_ptr((brand_string as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }
+        );
+    }
+    #[test]
+    fn default_brand_string_test_missing_space() {
+        let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @3.00GHz\0\0\0";
+        let result = default_brand_string(*brand_string);
+        let expected = Err(DefaultBrandStringError::MissingSpace(*brand_string));
+        assert_eq!(
+            result,
+            expected,
+            "{:?} != {:?}",
+            result.as_ref().map(|s| unsafe {
+                std::ffi::CStr::from_ptr((s as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }),
+            unsafe {
+                std::ffi::CStr::from_ptr((brand_string as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }
+        );
+    }
+    #[test]
+    fn default_brand_string_test_overflow() {
+        let brand_string = b"@ 123456789876543212345678987654321234567898GHz\0";
+        let result = default_brand_string(*brand_string);
+        assert_eq!(
+            result,
+            Err(DefaultBrandStringError::Overflow),
+            "{:?}",
+            result.as_ref().map(|s| unsafe {
+                std::ffi::CStr::from_ptr((s as *const u8).cast())
+                    .to_str()
+                    .unwrap()
+            }),
+        );
     }
 }
