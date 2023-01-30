@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use bit_fields::CheckedAssignError;
 
+use crate::cpuid::common::get_vendor_id_from_host;
 use crate::cpuid::{
     CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, MissingBrandStringLeaves,
 };
@@ -135,8 +136,7 @@ impl super::AmdCpuid {
     /// specification it is possible to enter an indefinite loop. To avoid this, this will return an
     /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
     fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
-        if crate::cpuid::common::get_vendor_id_from_host()
-            .map_err(PassthroughCacheTopologyError::NoVendorId)?
+        if get_vendor_id_from_host().map_err(PassthroughCacheTopologyError::NoVendorId)?
             != *crate::cpuid::VENDOR_ID_AMD
         {
             return Err(PassthroughCacheTopologyError::BadVendorId);
