@@ -710,6 +710,7 @@ mod tests {
                 assert!(c3_res.is_ok());
                 assert!(t2s_res.is_ok());
                 assert!(t2cl_res.is_ok());
+                assert!(t2a_res.is_err());
             }
             crate::cpuid::VENDOR_ID_AMD => {
                 assert!(t2a_res.is_ok());
