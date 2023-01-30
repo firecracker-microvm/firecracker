@@ -143,7 +143,7 @@ impl IoVecBuffer {
             //    to guest physical memory, whereas `buf_ptr` to Firecracaker-owned memory.
             unsafe {
                 let seg_ptr = (seg.iov_base as *const u8).add(start);
-                std::ptr::copy_nonoverlapping(seg_ptr, buf_ptr, buf_end - buf_start + 1);
+                std::ptr::copy_nonoverlapping(seg_ptr, buf_ptr, buf_end - buf_start);
             }
 
             buf_start = buf_end;
@@ -258,6 +258,9 @@ mod tests {
         let iovec = IoVecBuffer::from_descriptor_chain(&mem, head).unwrap();
 
         let mut buf = vec![0; 5];
+        assert_eq!(iovec.read_at(&mut buf[..4], 0), Some(4));
+        assert_eq!(buf, vec![0u8, 1, 2, 3, 0]);
+
         assert_eq!(iovec.read_at(&mut buf, 0), Some(5));
         assert_eq!(buf, vec![0u8, 1, 2, 3, 4]);
 
