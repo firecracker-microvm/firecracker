@@ -136,8 +136,8 @@ impl IoVecBuffer {
             // its boundaries) and `start` is less than `seg.iov_len`.
             //
             // The call to `copy_nonoverlapping` is safe because:
-            // 1. `buf_ptr` is a pointer valid for writing `buf_end - buf_start + 1` bytes.
-            // 2. `seg_ptr` is a pointer valid for reading `buf_end - buf_start + 1` bytes.
+            // 1. `buf_ptr` is a pointer valid for writing `buf_end - buf_start` bytes.
+            // 2. `seg_ptr` is a pointer valid for reading `buf_end - buf_start` bytes.
             // 3. Both pointers pointers are pointing to `u8`, so they are properly aligned.
             // 4. The memory regions these pointers point to are not overlapping. `seg_ptr` points
             //    to guest physical memory, whereas `buf_ptr` to Firecracaker-owned memory.
