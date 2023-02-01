@@ -216,6 +216,30 @@ containing other qdiscs, most classful qdiscs perform rate control.
   - `connlimit` - restricts the number of connections for a destination IP
     address/from a source IP address, as well as limit the bandwidth
 
+### Mitigating Noisy-Neighbour Storage Device Contention
+
+Data written to storage devices is managed in Linux with a page cache.
+Updates to these pages are written through to their mapped storage
+devices asynchronously at the host operating system's discretion.
+As a result, high storage output can result in this cache being
+filled quickly resulting in a backlog which can slow down I/O of
+other guests on the host.
+
+To protect the resource access of the guests, make sure to tune each Firecracker
+process via the following tools:
+
+- [Jailer](jailer.md): A wrapper environment designed to contain Firecracker
+                       and strictly control what the process and its guest has
+                       access to. Take note of the
+                       [jailer operations guide](jailer.md#jailer-operation),
+                       paying particular note to the `--resource-limit` parameter.
+- Rate limiting: Rate limiting functionality is supported for both networking
+                 and storage devices and is configured by the operator of the
+                 environment that launches the Firecracker process and its
+                 associated guest.
+                 See the [block device documentation](api_requests/patch-block.md)
+                 for examples of calling the API to configure rate limiting.
+
 ### Mitigating Side-Channel Issues
 
 When deploying Firecracker microVMs to handle multi-tenant workloads, the
