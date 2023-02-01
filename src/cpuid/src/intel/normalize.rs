@@ -351,7 +351,7 @@ fn default_brand_string(
     const DEFAULT_BRAND_STRING_BASE: &[u8] = b"Intel(R) Xeon(R) Processor @";
 
     // The slice of the host string before the frequency suffix
-    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
+    // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
     let (before, after) = 'outer: {
         for i in 0..host_brand_string.len() {
             // Find position of b"THz" or b"GHz" or b"MHz"
@@ -367,7 +367,7 @@ fn default_brand_string(
     );
 
     // We iterate from the end until hitting a space, getting the frequency number
-    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
+    // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
     let (_, frequency) = 'outer: {
         for i in (0..before.len()).rev() {
             let c = before[i];
