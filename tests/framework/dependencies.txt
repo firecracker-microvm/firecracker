@@ -18,8 +18,6 @@
  'clang-sys',
  'convert_case',
  'cpufeatures',
- 'cpuid',
- 'cpuid-templates',
  'crc64',
  'crypto-common',
  'ctr',
