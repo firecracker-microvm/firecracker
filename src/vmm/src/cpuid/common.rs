@@ -164,10 +164,8 @@ pub fn intel_msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collecti
 
 #[cfg(test)]
 mod tests {
-    #[cfg(cpuid)]
     use super::*;
 
-    #[cfg(cpuid)]
     #[test]
     fn get_cpuid_invalid_leaf() {
         let max_leaf =

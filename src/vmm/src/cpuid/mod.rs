@@ -97,7 +97,7 @@ pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 /// "orP " | "ssec" | "@ ro" | "0.3 " |
 /// "zHG0" | null | null | null
 /// ------------------------------------
-/// Intel(4) Xeon(R) Processor @ 3.00Ghz
+/// Intel(R) Xeon(R) Processor @ 3.00Ghz
 /// ```
 #[inline]
 #[must_use]
@@ -327,9 +327,6 @@ pub enum KvmGetSupportedCpuidError {
     /// Could not access KVM.
     #[error("Could not access KVM: {0}")]
     KvmAccess(#[from] utils::errno::Error),
-    /// Failed to create CPUID structure.
-    #[error("Failed to create CPUID structure: {0}")]
-    CpuidFromRaw(CpuidTryFromRawCpuid),
 }
 
 /// Error type for [`<Cpuid as TryFrom<RawCpuid>>::try_from`].
