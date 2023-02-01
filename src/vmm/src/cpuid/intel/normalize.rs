@@ -30,10 +30,11 @@ pub enum NormalizeCpuidError {
     GetBrandString(DefaultBrandStringError),
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
-    ApplyBrandString(crate::MissingBrandStringLeaves),
+    ApplyBrandString(crate::cpuid::MissingBrandStringLeaves),
 }
 
 /// Error type for setting leaf 4 section of `IntelCpuid::normalize`.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum DeterministicCacheError {
     /// Failed to set `Maximum number of addressable IDs for logical processors sharing this
@@ -314,7 +315,7 @@ impl super::IntelCpuid {
     /// Update brand string entry
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // Get host brand string.
-        let host_brand_string: [u8; BRAND_STRING_LENGTH] = crate::host_brand_string();
+        let host_brand_string: [u8; BRAND_STRING_LENGTH] = crate::cpuid::host_brand_string();
 
         let default_brand_string =
             default_brand_string(host_brand_string).map_err(NormalizeCpuidError::GetBrandString)?;
@@ -330,10 +331,10 @@ impl super::IntelCpuid {
 pub enum DefaultBrandStringError {
     /// Missing frequency.
     #[error("Missing frequency: {0:?}.")]
-    MissingFrequency([u8; crate::BRAND_STRING_LENGTH]),
+    MissingFrequency([u8; crate::cpuid::BRAND_STRING_LENGTH]),
     /// Missing space.
     #[error("Missing space: {0:?}.")]
-    MissingSpace([u8; crate::BRAND_STRING_LENGTH]),
+    MissingSpace([u8; crate::cpuid::BRAND_STRING_LENGTH]),
     /// Insufficient space in brand string.
     #[error("Insufficient space in brand string.")]
     Overflow,
@@ -368,7 +369,7 @@ fn default_brand_string(
     const DEFAULT_BRAND_STRING_BASE: &[u8] = b"Intel(R) Xeon(R) Processor @";
 
     // The slice of the host string before the frequency suffix
-    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
+    // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
     let (before, after) = 'outer: {
         for i in 0..host_brand_string.len() {
             // Find position of b"THz" or b"GHz" or b"MHz"
@@ -384,7 +385,7 @@ fn default_brand_string(
     );
 
     // We iterate from the end until hitting a space, getting the frequency number
-    // e.g. b"Intel(4) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
+    // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
     let (_, frequency) = 'outer: {
         for i in (0..before.len()).rev() {
             let c = before[i];

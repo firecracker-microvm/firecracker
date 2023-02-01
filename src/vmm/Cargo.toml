@@ -20,7 +20,9 @@ userfaultfd = "0.5.0"
 versionize = "0.1.6"
 versionize_derive = "0.1.4"
 vm-allocator = "0.1.0"
-vm-superio = "0.7.0"
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+thiserror = "1.0.32"
+log = "0.4.17"
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
@@ -32,9 +34,8 @@ snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
-
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-cpuid = { path = "../cpuid" }
+arch_gen = { path = "../arch_gen" }
+bit-fields = { path = "../bit-fields" }
 
 [dev-dependencies]
 criterion = "0.4.0"
