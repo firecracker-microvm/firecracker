@@ -96,7 +96,7 @@ pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 /// "orP " | "ssec" | "@ ro" | "0.3 " |
 /// "zHG0" | null | null | null
 /// ------------------------------------
-/// Intel(4) Xeon(R) Processor @ 3.00Ghz
+/// Intel(R) Xeon(R) Processor @ 3.00Ghz
 /// ```
 #[cfg(cpuid)]
 #[inline]
