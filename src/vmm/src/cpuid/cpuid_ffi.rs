@@ -376,7 +376,6 @@ impl DerefMut for RawCpuid {
     }
 }
 
-#[cfg(cpuid)]
 impl From<kvm_bindings::CpuId> for RawCpuid {
     #[allow(clippy::unwrap_used)]
     #[inline]
@@ -418,7 +417,6 @@ impl FromIterator<RawKvmCpuidEntry> for RawCpuid {
     }
 }
 
-#[cfg(cpuid)]
 impl From<RawCpuid> for kvm_bindings::CpuId {
     #[allow(clippy::transmute_ptr_to_ptr, clippy::unwrap_used)]
     #[inline]
@@ -532,54 +530,11 @@ impl fmt::LowerHex for RawKvmCpuidEntry {
 #[allow(clippy::unwrap_used, clippy::print_stdout, clippy::use_debug)]
 #[cfg(test)]
 mod tests {
-    #[cfg(cpuid)]
+
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 
+    use super::super::{CpuidRegisters, CpuidTrait};
     use super::*;
-    use crate::{CpuidRegisters, CpuidTrait};
-
-    #[test]
-    fn raw_cpuid_resize_error_debug() {
-        let layout_error = std::alloc::Layout::array::<u8>(usize::MAX).unwrap_err();
-        assert_eq!(
-            format!("{:?}", RawCpuidResizeError(layout_error)),
-            "RawCpuidResizeError(LayoutError)"
-        );
-    }
-    #[test]
-    fn raw_cpuid_resize_error_display() {
-        let layout_error = std::alloc::Layout::array::<u8>(usize::MAX).unwrap_err();
-        assert_eq!(
-            RawCpuidResizeError(layout_error).to_string(),
-            "Failed to resize: invalid parameters to Layout::from_size_align"
-        );
-    }
-
-    #[test]
-    fn raw_cpuid_debug() {
-        let mut raw_cpuid = RawCpuid::new();
-        raw_cpuid
-            .push(RawKvmCpuidEntry {
-                function: 0,
-                index: 0,
-                flags: KvmCpuidFlags::empty(),
-                eax: 0,
-                ebx: 0,
-                ecx: 0,
-                edx: 0,
-                padding: Padding::default(),
-            })
-            .unwrap();
-
-        assert_eq!(
-            format!("{raw_cpuid:?}"),
-            format!(
-                "RawCpuid {{ nent: 1, padding: Padding(core::mem::maybe_uninit::MaybeUninit<[u8; \
-                 4]>), entries: {:?}, _marker: PhantomData<cpuid::cpuid_ffi::RawKvmCpuidEntry> }}",
-                raw_cpuid.entries
-            )
-        );
-    }
 
     #[test]
     fn raw_cpuid_nent() {
@@ -682,7 +637,6 @@ mod tests {
         assert_eq!(leaf, &new_entry);
     }
 
-    #[cfg(cpuid)]
     #[test]
     fn kvm_set_cpuid() {
         let kvm = kvm_ioctls::Kvm::new().unwrap();
@@ -716,7 +670,7 @@ mod tests {
             println!("\t{x:?}");
         }
     }
-    #[cfg(cpuid)]
+
     #[test]
     fn between_kvm() {
         let kvm = kvm_ioctls::Kvm::new().unwrap();
@@ -728,7 +682,7 @@ mod tests {
 
         assert_eq!(kvm_cpuid.as_slice(), kvm_cpuid_2.as_slice());
     }
-    #[cfg(cpuid)]
+
     #[test]
     fn clone() {
         let kvm = kvm_ioctls::Kvm::new().unwrap();

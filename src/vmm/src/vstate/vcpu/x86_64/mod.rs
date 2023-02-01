@@ -215,16 +215,16 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Error type for [`KvmVcpu::configure`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    /// Failed to construct `cpuid::Cpuid` from snapshot.
-    #[error("Failed to construct `cpuid::RawCpuid` from `kvm_bindings::CpuId`")]
-    SnapshotCpuid(cpuid::CpuidTryFromRawCpuid),
+    /// Failed to construct `crate::cpuid::Cpuid` from snapshot.
+    #[error("Failed to construct `crate::cpuid::RawCpuid` from `kvm_bindings::CpuId`")]
+    SnapshotCpuid(crate::cpuid::CpuidTryFromRawCpuid),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
-    NormalizeCpuidError(cpuid::NormalizeCpuidError),
+    NormalizeCpuidError(crate::cpuid::NormalizeCpuidError),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to get MSRs to save from CPUID: {0}")]
-    MsrsToSaveByCpuid(cpuid::common::Leaf0NotFoundInCpuid),
+    MsrsToSaveByCpuid(crate::cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(#[from] SetMSRsError),
     #[error("Failed to setup registers: {0}")]
@@ -290,8 +290,10 @@ impl KvmVcpu {
             CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl(),
             CpuFeaturesTemplate::T2A => cpuid_templates::t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
-            CpuFeaturesTemplate::None => cpuid::Cpuid::try_from(cpuid::RawCpuid::from(cpuid))
-                .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
+            CpuFeaturesTemplate::None => {
+                crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid))
+                    .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
+            }
         };
 
         // Apply machine specific changes to CPUID.
@@ -324,7 +326,7 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
+        let extra_msrs = crate::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
         self.msr_list.extend(extra_msrs);
 
@@ -654,7 +656,6 @@ impl VcpuState {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    extern crate cpuid;
 
     use std::os::unix::io::AsRawFd;
 
@@ -755,13 +756,13 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        match &cpuid::common::get_vendor_id_from_host().unwrap() {
-            cpuid::VENDOR_ID_INTEL => {
+        match &crate::cpuid::common::get_vendor_id_from_host().unwrap() {
+            crate::cpuid::VENDOR_ID_INTEL => {
                 assert_eq!(t2_res, Ok(()));
                 assert_eq!(c3_res, Ok(()));
                 assert_eq!(t2s_res, Ok(()));
             }
-            cpuid::VENDOR_ID_AMD => {
+            crate::cpuid::VENDOR_ID_AMD => {
                 assert!(t2_res.is_err());
                 assert!(c3_res.is_err());
                 assert!(t2s_res.is_err());

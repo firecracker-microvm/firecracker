@@ -9,9 +9,14 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![allow(clippy::blanket_clippy_restriction_lints)]
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
+/// CPUID information.
+#[cfg(cpuid)]
+mod cpuid;
 pub(crate) mod device_manager;
 pub mod memory_snapshot;
 /// Save/restore utilities.

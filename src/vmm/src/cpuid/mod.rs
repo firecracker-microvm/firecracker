@@ -27,13 +27,13 @@
     clippy::unreadable_literal,
     clippy::similar_names,
     clippy::same_name_method,
-    clippy::doc_markdown
+    clippy::doc_markdown,
+    clippy::module_name_repetitions
 )]
 
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 use std::convert::TryFrom;
-#[cfg(cpuid)]
 use std::mem::{size_of, transmute};
 
 /// cpuid utility functions.
@@ -61,9 +61,8 @@ mod leaves;
 pub use leaves::Leaf;
 
 /// CPUID normalize implementation.
-#[cfg(cpuid)]
 mod normalize;
-#[cfg(cpuid)]
+
 pub use normalize::{FeatureInformationError, GetMaxCpusPerPackageError, NormalizeCpuidError};
 
 /// Register bit fields (shared between AMD and Intel).
@@ -96,9 +95,8 @@ pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 /// "orP " | "ssec" | "@ ro" | "0.3 " |
 /// "zHG0" | null | null | null
 /// ------------------------------------
-/// Intel(4) Xeon(R) Processor @ 3.00Ghz
+/// Intel(R) Xeon(R) Processor @ 3.00Ghz
 /// ```
-#[cfg(cpuid)]
 #[inline]
 #[must_use]
 pub fn host_brand_string() -> [u8; BRAND_STRING_LENGTH] {
@@ -275,7 +273,6 @@ pub trait CpuidTrait {
     }
 }
 
-#[cfg(cpuid)]
 impl CpuidTrait for kvm_bindings::CpuId {
     /// Gets a given sub-leaf.
     #[allow(clippy::transmute_ptr_to_ptr)]
@@ -323,15 +320,11 @@ impl CpuidTrait for kvm_bindings::CpuId {
 pub struct MissingBrandStringLeaves;
 
 /// Error type for [`Cpuid::kvm_get_supported_cpuid`].
-#[cfg(cpuid)]
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmGetSupportedCpuidError {
     /// Could not access KVM.
     #[error("Could not access KVM: {0}")]
     KvmAccess(#[from] utils::errno::Error),
-    /// Failed to create CPUID structure.
-    #[error("Failed to create CPUID structure: {0}")]
-    CpuidFromRaw(CpuidTryFromRawCpuid),
 }
 
 /// Error type for [`<Cpuid as TryFrom<RawCpuid>>::try_from`].
@@ -446,7 +439,6 @@ impl From<Cpuid> for RawCpuid {
     }
 }
 
-#[cfg(cpuid)]
 impl From<Cpuid> for kvm_bindings::CpuId {
     #[inline]
     fn from(cpuid: Cpuid) -> Self {
@@ -549,7 +541,7 @@ pub struct CpuidEntry {
     ///     0x80000008u32 => KvmCpuidFlags::empty(),
     /// };
     /// ```
-    pub flags: crate::cpuid_ffi::KvmCpuidFlags,
+    pub flags: crate::cpuid::cpuid_ffi::KvmCpuidFlags,
     /// Register values.
     pub result: CpuidRegisters,
 }
@@ -570,7 +562,6 @@ pub struct CpuidRegisters {
     pub edx: u32,
 }
 
-#[cfg(cpuid)]
 impl From<core::arch::x86_64::CpuidResult> for CpuidRegisters {
     #[inline]
     fn from(
