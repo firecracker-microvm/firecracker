@@ -15,6 +15,8 @@ const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 // It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
+    cpuid();
+
     let target = env::var("TARGET").expect("Missing target.");
     let out_dir = env::var("OUT_DIR").expect("Missing build-level OUT_DIR.");
 
@@ -113,4 +115,16 @@ fn register_seccompiler_src_watchlist(src_dir: &Path) {
             register_seccompiler_src_watchlist(&path);
         }
     }
+}
+
+fn cpuid() {
+    // Sets a `--cfg` flag for conditional compilation.
+    //
+    // TODO: Use `core::arch::x86_64::has_cpuid`
+    // (https://github.com/firecracker-microvm/firecracker/issues/3271).
+    #[cfg(any(
+        all(target_arch = "x86", target_feature = "sse", not(target_env = "sgx")),
+        all(target_arch = "x86_64", not(target_env = "sgx"))
+    ))]
+    println!("cargo:rustc-cfg=cpuid");
 }

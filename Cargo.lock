@@ -1240,6 +1240,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "linux-loader",
+ "log",
  "logger",
  "mmds",
  "rate_limiter",
