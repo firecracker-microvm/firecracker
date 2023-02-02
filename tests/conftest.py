@@ -576,36 +576,38 @@ def firecracker_artifacts(*args, **kwargs):
 
 
 @pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)
-def firecracker_release(request):
+def firecracker_release(request, record_property):
     """Return all supported firecracker binaries."""
     firecracker = request.param
+    record_property("firecracker_release", firecracker.version)
     firecracker.download()
     firecracker.jailer().download()
     return firecracker
 
 
 @pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
-def guest_kernel(request):
+def guest_kernel(request, record_property):
     """Return all supported guest kernels."""
     kernel = request.param
+    record_property("guest_kernel", kernel.name())
     kernel.download()
     return kernel
 
 
-@pytest.fixture(
-    params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda rootfs: rootfs.name()
-)
-def rootfs(request):
+@pytest.fixture(params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda fs: fs.name())
+def rootfs(request, record_property):
     """Return all supported rootfs."""
-    rootfs = request.param
-    rootfs.download()
-    rootfs.ssh_key().download()
-    return rootfs
+    fs = request.param
+    record_property("rootfs", fs.name())
+    fs.download()
+    fs.ssh_key().download()
+    return fs
 
 
 @pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
-def cpu_template(request):
+def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
+    record_property("cpu_template", request.param)
     return request.param
 
 
