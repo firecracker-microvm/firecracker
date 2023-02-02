@@ -1,10 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+include!("./clippy.in");
+
 #![deny(missing_docs)]
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::cast_lossless)]
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to

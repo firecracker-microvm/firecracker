@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+include!("./clippy.in");
+
 #![allow(clippy::all)]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]

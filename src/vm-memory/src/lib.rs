@@ -4,7 +4,8 @@
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
-#![warn(clippy::undocumented_unsafe_blocks)]
+
+include!("./clippy.in");
 
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;

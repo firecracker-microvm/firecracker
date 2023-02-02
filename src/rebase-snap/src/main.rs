@@ -1,9 +1,7 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::cast_lossless)]
+include!("./clippy.in");
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
