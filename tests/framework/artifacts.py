@@ -21,6 +21,7 @@ from framework.defs import (
 )
 from framework.utils import compare_versions, get_kernel_version
 from framework.utils_cpuid import get_instance_type
+import host_tools.network as net_tools
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
@@ -642,6 +643,7 @@ class NetIfaceConfig:
         """Initialize object."""
         self._host_ip = host_ip
         self._guest_ip = guest_ip
+        self._guest_mac = net_tools.mac_from_ip(guest_ip)
         self._tap_name = tap_name
         self._dev_name = dev_name
         self._netmask = netmask
@@ -655,6 +657,11 @@ class NetIfaceConfig:
     def guest_ip(self):
         """Return the guest IP."""
         return self._guest_ip
+
+    @property
+    def guest_mac(self):
+        """Return the guest MAC address."""
+        return self._guest_mac
 
     @property
     def tap_name(self):
