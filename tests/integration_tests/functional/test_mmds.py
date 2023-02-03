@@ -725,7 +725,7 @@ def test_mmds_snapshot(bin_cloner_path, version):
         )
 
 
-def test_mmds_older_snapshot(bin_cloner_path):
+def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
     """
     Test MMDS behavior restoring older snapshots in the current version.
 
@@ -735,55 +735,21 @@ def test_mmds_older_snapshot(bin_cloner_path):
     @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
-
-    # Validate restoring a past snapshot in the current version.
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all firecracker binaries.
-    firecracker_artifacts = artifacts.firecrackers(
-        min_version="1.1.0", max_version=get_firecracker_version_from_toml()
+    net_iface = NetIfaceConfig()
+    vm_instance = vm_builder.build_vm_nano(
+        net_ifaces=[net_iface],
+        fc_binary=firecracker_release.local_path(),
+        jailer_binary=firecracker_release.jailer().local_path(),
     )
-    for firecracker in firecracker_artifacts:
-        firecracker.download()
-        jailer = firecracker.jailer()
-        jailer.download()
 
-        net_iface = NetIfaceConfig()
-        vm_instance = vm_builder.build_vm_nano(
-            net_ifaces=[net_iface],
-            fc_binary=firecracker.local_path(),
-            jailer_binary=jailer.local_path(),
-        )
-
-        fc_version = firecracker.base_name()[1:]
-        # If the version is smaller or equal to 1.0.0, we expect that
-        # MMDS will be initialised with V1 by default.
-        # Otherwise, we may configure V2.
-        if compare_versions(fc_version, "1.0.0") <= 0:
-            mmds_version = "V1"
-        else:
-            mmds_version = "V2"
-
-        # Check if we need to configure MMDS the old way, by
-        # setting `allow_mmds_requests`.
-        # If we do (for v0.25), reissue the network PUT api call.
-        if compare_versions(fc_version, "1.0.0") < 0:
-            basevm = vm_instance.vm
-            guest_mac = net_tools.mac_from_ip(net_iface.guest_ip)
-            response = basevm.network.put(
-                iface_id=net_iface.dev_name,
-                host_dev_name=net_iface.tap_name,
-                guest_mac=guest_mac,
-                allow_mmds_requests=True,
-            )
-            assert basevm.api_session.is_status_no_content(response.status_code)
-
-        _validate_mmds_snapshot(
-            vm_instance,
-            vm_builder,
-            mmds_version,
-            net_iface,
-            target_fc_version=fc_version,
-        )
+    mmds_version = "V2"
+    _validate_mmds_snapshot(
+        vm_instance,
+        vm_builder,
+        mmds_version,
+        net_iface,
+        target_fc_version=firecracker_release.snapshot_version,
+    )
 
 
 def test_mmds_v2_negative(test_microvm_with_api, network_config):
