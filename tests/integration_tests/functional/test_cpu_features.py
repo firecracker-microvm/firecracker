@@ -196,8 +196,31 @@ MSR_EXCEPTION_LIST = [
 ]
 # fmt: on
 
-# CPU templates which support MSR test
-MSR_SUPPORTED_TEMPLATES = ["T2A", "T2S"]
+
+def get_msr_supported_templates():
+    """
+    Return the list of CPU templates supported for MSR-related tests.
+    """
+    # CPU templates supported for the MSR tests
+    msr_supported_templates = ["T2A", "T2S"]
+
+    # CPU templates which need additional checks are added below:
+
+    # Cascade Lake on m5d.metal has MSR 0x122 state as implemented whereas,
+    # Skylake on m5d.metal has MSR 0x122 state as unimplemented.
+    # Since the conflict is seen only with Skylake and Cascade lake,
+    # we add T2CL (Cascade Lake) template only when CPU is not Skylake.
+    t2cl_exception_list = [
+        # Note: we may need to update this list if there are
+        # more conflicting CPU models reported in the future.
+        "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz",  # Skylake
+    ]
+    if cpuid_utils.get_cpu_model_name() not in t2cl_exception_list:
+        msr_supported_templates.append("T2CL")
+    return msr_supported_templates
+
+
+MSR_SUPPORTED_TEMPLATES = get_msr_supported_templates()
 
 
 @pytest.fixture(
