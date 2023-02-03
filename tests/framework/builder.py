@@ -145,7 +145,7 @@ class MicrovmBuilder:
         with open(config.local_path(), encoding="utf-8") as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
-        response = vm.basic_config(
+        vm.basic_config(
             add_root_device=False, boot_args="console=ttyS0 reboot=k panic=1"
         )
 
