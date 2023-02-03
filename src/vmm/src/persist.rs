@@ -642,7 +642,7 @@ fn guest_memory_from_uffd(
         let host_base_addr = mem_region.as_ptr();
         let size = mem_region.size();
 
-        uffd.register(host_base_addr as _, size as _)
+        uffd.register(host_base_addr.cast(), size as _)
             .map_err(GuestMemoryFromUffdError::Register)?;
         backend_mappings.push(GuestRegionUffdMapping {
             base_host_virt_addr: host_base_addr as u64,
