@@ -9,7 +9,6 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;

@@ -55,7 +55,7 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Bincode (de)serialization failed: {0}")]
     Bincode(BincodeError),
@@ -70,7 +70,7 @@ enum Error {
     #[error("Missing target arch.")]
     MissingTargetArch,
     #[error("{0}")]
-    Arch(TargetArchError),
+    Arch(#[from] TargetArchError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -154,7 +154,9 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: HashMap<String, BpfProgram> = compiler.compile_blob(filters.0, args.is_basic)?;
+    let bpf_data: HashMap<String, BpfProgram> = compiler
+        .compile_blob(filters.0, args.is_basic)
+        .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)
@@ -380,6 +382,7 @@ mod tests {
             format!("{}", TargetArchError::InvalidString("lala".to_string()))
         );
     }
+
     #[test]
     fn test_get_argument_values() {
         let arg_parser = build_arg_parser();

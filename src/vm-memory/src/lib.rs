@@ -4,7 +4,6 @@
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;
@@ -103,7 +102,7 @@ fn build_guarded_region(
     // SAFETY: Safe because the parameters are valid.
     unsafe {
         MmapRegionBuilder::new_with_bitmap(size, bitmap)
-            .with_raw_mmap_pointer(region_addr as *mut u8)
+            .with_raw_mmap_pointer(region_addr.cast::<u8>())
             .with_mmap_prot(prot)
             .with_mmap_flags(flags)
             .build()

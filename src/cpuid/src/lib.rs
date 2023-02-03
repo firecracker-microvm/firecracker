@@ -6,9 +6,7 @@
 // found in the THIRD-PARTY file.
 
 #![deny(missing_docs)]
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::cast_lossless)]
+
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 #![cfg(target_arch = "x86_64")]

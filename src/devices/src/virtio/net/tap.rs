@@ -34,7 +34,7 @@ pub enum Error {
     /// Error while creating ifreq structure
     #[error(
         "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. \
-         Check our documentation on setting up the network devices"
+         Check our documentation on setting up the network devices."
     )]
     IfreqExecuteError(IoError, String),
     /// Error while setting the offload flags

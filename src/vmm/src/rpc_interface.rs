@@ -1101,7 +1101,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1127,7 +1127,7 @@ mod tests {
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -1964,7 +1964,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::IncorrectDeviceType,
+                crate::device_manager::mmio::Error::InvalidDeviceType,
             ))),
         );
     }
@@ -1989,7 +1989,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::IncorrectDeviceType),
+                VmmError::DeviceManager(crate::device_manager::mmio::Error::InvalidDeviceType),
             )),
         );
     }

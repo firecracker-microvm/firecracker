@@ -10,3 +10,4 @@ __pycache__
 test_results/*
 *.core
 *.profraw
+.DS_Store

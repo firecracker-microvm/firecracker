@@ -6,6 +6,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 event-manager = "0.3.0"
 libc = "0.2.117"
 thiserror = "1.0.32"
@@ -13,7 +14,6 @@ timerfd = "1.2.0"
 versionize = "0.1.6"
 versionize_derive = "0.1.4"
 vm-superio = "0.7.0"
-derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }

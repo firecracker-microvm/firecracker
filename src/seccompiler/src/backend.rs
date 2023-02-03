@@ -4,10 +4,8 @@
 //! This module defines the data structures used for the intermmediate representation (IR),
 //! as well as the logic for compiling the filter into BPF code, the final form of the filter.
 
-use core::fmt::Formatter;
 use std::collections::BTreeMap;
 use std::convert::{Into, TryFrom, TryInto};
-use std::fmt::Display;
 
 use serde::{Deserialize, Deserializer};
 
@@ -129,20 +127,11 @@ pub(crate) enum TargetArch {
 }
 
 /// Errors related to target arch.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum TargetArchError {
     /// Invalid string.
+    #[error("Invalid target arch string: {0}")]
     InvalidString(String),
-}
-
-impl Display for TargetArchError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::TargetArchError::*;
-
-        match *self {
-            InvalidString(ref arch) => write!(f, "Invalid target arch string: {}", arch),
-        }
-    }
 }
 
 impl TargetArch {

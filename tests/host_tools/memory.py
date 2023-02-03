@@ -3,7 +3,6 @@
 """Utilities for measuring memory utilization for a process."""
 from queue import Queue
 import time
-import platform
 from threading import Thread, Lock
 
 from framework import utils
@@ -36,7 +35,10 @@ class MemoryMonitor(Thread):
         Thread.__init__(self)
         self._pid = None
         self._guest_mem_mib = None
-        self._guest_mem_start = None
+        self._guest_mem_start_1 = None
+        self._guest_mem_end_1 = None
+        self._guest_mem_start_2 = None
+        self._guest_mem_end_2 = None
         self._exceeded_queue = Queue()
         self._pmap_out = None
         self._threshold = self.MEMORY_THRESHOLD
@@ -96,12 +98,6 @@ class MemoryMonitor(Thread):
         while not self._should_stop:
             mem_total = 0
             try:
-                if (
-                    platform.machine() == "x86_64"
-                    and (self.guest_mem_mib * 1024) > self.X86_MEMORY_GAP_START
-                ):
-                    # TODO Remove when <https://github.com/firecracker-microvm/firecracker/issues/3349> is closed.
-                    return
                 _, stdout, _ = utils.run_cmd(pmap_cmd)
                 pmap_out = stdout.split("\n")
 
@@ -118,14 +114,9 @@ class MemoryMonitor(Thread):
                 except ValueError:
                     # This line doesn't contain memory related information.
                     continue
-                if (
-                    self._guest_mem_start is None
-                    and total_size == self.guest_mem_mib * 1024
-                ):
-                    # This is the start of the guest's memory region.
-                    self._guest_mem_start = address
+                if self.update_guest_mem_regions(address, total_size):
                     continue
-                if self.is_in_guest_mem_region(address):
+                if self.is_in_guest_mem_regions(address):
                     continue
                 mem_total += rss
             with self._lock:
@@ -137,12 +128,45 @@ class MemoryMonitor(Thread):
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
 
-    def is_in_guest_mem_region(self, address):
-        """Check if the address is inside the guest memory region."""
-        if self._guest_mem_start is None:
-            return False
-        guest_mem_end = self._guest_mem_start + self.guest_mem_mib
-        return self._guest_mem_start <= address < guest_mem_end
+    def update_guest_mem_regions(self, address, size_kib):
+        """
+        If the address is recognised as a guest memory region,
+        cache it and return True, otherwise return False.
+        """
+
+        # If x86_64 guest memory exceeds 3328M, it will be split
+        # in 2 regions: 3328M and the rest. We have 3 cases here
+        # to recognise a guest memory region:
+        #  - its size matches the guest memory exactly
+        #  - its size is 3328M
+        #  - its size is guest memory minus 3328M.
+        if size_kib in (
+            self.guest_mem_mib * 1024,
+            self.X86_MEMORY_GAP_START,
+            self.guest_mem_mib * 1024 - self.X86_MEMORY_GAP_START,
+        ):
+            if not self._guest_mem_start_1:
+                self._guest_mem_start_1 = address
+                self._guest_mem_end_1 = address + size_kib * 1024
+                return True
+            if not self._guest_mem_start_2:
+                self._guest_mem_start_2 = address
+                self._guest_mem_end_2 = address + size_kib * 1024
+                return True
+        return False
+
+    def is_in_guest_mem_regions(self, address):
+        """Check if the address is inside a guest memory region."""
+        for guest_mem_start, guest_mem_end in [
+            (self._guest_mem_start_1, self._guest_mem_end_1),
+            (self._guest_mem_start_2, self._guest_mem_end_2),
+        ]:
+            if (
+                guest_mem_start is not None
+                and guest_mem_start <= address < guest_mem_end
+            ):
+                return True
+        return False
 
     def check_samples(self):
         """Check that there are no samples over the threshold."""

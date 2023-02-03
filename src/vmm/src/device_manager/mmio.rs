@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::{fmt, io};
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
@@ -33,50 +32,35 @@ use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 use vm_memory::GuestAddress;
 
 /// Errors for MMIO device manager.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Failed to perform an operation on the bus.
-    Bus(devices::BusError),
+    /// Allocation logic error.
+    #[error("Failed to allocate requested resource: {0}")]
+    Allocator(vm_allocator::Error),
+    /// Failed to insert device on the bus.
+    #[error("Failed to insert device on the bus: {0}")]
+    BusInsert(devices::BusError),
     /// Appending to kernel command line failed.
+    #[error("Failed to allocate requested resourc: {0}")]
     Cmdline(linux_loader::cmdline::Error),
-    /// The device couldn't be found.
+    /// The device couldn't be found on the bus.
+    #[error("Failed to find the device on the bus.")]
     DeviceNotFound,
-    /// Failure in creating or cloning an event fd.
-    EventFd(io::Error),
     /// Incorrect device type.
-    IncorrectDeviceType,
+    #[error("Invalid device type found on the MMIO bus.")]
+    InvalidDeviceType,
     /// Internal device error.
+    #[error("{0}")]
     InternalDeviceError(String),
     /// Invalid configuration attempted.
-    InvalidInput,
+    #[error("Invalid MMIO IRQ configuration.")]
+    InvalidIrqConfig,
     /// Registering an IO Event failed.
+    #[error("Failed to register IO event: {0}")]
     RegisterIoEvent(kvm_ioctls::Error),
     /// Registering an IRQ FD failed.
+    #[error("Failed to register irqfd: {0}")]
     RegisterIrqFd(kvm_ioctls::Error),
-    /// Failed to update the mmio device.
-    UpdateFailed,
-    /// Allocation logic error.
-    AllocatorError(vm_allocator::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Bus(err) => write!(f, "failed to perform bus operation: {}", err),
-            Error::Cmdline(err) => {
-                write!(f, "unable to add device to kernel command line: {}", err)
-            }
-            Error::EventFd(err) => write!(f, "failed to create or clone event descriptor: {}", err),
-            Error::IncorrectDeviceType => write!(f, "incorrect device type"),
-            Error::InternalDeviceError(err) => write!(f, "device error: {}", err),
-            Error::InvalidInput => write!(f, "invalid configuration"),
-            Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
-            Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),
-            Error::DeviceNotFound => write!(f, "the device couldn't be found"),
-            Error::UpdateFailed => write!(f, "failed to update the mmio device"),
-            Error::AllocatorError(e) => write!(f, "failed to allocate requested resource: {}", e),
-        }
-    }
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -115,9 +99,9 @@ impl MMIODeviceManager {
         (irq_start, irq_end): (u32, u32),
     ) -> Result<MMIODeviceManager> {
         Ok(MMIODeviceManager {
-            irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::AllocatorError)?,
+            irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::Allocator)?,
             address_allocator: AddressAllocator::new(mmio_base, mmio_size)
-                .map_err(Error::AllocatorError)?,
+                .map_err(Error::Allocator)?,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         })
@@ -128,12 +112,12 @@ impl MMIODeviceManager {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
             .collect::<vm_allocator::Result<_>>()
-            .map_err(Error::AllocatorError)?;
+            .map_err(Error::Allocator)?;
         let device_info = MMIODeviceInfo {
             addr: self
                 .address_allocator
                 .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
-                .map_err(Error::AllocatorError)?
+                .map_err(Error::Allocator)?
                 .start(),
             len: MMIO_LEN,
             irqs,
@@ -150,7 +134,7 @@ impl MMIODeviceManager {
     ) -> Result<()> {
         self.bus
             .insert(device, device_info.addr, device_info.len)
-            .map_err(Error::Bus)?;
+            .map_err(Error::BusInsert)?;
         self.id_to_dev_info.insert(identifier, device_info);
         Ok(())
     }
@@ -166,7 +150,7 @@ impl MMIODeviceManager {
         // Our virtio devices are currently hardcoded to use a single IRQ.
         // Validate that requirement.
         if device_info.irqs.len() != 1 {
-            return Err(Error::InvalidInput);
+            return Err(Error::InvalidIrqConfig);
         }
         let identifier;
         {
@@ -395,7 +379,7 @@ impl MMIODeviceManager {
             f(dev
                 .as_mut_any()
                 .downcast_mut::<T>()
-                .ok_or(Error::IncorrectDeviceType)?)
+                .ok_or(Error::InvalidDeviceType)?)
             .map_err(Error::InternalDeviceError)?;
         } else {
             return Err(Error::DeviceNotFound);
@@ -474,7 +458,6 @@ mod tests {
     use std::sync::Arc;
 
     use devices::virtio::{ActivateResult, Queue, VirtioDevice};
-    use utils::errno;
     use utils::eventfd::EventFd;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -653,7 +636,7 @@ mod tests {
                     )
                     .unwrap_err()
             ),
-            "failed to allocate requested resource: The requested resource is not available."
+            "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
     }
@@ -663,39 +646,6 @@ mod tests {
         let dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
-    }
-
-    #[test]
-    fn test_error_debug_display() {
-        let check_fmt_err = |err: Error| {
-            // Use an exhaustive 'match' to make sure we cover all error variants.
-            // When adding a new variant here, don't forget to also call this function with it.
-            let msg = match err {
-                Error::Bus(_) => format!("{}{:?}", err, err),
-                Error::Cmdline(_) => format!("{}{:?}", err, err),
-                Error::DeviceNotFound => format!("{}{:?}", err, err),
-                Error::EventFd(_) => format!("{}{:?}", err, err),
-                Error::IncorrectDeviceType => format!("{}{:?}", err, err),
-                Error::InternalDeviceError(_) => format!("{}{:?}", err, err),
-                Error::InvalidInput => format!("{}{:?}", err, err),
-                Error::RegisterIoEvent(_) => format!("{}{:?}", err, err),
-                Error::RegisterIrqFd(_) => format!("{}{:?}", err, err),
-                Error::UpdateFailed => format!("{}{:?}", err, err),
-                Error::AllocatorError(_) => format!("{}{:?}", err, err),
-            };
-            assert!(!msg.is_empty());
-        };
-        check_fmt_err(Error::Bus(devices::BusError::Overlap));
-        check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
-        check_fmt_err(Error::DeviceNotFound);
-        check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
-        check_fmt_err(Error::IncorrectDeviceType);
-        check_fmt_err(Error::InternalDeviceError(String::new()));
-        check_fmt_err(Error::InvalidInput);
-        check_fmt_err(Error::AllocatorError(vm_allocator::Error::Overflow));
-        check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));
-        check_fmt_err(Error::RegisterIrqFd(errno::Error::new(0)));
-        check_fmt_err(Error::UpdateFailed);
     }
 
     #[test]
@@ -787,7 +737,7 @@ mod tests {
                     .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
-            "failed to allocate requested resource: The requested resource is not available."
+            "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
 
@@ -801,7 +751,7 @@ mod tests {
         assert_eq!(device_info.irqs[16], arch::IRQ_BASE + 16);
         assert_eq!(
             format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
-            "failed to allocate requested resource: The requested resource is not available."
+            "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
         assert!(device_manager.allocate_mmio_resources(0).is_ok());

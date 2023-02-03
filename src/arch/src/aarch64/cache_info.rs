@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::{fs, io, result};
 
@@ -10,11 +9,15 @@ use logger::warn;
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
-    FailedToReadCacheInfo(io::Error),
+    #[error("Failed to read cache information: {0}")]
+    FailedToReadCacheInfo(#[from] io::Error),
+    #[error("Invalid cache configuration found for {0}: {1}")]
     InvalidCacheAttr(String, String),
+    #[error("Cannot proceed with reading cache info.")]
     MissingCacheConfig,
+    #[error("{0}")]
     MissingOptionalAttr(String, CacheEntry),
 }
 
@@ -166,21 +169,6 @@ pub(crate) enum CacheType {
     Instruction,
     Data,
     Unified,
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match *self {
-            Error::FailedToReadCacheInfo(ref err) => {
-                write!(f, "Failed to read cache information: {}", err)
-            }
-            Error::InvalidCacheAttr(ref attr, ref err) => {
-                write!(f, "Invalid cache configuration found for {}: {}", attr, err)
-            }
-            Error::MissingCacheConfig => write!(f, "Cannot proceed with reading cache info"),
-            Error::MissingOptionalAttr(ref msg, ref _cache) => write!(f, "{}", msg),
-        }
-    }
 }
 
 impl CacheType {
@@ -451,7 +439,7 @@ mod tests {
         // We did create the level file but we still do not have the type file.
         assert_eq!(
             format!("{}", res.unwrap_err()),
-            "Cannot proceed with reading cache info"
+            "Cannot proceed with reading cache info."
         );
 
         let engine = CacheEngine::new(&default_map);

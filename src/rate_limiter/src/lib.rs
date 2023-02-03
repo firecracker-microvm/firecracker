@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-#![warn(clippy::ptr_as_ptr)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::cast_lossless)]
+
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to
