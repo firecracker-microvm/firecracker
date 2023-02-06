@@ -151,6 +151,10 @@ pub enum KvmVcpuConfigureError {
     /// Failed to construct `cpuid::Cpuid` from snapshot.
     #[error("Failed to construct `cpuid::RawCpuid` from `kvm_bindings::CpuId`")]
     SnapshotCpuid(crate::cpuid::CpuidTryFromRawCpuid),
+    /// Failed to join given cpuid and specified CPUID template (specified template is for
+    /// different manufacturer than the given cpuid).
+    #[error("Failed to join given `cpuid` and specified CPUID template: {0}")]
+    Join(#[from] crate::cpuid::CpuidJoinError),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
     NormalizeCpuidError(crate::cpuid::NormalizeCpuidError),
@@ -215,6 +219,10 @@ impl KvmVcpu {
         vcpu_config: &VcpuConfig,
         cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
+        // We use the given `cpuid` as the base.
+        let cpuid = crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid))
+            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?;
+
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2 => t2(),
@@ -224,7 +232,7 @@ impl KvmVcpu {
             CpuFeaturesTemplate::T2A => t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
             CpuFeaturesTemplate::None => {
-                crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid))
+                crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid.clone()))
                     .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
             }
         };
@@ -241,8 +249,11 @@ impl KvmVcpu {
             )
             .map_err(KvmVcpuConfigureError::NormalizeCpuidError)?;
 
+        // Include leaves from host that are not present in CPUID template.
+        let joined_cpuid = config_cpuid.include_leaves_from(cpuid)?;
+
         // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::from(config_cpuid);
+        let kvm_cpuid = kvm_bindings::CpuId::from(joined_cpuid);
 
         // Set CPUID in the KVM
         self.fd
@@ -713,6 +724,10 @@ mod tests {
                 assert!(t2a_res.is_err());
             }
             crate::cpuid::VENDOR_ID_AMD => {
+                assert!(t2_res.is_err());
+                assert!(c3_res.is_err());
+                assert!(t2s_res.is_err());
+                assert!(t2cl_res.is_err());
                 assert!(t2a_res.is_ok());
             }
             _ => {
