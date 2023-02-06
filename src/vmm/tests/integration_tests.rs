@@ -375,12 +375,10 @@ fn test_snapshot_cpu_vendor_mismatch() {
 
     // It succeeds in checking if the CPU vendor is valid, in this process it discovers the CPU
     // vendor not valid.
-    assert_eq!(
+    assert!(matches!(
         validate_cpu_vendor(&microvm_state),
-        Err(vmm::persist::ValidateCpuVendorError::Snapshot(
-            cpuid::common::Leaf0NotFoundInCpuid
-        ))
-    );
+        Err(vmm::persist::ValidateCpuVendorError::Snapshot(_))
+    ));
 }
 
 #[cfg(target_arch = "x86_64")]

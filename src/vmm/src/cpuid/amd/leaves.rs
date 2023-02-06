@@ -4,7 +4,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::registers::*;
-use crate::Leaf;
+use crate::cpuid::Leaf;
 
 /// Leaf 07H
 pub type Leaf7 = Leaf<Leaf7Eax, Leaf7Ebx, Leaf7Ecx, Leaf7Edx>;

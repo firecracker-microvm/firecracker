@@ -6,7 +6,7 @@ use std::mem::transmute;
 
 #[allow(clippy::wildcard_imports)]
 use super::leaves::*;
-use crate::{index_leaf, transmute_vec, AmdCpuid, CpuidKey, IndexLeaf, IndexLeafMut};
+use crate::cpuid::{index_leaf, transmute_vec, AmdCpuid, CpuidKey, IndexLeaf, IndexLeafMut};
 
 index_leaf!(0x7, Leaf7, AmdCpuid);
 

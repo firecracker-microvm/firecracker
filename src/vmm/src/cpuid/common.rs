@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::restriction)]
 
-#[cfg(cpuid)]
 use super::CpuidTrait;
 
 /// Error type for [`get_cpuid`].
-#[cfg(cpuid)]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GetCpuidError {
     /// Invalid leaf.
@@ -23,7 +21,6 @@ pub enum GetCpuidError {
 ///
 /// - When the given `leaf` is more than `max_leaf` supported by CPUID.
 /// - When the the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
-#[cfg(cpuid)]
 pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResult, GetCpuidError> {
     let max_leaf =
         // SAFETY: This is safe because the host supports the `cpuid` instruction
@@ -46,7 +43,6 @@ pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResu
 /// # Errors
 ///
 /// When CPUID leaf 0 is not supported.
-#[cfg(cpuid)]
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
     // SAFETY: Always safe.
     get_cpuid(0, 0).map(|vendor_entry| unsafe {
@@ -60,7 +56,6 @@ pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
 }
 
 /// Error type for [`msrs_to_save_by_cpuid`].
-#[cfg(cpuid)]
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Leaf 0 not found in given `CpuId`.")]
 pub struct Leaf0NotFoundInCpuid;
@@ -70,7 +65,6 @@ pub struct Leaf0NotFoundInCpuid;
 /// # Errors
 ///
 /// When CPUID leaf 0 is not supported.
-#[cfg(cpuid)]
 pub fn msrs_to_save_by_cpuid(
     cpuid: &kvm_bindings::CpuId,
 ) -> Result<std::collections::HashSet<u32>, Leaf0NotFoundInCpuid> {
@@ -83,7 +77,6 @@ pub fn msrs_to_save_by_cpuid(
 }
 
 /// Returns MSRs to be saved based on the Intel CPUID features that are enabled.
-#[cfg(cpuid)]
 #[must_use]
 pub fn intel_msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collections::HashSet<u32> {
     /// Memory Protection Extensions
@@ -171,10 +164,8 @@ pub fn intel_msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collecti
 
 #[cfg(test)]
 mod tests {
-    #[cfg(cpuid)]
     use super::*;
 
-    #[cfg(cpuid)]
     #[test]
     fn get_cpuid_invalid_leaf() {
         let max_leaf =

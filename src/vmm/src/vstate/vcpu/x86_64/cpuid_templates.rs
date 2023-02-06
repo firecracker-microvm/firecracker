@@ -1,7 +1,9 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use cpuid::{AmdCpuid, Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags};
+use crate::cpuid::{
+    AmdCpuid, Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
+};
 
 /// This is translated from `cpuid -r` within a C3 guest microVM on an ec2 m5.metal instance:
 ///
