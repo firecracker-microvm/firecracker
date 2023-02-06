@@ -495,6 +495,14 @@ bit_fields::bitfield!(
     }
 );
 
+#[allow(clippy::derivable_impls)]
+impl Default for KvmCpuidFlags {
+    #[inline]
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 /// CPUID entry (a mimic of <https://elixir.bootlin.com/linux/v5.10.129/source/arch/x86/include/uapi/asm/kvm.h#L232>).
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
