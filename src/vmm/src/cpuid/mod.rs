@@ -352,6 +352,11 @@ pub enum Cpuid {
     Amd(AmdCpuid),
 }
 
+/// Error type for [`Cpuid::join`].
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[error("Failed to join CPUIDs as they belong to different manufactures.")]
+pub struct CpuidJoinError;
+
 impl Cpuid {
     /// Returns `Some(&mut IntelCpuid)` if `Self == Self::Intel(_)` else returns `None`.
     #[inline]
@@ -410,6 +415,20 @@ impl Cpuid {
         match self {
             Self::Intel(intel_cpuid) => &mut intel_cpuid.0,
             Self::Amd(amd_cpuid) => &mut amd_cpuid.0,
+        }
+    }
+
+    /// Include leaves from `other` that are not present in `self`.
+    ///
+    /// # Errors
+    ///
+    /// When CPUIDs have different manufacturer IDs.
+    #[inline]
+    pub fn include_leaves_from(self, other: Self) -> Result<Self, CpuidJoinError> {
+        match (self, other) {
+            (Self::Intel(a), Self::Intel(b)) => Ok(Self::Intel(a.include_leaves_from(b))),
+            (Self::Amd(a), Self::Amd(b)) => Ok(Self::Amd(a.include_leaves_from(b))),
+            _ => Err(CpuidJoinError),
         }
     }
 }
@@ -515,7 +534,7 @@ impl std::cmp::Ord for CpuidKey {
 }
 
 /// CPUID entry information stored for each leaf of [`IntelCpuid`].
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct CpuidEntry {
     /// The KVM requires a `flags` parameter which indicates if a given CPUID leaf has sub-leaves.
@@ -572,7 +591,7 @@ pub struct CpuidEntry {
 /// To transmute this into leaves such that we can return mutable reference to it with leaf specific
 /// accessors, requires this to have a consistent member ordering. [`core::arch::x86::CpuidResult`]
 /// is not `repr(C)`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct CpuidRegisters {
     /// EAX
@@ -642,7 +661,21 @@ impl From<RawKvmCpuidEntry> for (CpuidKey, CpuidEntry) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
+
+    #[test]
+    fn include_leaves_from() {
+        let first = Cpuid::Amd(AmdCpuid(BTreeMap::new()));
+        let second = Cpuid::Intel(IntelCpuid(BTreeMap::new()));
+
+        assert_eq!(
+            first.clone().include_leaves_from(second.clone()),
+            Err(CpuidJoinError)
+        );
+        assert_eq!(second.include_leaves_from(first), Err(CpuidJoinError));
+    }
 
     #[test]
     fn get() {
