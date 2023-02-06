@@ -28,6 +28,24 @@ use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IntelCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
 
+impl IntelCpuid {
+    /// Include leaves from `other` that are not present in `self`.
+    #[inline]
+    #[must_use]
+    pub fn include_leaves_from(mut self, other: Self) -> Self {
+        let leaves = self
+            .0
+            .iter()
+            .map(|x| x.0.leaf)
+            .collect::<std::collections::HashSet<_>>();
+
+        self.0
+            .extend(other.0.into_iter().filter(|x| !leaves.contains(&x.0.leaf)));
+
+        self
+    }
+}
+
 impl CpuidTrait for IntelCpuid {
     /// Gets a given sub-leaf.
     #[inline]
@@ -92,5 +110,137 @@ mod tests {
             }),
             None
         );
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn include_leaves_from() {
+        let first = IntelCpuid(
+            [
+                (
+                    CpuidKey {
+                        leaf: 0,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 1,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 3,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let second = IntelCpuid(
+            [
+                (
+                    CpuidKey {
+                        leaf: 0,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 2,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 2,
+                        subleaf: 1,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 4,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let expected = IntelCpuid(
+            [
+                // First
+                (
+                    CpuidKey {
+                        leaf: 0,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 1,
+                        subleaf: 1,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 3,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+                // Second
+                (
+                    CpuidKey {
+                        leaf: 2,
+                        subleaf: 1,
+                    },
+                    CpuidEntry::default(),
+                ),
+                (
+                    CpuidKey {
+                        leaf: 4,
+                        subleaf: 0,
+                    },
+                    CpuidEntry::default(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        assert_eq!(first.include_leaves_from(second), expected);
     }
 }
