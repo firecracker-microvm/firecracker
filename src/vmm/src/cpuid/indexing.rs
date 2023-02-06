@@ -37,22 +37,22 @@ pub(crate) unsafe fn transmute_vec<T, U>(from: Vec<T>) -> Vec<U> {
 /// Convenience macro for indexing leaves.
 macro_rules! index_leaf {
     ($index: literal, $leaf: ty, $cpuid: ty) => {
-        impl $crate::IndexLeaf<$index> for $cpuid {
+        impl $crate::cpuid::IndexLeaf<$index> for $cpuid {
             type Output<'a> = Option<&'a $leaf>;
             #[inline]
             fn index_leaf<'a>(&'a self) -> Self::Output<'a> {
                 self.0
-                    .get(&$crate::CpuidKey::leaf($index))
+                    .get(&$crate::cpuid::CpuidKey::leaf($index))
                     // SAFETY: Transmuting reference to same sized types is safe.
                     .map(|entry| unsafe { std::mem::transmute::<_, &$leaf>(&entry.result) })
             }
         }
-        impl $crate::IndexLeafMut<$index> for $cpuid {
+        impl $crate::cpuid::IndexLeafMut<$index> for $cpuid {
             type Output<'a> = Option<&'a mut $leaf>;
             #[inline]
             fn index_leaf_mut<'a>(&'a mut self) -> Self::Output<'a> {
                 self.0
-                    .get_mut(&$crate::CpuidKey::leaf($index))
+                    .get_mut(&$crate::cpuid::CpuidKey::leaf($index))
                     // SAFETY: Transmuting reference to same sized types is safe.
                     .map(|entry| unsafe { std::mem::transmute::<_, &mut $leaf>(&mut entry.result) })
             }
@@ -71,10 +71,10 @@ macro_rules! cpuid_index_leaf {
             fn index_leaf<'a>(&'a self) -> Self::Output<'a> {
                 match self {
                     Self::Intel(intel_cpuid) => {
-                        <crate::IntelCpuid as IndexLeaf<$index>>::index_leaf(intel_cpuid)
+                        <crate::cpuid::IntelCpuid as IndexLeaf<$index>>::index_leaf(intel_cpuid)
                     }
                     Self::Amd(amd_cpuid) => {
-                        <crate::AmdCpuid as IndexLeaf<$index>>::index_leaf(amd_cpuid)
+                        <crate::cpuid::AmdCpuid as IndexLeaf<$index>>::index_leaf(amd_cpuid)
                     }
                 }
             }
@@ -84,17 +84,17 @@ macro_rules! cpuid_index_leaf {
             #[inline]
             fn index_leaf_mut<'a>(&'a mut self) -> Self::Output<'a> {
                 match self {
-                    Self::Intel(intel_cpuid) => {
-                        <crate::IntelCpuid as IndexLeafMut<$index>>::index_leaf_mut(intel_cpuid)
-                    }
+                    Self::Intel(intel_cpuid) => <crate::cpuid::IntelCpuid as IndexLeafMut<
+                        $index,
+                    >>::index_leaf_mut(intel_cpuid),
                     Self::Amd(amd_cpuid) => {
-                        <crate::AmdCpuid as IndexLeafMut<$index>>::index_leaf_mut(amd_cpuid)
+                        <crate::cpuid::AmdCpuid as IndexLeafMut<$index>>::index_leaf_mut(amd_cpuid)
                     }
                 }
             }
         }
-        index_leaf!($index, $leaf, crate::AmdCpuid);
-        index_leaf!($index, $leaf, crate::IntelCpuid);
+        index_leaf!($index, $leaf, crate::cpuid::AmdCpuid);
+        index_leaf!($index, $leaf, crate::cpuid::IntelCpuid);
     };
 }
 
