@@ -462,11 +462,12 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
             self.bin_cloner_path = bin_cloner
             self.vms = []
 
-        def build(self, kernel=None, rootfs=None):
-            """Build a fresh microvm."""
+        def build(self, kernel=None, rootfs=None, **kwargs):
+            """Build a microvm"""
             vm = Microvm(
                 resource_path=self.tmp_path,
                 bin_cloner_path=self.bin_cloner_path,
+                **kwargs,
             )
             self.vms.append(vm)
             if kernel is not None:

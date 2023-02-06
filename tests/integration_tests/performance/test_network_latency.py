@@ -2,16 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network latency of a Firecracker guest."""
 
-import logging
 import re
 import os
 import json
+
 import pytest
 
-from conftest import ARTIFACTS_COLLECTION
-from framework.artifacts import ArtifactSet
-from framework.matrix import TestMatrix, TestContext
-from framework.builder import MicrovmBuilder
 from framework.stats import core, consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -130,96 +126,44 @@ def consume_ping_output(cons, raw_data, requests):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
-def test_network_latency(bin_cloner_path, results_file_dumper):
+def test_network_latency(
+    microvm_factory, network_config, guest_kernel, rootfs, results_file_dumper
+):
     """
     Test network latency for multiple vm configurations.
 
+    Send a ping from the guest to the host.
+
     @type: performance
     """
-    logger = logging.getLogger("network_latency")
-    microvm_artifacts = ArtifactSet(
-        ARTIFACTS_COLLECTION.microvms(keyword="1vcpu_1024mb")
-    )
-    kernel_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.kernels())
-    disk_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.disks(keyword="ubuntu"))
+    requests = 1000
+    interval = 0.2  # Seconds
 
-    logger.info("Testing on processor %s", get_cpu_model_name())
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "requests": 1000,
-        "interval": 0.2,  # Seconds.
-        "name": "network_latency",
-        "results_file_dumper": results_file_dumper,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-
-    test_matrix.run_test(_g2h_send_ping)
-
-
-def _g2h_send_ping(context):
-    """Send ping from guest to host."""
-    logger = context.custom["logger"]
-    vm_builder = context.custom["builder"]
-    interval_between_req = context.custom["interval"]
-    name = context.custom["name"]
-    file_dumper = context.custom["results_file_dumper"]
-
-    logger.info(
-        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
-            name, context.microvm.name(), context.kernel.name(), context.disk.name()
-        )
-    )
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[rw_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        monitor_memory=False,
-    )
-    basevm = vm_instance.vm
-    basevm.start()
+    # Create a microvm from artifacts
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=1, mem_size_mib=1024)
+    vm.ssh_network_config(network_config, "1")
+    vm.start()
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
-    assert CpuMap.len() >= 2 + basevm.vcpus_count
+    assert CpuMap.len() >= 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     current_cpu_id = 0
-    assert basevm.pin_vmm(current_cpu_id), "Failed to pin firecracker thread."
+    assert vm.pin_vmm(current_cpu_id), "Failed to pin firecracker thread."
     current_cpu_id += 1
-    assert basevm.pin_api(current_cpu_id), "Failed to pin fc_api thread."
-    for i in range(basevm.vcpus_count):
+    assert vm.pin_api(current_cpu_id), "Failed to pin fc_api thread."
+    for i in range(vm.vcpus_count):
         current_cpu_id += 1
-        assert basevm.pin_vcpu(
-            i, current_cpu_id + i
-        ), f"Failed to pin fc_vcpu {i} thread."
+        assert vm.pin_vcpu(i, current_cpu_id + i), f"Failed to pin fc_vcpu {i} thread."
 
-    custom = {
-        "microvm": context.microvm.name(),
-        "kernel": context.kernel.name(),
-        "disk": context.disk.name(),
-        "cpu_model_name": get_cpu_model_name(),
-    }
+    # is this actually needed, beyond baselines?
+    microvm_name = "1vcpu_1024mb.json"
 
-    st_core = core.Core(name="network_latency", iterations=1, custom=custom)
-    env_id = (
-        f"{context.kernel.name()}/{context.disk.name()}/" f"{context.microvm.name()}"
-    )
+    st_core = core.Core(name="network_latency", iterations=1)
+    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{microvm_name}"
 
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
@@ -227,18 +171,16 @@ def _g2h_send_ping(context):
             baseline_provider=NetLatencyBaselineProvider(env_id),
         ),
         func=consume_ping_output,
-        func_kwargs={"requests": context.custom["requests"]},
+        func_kwargs={"requests": requests},
     )
-    cmd = PING.format(context.custom["requests"], interval_between_req, DEFAULT_HOST_IP)
-    prod = producer.SSHCommand(cmd, basevm.ssh)
+    cmd = PING.format(requests, interval, DEFAULT_HOST_IP)
+    prod = producer.SSHCommand(cmd, vm.ssh)
 
     st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")
 
     # Gather results and verify pass criteria.
     try:
         result = st_core.run_exercise()
-        file_dumper.dump(result)
+        results_file_dumper.dump(result)
     except core.CoreException as err:
-        handle_failure(file_dumper, err)
-    finally:
-        basevm.kill()
+        handle_failure(results_file_dumper, err)
