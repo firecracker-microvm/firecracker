@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use bit_fields::CheckedAssignError;
 
-use crate::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
+use crate::cpuid::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
 
 /// Error type for [`AmdCpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -31,7 +31,7 @@ pub enum NormalizeCpuidError {
     ExtendedApicId(#[from] ExtendedApicIdError),
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
-    BrandString(crate::MissingBrandStringLeaves),
+    BrandString(crate::cpuid::MissingBrandStringLeaves),
 }
 
 /// Error type for setting cache topology section of [`AmdCpuid::normalize`].
@@ -39,7 +39,7 @@ pub enum NormalizeCpuidError {
 pub enum PassthroughCacheTopologyError {
     /// Failed to get the host vendor id.
     #[error("Failed to get the host vendor id: {0}")]
-    NoVendorId(crate::common::GetCpuidError),
+    NoVendorId(crate::cpuid::common::GetCpuidError),
     /// The host vendor id does not match AMD.
     #[error("The host vendor id does not match AMD.")]
     BadVendorId,
@@ -95,7 +95,7 @@ pub enum ExtendedApicIdError {
 #[allow(clippy::multiple_inherent_impl)]
 impl super::AmdCpuid {
     /// We always use this brand string.
-    const DEFAULT_BRAND_STRING: &[u8; crate::BRAND_STRING_LENGTH] =
+    const DEFAULT_BRAND_STRING: &[u8; crate::cpuid::BRAND_STRING_LENGTH] =
         b"AMD EPYC\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 
     /// Applies required modifications to CPUID respective of a vCPU.
@@ -137,9 +137,9 @@ impl super::AmdCpuid {
     /// specification it is possible to enter an indefinite loop. To avoid this, this will return an
     /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
     fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
-        if crate::common::get_vendor_id_from_host()
+        if crate::cpuid::common::get_vendor_id_from_host()
             .map_err(PassthroughCacheTopologyError::NoVendorId)?
-            != *crate::VENDOR_ID_AMD
+            != *crate::cpuid::VENDOR_ID_AMD
         {
             return Err(PassthroughCacheTopologyError::BadVendorId);
         }

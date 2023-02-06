@@ -12,8 +12,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-#[cfg(target_arch = "x86_64")]
-use cpuid::CpuidTrait;
 use devices::virtio::TYPE_NET;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
@@ -27,6 +25,8 @@ use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
@@ -347,10 +347,10 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(#[from] cpuid::common::GetCpuidError),
+    Host(#[from] crate::cpuid::common::GetCpuidError),
     /// Failed to read snapshot vendor.
     #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(#[from] cpuid::common::Leaf0NotFoundInCpuid),
+    Snapshot(#[from] crate::cpuid::common::Leaf0NotFoundInCpuid),
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -364,12 +364,12 @@ pub enum ValidateCpuVendorError {
 pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<bool, ValidateCpuVendorError> {
-    let host_vendor_id = cpuid::common::get_vendor_id_from_host()?;
+    let host_vendor_id = crate::cpuid::common::get_vendor_id_from_host()?;
 
     let snapshot_vendor_id = microvm_state.vcpu_states[0]
         .cpuid
         .vendor_id()
-        .ok_or(cpuid::common::Leaf0NotFoundInCpuid)
+        .ok_or(crate::cpuid::common::Leaf0NotFoundInCpuid)
         .map_err(|err| {
             error!("Snapshot CPU vendor is missing.");
             err

@@ -31,7 +31,6 @@ impl<A, B, C, D> From<(A, B, C, D)> for Leaf<A, B, C, D> {
     }
 }
 
-#[cfg(cpuid)]
 impl<A: From<u32>, B: From<u32>, C: From<u32>, D: From<u32>> From<std::arch::x86_64::CpuidResult>
     for Leaf<A, B, C, D>
 {
