@@ -109,7 +109,7 @@ vCPU count and emulated devices count.
 The Firecracker CI runs snapshot tests on:
 
 - AWS **m5d.metal** and **m6i.metal** instances for Intel
-- AWS **m6g.metal** for ARM
+- AWS **m6g.metal** and **c7g.metal** for ARM
 - AWS **m6a.metal** for AMD
 
 We are running nightly performance tests for all the enumerated platforms on
