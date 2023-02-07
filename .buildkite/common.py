@@ -10,6 +10,7 @@ DEFAULT_INSTANCES = [
     "m6i.metal",
     "m6a.metal",
     "m6g.metal",
+    "c7g.metal",
 ]
 
 DEFAULT_KERNELS = ["linux_4.14", "linux_5.10"]
