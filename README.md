@@ -124,8 +124,8 @@ The **API endpoint** can be used to:
 ## Supported platforms
 
 We continuously test Firecracker on machines with the following CPUs
-micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2 and
-ARM64 Neoverse N1.
+micro-architectures: Intel Skylake, Intel Cascade Lake, Intel Ice Lake, AMD
+Zen 3, ARM64 Neoverse N1 and ARM64 Neoverse V1.
 
 Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
 AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
