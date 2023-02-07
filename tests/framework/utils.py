@@ -21,7 +21,7 @@ from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
-GET_CPU_LOAD = "top -bn1 -H -p {} | tail -n+8"
+GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
 
 
 class ProcessManager:
