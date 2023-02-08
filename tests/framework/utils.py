@@ -21,7 +21,7 @@ from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
-GET_CPU_LOAD = "top -bn1 -H -p {} | tail -n+8"
+GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
 
 
 class ProcessManager:
@@ -90,7 +90,7 @@ class UffdHandler:
     def spawn(self):
         """Spawn handler process using arguments provided."""
         self._proc = subprocess.Popen(
-            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1
+            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
     def proc(self):
