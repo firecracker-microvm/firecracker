@@ -629,4 +629,12 @@ mod tests {
 
         assert_eq!(raw_cpuid, cloned);
     }
+
+    #[test]
+    fn clone_zero() {
+        let raw_cpuid = RawCpuid::new();
+        let cloned = raw_cpuid.clone();
+
+        assert_eq!(raw_cpuid, cloned);
+    }
 }
