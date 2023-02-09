@@ -9,8 +9,6 @@ use std::mem::{size_of, transmute, MaybeUninit};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-use serde::{Deserialize, Serialize};
-
 use crate::cpuid::{CpuidEntry, CpuidKey};
 
 /// Mimic of the currently unstable
@@ -241,57 +239,6 @@ impl Clone for RawCpuid {
     }
 }
 
-impl serde::Serialize for RawCpuid {
-    #[allow(clippy::indexing_slicing)]
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeSeq;
-        // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-        // converted into it.
-        let len = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
-        let mut seq = serializer.serialize_seq(Some(len))?;
-        for i in 0..len {
-            seq.serialize_element(&self[i])?;
-        }
-        seq.end()
-    }
-}
-
-/// Unit struct used in the `serde::de::Visitor` implementation of `RawCpuid`.
-struct RawCpuidVisitor;
-
-impl<'de> serde::de::Visitor<'de> for RawCpuidVisitor {
-    type Value = RawCpuid;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("Expected sequence of RawKvmCpuidEntry")
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
-        let mut entries = Vec::new();
-        while let Some(next) = seq.next_element::<RawKvmCpuidEntry>()? {
-            entries.push(next);
-        }
-        Ok(Self::Value::from(entries))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for RawCpuid {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(RawCpuidVisitor)
-    }
-}
-
 impl PartialEq for RawCpuid {
     #[allow(clippy::indexing_slicing)]
     #[inline]
@@ -451,26 +398,6 @@ impl<const N: usize> Default for Padding<N> {
     }
 }
 
-impl<const N: usize> serde::Serialize for Padding<N> {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_unit_struct("Padding")
-    }
-}
-
-impl<'de, const N: usize> serde::Deserialize<'de> for Padding<N> {
-    #[inline]
-    fn deserialize<D>(_deserializer: D) -> Result<Padding<N>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Ok(Padding(MaybeUninit::uninit()))
-    }
-}
-
 impl<const N: usize> PartialEq for Padding<N> {
     #[inline]
     fn eq(&self, _other: &Self) -> bool {
@@ -504,7 +431,7 @@ impl Default for KvmCpuidFlags {
 }
 
 /// CPUID entry (a mimic of <https://elixir.bootlin.com/linux/v5.10.129/source/arch/x86/include/uapi/asm/kvm.h#L232>).
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[repr(C)]
 pub struct RawKvmCpuidEntry {
     /// CPUID function (leaf).
