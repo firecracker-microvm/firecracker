@@ -86,6 +86,24 @@ def concatenate_data_files(data_files: List[str]):
     return outfile
 
 
+def overlay(dict_old, dict_new):
+    """
+    Overlay one dictionary on top of another
+
+    >>> a = {'a': {'b': 1, 'c': 1}}
+    >>> b = {'a': {'b': 2, 'd': 2}}
+    >>> overlay(a, b)
+    {'a': {'b': 2, 'c': 1, 'd': 2}}
+    """
+    res = dict_old.copy()
+    for key, val in dict_new.items():
+        if key in dict_old and isinstance(val, dict):
+            res[key] = overlay(dict_old[key], dict_new[key])
+        else:
+            res[key] = val
+    return res
+
+
 def main():
     """Run the main logic.
 
@@ -156,10 +174,11 @@ def main():
             model = cpu["model"]
             for old_cpu in current_cpus:
                 if old_cpu["model"] == model:
-                    old_cpu["baselines"] = cpu["baselines"]
+                    old_cpu["baselines"] = overlay(old_cpu["baselines"], cpu["baselines"])
+
         baselines_file.truncate(0)
         baselines_file.seek(0, 0)
-        json.dump(json_baselines, baselines_file, indent=4)
+        json.dump(json_baselines, baselines_file, indent=4, sort_keys=True)
 
         # Warn against the fact that not all CPUs pertaining to
         # some arch were updated.
