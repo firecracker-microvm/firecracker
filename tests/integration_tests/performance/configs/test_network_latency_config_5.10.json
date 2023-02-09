@@ -1,30 +1,9 @@
 {
-    "measurements": {
-        "latency": {
-            "unit": "ms",
-            "statistics": [
-                {
-                    "function": "Avg",
-                    "criteria": "EqualWith"
-                }
-            ]
-        },
-        "pkt_loss": {
-            "unit": "percentage",
-            "statistics": [
-                {
-                    "function": "Avg",
-                    "criteria": "EqualWith"
-                }
-            ]
-        }
-    },
     "hosts": {
         "instances": {
-            "m5d.metal": {
+            "c7g.metal": {
                 "cpus": [
                     {
-                        "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -32,8 +11,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.231,
-                                                    "delta_percentage": 2.1
+                                                    "delta_percentage": 13.1,
+                                                    "target": 0.026
                                                 }
                                             }
                                         }
@@ -44,8 +23,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.24,
-                                                    "delta_percentage": 3.1
+                                                    "delta_percentage": 15.1,
+                                                    "target": 0.037
                                                 }
                                             }
                                         }
@@ -58,8 +37,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
@@ -70,79 +49,22 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    },
-                    {
-                        "model": "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz",
-                        "baselines": {
-                            "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "target": 0.26,
-                                                    "delta_percentage": 2.1
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "target": 0.271,
-                                                    "delta_percentage": 3.1
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        },
+                        "model": "ARM_NEOVERSE_V1"
                     }
                 ]
             },
-            "m6i.metal": {
+            "m5d.metal": {
                 "cpus": [
                     {
-                        "model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -150,8 +72,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.256,
-                                                    "delta_percentage": 6.1
+                                                    "delta_percentage": 2.1,
+                                                    "target": 0.231
                                                 }
                                             }
                                         }
@@ -162,8 +84,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.27,
-                                                    "delta_percentage": 6.1
+                                                    "delta_percentage": 3.1,
+                                                    "target": 0.24
                                                 }
                                             }
                                         }
@@ -176,8 +98,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
@@ -188,22 +110,79 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz"
+                    },
+                    {
+                        "baselines": {
+                            "latency": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "delta_percentage": 2.1,
+                                                    "target": 0.26
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "delta_percentage": 3.1,
+                                                    "target": 0.271
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "pkt_loss": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "ping": {
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
                     }
                 ]
             },
             "m6a.metal": {
                 "cpus": [
                     {
-                        "model": "AMD EPYC 7R13 48-Core Processor",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -211,8 +190,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.153,
-                                                    "delta_percentage": 4.1
+                                                    "delta_percentage": 4.1,
+                                                    "target": 0.153
                                                 }
                                             }
                                         }
@@ -223,8 +202,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.168,
-                                                    "delta_percentage": 3.1
+                                                    "delta_percentage": 3.1,
+                                                    "target": 0.168
                                                 }
                                             }
                                         }
@@ -237,8 +216,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
@@ -249,22 +228,22 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
+                        },
+                        "model": "AMD EPYC 7R13 48-Core Processor"
                     }
                 ]
             },
             "m6g.metal": {
                 "cpus": [
                     {
-                        "model": "ARM_NEOVERSE_N1",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -272,8 +251,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.033,
-                                                    "delta_percentage": 22.1
+                                                    "delta_percentage": 22.1,
+                                                    "target": 0.033
                                                 }
                                             }
                                         }
@@ -284,8 +263,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.037,
-                                                    "delta_percentage": 24.1
+                                                    "delta_percentage": 24.1,
+                                                    "target": 0.037
                                                 }
                                             }
                                         }
@@ -298,8 +277,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
@@ -310,22 +289,22 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
+                        },
+                        "model": "ARM_NEOVERSE_N1"
                     }
                 ]
             },
-            "c7g.metal": {
+            "m6i.metal": {
                 "cpus": [
                     {
-                        "model": "ARM_NEOVERSE_V1",
                         "baselines": {
                             "latency": {
                                 "vmlinux-4.14.bin": {
@@ -333,8 +312,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.026,
-                                                    "delta_percentage": 13.1
+                                                    "delta_percentage": 6.1,
+                                                    "target": 0.256
                                                 }
                                             }
                                         }
@@ -345,8 +324,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.037,
-                                                    "delta_percentage": 15.1
+                                                    "delta_percentage": 6.1,
+                                                    "target": 0.27
                                                 }
                                             }
                                         }
@@ -359,8 +338,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
@@ -371,18 +350,39 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "target": 0.0,
-                                                    "delta_percentage": 0.1
+                                                    "delta_percentage": 0.1,
+                                                    "target": 0
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz"
                     }
                 ]
             }
+        }
+    },
+    "measurements": {
+        "latency": {
+            "statistics": [
+                {
+                    "criteria": "EqualWith",
+                    "function": "Avg"
+                }
+            ],
+            "unit": "ms"
+        },
+        "pkt_loss": {
+            "statistics": [
+                {
+                    "criteria": "EqualWith",
+                    "function": "Avg"
+                }
+            ],
+            "unit": "percentage"
         }
     }
 }
