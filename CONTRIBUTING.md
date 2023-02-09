@@ -87,9 +87,20 @@ Your contribution needs to meet the following standards:
   Co-authored-by: <B full name> <B email>
   ```
 
-- Usage of `unsafe` should be documented with a justification (over its safe
-  alternative where one exists) and an explanation on why it cannot produce
-  undefined behavior. E.g.
+- **Usage of `unsafe` is heavily discouraged**. If `unsafe` is required,
+  it should be accompanied by a comment detailing its...
+  - Justification, potentially including quantifiable reasons why safe
+    alternatives were not used (e.g. via a benchmark showing a valuable[^1]
+    performance improvements).
+  - Safety, as per [`clippy::undocumented_unsafe_blocks`](https://rust-lang.github.io/rust-clippy/master/#undocumented_unsafe_blocks).
+    This comment must list all invariants of the called function, and
+    explain why there are upheld. If relevant, it must also prove that
+    [undefined behavior](https://doc.rust-lang.org/reference/behavior-considered-undefined.html)
+    is not possible.
+
+  [^1]: Performance improvements in non-hot paths are unlikely to be considered valuable.
+
+  E.g.
 
   ```rust
   // Test creating a resource.
