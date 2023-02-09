@@ -1,7 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::cpuid_ffi::RawKvmCpuidEntry;
 #[allow(clippy::wildcard_imports)]
 use super::registers::*;
 
@@ -30,44 +29,6 @@ impl<A, B, C, D> From<(A, B, C, D)> for Leaf<A, B, C, D> {
         }
     }
 }
-
-impl<A: From<u32>, B: From<u32>, C: From<u32>, D: From<u32>> From<std::arch::x86_64::CpuidResult>
-    for Leaf<A, B, C, D>
-{
-    #[inline]
-    fn from(
-        std::arch::x86_64::CpuidResult { eax, ebx, ecx, edx }: std::arch::x86_64::CpuidResult,
-    ) -> Self {
-        Leaf {
-            eax: A::from(eax),
-            ebx: B::from(ebx),
-            ecx: C::from(ecx),
-            edx: D::from(edx),
-        }
-    }
-}
-
-impl<A: From<u32>, B: From<u32>, C: From<u32>, D: From<u32>> From<&RawKvmCpuidEntry>
-    for Leaf<A, B, C, D>
-{
-    #[inline]
-    fn from(
-        &RawKvmCpuidEntry {
-            eax, ebx, ecx, edx, ..
-        }: &RawKvmCpuidEntry,
-    ) -> Self {
-        Leaf {
-            eax: A::from(eax),
-            ebx: B::from(ebx),
-            ecx: C::from(ecx),
-            edx: D::from(edx),
-        }
-    }
-}
-
-// -------------------------------------------------------------------------------------------------
-// Shared leaf types
-// -------------------------------------------------------------------------------------------------
 
 /// Leaf 00H
 pub type Leaf0 = Leaf<u32, u32, u32, u32>;
