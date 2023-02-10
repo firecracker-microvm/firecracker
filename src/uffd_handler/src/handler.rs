@@ -1,13 +1,15 @@
-// Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Provides functionality for a userspace page fault handler
 //! which loads the whole region from the backing memory file
 //! when a page fault occurs.
 
+mod common;
+
 use std::os::unix::io::AsRawFd;
 
-use uffd::uffd_utils::{create_pf_handler, MemPageState};
+use common::{create_pf_handler, MemPageState};
 
 fn main() {
     let mut uffd_handler = create_pf_handler();
