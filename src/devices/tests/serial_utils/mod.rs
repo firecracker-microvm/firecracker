@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
-use std::os::raw::c_void;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use devices::legacy::ReadableFd;
@@ -11,7 +10,7 @@ pub struct MockSerialInput(pub RawFd);
 
 impl io::Read for MockSerialInput {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let count = unsafe { libc::read(self.0, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+        let count = unsafe { libc::read(self.0, buf.as_mut_ptr().cast(), buf.len()) };
         if count < 0 {
             return Err(io::Error::last_os_error());
         }
