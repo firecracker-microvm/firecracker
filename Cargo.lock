@@ -1209,6 +1209,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 
 [[package]]
+name = "uffd_handler"
+version = "1.4.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "userfaultfd",
+ "utils",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

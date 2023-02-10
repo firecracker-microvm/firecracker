@@ -87,6 +87,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55626594feae15d266d52440b26ff77de0e22230cf0c113abe619084c1ddc910"
 
 [[package]]
+name = "demo_uffd"
+version = "1.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "uffd_handler",
+ "userfaultfd",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -305,8 +316,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "uffd"
-version = "1.1.0"
+name = "uffd_handler"
+version = "1.4.0"
 dependencies = [
  "libc",
  "serde",

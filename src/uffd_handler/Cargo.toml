@@ -1,0 +1,21 @@
+[package]
+name = "uffd_handler"
+version = "1.4.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+build = "../../build.rs"
+description = "Process for handling page faults, that allows a configurable way of prefaulting memory pages into RAM."
+homepage = "https://firecracker-microvm.github.io/"
+license = "Apache-2.0"
+
+[[bin]]
+name = "uffd-handler"
+path = "src/handler.rs"
+
+[dependencies]
+libc = "0.2.117"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.78"
+userfaultfd = "0.5.0"
+
+utils = { path = "../utils" }
