@@ -10,8 +10,7 @@ pub struct MockSerialInput(pub RawFd);
 
 impl io::Read for MockSerialInput {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let count =
-            unsafe { libc::read(self.0, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
+        let count = unsafe { libc::read(self.0, buf.as_mut_ptr().cast(), buf.len()) };
         if count < 0 {
             return Err(io::Error::last_os_error());
         }
