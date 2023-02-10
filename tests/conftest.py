@@ -397,7 +397,7 @@ def uffd_handler_paths(test_fc_session_root_path):
     extra_args = "--release --target {}-unknown-linux-musl"
     extra_args = extra_args.format(platform.machine())
     build_tools.cargo_build(
-        uffd_build_path, extra_args=extra_args, src_dir="host_tools/uffd"
+        uffd_build_path, extra_args=extra_args, src_dir="host_tools/demo_uffd"
     )
 
     release_binaries_path = os.path.join(
@@ -406,16 +406,11 @@ def uffd_handler_paths(test_fc_session_root_path):
         build_tools.RELEASE_BINARIES_REL_PATH,
     )
 
-    valid_handler = os.path.normpath(
-        os.path.join(release_binaries_path, "valid_handler")
-    )
-
     malicious_handler = os.path.normpath(
-        os.path.join(release_binaries_path, "malicious_handler")
+        os.path.join(release_binaries_path, "malicious-handler")
     )
 
     yield {
-        "valid_handler": valid_handler,
         "malicious_handler": malicious_handler,
     }
 

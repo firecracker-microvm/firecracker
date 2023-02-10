@@ -1,8 +1,12 @@
 [package]
-name = "uffd"
+name = "demo_uffd"
 version = "1.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
+
+[[bin]]
+name = "malicious-handler"
+path = "src/main.rs"
 
 [dependencies]
 libc = "0.2.117"
@@ -10,7 +14,7 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
 userfaultfd = "0.5.0"
 
-utils = { path = "../../../src/utils" }
+uffd_handler = { path = "../../../src/uffd_handler" }
 
 [workspace]
 

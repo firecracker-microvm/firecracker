@@ -6,7 +6,7 @@
 
 use std::os::unix::io::AsRawFd;
 
-use uffd::uffd_utils::create_pf_handler;
+use uffd_handler::common::create_pf_handler;
 
 fn main() {
     let uffd_handler = create_pf_handler();
