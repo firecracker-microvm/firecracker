@@ -11,6 +11,14 @@ use std::ptr::NonNull;
 
 use super::{CpuidEntry, CpuidKey};
 
+/// Converts `u32` to `usize`.
+#[cfg(target_pointer_width = "64")]
+fn from_u32(x: u32) -> usize {
+    // The wrapping `cfg` guarantees this is safe.
+    #[allow(clippy::unwrap_used)]
+    usize::try_from(x).unwrap()
+}
+
 /// Mimic of the currently unstable
 /// [`Vec::into_raw_parts`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.into_raw_parts)
 /// .
@@ -59,6 +67,7 @@ impl super::CpuidTrait for RawCpuid {
             .find(|entry| entry.function == *leaf && entry.index == *subleaf);
 
         entry_opt.map(|entry| {
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: The `RawKvmCpuidEntry` and `CpuidEntry` are `repr(C)` with known sizes.
             unsafe {
                 let arr: &[u8; size_of::<RawKvmCpuidEntry>()] = transmute(entry);
@@ -77,6 +86,7 @@ impl super::CpuidTrait for RawCpuid {
             .iter_mut()
             .find(|entry| entry.function == *leaf && entry.index == *subleaf);
         entry_opt.map(|entry| {
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: The `RawKvmCpuidEntry` and `CpuidEntry` are `repr(C)` with known sizes.
             unsafe {
                 let arr: &mut [u8; size_of::<RawKvmCpuidEntry>()] = transmute(entry);
@@ -131,11 +141,13 @@ impl RawCpuid {
             .find(|entry| entry.function == leaf && entry.index == sub_leaf)
     }
 
-    /// Pushes entry onto end.
+    /// Pushes a new element.
     ///
     /// # Errors
     ///
-    /// On resize failure.
+    /// When:
+    /// - `self.nent.checked(1)` errors.
+    /// - `Layout::array::<RawKvmCpuidEntry>()` errors.
     #[allow(clippy::cast_ptr_alignment)]
     #[inline]
     pub fn push(&mut self, entry: RawKvmCpuidEntry) -> Result<(), RawCpuidPushError> {
@@ -143,22 +155,22 @@ impl RawCpuid {
             .nent
             .checked_add(1)
             .ok_or(RawCpuidPushError::Overflow)?;
+
         let new_layout =
-            // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only
-            // fail on 16-bit platforms.
-            Layout::array::<RawKvmCpuidEntry>(unsafe { usize::try_from(new).unwrap_unchecked() })
-                .map_err(RawCpuidPushError::Layout)?;
-        // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only fail
-        // on 16-bit platforms.
-        let nent_usize = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
+            Layout::array::<RawKvmCpuidEntry>(from_u32(new)).map_err(RawCpuidPushError::Layout)?;
+
+        let nent_usize = from_u32(self.nent);
 
         let new_ptr = if self.nent == 0 {
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: Always safe.
             unsafe { std::alloc::alloc(new_layout) }
         } else {
             let old_layout =
                 Layout::array::<RawKvmCpuidEntry>(nent_usize).map_err(RawCpuidPushError::Layout)?;
             let old_ptr = self.entries.as_ptr().cast::<u8>();
+
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: Always safe.
             unsafe { std::alloc::realloc(old_ptr, old_layout, new_layout.size()) }
         };
@@ -168,9 +180,8 @@ impl RawCpuid {
             None => std::alloc::handle_alloc_error(new_layout),
         };
 
-        // SAFETY: `self.entries.as_ptr().add(net)` is within the allocated range. Only 64-bit
-        // platforms are supported and converting `u32` to `usize` can only fail on 16-bit
-        // platforms.
+        // JUSTIFICATION: There is no safe alternative.
+        // SAFETY: `self.entries.as_ptr().add(net)` is within the allocated range.
         unsafe {
             std::ptr::write(self.entries.as_ptr().add(nent_usize), entry);
         }
@@ -188,13 +199,11 @@ impl RawCpuid {
     pub fn pop(&mut self) -> Option<RawKvmCpuidEntry> {
         if let Some(new) = self.nent.checked_sub(1) {
             self.nent = new;
-            // SAFETY: We know the pointer is valid. Only 64-bit platforms are supported and
-            // converting `u32` to `usize` can only fail on 16-bit platforms.
+            // JUSTIFICATION: There is no safe alternative.
+            // SAFETY: We know the pointer is valid.
             unsafe {
                 Some(std::ptr::read(
-                    self.entries
-                        .as_ptr()
-                        .add(usize::try_from(self.nent).unwrap_unchecked()),
+                    self.entries.as_ptr().add(from_u32(self.nent)),
                 ))
             }
         } else {
@@ -210,16 +219,19 @@ impl Clone for RawCpuid {
         if self.nent == 0 {
             Self::new()
         } else {
-            // SAFETY: Only 64-bit platforms are supported and converting `u32` to `usize` can only
-            // fail on 16-bit platforms.
-            let nent_usize = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
+            let nent_usize = from_u32(self.nent);
             let layout = Layout::array::<RawKvmCpuidEntry>(nent_usize).unwrap();
+
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: Always safe.
             let ptr = unsafe { std::alloc::alloc(layout) };
+
             let entries = match NonNull::new(ptr.cast::<RawKvmCpuidEntry>()) {
                 Some(p) => p,
                 None => std::alloc::handle_alloc_error(layout),
             };
+
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: `entries` is newly allocated so will not overlap `self.entries`, and both are
             // non-null.
             unsafe {
@@ -240,10 +252,7 @@ impl PartialEq for RawCpuid {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         if self.nent == other.nent {
-            // SAFETY: `usize` will always be at least 32 bits, thus `u32` can always be safely
-            // converted into it.
-            let n = unsafe { usize::try_from(self.nent).unwrap_unchecked() };
-            for i in 0..n {
+            for i in 0..from_u32(self.nent) {
                 if self[i] != other[i] {
                     return false;
                 }
@@ -257,9 +266,11 @@ impl PartialEq for RawCpuid {
 
 impl Eq for RawCpuid {}
 
+// JUSTIFICATION: There is no safe alternative.
 // SAFETY: Always safe.
 unsafe impl Send for RawCpuid {}
 
+// JUSTIFICATION: There is no safe alternative.
 // SAFETY: Always safe.
 unsafe impl Sync for RawCpuid {}
 
@@ -287,7 +298,9 @@ impl Drop for RawCpuid {
             while self.pop().is_some() {}
 
             // Deallocate memory
-            let layout = Layout::array::<RawKvmCpuidEntry>(usize::try_from(cap).unwrap()).unwrap();
+            let layout = Layout::array::<RawKvmCpuidEntry>(from_u32(cap)).unwrap();
+
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: Always safe.
             unsafe {
                 std::alloc::dealloc(self.entries.as_ptr().cast::<u8>(), layout);
@@ -302,10 +315,9 @@ impl Deref for RawCpuid {
     #[allow(clippy::unwrap_used)]
     #[inline]
     fn deref(&self) -> &Self::Target {
+        // JUSTIFICATION: There is no safe alternative.
         // SAFETY: Always safe.
-        unsafe {
-            std::slice::from_raw_parts(self.entries.as_ptr(), usize::try_from(self.nent).unwrap())
-        }
+        unsafe { std::slice::from_raw_parts(self.entries.as_ptr(), from_u32(self.nent)) }
     }
 }
 
@@ -313,13 +325,9 @@ impl DerefMut for RawCpuid {
     #[allow(clippy::unwrap_used)]
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // JUSTIFICATION: There is no safe alternative.
         // SAFETY: Always safe.
-        unsafe {
-            std::slice::from_raw_parts_mut(
-                self.entries.as_ptr(),
-                usize::try_from(self.nent).unwrap(),
-            )
-        }
+        unsafe { std::slice::from_raw_parts_mut(self.entries.as_ptr(), from_u32(self.nent)) }
     }
 }
 
@@ -368,13 +376,15 @@ impl From<RawCpuid> for kvm_bindings::CpuId {
     #[allow(clippy::transmute_ptr_to_ptr, clippy::unwrap_used)]
     #[inline]
     fn from(this: RawCpuid) -> Self {
-        // SAFETY: Always safe.
-        let cpuid_slice = unsafe {
-            std::slice::from_raw_parts(this.entries.as_ptr(), usize::try_from(this.nent).unwrap())
-        };
+        let cpuid_slice =
+            // JUSTIFICATION: There is no safe alternative.
+            // SAFETY: Always safe.
+            unsafe { std::slice::from_raw_parts(this.entries.as_ptr(), from_u32(this.nent)) };
 
+        // JUSTIFICATION: There is no safe alternative.
         // SAFETY: Always safe.
         let kvm_bindings_slice = unsafe { transmute(cpuid_slice) };
+
         kvm_bindings::CpuId::from_entries(kvm_bindings_slice).unwrap()
     }
 }
@@ -465,7 +475,6 @@ impl fmt::LowerHex for RawKvmCpuidEntry {
 #[allow(clippy::unwrap_used, clippy::print_stdout, clippy::use_debug)]
 #[cfg(test)]
 mod tests {
-
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 
     use super::super::{CpuidRegisters, CpuidTrait};
