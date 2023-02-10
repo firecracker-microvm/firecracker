@@ -157,19 +157,13 @@ impl super::AmdCpuid {
                 CpuidKey::leaf(0x8000001e),
                 CpuidEntry {
                     flags: KvmCpuidFlags::empty(),
-                    // SAFETY: Safe as `cfg(cpuid)` ensure CPUID is supported.
-                    result: CpuidRegisters::from(unsafe {
-                        core::arch::x86_64::__cpuid(0x8000001e)
-                    }),
+                    result: CpuidRegisters::from(crate::cpuid::cpuid(0x8000001e)),
                 },
             );
 
             // 0x8000001d - Cache Topology Information
             for subleaf in 0.. {
-                // SAFETY: Safe as `cfg(cpuid)` ensure CPUID is supported.
-                let result = CpuidRegisters::from(unsafe {
-                    core::arch::x86_64::__cpuid_count(0x8000001d, subleaf)
-                });
+                let result = CpuidRegisters::from(crate::cpuid::cpuid_count(0x8000001d, subleaf));
                 // From 'AMD64 Architecture Programmer’s Manual Volume 3: General-Purpose and System
                 // Instructions':
                 //
@@ -203,6 +197,7 @@ impl super::AmdCpuid {
         let leaf_80000000 = self
             .leaf_mut::<0x80000000>()
             .ok_or(NormalizeCpuidError::MissingLeaf0x80000000)?;
+
         // SAFETY: Safe, as `0x8000_001f` is within the known range.
         unsafe {
             leaf_80000000
