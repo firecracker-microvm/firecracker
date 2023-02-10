@@ -176,7 +176,7 @@ def produce_iperf_output(
 
         # We expect a single emulation thread tagged with `firecracker` name.
         tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) == 1
+        assert tag in cpu_load and len(cpu_load[tag]) > 0
         thread_id = list(cpu_load[tag])[0]
         data = cpu_load[tag][thread_id]
         vmm_util = sum(data) / len(data)

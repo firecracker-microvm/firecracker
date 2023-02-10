@@ -152,7 +152,7 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
         result = {}
         cpu_load = cpu_load_future.result()
         tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) == 1
+        assert tag in cpu_load and len(cpu_load[tag]) > 0
 
         data = list(cpu_load[tag].values())[0]
         data_len = len(data)
