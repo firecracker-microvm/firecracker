@@ -1,5 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 use std::io::{Seek, SeekFrom};
 use std::time::Duration;
 use std::{io, thread};
@@ -286,7 +287,7 @@ fn test_snapshot_load_sanity_checks() {
     );
 
     // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
-    for _ in 0..(MAX_SUPPORTED_VCPUS as f64).log2() as usize {
+    for _ in 0..f64::from(MAX_SUPPORTED_VCPUS).log2() as usize {
         microvm_state
             .vcpu_states
             .append(&mut microvm_state.vcpu_states.clone());
