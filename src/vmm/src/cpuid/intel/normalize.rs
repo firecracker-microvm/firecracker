@@ -125,6 +125,7 @@ impl super::IntelCpuid {
     }
 
     /// Update deterministic cache entry
+    #[allow(clippy::unwrap_in_result)]
     fn update_deterministic_cache_entry(
         &mut self,
         cpu_count: u8,
@@ -132,16 +133,16 @@ impl super::IntelCpuid {
     ) -> Result<(), DeterministicCacheError> {
         let leaf_4 = self.leaf_mut::<0x4>();
         for subleaf in leaf_4.0 {
+            // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
+            // always safe.
+            #[allow(clippy::unwrap_used)]
             match u32::from(&subleaf.eax.cache_level()) {
                 // L1 & L2 Cache
                 // The L1 & L2 cache is shared by at most 2 hyperthreads
                 1 | 2 => subleaf
                     .eax
                     .max_num_addressable_ids_for_logical_processors_sharing_this_cache_mut()
-                    // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-                    .checked_assign(u32::from(unsafe {
-                        cpus_per_core.checked_sub(1).unwrap_unchecked()
-                    }))
+                    .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
                     .map_err(DeterministicCacheError::MaxCpusPerCore)?,
                 // L3 Cache
                 // The L3 cache is shared among all the logical threads
@@ -156,8 +157,11 @@ impl super::IntelCpuid {
                     .map_err(DeterministicCacheError::MaxCpusPerCore)?,
                 _ => (),
             }
-            // SAFETY: We know `cpus_per_core !=0` therefore this is always safe.
-            let cores = unsafe { cpu_count.checked_div(cpus_per_core).unwrap_unchecked() };
+
+            // We know `cpus_per_core !=0` therefore this is always safe.
+            #[allow(clippy::unwrap_used)]
+            let cores = cpu_count.checked_div(cpus_per_core).unwrap();
+
             // Put all the cores in the same socket
             subleaf
                 .eax
@@ -429,8 +433,10 @@ fn default_brand_string(
         .collect::<Vec<_>>();
     debug_assert_eq!(brand_string.len(), BRAND_STRING_LENGTH);
 
-    // SAFETY: Padding ensures `brand_string.len() == BRAND_STRING_LENGTH`.
-    Ok(unsafe { brand_string.try_into().unwrap_unchecked() })
+    // Padding ensures `brand_string.len() == BRAND_STRING_LENGTH` thus
+    // `brand_string.try_into().unwrap()` is safe.
+    #[allow(clippy::unwrap_used)]
+    Ok(brand_string.try_into().unwrap())
 }
 
 #[cfg(test)]

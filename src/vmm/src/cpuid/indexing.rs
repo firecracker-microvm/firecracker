@@ -24,17 +24,46 @@ pub trait IndexLeafMut<const INDEX: usize> {
     fn index_leaf_mut<'a>(&'a mut self) -> Self::Output<'a>;
 }
 
-/// Transmutes `Vec<T>` into `Vec<U>` where `size::<T>() == size::<U>()`.
-pub(crate) unsafe fn transmute_vec<T, U>(from: Vec<T>) -> Vec<U> {
-    let mut intermediate = std::mem::ManuallyDrop::new(from);
-    Vec::from_raw_parts(
-        intermediate.as_mut_ptr().cast(),
-        intermediate.len(),
-        intermediate.capacity(),
-    )
-}
-
 /// Convenience macro for indexing leaves.
+///
+/// # Justification
+///
+/// `get`  and `get_mut` is a common Rust pattern, these functions typically return `&T`  and
+/// `&mut T`  respectively. In the case of `get` it is preferable to return a reference over a copy,
+/// a reference can be optimized to a copy (while a copy cannot be optimized to a reference). To
+/// return a reference in either case requires `std::mem::transmute` (or casting the reference as a
+/// pointer, to the same affect). This is why `std::mem::transmute` and `unsafe` is used here.
+///
+/// # Safety
+///
+/// The lifetime 'a as defined on `index_leaf<'a>(&'a self) -> Self::Output<'a>` informs the borrow
+/// checker that `Self::Output` immutably borrows `self`. This prevents dropping or mutating `self`
+/// before dropping `Self::Output`.
+///
+/// E.g.
+/// ```ignore
+/// fn main() {
+///     let mut a: Vec<i32> = vec![1, 2, 3, 4];
+///     let b = tester(&a);
+///
+///     // drop(a);
+///     // drop(b); // Attempting to drop b after a errors.
+///
+///     // a[0] += 2;
+///     // drop(b); // Attempting to mutably borrow a before dropping b errors.
+/// }
+///
+/// #[derive(Debug)]
+/// struct Wrapper<'a>(Vec<&'a u32>);
+///
+/// fn tester<'a>(vec: &'a Vec<i32>) -> Wrapper<'a> {
+///     Wrapper(
+///         vec.iter()
+///             .map(|x: &'a i32| unsafe { std::mem::transmute::<&'a i32, &'a u32>(x) })
+///             .collect::<Vec<_>>(),
+///     )
+/// }
+/// ```
 macro_rules! index_leaf {
     ($index: literal, $leaf: ty, $cpuid: ty) => {
         impl $crate::cpuid::IndexLeaf<$index> for $cpuid {
@@ -43,8 +72,12 @@ macro_rules! index_leaf {
             fn index_leaf<'a>(&'a self) -> Self::Output<'a> {
                 self.0
                     .get(&$crate::cpuid::CpuidKey::leaf($index))
-                    // SAFETY: Transmuting reference to same sized types is safe.
-                    .map(|entry| unsafe { std::mem::transmute::<_, &$leaf>(&entry.result) })
+                    // JUSTIFICATION: There is no safe alternative.
+                    // SAFETY: Transmuting references to same size and alignment types is safe. For
+                    // further information See `index_leaf!`.
+                    .map(|entry: &'a crate::cpuid::CpuidEntry| unsafe {
+                        std::mem::transmute::<_, &'a $leaf>(&entry.result)
+                    })
             }
         }
         impl $crate::cpuid::IndexLeafMut<$index> for $cpuid {
@@ -53,8 +86,12 @@ macro_rules! index_leaf {
             fn index_leaf_mut<'a>(&'a mut self) -> Self::Output<'a> {
                 self.0
                     .get_mut(&$crate::cpuid::CpuidKey::leaf($index))
-                    // SAFETY: Transmuting reference to same sized types is safe.
-                    .map(|entry| unsafe { std::mem::transmute::<_, &mut $leaf>(&mut entry.result) })
+                    // JUSTIFICATION: There is no safe alternative.
+                    // SAFETY: Transmuting references to same size and alignment types is safe. For
+                    // further information See `index_leaf!`.
+                    .map(|entry: &'a mut crate::cpuid::CpuidEntry| unsafe {
+                        std::mem::transmute::<_, &'a mut $leaf>(&mut entry.result)
+                    })
             }
         }
     };
