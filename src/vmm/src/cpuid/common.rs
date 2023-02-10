@@ -23,14 +23,14 @@ pub enum GetCpuidError {
 /// - When the the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
 pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResult, GetCpuidError> {
     let max_leaf =
+        // JUSTIFICATION: There is no safe alternative.
         // SAFETY: This is safe because the host supports the `cpuid` instruction
         unsafe { std::arch::x86_64::__get_cpuid_max(leaf & 0x8000_0000).0 };
     if leaf > max_leaf {
         return Err(GetCpuidError::UnsupportedLeaf(leaf));
     }
 
-    // SAFETY: This is safe because the host supports the `cpuid` instruction
-    let entry = unsafe { std::arch::x86_64::__cpuid_count(leaf, subleaf) };
+    let entry = super::cpuid_count(leaf, subleaf);
     if entry.eax == 0 && entry.ebx == 0 && entry.ecx == 0 && entry.edx == 0 {
         return Err(GetCpuidError::InvalidSubleaf(subleaf));
     }
@@ -44,6 +44,7 @@ pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResu
 ///
 /// When CPUID leaf 0 is not supported.
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
+    // JUSTIFICATION: There is no safe alternative.
     // SAFETY: Always safe.
     get_cpuid(0, 0).map(|vendor_entry| unsafe {
         // The ordering of the vendor string is ebx,edx,ecx this is not a mistake.
@@ -169,6 +170,7 @@ mod tests {
     #[test]
     fn get_cpuid_invalid_leaf() {
         let max_leaf =
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: This is safe because the host supports the `cpuid` instruction
             unsafe { std::arch::x86_64::__get_cpuid_max(0).0 };
         let max_leaf_plus_one = max_leaf + 1;
