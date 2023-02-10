@@ -55,7 +55,7 @@ pub use intel::IntelCpuid;
 
 /// Indexing implementations (shared between AMD and Intel).
 mod indexing;
-pub(crate) use indexing::{index_leaf, transmute_vec};
+pub(crate) use indexing::index_leaf;
 pub use indexing::{IndexLeaf, IndexLeafMut};
 
 /// Leaf structs (shared between AMD and Intel).
@@ -87,6 +87,18 @@ pub const VENDOR_ID_AMD_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDO
 /// To store the brand string we have 3 leaves, each with 4 registers, each with 4 bytes.
 pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 
+/// Mimic of [`std::arch::x86_64::__cpuid`] that wraps [`cpuid_count`].
+fn cpuid(leaf: u32) -> std::arch::x86_64::CpuidResult {
+    cpuid_count(leaf, 0)
+}
+
+/// Safe wrapper around [`std::arch::x86_64::__cpuid_count`].
+fn cpuid_count(leaf: u32, subleaf: u32) -> std::arch::x86_64::CpuidResult {
+    // JUSTIFICATION: There is no safe alternative.
+    // SAFETY: The `cfg(cpuid)` wrapping the `cpuid` module guarantees `CPUID` is supported.
+    unsafe { std::arch::x86_64::__cpuid_count(leaf, subleaf) }
+}
+
 /// Gets the Intel default brand.
 // As we pass through host frequency, we require CPUID and thus `cfg(cpuid)`.
 /// Gets host brand string.
@@ -102,20 +114,16 @@ pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
 #[inline]
 #[must_use]
 pub fn host_brand_string() -> [u8; BRAND_STRING_LENGTH] {
-    // SAFETY: Safe we check `CPUID` availability with `cfg(cpuid)`.
-    let leaf_a = unsafe { core::arch::x86_64::__cpuid(0x80000002) };
-
-    // SAFETY: Safe we check `CPUID` availability with `cfg(cpuid)`.
-    let leaf_b = unsafe { core::arch::x86_64::__cpuid(0x80000003) };
-
-    // SAFETY: Safe we check `CPUID` availability with `cfg(cpuid)`.
-    let leaf_c = unsafe { core::arch::x86_64::__cpuid(0x80000004) };
+    let leaf_a = cpuid(0x80000002);
+    let leaf_b = cpuid(0x80000003);
+    let leaf_c = cpuid(0x80000004);
 
     let arr = [
         leaf_a.eax, leaf_a.ebx, leaf_a.ecx, leaf_a.edx, leaf_b.eax, leaf_b.ebx, leaf_b.ecx,
         leaf_b.edx, leaf_c.eax, leaf_c.ebx, leaf_c.ecx, leaf_c.edx,
     ];
 
+    // JUSTIFICATION: There is no safe alternative.
     // SAFETY: Transmuting `[u32;12]` to `[u8;BRAND_STRING_LENGTH]` (`[u8;48]`) is always safe.
     unsafe { std::mem::transmute(arr) }
 }
@@ -286,6 +294,7 @@ impl CpuidTrait for kvm_bindings::CpuId {
             .find(|entry| entry.function == *leaf && entry.index == *subleaf);
 
         entry_opt.map(|entry| {
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: The `kvm_cpuid_entry2` and `CpuidEntry` are `repr(C)` with known sizes.
             unsafe {
                 let arr: &[u8; size_of::<kvm_bindings::kvm_cpuid_entry2>()] = transmute(entry);
@@ -305,6 +314,7 @@ impl CpuidTrait for kvm_bindings::CpuId {
             .iter_mut()
             .find(|entry| entry.function == *leaf && entry.index == *subleaf);
         entry_opt.map(|entry| {
+            // JUSTIFICATION: There is no safe alternative.
             // SAFETY: The `kvm_cpuid_entry2` and `CpuidEntry` are `repr(C)` with known sizes.
             unsafe {
                 let arr: &mut [u8; size_of::<kvm_bindings::kvm_cpuid_entry2>()] = transmute(entry);
