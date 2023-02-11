@@ -3,7 +3,9 @@
 use bit_fields::CheckedAssignError;
 
 use super::registers;
-use crate::cpuid::{CpuidTrait, BRAND_STRING_LENGTH};
+use crate::cpuid::{
+    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, BRAND_STRING_LENGTH,
+};
 
 /// Error type for [`IntelCpuid::normalize`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
@@ -211,6 +213,21 @@ impl super::IntelCpuid {
         /// get a unique topology of the next level. This allows 128 logical
         /// processors/package.
         const LEAFBH_INDEX1_APICID: u32 = 7;
+
+        // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
+        // include leaf 0xB / sub-leaf 1.
+        // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
+        self.0
+            .entry(CpuidKey::subleaf(0xB, 0x1))
+            .or_insert(CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                result: CpuidRegisters {
+                    eax: 0x0,
+                    ebx: 0x0,
+                    ecx: 0x0,
+                    edx: 0x0,
+                },
+            });
 
         let leaf_b = self.leaf_mut::<0xB>();
         for (index, subleaf) in leaf_b.0.into_iter().enumerate() {
