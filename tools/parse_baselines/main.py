@@ -64,11 +64,8 @@ def read_data_files(args):
     for root, _, files in os.walk(root_path):
         for file in files:
             if file in res_files:
-                buf = ""
                 for line in open(Path(root) / file, encoding="utf-8"):
-                    buf += line
-                    if line == "}\n":
-                        yield json.loads(buf)
+                    yield json.loads(line)
 
 
 def overlay(dict_old, dict_new):

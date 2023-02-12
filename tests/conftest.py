@@ -169,7 +169,7 @@ class JsonFileDumper(ResultsDumperInterface):
     def __dump_pretty_json(file, data, flags):
         """Write the `data` dictionary to the output file in pretty format."""
         with open(file, flags, encoding="utf-8") as file_fd:
-            json.dump(data, file_fd, indent=4)
+            json.dump(data, file_fd)
             file_fd.write("\n")  # Add newline cause Py JSON does not
             file_fd.flush()
 
