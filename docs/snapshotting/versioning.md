@@ -19,6 +19,7 @@ some version translations would not be possible.
 ![Version graph](
 ../images/version_graph.png?raw=true
 "Version graph")
+
 A non-exhaustive list of how cross-version snapshot support can be used:
 
 Example scenario #1 - load snapshot from older version:

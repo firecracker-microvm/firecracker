@@ -91,7 +91,7 @@ that the host, host/API communication and snapshot files are trusted by Firecrac
 To ensure a secure integration with the snapshot functionality, users need to secure
 snapshot files by implementing authentication and encryption schemes while
 managing their lifecycle or moving them across the trust boundary, like for
-example when provisioning them from a respository to a host over the network.
+example when provisioning them from a repository to a host over the network.
 
 Firecracker is optimized for fast load/resume, and it's designed to do some
 very basic sanity checks only on the vm state file. It only verifies integrity
