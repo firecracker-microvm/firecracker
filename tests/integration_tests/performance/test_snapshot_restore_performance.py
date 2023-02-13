@@ -359,7 +359,7 @@ def snapshot_workload(context):
     file_dumper = context.custom["results_file_dumper"]
 
     st_core = core.Core(
-        name=TEST_ID, iterations=1, custom={"cpu_model_name": get_cpu_model_name()}
+        name=TEST_ID, iterations=1, custom={"cpu_model": get_cpu_model_name()}
     )
 
     snapshot_scaling_vcpus(context, st_core, vcpu_count=10)

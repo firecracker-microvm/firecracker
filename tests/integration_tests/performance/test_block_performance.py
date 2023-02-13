@@ -10,7 +10,6 @@ from enum import Enum
 
 import pytest
 
-from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
@@ -25,7 +24,6 @@ from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.drive as drive_tools
 import framework.stats as st
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "block_performance"
 kernel_version = get_kernel_version(level=1)
@@ -263,11 +261,11 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
 def test_block_performance(
     microvm_factory,
     network_config,
-    results_file_dumper,
     guest_kernel,
     rootfs,
     vcpus,
     io_engine,
+    st_core,
 ):
     """
     Execute block device emulation benchmarking scenarios.
@@ -277,11 +275,10 @@ def test_block_performance(
     if io_engine == "Async" and not is_io_uring_supported():
         pytest.skip("io_uring is not supported")
 
-    microvm_cfg = f"{vcpus}vcpu_1024mb"
-
+    guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
     vm.ssh_network_config(network_config, "1")
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
@@ -299,16 +296,18 @@ def test_block_performance(
         current_cpu_id += 1
         vm.pin_vcpu(vcpu_id, current_cpu_id)
 
-    st_core = core.Core(
-        name=TEST_ID,
-        iterations=1,
-        custom={
-            "microvm": microvm_cfg,
-            "kernel": guest_kernel.name(),
-            "disk": rootfs.name(),
-            "cpu_model_name": get_cpu_model_name(),
-        },
-    )
+    st_core.name = TEST_ID
+    st_core.iterations = 1
+    # define dimensions
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb"
+    st_core.custom = {
+        "cpu_model": get_cpu_model_name(),
+        "host_linux": kernel_version,
+        "guest_linux": guest_kernel.name(),
+        "guest_config": microvm_cfg.removesuffix(".json"),
+        "performance_test": TEST_ID,
+        "io_engine": io_engine,
+    }
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{io_engine.lower()}_{microvm_cfg}"
 
@@ -340,9 +339,4 @@ def test_block_performance(
             st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
 
     # Gather results and verify pass criteria.
-    try:
-        result = st_core.run_exercise()
-    except core.CoreException as err:
-        handle_failure(results_file_dumper, err)
-
-    results_file_dumper.dump(result)
+    st_core.run_exercise()

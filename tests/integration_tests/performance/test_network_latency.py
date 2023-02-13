@@ -8,13 +8,12 @@ import json
 
 import pytest
 
-from framework.stats import core, consumer, producer
+from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version, CpuMap, DictQuery
 from framework.artifacts import DEFAULT_HOST_IP
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-from integration_tests.performance.utils import handle_failure
 from integration_tests.performance.configs import defs
 
 
@@ -127,7 +126,7 @@ def consume_ping_output(cons, raw_data, requests):
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
 def test_network_latency(
-    microvm_factory, network_config, guest_kernel, rootfs, results_file_dumper
+    microvm_factory, network_config, guest_kernel, rootfs, st_core
 ):
     """
     Test network latency for multiple vm configurations.
@@ -140,9 +139,11 @@ def test_network_latency(
     interval = 0.2  # Seconds
 
     # Create a microvm from artifacts
+    guest_mem_mib = 1024
+    guest_vcpus = 1
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
-    vm.basic_config(vcpu_count=1, mem_size_mib=1024)
+    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.ssh_network_config(network_config, "1")
     vm.start()
 
@@ -160,10 +161,18 @@ def test_network_latency(
         assert vm.pin_vcpu(i, current_cpu_id + i), f"Failed to pin fc_vcpu {i} thread."
 
     # is this actually needed, beyond baselines?
-    microvm_name = "1vcpu_1024mb.json"
+    guest_config = f"{guest_vcpus}vcpu_{guest_mem_mib}mb.json"
+    st_core.name = "network_latency"
+    st_core.iterations = 1
+    st_core.custom = {
+        "cpu_model": get_cpu_model_name(),
+        "host_linux": kernel_version,
+        "guest_linux": guest_kernel.name(),
+        "guest_config": guest_config.removesuffix(".json"),
+        "performance_test": TEST_ID,
+    }
 
-    st_core = core.Core(name="network_latency", iterations=1)
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{microvm_name}"
+    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
 
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
@@ -177,10 +186,5 @@ def test_network_latency(
     prod = producer.SSHCommand(cmd, vm.ssh)
 
     st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")
-
     # Gather results and verify pass criteria.
-    try:
-        result = st_core.run_exercise()
-        results_file_dumper.dump(result)
-    except core.CoreException as err:
-        handle_failure(results_file_dumper, err)
+    st_core.run_exercise()
