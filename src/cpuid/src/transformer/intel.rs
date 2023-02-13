@@ -118,6 +118,30 @@ fn update_extended_topology_entry(
 pub struct IntelCpuidTransformer {}
 
 impl CpuidTransformer for IntelCpuidTransformer {
+    fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
+        // include leaf 0xb / sub-leaf 1.
+        // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
+        // The registers within sub-leaves of 0xB are zeroed by update_extended_topology_entry()
+        // and then modified. So the value they are set to at this point doesn't matter.
+        if !cpuid
+            .as_slice()
+            .iter()
+            .any(|entry| entry.function == 0xb && entry.index == 1)
+        {
+            cpuid
+                .push(kvm_cpuid_entry2 {
+                    function: leaf_0xb::LEAF_NUM,
+                    index: 1,
+                    flags: kvm_bindings::KVM_CPUID_FLAG_SIGNIFCANT_INDEX,
+                    ..kvm_cpuid_entry2::default()
+                })
+                .map_err(Error::Fam)?;
+        }
+
+        self.process_entries(cpuid, vm_spec)
+    }
+
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
@@ -138,6 +162,22 @@ mod tests {
     use super::*;
     use crate::cpu_leaf::leaf_0xb::{LEVEL_TYPE_CORE, LEVEL_TYPE_THREAD};
     use crate::transformer::VmSpec;
+
+    #[test]
+    fn test_process_cpuid() {
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let mut cpuid = CpuId::new(0).unwrap();
+
+        assert!(IntelCpuidTransformer {}
+            .process_cpuid(&mut cpuid, &vm_spec)
+            .is_ok());
+
+        // Assert that leaf 0xb / subleaf 1 is generated correctly if not exist in the given cpuid.
+        assert!(cpuid
+            .as_slice()
+            .iter()
+            .any(|entry| entry.function == leaf_0xb::LEAF_NUM && entry.index == 1));
+    }
 
     #[test]
     fn test_update_perf_mon_entry() {
