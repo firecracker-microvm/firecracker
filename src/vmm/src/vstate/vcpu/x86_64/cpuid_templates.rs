@@ -1,7 +1,7 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::cpuid::{
+use guest_config::cpuid::{
     AmdCpuid, Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
 };
 

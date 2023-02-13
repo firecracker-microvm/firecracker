@@ -78,7 +78,7 @@ dependencies = [
  "derive_more",
  "device_tree",
  "kvm-bindings",
- "kvm-ioctls",
+ "kvm-ioctls 0.12.0",
  "libc",
  "linux-loader",
  "logger",
@@ -563,6 +563,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 
 [[package]]
+name = "guest_config"
+version = "0.1.0"
+dependencies = [
+ "arch",
+ "arch_gen",
+ "bit-fields",
+ "kvm-bindings",
+ "kvm-ioctls 0.13.0",
+ "logger",
+ "serde",
+ "thiserror",
+ "utils",
+]
+
+[[package]]
 name = "half"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -672,6 +687,17 @@ name = "kvm-ioctls"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3a321cabd827642499c77e27314f388dd83a717a5ca716b86476fb947f73ae4"
+dependencies = [
+ "kvm-bindings",
+ "libc",
+ "vmm-sys-util",
+]
+
+[[package]]
+name = "kvm-ioctls"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8f8dc9c1896e5f144ec5d07169bc29f39a047686d29585a91f30489abfaeb6b"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -1120,18 +1146,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.149"
+version = "1.0.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "256b9932320c590e707b94576e3cc1f7c9024d0ee6612dfbcf1cb106cbe8e055"
+checksum = "bb7d1f0d3021d347a83e556fc4683dea2ea09d87bccdf88ff5c12545d89d5efb"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.149"
+version = "1.0.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4eae9b04cbffdfd550eb462ed33bc6a1b68c935127d008b27444d08380f94e4"
+checksum = "af487d118eecd09402d70a5d72551860e788df87b464af30e5ea6a38c75c541e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1251,9 +1277,9 @@ checksum = "6ceab39d59e4c9499d4e5a8ee0e2735b891bb7308ac83dfb4e80cad195c9f6f3"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdbf052a0783de01e944a6ce7a8cb939e295b1e7be835a1112c3b9a7f047a5a"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "universal-hash"
@@ -1390,13 +1416,13 @@ version = "0.1.0"
 dependencies = [
  "arch",
  "arch_gen",
- "bit-fields",
  "criterion",
  "derive_more",
  "devices",
  "event-manager",
+ "guest_config",
  "kvm-bindings",
- "kvm-ioctls",
+ "kvm-ioctls 0.12.0",
  "lazy_static",
  "libc",
  "linux-loader",

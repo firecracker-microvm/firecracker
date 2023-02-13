@@ -5,7 +5,8 @@
 #[allow(clippy::wildcard_imports)]
 use super::leaves::*;
 
-/// Indexs leaf.
+/// Indexes leaf.
+#[must_use]
 pub trait IndexLeaf<const INDEX: usize> {
     /// Leaf type.
     type Output<'a>
@@ -14,7 +15,8 @@ pub trait IndexLeaf<const INDEX: usize> {
     /// Gets immutable reference to leaf.
     fn index_leaf<'a>(&'a self) -> Self::Output<'a>;
 }
-/// Indexs leaf.
+/// Indexes leaf.
+#[must_use]
 pub trait IndexLeafMut<const INDEX: usize> {
     /// Leaf type.
     type Output<'a>
@@ -25,7 +27,13 @@ pub trait IndexLeafMut<const INDEX: usize> {
 }
 
 /// Transmutes `Vec<T>` into `Vec<U>` where `size::<T>() == size::<U>()`.
-pub(crate) unsafe fn transmute_vec<T, U>(from: Vec<T>) -> Vec<U> {
+/// # Safety
+///
+/// Unsafe due to raw casting between types T and U.
+/// Make sure sizes and memory alignments of T and U are equal.
+#[inline]
+#[must_use]
+pub unsafe fn transmute_vec<T, U>(from: Vec<T>) -> Vec<U> {
     let mut intermediate = std::mem::ManuallyDrop::new(from);
     Vec::from_raw_parts(
         intermediate.as_mut_ptr().cast(),
@@ -35,6 +43,7 @@ pub(crate) unsafe fn transmute_vec<T, U>(from: Vec<T>) -> Vec<U> {
 }
 
 /// Convenience macro for indexing leaves.
+#[macro_export]
 macro_rules! index_leaf {
     ($index: literal, $leaf: ty, $cpuid: ty) => {
         impl $crate::cpuid::IndexLeaf<$index> for $cpuid {
@@ -59,8 +68,6 @@ macro_rules! index_leaf {
         }
     };
 }
-
-pub(crate) use index_leaf;
 
 /// Convenience macro for indexing shared leaves.
 macro_rules! cpuid_index_leaf {

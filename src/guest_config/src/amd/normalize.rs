@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 use bit_fields::CheckedAssignError;
 
-use crate::cpuid::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
+use crate::cpuid::{
+    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, MissingBrandStringLeaves,
+};
 
 /// Error type for [`AmdCpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -31,7 +33,7 @@ pub enum NormalizeCpuidError {
     ExtendedApicId(#[from] ExtendedApicIdError),
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
-    BrandString(crate::cpuid::MissingBrandStringLeaves),
+    BrandString(MissingBrandStringLeaves),
 }
 
 /// Error type for setting cache topology section of [`AmdCpuid::normalize`].

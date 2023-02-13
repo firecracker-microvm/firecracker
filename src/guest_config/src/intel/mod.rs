@@ -1,33 +1,36 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-#![allow(clippy::similar_names, clippy::unreadable_literal)]
 
-use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
-
-/// Indexing implementations.
-mod indexing;
+#![allow(
+    clippy::similar_names,
+    clippy::module_name_repetitions,
+    clippy::unreadable_literal,
+    clippy::unsafe_derive_deserialize,
+    clippy::mod_module_files
+)]
 
 /// Leaf structs.
 mod leaves;
 
+/// Indexing implementations.
+mod indexing;
+
 /// CPUID normalize implementation.
 mod normalize;
-
-pub use normalize::{
-    ExtendedApicIdError, ExtendedCacheTopologyError, FeatureEntryError, NormalizeCpuidError,
-};
+pub use normalize::{DeterministicCacheError, ExtendedTopologyError, NormalizeCpuidError};
 
 /// Register bit fields.
 mod registers;
 
-/// A structure matching the AMD CPUID specification as described in
-/// [AMD64 Architecture Programmer’s Manual Volume 3: General-Purpose and System Instructions](https://www.amd.com/system/files/TechDocs/24594.pdf)
-/// .
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AmdCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
+use crate::cpuid::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 
-impl AmdCpuid {
+/// A structure matching the Intel CPUID specification as described in
+/// [Intel® 64 and IA-32 Architectures Software Developer's Manual Combined Volumes 2A, 2B, 2C, and 2D: Instruction Set Reference, A-Z](https://cdrdv2.intel.com/v1/dl/getContent/671110)
+/// .
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct IntelCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
+
+impl IntelCpuid {
     /// Include leaves from `other` that are not present in `self`.
     #[inline]
     #[must_use]
@@ -45,7 +48,7 @@ impl AmdCpuid {
     }
 }
 
-impl CpuidTrait for AmdCpuid {
+impl CpuidTrait for IntelCpuid {
     /// Gets a given sub-leaf.
     #[inline]
     fn get(&self, key: &CpuidKey) -> Option<&CpuidEntry> {
@@ -59,7 +62,7 @@ impl CpuidTrait for AmdCpuid {
     }
 }
 
-impl From<RawCpuid> for AmdCpuid {
+impl From<RawCpuid> for IntelCpuid {
     #[inline]
     fn from(raw_cpuid: RawCpuid) -> Self {
         let map = raw_cpuid
@@ -71,10 +74,10 @@ impl From<RawCpuid> for AmdCpuid {
     }
 }
 
-impl From<AmdCpuid> for RawCpuid {
+impl From<IntelCpuid> for RawCpuid {
     #[inline]
-    fn from(amd_cpuid: AmdCpuid) -> Self {
-        let entries = amd_cpuid
+    fn from(intel_cpuid: IntelCpuid) -> Self {
+        let entries = intel_cpuid
             .0
             .into_iter()
             .map(RawKvmCpuidEntry::from)
@@ -89,7 +92,7 @@ mod tests {
 
     #[test]
     fn get() {
-        let cpuid = AmdCpuid(std::collections::BTreeMap::new());
+        let cpuid = IntelCpuid(std::collections::BTreeMap::new());
         assert_eq!(
             cpuid.get(&CpuidKey {
                 leaf: 0,
@@ -101,7 +104,7 @@ mod tests {
 
     #[test]
     fn get_mut() {
-        let mut cpuid = AmdCpuid(std::collections::BTreeMap::new());
+        let mut cpuid = IntelCpuid(std::collections::BTreeMap::new());
         assert_eq!(
             cpuid.get_mut(&CpuidKey {
                 leaf: 0,
@@ -114,7 +117,7 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     #[test]
     fn include_leaves_from() {
-        let first = AmdCpuid(
+        let first = IntelCpuid(
             [
                 (
                     CpuidKey {
@@ -148,7 +151,7 @@ mod tests {
             .into_iter()
             .collect(),
         );
-        let second = AmdCpuid(
+        let second = IntelCpuid(
             [
                 (
                     CpuidKey {
@@ -189,7 +192,7 @@ mod tests {
             .into_iter()
             .collect(),
         );
-        let expected = AmdCpuid(
+        let expected = IntelCpuid(
             [
                 // First
                 (

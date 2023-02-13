@@ -43,18 +43,12 @@ pub mod common;
 mod cpuid_ffi;
 pub use cpuid_ffi::*;
 
-/// AMD CPUID specification handling.
-pub mod amd;
-pub use amd::AmdCpuid;
-
-/// Intel CPUID specification handling.
-pub mod intel;
-pub use intel::IntelCpuid;
+pub use crate::amd::AmdCpuid;
+pub use crate::intel::IntelCpuid;
 
 /// Indexing implementations (shared between AMD and Intel).
 mod indexing;
-pub(crate) use indexing::{index_leaf, transmute_vec};
-pub use indexing::{IndexLeaf, IndexLeafMut};
+pub use indexing::{transmute_vec, IndexLeaf, IndexLeafMut};
 
 /// Leaf structs (shared between AMD and Intel).
 mod leaves;
@@ -62,8 +56,9 @@ pub use leaves::Leaf;
 
 /// CPUID normalize implementation.
 mod normalize;
-
-pub use normalize::{FeatureInformationError, GetMaxCpusPerPackageError, NormalizeCpuidError};
+pub use crate::cpuid::normalize::{
+    FeatureInformationError, GetMaxCpusPerPackageError, NormalizeCpuidError,
+};
 
 /// Register bit fields (shared between AMD and Intel).
 mod registers;

@@ -43,7 +43,6 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -51,7 +50,10 @@ use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::Vcpu;
 use crate::vstate::vm::Vm;
-use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEventsObserver};
+use crate::{
+    device_manager, Error, EventManager, MicrovmState, MicrovmStateError, RestoreVcpusError, Vmm,
+    VmmEventsObserver,
+};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]

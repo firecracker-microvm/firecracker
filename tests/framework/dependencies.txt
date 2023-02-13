@@ -31,6 +31,7 @@
  'getrandom',
  'ghash',
  'glob',
+ 'guest_config',
  'inout',
  'io-lifetimes',
  'io_uring',

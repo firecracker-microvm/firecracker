@@ -25,6 +25,7 @@ log = "0.4.17"
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
+guest_config = { path = "../guest_config" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 rate_limiter = { path = "../rate_limiter" }
@@ -34,7 +35,6 @@ utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
 arch_gen = { path = "../arch_gen" }
-bit-fields = { path = "../bit-fields" }
 
 [dev-dependencies]
 criterion = "0.4.0"
