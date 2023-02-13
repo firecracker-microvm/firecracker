@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 [[bin]]
 name = "uffd-handler"
-path = "src/handler.rs"
+path = "src/main.rs"
 
 [dependencies]
 libc = "0.2.117"
