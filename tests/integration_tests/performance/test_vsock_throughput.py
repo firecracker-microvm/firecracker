@@ -8,7 +8,7 @@ import time
 import concurrent.futures
 
 import pytest
-from framework.stats import core, consumer, producer
+from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
@@ -22,7 +22,6 @@ from framework.utils import (
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from framework.utils_vsock import make_host_port_path, VSOCK_UDS_PATH
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "vsock_throughput"
 kernel_version = get_kernel_version(level=1)
@@ -264,14 +263,8 @@ def pipes(basevm, current_avail_cpu, env_id):
 @pytest.mark.nonci
 @pytest.mark.timeout(1200)
 @pytest.mark.parametrize("vcpus", [1, 2])
-@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
 def test_vsock_throughput(
-    microvm_factory,
-    network_config,
-    guest_kernel,
-    rootfs,
-    vcpus,
-    results_file_dumper,
+    microvm_factory, network_config, guest_kernel, rootfs, vcpus, st_core
 ):
     """
     Test vsock throughput for multiple vm configurations.
@@ -288,9 +281,16 @@ def test_vsock_throughput(
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
 
-    st_core = core.Core(
-        name=TEST_ID, iterations=1, custom={"cpu_model_name": get_cpu_model_name()}
-    )
+    guest_config = f"{vcpus}vcpu_{mem_size_mib}mb.json"
+    st_core.name = TEST_ID
+    st_core.iterations = 1
+    st_core.custom = {
+        "cpu_model": get_cpu_model_name(),
+        "host_linux": kernel_version,
+        "guest_linux": guest_kernel.name(),
+        "guest_config": guest_config.removesuffix(".json"),
+        "performance_test": TEST_ID,
+    }
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
@@ -308,14 +308,10 @@ def test_vsock_throughput(
     for cons, prod, tag in pipes(
         vm,
         current_avail_cpu + 1,
-        f"{guest_kernel.name()}/{rootfs.name()}/{vcpus}vcpu_{mem_size_mib}mb",
+        f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}",
     ):
         st_core.add_pipe(prod, cons, tag)
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    try:
-        result = st_core.run_exercise()
-        results_file_dumper.dump(result)
-    except core.CoreException as err:
-        handle_failure(results_file_dumper, err)
+    st_core.run_exercise()

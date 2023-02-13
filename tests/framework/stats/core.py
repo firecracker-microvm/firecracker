@@ -42,7 +42,7 @@ class Core:
     """Base class for statistics core driver."""
 
     # pylint: disable=W0102
-    def __init__(self, name, iterations, custom={}):
+    def __init__(self, name="<PLACEHOLDER>", iterations=1, custom={}):
         """Core constructor."""
         self._pipes = defaultdict(Pipe)
         self._result = Result(
@@ -99,32 +99,32 @@ class Core:
     @property
     def name(self):
         """Return statistics name."""
-        return self._result.name
+        return self._result["name"]
 
     @name.setter
     def name(self, name):
         """Set statistics name."""
-        self._result.name = name
+        self._result["name"] = name
 
     @property
     def iterations(self):
         """Return statistics iterations count."""
-        return self._result.iterations
+        return self._result["iterations"]
 
     @iterations.setter
     def iterations(self, iterations):
         """Set statistics iterations count."""
-        self._result.iterations = iterations
+        self._result["iterations"] = iterations
 
     @property
     def custom(self):
         """Return statistics custom information."""
-        return self._result.custom
+        return self._result["custom"]
 
     @custom.setter
     def custom(self, custom):
         """Set statistics custom information."""
-        self._result.custom = custom
+        self._result["custom"] = custom
 
     @property
     def statistics(self):

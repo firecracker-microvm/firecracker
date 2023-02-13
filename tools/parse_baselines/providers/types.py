@@ -69,7 +69,7 @@ class DataParser(ABC):
         """Parse the rows and return baselines."""
         for row in self._data_provider:
             measurements = row["results"]
-            cpu_model = row["custom"]["cpu_model_name"]
+            cpu_model = row["custom"]["cpu_model"]
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
                 for key in self._baselines_defs:

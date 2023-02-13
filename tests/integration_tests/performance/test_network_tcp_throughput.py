@@ -10,9 +10,8 @@ import time
 import pytest
 
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure
 from framework.artifacts import DEFAULT_HOST_IP
-from framework.stats import core, consumer, producer
+from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
@@ -306,14 +305,8 @@ def pipes(basevm, host_ip, current_avail_cpu, env_id):
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize("vcpus", [1, 2])
-@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
 def test_network_tcp_throughput(
-    microvm_factory,
-    network_config,
-    guest_kernel,
-    rootfs,
-    vcpus,
-    results_file_dumper,
+    microvm_factory, network_config, guest_kernel, rootfs, vcpus, st_core
 ):
     """
     Iperf between guest and host in both directions for TCP workload.
@@ -321,20 +314,24 @@ def test_network_tcp_throughput(
     @type: performance
     """
 
+    guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
     vm.ssh_network_config(network_config, "1")
     vm.start()
 
-    microvm_cfg = f"{vcpus}vcpu_1024mb.json"
-    custom = {
-        "microvm": microvm_cfg,
-        "kernel": guest_kernel.name(),
-        "disk": rootfs.name(),
-        "cpu_model_name": get_cpu_model_name(),
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
+    st_core.name = TEST_ID
+    st_core.iterations = 1
+    # we will use this also as metrics dimensions
+    st_core.custom = {
+        "cpu_model": get_cpu_model_name(),
+        "host_linux": kernel_version,
+        "guest_linux": guest_kernel.name(),
+        "guest_config": microvm_cfg.removesuffix(".json"),
+        "performance_test": TEST_ID,
     }
-    st_core = core.Core(name=TEST_ID, iterations=1, custom=custom)
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
@@ -359,8 +356,4 @@ def test_network_tcp_throughput(
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    try:
-        result = st_core.run_exercise()
-        results_file_dumper.dump(result)
-    except core.CoreException as err:
-        handle_failure(results_file_dumper, err)
+    st_core.run_exercise()
