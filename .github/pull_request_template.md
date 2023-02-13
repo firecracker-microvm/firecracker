@@ -9,7 +9,9 @@
 ## License Acceptance
 
 By submitting this pull request, I confirm that my contribution is made under
-the terms of the Apache 2.0 license.
+the terms of the Apache 2.0 license. For more information on following
+Developer Certificate of Origin and signing off your commits, please check
+[`CONTRIBUTING.md`][3].
 
 ## PR Checklist
 
@@ -28,3 +30,4 @@ the terms of the Apache 2.0 license.
 
 [1]: https://github.com/rust-vmm
 [2]: https://github.com/firecracker-microvm/firecracker/blob/main/docs/api-change-runbook.md
+[3]: https://github.com/firecracker-microvm/firecracker/blob/main/CONTRIBUTING.md
