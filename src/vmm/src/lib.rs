@@ -758,9 +758,9 @@ impl Vmm {
     /// Signals Vmm to stop and exit.
     pub fn stop(&mut self, exit_code: FcExitCode) {
         // To avoid cycles, all teardown paths take the following route:
-        // +------------------------+----------------------------+------------------------+
-        // |        Vmm             |           Action           |           Vcpu         |
-        // +------------------------+----------------------------+------------------------+
+        //   +------------------------+----------------------------+------------------------+
+        //   |        Vmm             |           Action           |           Vcpu         |
+        //   +------------------------+----------------------------+------------------------+
         // 1 |                        |                            | vcpu.exit(exit_code)   |
         // 2 |                        |                            | vcpu.exit_evt.write(1) |
         // 3 |                        | <--- EventFd::exit_evt --- |                        |
@@ -769,7 +769,7 @@ impl Vmm {
         // 6 |                        |                            | StateMachine::finish() |
         // 7 | VcpuHandle::join()     |                            |                        |
         // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-        // +------------------------+----------------------------+------------------------+
+        //   +------------------------+----------------------------+------------------------+
         // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
         // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
         // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
