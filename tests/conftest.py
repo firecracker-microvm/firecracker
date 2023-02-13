@@ -96,14 +96,15 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from host_tools.ip_generator import network_config, subnet_generator
+from host_tools.metrics import get_metrics_logger
 from framework import utils
 from framework import defs
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
 from framework.microvm import Microvm
+from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
-from framework.properties import GLOBAL_PROPS
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 # Tests root directory.
@@ -128,6 +129,7 @@ def _test_images_s3_bucket():
 
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
+METRICS = get_metrics_logger()
 
 
 # pylint: disable=too-few-public-methods
@@ -236,19 +238,22 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip_marker)
 
 
-def pytest_runtest_makereport(item, call):
-    """Decorate test results with additional properties."""
-    if call.when != "setup":
-        return
+@pytest.fixture(scope="function", autouse=True)
+def record_props(request, record_property):
+    """Decorate test results with additional properties.
 
-    for prop_name, prop_val in GLOBAL_PROPS.items():
+    Note: there is no need to call this fixture explicitly
+    """
+    # Augment test result with global properties
+    for prop_name, prop_val in global_props.__dict__.items():
         # if record_testsuite_property worked with xdist we could use that
         # https://docs.pytest.org/en/7.1.x/reference/reference.html#record-testsuite-property
         # to record the properties once per report. But here we record each
         # prop per test. It just results in larger report files.
-        item.user_properties.append((prop_name, prop_val))
+        record_property(prop_name, prop_val)
 
-    function_docstring = inspect.getdoc(item.function)
+    # Extract attributes from the docstrings
+    function_docstring = inspect.getdoc(request.function)
     description = []
     attributes = {}
     for line in function_docstring.split("\n"):
@@ -260,8 +265,55 @@ def pytest_runtest_makereport(item, call):
         else:
             description.append(line)
     for attr_name, attr_value in attributes.items():
-        item.user_properties.append((attr_name, attr_value))
-    item.user_properties.append(("description", "".join(description)))
+        record_property(attr_name, attr_value)
+    record_property("description", "".join(description))
+
+
+def pytest_runtest_logreport(report):
+    """Send general test metrics to CloudWatch"""
+    if report.when == "call":
+        dimensions = {
+            "test": report.nodeid,
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_linux_version": global_props.host_linux_version,
+        }
+        METRICS.set_property("result", report.outcome)
+        for prop_name, prop_val in report.user_properties:
+            METRICS.set_property(prop_name, prop_val)
+        METRICS.set_dimensions(dimensions)
+        METRICS.put_metric(
+            "duration",
+            report.duration,
+            unit="Seconds",
+        )
+        METRICS.put_metric(
+            "failed",
+            1 if report.outcome == "FAILED" else 0,
+            unit="Count",
+        )
+        METRICS.flush()
+
+
+@pytest.fixture()
+def metrics(request):
+    """Fixture to pass the metrics scope
+
+    We use a fixture instead of the @metrics_scope decorator as that conflicts
+    with tests.
+
+    Due to how aws-embedded-metrics works, this fixture is per-test rather
+    than per-session, and we flush the metrics after each test.
+
+    Ref: https://github.com/awslabs/aws-embedded-metrics-python
+    """
+    metrics_logger = get_metrics_logger()
+    yield metrics_logger
+    # we set the properties /after/ the test has finished to make sure we
+    # capture any properties set by later fixtures
+    for prop_name, prop_val in request.node.user_properties:
+        metrics_logger.set_property(prop_name, prop_val)
+    metrics_logger.flush()
 
 
 def test_session_root_path():
@@ -291,7 +343,6 @@ def test_fc_session_root_path():
 @pytest.fixture
 def test_session_tmp_path(test_fc_session_root_path):
     """Yield a random temporary directory. Destroyed on teardown."""
-
     tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
     yield tmp_path
     shutil.rmtree(tmp_path)
@@ -525,36 +576,38 @@ def firecracker_artifacts(*args, **kwargs):
 
 
 @pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)
-def firecracker_release(request):
+def firecracker_release(request, record_property):
     """Return all supported firecracker binaries."""
     firecracker = request.param
+    record_property("firecracker_release", firecracker.version)
     firecracker.download()
     firecracker.jailer().download()
     return firecracker
 
 
 @pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
-def guest_kernel(request):
+def guest_kernel(request, record_property):
     """Return all supported guest kernels."""
     kernel = request.param
+    record_property("guest_kernel", kernel.name())
     kernel.download()
     return kernel
 
 
-@pytest.fixture(
-    params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda rootfs: rootfs.name()
-)
-def rootfs(request):
+@pytest.fixture(params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda fs: fs.name())
+def rootfs(request, record_property):
     """Return all supported rootfs."""
-    rootfs = request.param
-    rootfs.download()
-    rootfs.ssh_key().download()
-    return rootfs
+    fs = request.param
+    record_property("rootfs", fs.name())
+    fs.download()
+    fs.ssh_key().download()
+    return fs
 
 
 @pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
-def cpu_template(request):
+def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
+    record_property("cpu_template", request.param)
     return request.param
 
 

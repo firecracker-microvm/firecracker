@@ -28,7 +28,6 @@ from framework.utils_vsock import (
     ECHO_SERVER_PORT,
 )
 
-import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
 
@@ -97,17 +96,15 @@ def test_5_snapshots(
     basevm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
 
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.run("sync")
     assert exit_code == 0
 
     vm_blob_path = "/tmp/vsock/test.blob"
     # Generate a random data file for vsock.
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     # Copy the data file and a vsock helper to the guest.
-    _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, bin_vsock_path)
+    _copy_vsock_data_to_guest(basevm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot builder from a microvm.
@@ -133,10 +130,8 @@ def test_5_snapshots(
         path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
         check_host_connections(microvm, path, blob_path, blob_hash)
 
-        ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
         # Check that the root device is not corrupted.
-        check_filesystem(ssh_connection, "ext4", "/dev/vda")
+        check_filesystem(microvm.ssh, "ext4", "/dev/vda")
 
         logger.info("Create snapshot #%d.", i + 1)
 
@@ -176,10 +171,8 @@ def _test_compare_mem_files(context):
     )
     basevm = vm_instance.vm
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.execute_command("sync")
     assert exit_code == 0
 
     # Create a snapshot builder from a microvm.
@@ -228,10 +221,8 @@ def test_patch_drive_snapshot(bin_cloner_path):
     basevm.add_drive("scratch", scratchdisk1.path)
 
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.run("sync")
     assert exit_code == 0
 
     # Update drive to have another backing file, double in size.
@@ -255,11 +246,9 @@ def test_patch_drive_snapshot(bin_cloner_path):
     microvm, _ = vm_builder.build_from_snapshot(
         snapshot, resume=True, diff_snapshots=diff_snapshots
     )
-    # Attempt to connect to resumed microvm.
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
-    # Verify the new microVM has the right scratch drive.
-    guest_drive_size = _get_guest_drive_size(ssh_connection)
+    # Attempt to connect to resumed microvm and verify the new microVM has the
+    # right scratch drive.
+    guest_drive_size = _get_guest_drive_size(microvm.ssh)
     assert guest_drive_size == str(scratchdisk1.size())
 
     microvm.kill()
@@ -355,10 +344,8 @@ def test_negative_postload_api(bin_cloner_path):
     ssh_key = vm_instance.ssh_key
 
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.run("sync")
     assert exit_code == 0
 
     logger.info("Create snapshot")

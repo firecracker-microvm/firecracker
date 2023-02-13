@@ -43,7 +43,7 @@ COVERAGE_MAX_DELTA = 0.05
 
 
 @pytest.mark.timeout(400)
-def test_coverage(monkeypatch, record_property):
+def test_coverage(monkeypatch, record_property, metrics):
     """Test code coverage
 
     @type: build
@@ -100,6 +100,8 @@ def test_coverage(monkeypatch, record_property):
     record_property(
         "coverage", f"{coverage}% {coverage_target}% ±{COVERAGE_MAX_DELTA:.2f}%"
     )
+    metrics.set_dimensions({"cpu_arch": ARCH})
+    metrics.put_metric("code_coverage", coverage, unit="Percent")
 
     assert coverage == pytest.approx(
         coverage_target, abs=COVERAGE_MAX_DELTA

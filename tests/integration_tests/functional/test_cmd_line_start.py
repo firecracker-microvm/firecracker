@@ -16,7 +16,6 @@ from framework import utils
 from framework.artifacts import NetIfaceConfig
 from framework.utils import generate_mmds_session_token, generate_mmds_get_request
 from framework import utils_cpuid
-import host_tools.network as net_tools
 
 
 def _configure_vm_from_json(test_microvm, vm_config_file, json_xform=None):
@@ -468,19 +467,17 @@ def test_config_start_and_mmds_with_api(test_microvm_with_api, vm_config_file):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
     # Get MMDS version and IPv4 address configured from the file.
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = test_microvm.ssh.execute_command(cmd)
     assert stderr.read() == stdout.read() == ""
 
     # Fetch data from MMDS from the guest's side.
-    cmd = _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address)
+    cmd = _build_cmd_to_fetch_metadata(test_microvm.ssh, version, ipv4_address)
     cmd += "/latest/meta-data/"
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    _, stdout, _ = test_microvm.ssh.execute_command(cmd)
     assert json.load(stdout) == data_store["latest"]["meta-data"]
 
     # Validate MMDS configuration.
@@ -518,18 +515,16 @@ def test_with_config_and_metadata_no_api(
 
     test_microvm.spawn()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
     # Get MMDS version and IPv4 address configured from the file.
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = test_microvm.ssh.execute_command(cmd)
     assert stderr.read() == stdout.read() == ""
 
     # Fetch data from MMDS from the guest's side.
-    cmd = _build_cmd_to_fetch_metadata(ssh_connection, version, ipv4_address)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    cmd = _build_cmd_to_fetch_metadata(test_microvm.ssh, version, ipv4_address)
+    _, stdout, _ = test_microvm.ssh.execute_command(cmd)
 
     # Compare response against the expected MMDS contents.
     with open(metadata_file, encoding="utf-8") as metadata:

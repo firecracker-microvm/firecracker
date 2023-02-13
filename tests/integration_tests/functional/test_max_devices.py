@@ -4,7 +4,6 @@
 
 import platform
 import pytest
-import host_tools.network as net_tools
 
 # IRQs are available from 5 to 23, so the maximum number of devices
 # supported at the same time is 19.
@@ -41,9 +40,8 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
     # Test that network devices attached are operational.
     for i in range(MAX_DEVICES_ATTACHED - 1):
         test_microvm.ssh_config["hostname"] = guest_ips[i]
-        ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
         # Verify if guest can run commands.
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
         assert exit_code == 0
 
 

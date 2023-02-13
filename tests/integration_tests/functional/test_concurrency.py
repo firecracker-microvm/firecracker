@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ensure multiple microVMs work correctly when spawned simultaneously."""
 
-import host_tools.network as net_tools
-
 NO_OF_MICROVMS = 20
 
 
@@ -23,4 +21,4 @@ def test_run_concurrency(microvm_factory, network_config, guest_kernel, rootfs):
 
         # We check that the vm is running by testing that the ssh does
         # not time out.
-        net_tools.SSHConnection(microvm.ssh_config)
+        microvm.ssh.run("true")

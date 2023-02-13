@@ -30,7 +30,6 @@ from framework.utils_vsock import (
 )
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
-from host_tools.network import SSHConnection
 import host_tools.logging as log_tools
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
@@ -56,9 +55,7 @@ def test_vsock(
 
     vm.start()
 
-    conn = SSHConnection(vm.ssh_config)
-
-    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, conn)
+    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
 
 
 def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
@@ -68,9 +65,8 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     `NEGATIVE_TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
     Closes the UDS sockets while data is in flight.
     """
-    conn = SSHConnection(vm.ssh_config)
     cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = conn.execute_command(cmd)
+    ecode, _, _ = vm.ssh.execute_command(cmd)
     assert ecode == 0
 
     workers = []
@@ -84,7 +80,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
         wrk.join()
 
     # Validate that Firecracker is still up and running.
-    ecode, _, _ = conn.execute_command("sync")
+    ecode, _, _ = vm.ssh.execute_command("sync")
     # Should fail if Firecracker exited from SIGPIPE handler.
     assert ecode == 0
 
@@ -120,10 +116,9 @@ def test_vsock_epipe(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    conn = SSHConnection(vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
     # Negative test for host-initiated connections that
@@ -182,16 +177,14 @@ def test_vsock_transport_reset(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    conn = SSHConnection(test_vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
+    _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     # Start guest echo server.
     path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    conn = SSHConnection(test_vm.ssh_config)
-    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = conn.execute_command(cmd)
+    cmd = f"vsock_helper echosrv -d {ECHO_SERVER_PORT}"
+    ecode, _, _ = test_vm.ssh.run(cmd)
     assert ecode == 0
 
     # Start host workers that connect to the guest server.

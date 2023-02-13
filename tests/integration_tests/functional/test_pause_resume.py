@@ -6,7 +6,6 @@ import os
 from framework.builder import MicrovmBuilder
 from framework.resources import DescribeInstance
 import host_tools.logging as log_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 def verify_net_emulation_paused(metrics):
@@ -56,10 +55,8 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
     microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
     # Verify guest is active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # Pausing the microVM after it's been started is successful.
@@ -70,7 +67,7 @@ def test_pause_resume(bin_cloner_path):
     microvm.flush_metrics(metrics_fifo)
 
     # Verify guest is no longer active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code != 0
 
     # Verify emulation was indeed paused and no events from either
@@ -78,7 +75,7 @@ def test_pause_resume(bin_cloner_path):
     verify_net_emulation_paused(microvm.flush_metrics(metrics_fifo))
 
     # Verify guest is no longer active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code != 0
 
     # Pausing the microVM when it is already `Paused` is allowed
@@ -91,7 +88,7 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Verify guest is active again.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # Resuming the microVM when it is already `Resumed` is allowed
@@ -100,7 +97,7 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Verify guest is still active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     microvm.kill()

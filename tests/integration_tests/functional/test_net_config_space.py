@@ -51,14 +51,13 @@ def test_net_change_mac_address(
 
     # Create the control ssh connection.
     test_microvm.ssh_config["hostname"] = guest_ip2
-    ssh_connection_ctl = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Start a server(host) - client(guest) communication with the following
     # parameters.
     host_port = 4444
     iterations = 1
     _exchange_data(
-        test_microvm.jailer, ssh_connection_ctl, host_ip1, host_port, iterations
+        test_microvm.jailer, test_microvm.ssh, host_ip1, host_port, iterations
     )
 
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
@@ -70,12 +69,12 @@ def test_net_change_mac_address(
     # on the network interface.
     mac = "06:05:04:03:02:01"
     mac_hex = "0x060504030201"
-    guest_if1_name = net_tools.get_guest_net_if_name(ssh_connection_ctl, guest_ip1)
+    guest_if1_name = net_tools.get_guest_net_if_name(test_microvm.ssh, guest_ip1)
     assert guest_if1_name is not None
-    _change_guest_if_mac(ssh_connection_ctl, mac, guest_if1_name)
+    _change_guest_if_mac(test_microvm.ssh, mac, guest_if1_name)
 
     _exchange_data(
-        test_microvm.jailer, ssh_connection_ctl, host_ip1, host_port, iterations
+        test_microvm.jailer, test_microvm.ssh, host_ip1, host_port, iterations
     )
 
     # `tx_spoofed_mac_count` metric was incremented due to the MAC address
@@ -83,7 +82,7 @@ def test_net_change_mac_address(
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
     assert fc_metrics["net"]["tx_spoofed_mac_count"] > 0
 
-    net_addr_base = _get_net_mem_addr_base(ssh_connection_ctl, guest_if1_name)
+    net_addr_base = _get_net_mem_addr_base(test_microvm.ssh, guest_if1_name)
     assert net_addr_base is not None
 
     # Write into '/dev/mem' the same mac address, byte by byte.
@@ -91,13 +90,13 @@ def test_net_change_mac_address(
     # After this step, the net device kernel struct MAC address will be the
     # same with the MAC address stored in the network device registers. The
     # `tx_spoofed_mac_count` metric shouldn't be incremented later on.
-    ssh_connection_ctl.scp_file(change_net_config_space_bin, "change_net_config_space")
+    test_microvm.ssh.scp_file(change_net_config_space_bin, "change_net_config_space")
     cmd = "chmod u+x change_net_config_space &&\
           ./change_net_config_space {} {}"
     cmd = cmd.format(net_addr_base, mac_hex)
 
     # This should be executed successfully.
-    exit_code, stdout, stderr = ssh_connection_ctl.execute_command(cmd)
+    exit_code, stdout, stderr = test_microvm.ssh.run(cmd)
     stderr = stderr.read()
     assert exit_code == 0, stderr
     assert stdout.read() == mac
@@ -108,14 +107,14 @@ def test_net_change_mac_address(
     test_microvm.flush_metrics(metrics_fifo)
 
     _exchange_data(
-        test_microvm.jailer, ssh_connection_ctl, host_ip1, host_port, iterations
+        test_microvm.jailer, test_microvm.ssh, host_ip1, host_port, iterations
     )
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
     # Try again, just to be extra sure.
     _exchange_data(
-        test_microvm.jailer, ssh_connection_ctl, host_ip1, host_port, iterations
+        test_microvm.jailer, test_microvm.ssh, host_ip1, host_port, iterations
     )
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0

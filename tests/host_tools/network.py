@@ -41,6 +41,8 @@ class SSHConnection:
         exit_code, stdout, stderr = self._exec(cmd_string)
         return exit_code, StringIO(stdout), StringIO(stderr)
 
+    run = execute_command
+
     def scp_file(self, local_path, remote_path):
         """Copy a files to the VM using scp."""
         cmd = (

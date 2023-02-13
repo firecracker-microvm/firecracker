@@ -22,7 +22,6 @@ from framework.builder import MicrovmBuilder
 from framework.defs import SUPPORTED_KERNELS
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 import framework.utils_cpuid as cpuid_utils
-import host_tools.network as net_tools
 
 PLATFORM = platform.machine()
 
@@ -136,10 +135,8 @@ def test_brand_string(test_microvm_with_api, network_config):
     _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
     test_microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
-    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
     assert stderr.read() == ""
 
     line = stdout.readline().rstrip()
@@ -300,11 +297,10 @@ def _test_cpu_rdmsr(context):
     test_microvm = vm_instance.vm
     test_microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    ssh_connection.scp_file(
+    test_microvm.ssh.scp_file(
         "../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh"
     )
-    _, stdout, stderr = ssh_connection.execute_command("/bin/msr_reader.sh")
+    _, stdout, stderr = test_microvm.ssh.execute_command("/bin/msr_reader.sh")
     assert stderr.read() == ""
 
     # Load results read from the microvm
@@ -407,17 +403,15 @@ def _test_cpu_wrmsr_snapshot(context):
     vm.start()
 
     # Make MSR modifications
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-
     msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
     msr_writer_guest_fname = "/bin/msr_writer.sh"
-    ssh_connection.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
+    vm.ssh.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
 
     wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
-    ssh_connection.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
+    vm.ssh.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
-    _, _, stderr = ssh_connection.execute_command(
+    _, _, stderr = vm.ssh.execute_command(
         f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
     )
     assert stderr.read() == ""
@@ -433,7 +427,7 @@ def _test_cpu_wrmsr_snapshot(context):
 
     msrs_before_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
 
-    dump_msr_state_to_file(msrs_before_fname, ssh_connection, shared_names)
+    dump_msr_state_to_file(msrs_before_fname, vm.ssh, shared_names)
 
     # Take a snapshot
     vm.pause_to_snapshot(
@@ -638,9 +632,7 @@ def _test_cpu_wrmsr_restore(context):
 
     # Dump MSR state to a file for further comparison
     msrs_after_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"]
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-
-    dump_msr_state_to_file(msrs_after_fname, ssh_connection, shared_names)
+    dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
 
     # Compare the two lists of MSR values and assert they are equal
     check_msr_values_are_equal(
@@ -730,8 +722,6 @@ def _test_cpu_cpuid_snapshot(context):
     vm = vm_instance.vm
     vm.start()
 
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
     cpu_template_dir = cpu_template if cpu_template else "none"
     snapshot_artifacts_dir = (
@@ -745,7 +735,7 @@ def _test_cpu_cpuid_snapshot(context):
         Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"]
     )
 
-    dump_cpuid_to_file(cpuid_before_fname, ssh_connection)
+    dump_cpuid_to_file(cpuid_before_fname, vm.ssh)
 
     # Take a snapshot
     vm.pause_to_snapshot(
@@ -902,9 +892,7 @@ def _test_cpu_cpuid_restore(context):
 
     # Dump CPUID to a file for further comparison
     cpuid_after_fname = Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"]
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-
-    dump_cpuid_to_file(cpuid_after_fname, ssh_connection)
+    dump_cpuid_to_file(cpuid_after_fname, vm.ssh)
 
     # Compare the two lists of MSR values and assert they are equal
     check_cpuid_is_equal(
@@ -1074,9 +1062,8 @@ def check_masked_features(test_microvm, cpu_template):
 
     # Check that all common features discoverable with lscpu
     # are properly masked.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
-    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
     assert stderr.read() == ""
 
     cpu_flags_output = stdout.readline().rstrip().split(" ")

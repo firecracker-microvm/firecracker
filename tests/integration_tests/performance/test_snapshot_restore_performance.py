@@ -22,7 +22,6 @@ from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version, DictQuery
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.drive as drive_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.stats as st
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
@@ -180,9 +179,8 @@ def get_snap_restore_latency(
             full_snapshot, resume=True, use_ramdisk=True
         )
         # Attempt to connect to resumed microvm.
-        ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
         # Check if guest still runs commands.
-        exit_code, _, _ = ssh_connection.execute_command("dmesg")
+        exit_code, _, _ = microvm.ssh.execute_command("dmesg")
         assert exit_code == 0
 
         value = 0

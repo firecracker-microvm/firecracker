@@ -7,7 +7,7 @@ import re
 import os
 import json
 import pytest
-import host_tools.network as net_tools
+
 from conftest import ARTIFACTS_COLLECTION
 from framework.artifacts import ArtifactSet
 from framework.matrix import TestMatrix, TestContext
@@ -225,7 +225,7 @@ def _g2h_send_ping(context):
         func_kwargs={"requests": context.custom["requests"]},
     )
     cmd = PING.format(context.custom["requests"], interval_between_req, DEFAULT_HOST_IP)
-    prod = producer.SSHCommand(cmd, net_tools.SSHConnection(basevm.ssh_config))
+    prod = producer.SSHCommand(cmd, basevm.ssh)
 
     st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")
 
