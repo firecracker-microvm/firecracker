@@ -12,8 +12,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use devices::virtio::TYPE_NET;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
@@ -27,6 +25,8 @@ use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
@@ -347,10 +347,10 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(cpuid::common::Error),
+    Host(crate::cpuid::common::Error),
     /// Failed to read snapshot vendor.
     #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(cpuid::common::Error),
+    Snapshot(crate::cpuid::common::Error),
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.

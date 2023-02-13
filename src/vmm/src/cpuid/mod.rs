@@ -5,30 +5,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#![deny(missing_docs)]
-
-//! Utility for configuring the CPUID (CPU identification) for the guest microVM.
-
 #![cfg(target_arch = "x86_64")]
-use kvm_bindings::CpuId;
+pub use kvm_bindings::CpuId;
 
 /// cpuid utility functions.
 pub mod common;
-use crate::common::*;
+use common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::amd::t2a;
-pub use crate::template::intel::{c3, t2, t2cl, t2s};
-pub use crate::template::msrs_to_save_by_cpuid;
+pub use template::amd::t2a;
+pub use template::intel::{c3, t2, t2cl, t2s};
+pub use template::msrs_to_save_by_cpuid;
 
 mod cpu_leaf;
 
 mod transformer;
-use crate::transformer::*;
-pub use crate::transformer::{Error, VmSpec};
+use transformer::*;
+pub use transformer::{Error, VmSpec};
 
 mod brand_string;
 
@@ -41,7 +37,7 @@ mod brand_string;
 ///
 /// # Example
 /// ```
-/// use cpuid::{filter_cpuid, VmSpec};
+/// use vmm::cpuid::{filter_cpuid, VmSpec};
 /// use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES};
 /// use kvm_ioctls::Kvm;
 ///

@@ -8,7 +8,7 @@
 /// # Example
 ///
 /// ```
-/// use cpuid::bit_helper::*;
+/// use vmm::cpuid::bit_helper::*;
 ///
 /// let range = BitRange {
 ///     msb_index: 7,
@@ -41,7 +41,7 @@ pub trait BitRangeExt<T> {
     /// # Example
     ///
     /// ```
-    /// use cpuid::bit_helper::*;
+    /// use vmm::cpuid::bit_helper::*;
     ///
     /// let range = BitRange {
     ///     msb_index: 7,
@@ -100,7 +100,7 @@ pub trait BitHelper {
     /// # Example
     ///
     /// ```
-    /// use cpuid::bit_helper::*;
+    /// use vmm::cpuid::bit_helper::*;
     ///
     /// let val: u32 = 0b000010001000;
     /// let range = BitRange {
@@ -120,7 +120,7 @@ pub trait BitHelper {
     /// # Example
     ///
     /// ```
-    /// use cpuid::bit_helper::*;
+    /// use vmm::cpuid::bit_helper::*;
     ///
     /// let mut val: u32 = 0;
     /// let range = BitRange {
@@ -172,7 +172,7 @@ impl BitHelper for u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::bit_helper::*;
+    use crate::cpuid::bit_helper::*;
 
     #[test]
     #[should_panic]

@@ -10,8 +10,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::is_same_model;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
 use devices::legacy::{
@@ -40,6 +38,8 @@ use vm_superio::Serial;
 
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
+#[cfg(target_arch = "x86_64")]
+use crate::cpuid::common::is_same_model;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
