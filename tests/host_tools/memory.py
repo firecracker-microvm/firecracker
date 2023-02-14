@@ -27,7 +27,7 @@ class MemoryMonitor(Thread):
     """
 
     MEMORY_THRESHOLD = 5 * 1024
-    MEMORY_SAMPLE_TIMEOUT_S = 1
+    MEMORY_SAMPLE_TIMEOUT_S = 0.05
     X86_MEMORY_GAP_START = 3407872
 
     def __init__(self):
