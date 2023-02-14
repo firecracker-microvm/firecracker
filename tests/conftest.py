@@ -249,7 +249,7 @@ def pytest_runtest_logreport(report):
         )
         METRICS.put_metric(
             "failed",
-            1 if report.outcome == "FAILED" else 0,
+            1 if report.outcome == "failed" else 0,
             unit="Count",
         )
         METRICS.flush()
