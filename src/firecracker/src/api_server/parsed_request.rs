@@ -8,22 +8,22 @@ use serde_json::Value;
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;
-use crate::request::actions::parse_put_actions;
-use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
-use crate::request::boot_source::parse_put_boot_source;
-use crate::request::drive::{parse_patch_drive, parse_put_drive};
-use crate::request::instance_info::parse_get_instance_info;
-use crate::request::logger::parse_put_logger;
-use crate::request::machine_configuration::{
+use crate::api_server::request::actions::parse_put_actions;
+use crate::api_server::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
+use crate::api_server::request::boot_source::parse_put_boot_source;
+use crate::api_server::request::drive::{parse_patch_drive, parse_put_drive};
+use crate::api_server::request::instance_info::parse_get_instance_info;
+use crate::api_server::request::logger::parse_put_logger;
+use crate::api_server::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use crate::request::metrics::parse_put_metrics;
-use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
-use crate::request::net::{parse_patch_net, parse_put_net};
-use crate::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
-use crate::request::version::parse_get_version;
-use crate::request::vsock::parse_put_vsock;
-use crate::ApiServer;
+use crate::api_server::request::metrics::parse_put_metrics;
+use crate::api_server::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use crate::api_server::request::net::{parse_patch_net, parse_put_net};
+use crate::api_server::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
+use crate::api_server::request::version::parse_get_version;
+use crate::api_server::request::vsock::parse_put_vsock;
+use crate::api_server::ApiServer;
 
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),

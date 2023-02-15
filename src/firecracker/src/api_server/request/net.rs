@@ -5,8 +5,8 @@ use logger::{IncMetric, METRICS};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 use super::super::VmmAction;
-use crate::parsed_request::{checked_id, Error, ParsedRequest};
-use crate::request::{Body, StatusCode};
+use crate::api_server::parsed_request::{checked_id, Error, ParsedRequest};
+use crate::api_server::request::{Body, StatusCode};
 
 pub(crate) fn parse_put_net(
     body: &Body,
@@ -76,7 +76,7 @@ pub(crate) fn parse_patch_net(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_put_net_request() {

@@ -1,12 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
-
-//! Implements the interface for intercepting API requests, forwarding them to the VMM
-//! and responding to the user.
-//! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
-//! handle multiple connections on the same thread.
 mod parsed_request;
 mod request;
 
@@ -26,8 +20,8 @@ use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
-use crate::parsed_request::{ParsedRequest, RequestAction};
-use crate::Error::ServerCreation;
+use crate::api_server::parsed_request::{ParsedRequest, RequestAction};
+use crate::api_server::Error::ServerCreation;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -96,7 +90,7 @@ impl ApiServer {
     /// use std::thread;
     /// use std::time::Duration;
     ///
-    /// use api_server::ApiServer;
+    /// use vmm::api_server::api_server::ApiServer;
     /// use logger::ProcessTimeReporter;
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
