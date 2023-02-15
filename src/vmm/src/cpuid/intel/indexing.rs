@@ -308,7 +308,7 @@ impl IndexLeaf<0x12> for IntelCpuid {
             // further information See `index_leaf!`.
             unsafe {
                 self.0
-                    .range(CpuidKey::leaf(0x12)..CpuidKey::leaf(0x2))
+                    .range(CpuidKey::subleaf(0x12, 0x2)..CpuidKey::leaf(0x13))
                     .map(|(_, v): (_, &'a CpuidEntry)| {
                         transmute::<_, &'a Leaf12SubleafGt1>(&v.result)
                     })
@@ -344,7 +344,7 @@ impl IndexLeafMut<0x12> for IntelCpuid {
             // further information See `index_leaf!`.
             unsafe {
                 self.0
-                    .range_mut(CpuidKey::leaf(0x12)..CpuidKey::leaf(0x2))
+                    .range_mut(CpuidKey::subleaf(0x12, 0x2)..CpuidKey::leaf(0x13))
                     .map(|(_, v)| transmute::<_, &'a mut Leaf12SubleafGt1>(&mut v.result))
                     .collect()
             },
