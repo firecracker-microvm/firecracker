@@ -4,9 +4,9 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-pub use devices::virtio::balloon::device::BalloonStats;
-pub use devices::virtio::BALLOON_DEV_ID;
-use devices::virtio::{Balloon, BalloonConfig};
+pub use crate::devices::virtio::balloon::device::BalloonStats;
+pub use crate::devices::virtio::BALLOON_DEV_ID;
+use crate::devices::virtio::{Balloon, BalloonConfig};
 use serde::{Deserialize, Serialize};
 
 type MutexBalloon = Arc<Mutex<Balloon>>;
@@ -26,7 +26,7 @@ pub enum BalloonConfigError {
     /// does not have the statistics enabled.
     StatsNotFound,
     /// Failed to create a balloon device.
-    CreateFailure(devices::virtio::balloon::Error),
+    CreateFailure(crate::devices::virtio::balloon::Error),
     /// Failed to update the configuration of the ballon device.
     UpdateFailure(std::io::Error),
 }
@@ -209,7 +209,7 @@ pub(crate) mod tests {
         use std::io;
 
         use super::BalloonConfigError::*;
-        let err = CreateFailure(devices::virtio::balloon::Error::EventFd(
+        let err = CreateFailure(crate::devices::virtio::balloon::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

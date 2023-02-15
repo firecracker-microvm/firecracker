@@ -65,7 +65,7 @@ pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
 
-    pub mmio_bus: Option<devices::Bus>,
+    pub mmio_bus: Option<crate::devices::Bus>,
 
     mpidr: u64,
 }

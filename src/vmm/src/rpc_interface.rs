@@ -829,8 +829,8 @@ impl RuntimeApiController {
 mod tests {
     use std::path::PathBuf;
 
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
+    use crate::devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use crate::devices::virtio::VsockError;
     use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
@@ -1059,7 +1059,7 @@ mod tests {
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::I8042Error(
-                    devices::legacy::I8042DeviceError::InternalBufferFull,
+                    crate::devices::legacy::I8042DeviceError::InternalBufferFull,
                 ));
             }
             self.send_ctrl_alt_del_called = true;
@@ -1874,7 +1874,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::InternalVmm(VmmError::I8042Error(
-                devices::legacy::I8042DeviceError::InternalBufferFull,
+                crate::devices::legacy::I8042DeviceError::InternalBufferFull,
             )),
         );
     }
