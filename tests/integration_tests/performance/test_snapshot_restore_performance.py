@@ -8,6 +8,7 @@ import logging
 import tempfile
 
 import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import (
     ArtifactCollection,
