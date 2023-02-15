@@ -7,7 +7,7 @@ use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
-use arch::DeviceType;
+use crate::arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use devices::virtio::balloon::{Balloon, Error as BalloonError};
 use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
@@ -220,7 +220,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             mmds_version: None,
         };
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
-            if *devtype == arch::DeviceType::BootTimer {
+            if *devtype == crate::arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
                 return Ok(());
             }
@@ -326,9 +326,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut dev_manager = MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_START,
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
@@ -638,7 +638,7 @@ mod tests {
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
             let mut clone =
-                MMIODeviceManager::new(dummy_mmio_base, arch::MMIO_MEM_SIZE, dummy_irq_range)
+                MMIODeviceManager::new(dummy_mmio_base, crate::arch::MMIO_MEM_SIZE, dummy_irq_range)
                     .unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();

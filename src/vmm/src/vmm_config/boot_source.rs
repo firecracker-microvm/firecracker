@@ -103,7 +103,7 @@ impl BootConfig {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
         };
-        let cmdline = linux_loader::cmdline::Cmdline::try_from(cmdline_str, arch::CMDLINE_MAX_SIZE)
+        let cmdline = linux_loader::cmdline::Cmdline::try_from(cmdline_str, crate::arch::CMDLINE_MAX_SIZE)
             .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
