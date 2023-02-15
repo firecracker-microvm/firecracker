@@ -21,7 +21,7 @@ use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::builder::{self, BuildMicrovmFromSnapshotError};

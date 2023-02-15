@@ -30,7 +30,6 @@ mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
-virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
 dumbo = { path = "../dumbo" }
 net_gen = { path = "../net_gen" }
