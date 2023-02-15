@@ -140,12 +140,12 @@ def main():
         f"./tests/integration_tests/performance/configs/test_{args.test}_config_{args.kernel}.json"
     )
     json_baselines = json.loads(baselines_path.read_text("utf-8"))
-    current_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
+    old_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
     cpus = parser.parse()
 
     for cpu in cpus:
         model = cpu["model"]
-        for old_cpu in current_cpus:
+        for old_cpu in old_cpus:
             if old_cpu["model"] == model:
                 old_cpu["baselines"] = overlay(old_cpu["baselines"], cpu["baselines"])
 
@@ -155,7 +155,7 @@ def main():
 
     # Warn against the fact that not all CPUs pertaining to
     # some arch were updated.
-    assert len(cpus) == len(current_cpus), (
+    assert len(cpus) == len(old_cpus), (
         "It may be that only a subset of CPU types were updated! "
         "Need to run again! Nevertheless we updated the baselines..."
     )
