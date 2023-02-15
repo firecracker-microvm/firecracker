@@ -12,8 +12,8 @@ use utils::syscall::SyscallReturnCode;
 use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
-use crate::bindings;
-use crate::operation::Sqe;
+use crate::io_uring::bindings;
+use crate::io_uring::operation::Sqe;
 
 #[derive(Debug, derive_more::From)]
 /// SQueue Error.
