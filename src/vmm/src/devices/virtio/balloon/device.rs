@@ -12,7 +12,7 @@ use logger::{error, IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
-use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};

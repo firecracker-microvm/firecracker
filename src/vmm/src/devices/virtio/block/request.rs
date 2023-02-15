@@ -10,7 +10,7 @@ use std::result;
 
 use logger::{error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
-pub use virtio_gen::virtio_blk::{
+pub use crate::virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };

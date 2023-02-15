@@ -10,6 +10,13 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+#[allow(clippy::all)]
+#[allow(non_upper_case_globals)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(missing_docs)]
+pub mod virtio_gen;
+
 pub mod rate_limiter;
 
 /// High-level interface over Linux io_uring.

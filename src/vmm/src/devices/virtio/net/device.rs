@@ -20,12 +20,12 @@ use mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
-use virtio_gen::virtio_net::{
+use crate::virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
     VIRTIO_NET_F_MAC,
 };
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -837,7 +837,7 @@ pub mod tests {
     use logger::{IncMetric, METRICS};
     use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::net::mac::MAC_ADDR_LEN;
-    use virtio_gen::virtio_net::{
+    use crate::virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
