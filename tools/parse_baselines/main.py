@@ -7,17 +7,15 @@
 # pylint: disable=wrong-import-position
 
 import argparse
-import os
-import tempfile
 import json
-from typing import List
+import os
 import sys
+from pathlib import Path
 
-from providers.types import FileDataProvider
-from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
-from providers.snapshot_restore import SnapshotRestoreDataParser
+from providers.iperf3 import Iperf3DataParser
 from providers.latency import LatencyDataParser
+from providers.snapshot_restore import SnapshotRestoreDataParser
 
 sys.path.append(os.path.join(os.getcwd(), "tests"))
 
@@ -43,47 +41,49 @@ DATA_PARSERS = {
 }
 
 TESTS = [
-        "block_performance",
-        "network_latency",
-        "network_tcp_throughput",
-        "snap_restore_performance",
-        "vsock_throughput",
+    "block_performance",
+    "network_latency",
+    "network_tcp_throughput",
+    "snap_restore_performance",
+    "vsock_throughput",
 ]
 
 INSTANCES = ["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal", "c7g.metal"]
 
 
-def get_data_files(args) -> List[str]:
-    """Return a list of files that contain results for this test."""
+def read_data_files(args):
+    """Return all JSON objects contained in the files for this test."""
     assert os.path.isdir(args.data_folder)
 
-    file_list = []
     res_files = [
         f"{filename}_results_{args.kernel}.json"
         for filename in OUTPUT_FILENAMES[args.test]
     ]
     # Get all files in the dir tree that have the right name.
-    for root, _, files in os.walk(args.data_folder):
+    root_path = Path(args.data_folder)
+    for root, _, files in os.walk(root_path):
         for file in files:
             if file in res_files:
-                file_list.append(os.path.join(root, file))
-
-    # We need at least one file.
-    assert len(file_list) > 0
-
-    return file_list
+                for line in open(Path(root) / file, encoding="utf-8"):
+                    yield json.loads(line)
 
 
-def concatenate_data_files(data_files: List[str]):
-    """Create temp file to hold all concatenated results for this test."""
-    outfile = tempfile.NamedTemporaryFile()
+def overlay(dict_old, dict_new):
+    """
+    Overlay one dictionary on top of another
 
-    for filename in data_files:
-        with open(filename, encoding="utf-8") as infile:
-            contents = str.encode(infile.read())
-            outfile.write(contents)
-    outfile.flush()
-    return outfile
+    >>> a = {'a': {'b': 1, 'c': 1}}
+    >>> b = {'a': {'b': 2, 'd': 2}}
+    >>> overlay(a, b)
+    {'a': {'b': 2, 'c': 1, 'd': 2}}
+    """
+    res = dict_old.copy()
+    for key, val in dict_new.items():
+        if key in dict_old and isinstance(val, dict):
+            res[key] = overlay(dict_old[key], dict_new[key])
+        else:
+            res[key] = val
+    return res
 
 
 def main():
@@ -132,41 +132,33 @@ def main():
     )
     args = parser.parse_args()
 
-    # Create the concatenated data file.
-    data_file = concatenate_data_files(get_data_files(args))
-
-    # Instantiate a file data provider.
-    data_provider = FileDataProvider(data_file.name)
-
     # Instantiate the right data parser.
-    parser = DATA_PARSERS[args.test](data_provider)
+    parser = DATA_PARSERS[args.test](read_data_files(args))
 
     # Finally, parse and update the baselines.
-    with open(
-        f"./tests/integration_tests/performance/configs/"
-        f"test_{args.test}_config_{args.kernel}.json",
-        "r+",
-        encoding="utf8",
-    ) as baselines_file:
-        json_baselines = json.load(baselines_file)
-        current_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
-        cpus = parser.parse()
+    baselines_path = Path(
+        f"./tests/integration_tests/performance/configs/test_{args.test}_config_{args.kernel}.json"
+    )
+    json_baselines = json.loads(baselines_path.read_text("utf-8"))
+    current_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
+    cpus = parser.parse()
 
-        for cpu in cpus:
-            model = cpu["model"]
-            for old_cpu in current_cpus:
-                if old_cpu["model"] == model:
-                    old_cpu["baselines"] = cpu["baselines"]
-        baselines_file.truncate(0)
-        baselines_file.seek(0, 0)
-        json.dump(json_baselines, baselines_file, indent=4)
+    for cpu in cpus:
+        model = cpu["model"]
+        for old_cpu in current_cpus:
+            if old_cpu["model"] == model:
+                old_cpu["baselines"] = overlay(old_cpu["baselines"], cpu["baselines"])
 
-        # Warn against the fact that not all CPUs pertaining to
-        # some arch were updated.
-        assert len(cpus) == len(current_cpus), (
-            "It may be that only a subset of CPU types were updated! "
-            "Need to run again! Nevertheless we updated the baselines..."
-        )
+    baselines_path.write_text(
+        json.dumps(json_baselines, indent=4, sort_keys=True), encoding="utf-8"
+    )
+
+    # Warn against the fact that not all CPUs pertaining to
+    # some arch were updated.
+    assert len(cpus) == len(current_cpus), (
+        "It may be that only a subset of CPU types were updated! "
+        "Need to run again! Nevertheless we updated the baselines..."
+    )
 
 
 if __name__ == "__main__":
