@@ -165,7 +165,6 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
     )
 
     test_microvm.start()
-
     # Start iperf server on guest.
     _start_iperf_on_guest(test_microvm, guest_ip)
 
