@@ -9,8 +9,8 @@ use vmm::vmm_config::snapshot::{
 };
 
 use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::{Body, Method, StatusCode};
+use crate::api_server::parsed_request::{Error, ParsedRequest};
+use crate::api_server::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
@@ -112,7 +112,7 @@ mod tests {
     use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     use super::*;
-    use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
+    use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
 
     #[test]
     fn test_parse_put_snapshot() {

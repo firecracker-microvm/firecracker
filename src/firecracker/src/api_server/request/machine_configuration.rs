@@ -5,8 +5,8 @@ use logger::{IncMetric, METRICS};
 use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
 
 use super::super::VmmAction;
-use crate::parsed_request::{method_to_error, Error, ParsedRequest};
-use crate::request::{Body, Method};
+use crate::api_server::parsed_request::{method_to_error, Error, ParsedRequest};
+use crate::api_server::request::{Body, Method};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
@@ -48,7 +48,7 @@ mod tests {
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_get_machine_config_request() {

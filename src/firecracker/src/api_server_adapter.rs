@@ -9,7 +9,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
+use crate::api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -156,7 +156,7 @@ pub(crate) fn run_with_api(
                 socket_ready_sender,
             ) {
                 Ok(_) => (),
-                Err(api_server::Error::ServerCreation(ServerError::IOError(inner)))
+                Err(crate::api_server::Error::ServerCreation(ServerError::IOError(inner)))
                     if inner.kind() == std::io::ErrorKind::AddrInUse =>
                 {
                     let sock_path = api_bind_path.display().to_string();
@@ -166,7 +166,7 @@ pub(crate) fn run_with_api(
                     );
                     std::process::exit(vmm::FcExitCode::GenericError as i32);
                 }
-                Err(api_server::Error::ServerCreation(err)) => {
+                Err(crate::api_server::Error::ServerCreation(err)) => {
                     error!("Failed to bind and run the HTTP server: {err}");
                     std::process::exit(vmm::FcExitCode::GenericError as i32);
                 }

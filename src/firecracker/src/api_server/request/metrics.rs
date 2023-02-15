@@ -5,8 +5,8 @@ use logger::{IncMetric, METRICS};
 use vmm::vmm_config::metrics::MetricsConfig;
 
 use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use crate::api_server::parsed_request::{Error, ParsedRequest};
+use crate::api_server::request::Body;
 
 pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.metrics_count.inc();
@@ -23,7 +23,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_put_metrics_request() {

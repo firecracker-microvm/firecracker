@@ -53,23 +53,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
-name = "api_server"
-version = "0.1.0"
-dependencies = [
- "libc",
- "logger",
- "micro_http",
- "mmds",
- "seccompiler",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror",
- "utils",
- "vmm",
-]
-
-[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -428,16 +411,19 @@ dependencies = [
 name = "firecracker"
 version = "1.2.0"
 dependencies = [
- "api_server",
  "cargo_toml",
  "event-manager",
  "libc",
  "logger",
+ "micro_http",
  "mmds",
  "regex",
  "seccompiler",
+ "serde",
+ "serde_derive",
  "serde_json",
  "snapshot",
+ "thiserror",
  "timerfd",
  "utils",
  "vmm",
