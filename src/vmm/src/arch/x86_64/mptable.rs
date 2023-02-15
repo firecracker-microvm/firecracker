@@ -8,7 +8,7 @@
 use std::convert::TryFrom;
 use std::{io, mem, result, slice};
 
-use arch_gen::x86::mpspec;
+use crate::arch_gen::x86::mpspec;
 use libc::c_char;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 

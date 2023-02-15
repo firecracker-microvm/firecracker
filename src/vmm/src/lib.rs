@@ -10,6 +10,8 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+/// Architecture specific bindings.
+pub mod arch_gen;
 
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
