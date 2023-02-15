@@ -11,6 +11,7 @@ import os
 import shutil
 import re
 import sys
+import time
 import pytest
 import pandas as pd
 
@@ -349,7 +350,6 @@ def _test_cpu_rdmsr(context):
 # that spans two instances (one that takes a snapshot and one that restores from it)
 # fmt: off
 SNAPSHOT_RESTORE_SHARED_NAMES = {
-    "cpu_templates":                     [None, "T2S"],
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
     "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
     "rootfs_fname":                      "rootfs_rw",
@@ -428,6 +428,11 @@ def _test_cpu_wrmsr_snapshot(context):
     msrs_before_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
 
     dump_msr_state_to_file(msrs_before_fname, vm.ssh, shared_names)
+    # On T2A, the restore test fails with error "cannot allocate memory" so,
+    # adding delay below as a workaround to unblock the tests for now.
+    # TODO: Debug the issue and remove this delay. Create below issue to track this:
+    # https://github.com/firecracker-microvm/firecracker/issues/3453
+    time.sleep(0.25)
 
     # Take a snapshot
     vm.pause_to_snapshot(
@@ -453,20 +458,12 @@ def _test_cpu_wrmsr_snapshot(context):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
-@pytest.mark.skipif(
-    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
-    reason="CPU templates are only available on Intel.",
-)
-@pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_KERNELS}",
 )
-@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(bin_cloner_path, cpu_template):
+def test_cpu_wrmsr_snapshot(bin_cloner_path, msr_cpu_template):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -498,7 +495,7 @@ def test_cpu_wrmsr_snapshot(bin_cloner_path, cpu_template):
     test_context = TestContext()
     test_context.custom = {
         "builder": MicrovmBuilder(bin_cloner_path),
-        "cpu_template": cpu_template,
+        "cpu_template": msr_cpu_template,
         "shared_names": shared_names,
     }
 
@@ -643,20 +640,12 @@ def _test_cpu_wrmsr_restore(context):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
-@pytest.mark.skipif(
-    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
-    reason="CPU templates are only available on Intel.",
-)
-@pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_KERNELS}",
 )
-@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(microvm_factory, cpu_template):
+def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -682,7 +671,7 @@ def test_cpu_wrmsr_restore(microvm_factory, cpu_template):
     test_context = TestContext()
     test_context.custom = {
         "microvm_factory": microvm_factory,
-        "cpu_template": cpu_template,
+        "cpu_template": msr_cpu_template,
         "shared_names": shared_names,
     }
 
@@ -761,20 +750,12 @@ def _test_cpu_cpuid_snapshot(context):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
-@pytest.mark.skipif(
-    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
-    reason="CPU templates are only available on Intel.",
-)
-@pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_KERNELS}",
 )
-@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(bin_cloner_path, cpu_template):
+def test_cpu_cpuid_snapshot(bin_cloner_path, msr_cpu_template):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -801,7 +782,7 @@ def test_cpu_cpuid_snapshot(bin_cloner_path, cpu_template):
     test_context = TestContext()
     test_context.custom = {
         "builder": MicrovmBuilder(bin_cloner_path),
-        "cpu_template": cpu_template,
+        "cpu_template": msr_cpu_template,
         "shared_names": shared_names,
     }
 
@@ -903,20 +884,12 @@ def _test_cpu_cpuid_restore(context):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
-@pytest.mark.skipif(
-    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
-    reason="CPU templates are only available on Intel.",
-)
-@pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_KERNELS}",
 )
-@pytest.mark.parametrize("cpu_template", SNAPSHOT_RESTORE_SHARED_NAMES["cpu_templates"])
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, cpu_template):
+def test_cpu_cpuid_restore(microvm_factory, msr_cpu_template):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -940,7 +913,7 @@ def test_cpu_cpuid_restore(microvm_factory, cpu_template):
     test_context = TestContext()
     test_context.custom = {
         "microvm_factory": microvm_factory,
-        "cpu_template": cpu_template,
+        "cpu_template": msr_cpu_template,
         "shared_names": shared_names,
     }
 
