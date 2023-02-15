@@ -70,10 +70,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arch_gen"
-version = "0.1.0"
-
-[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1326,7 +1322,6 @@ checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
- "arch_gen",
  "bitflags",
  "criterion",
  "derive_more",
