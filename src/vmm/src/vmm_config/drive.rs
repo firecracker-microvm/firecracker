@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, result};
 
-pub use devices::virtio::block::device::FileEngineType;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-pub use devices::virtio::CacheType;
+pub use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::Error as BlockError;
+use crate::devices::virtio::Block;
+pub use crate::devices::virtio::CacheType;
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;

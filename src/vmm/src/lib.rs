@@ -10,6 +10,10 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+/// Emulates virtual and hardware devices.
+#[allow(missing_docs)]
+pub mod devices;
+
 /// Architecture specific bindings.
 pub mod arch_gen;
 
@@ -51,13 +55,13 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use crate::arch::DeviceType;
-use devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
-use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::{
+use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
+use crate::devices::virtio::balloon::Error as BalloonError;
+use crate::devices::virtio::{
     Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
     TYPE_BLOCK, TYPE_NET,
 };
-use devices::BusDevice;
+use crate::devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
@@ -149,7 +153,7 @@ pub enum Error {
     EventFd(io::Error),
     /// I8042 Error.
     #[error("I8042 error: {0}")]
-    I8042Error(devices::legacy::I8042DeviceError),
+    I8042Error(crate::devices::legacy::I8042DeviceError),
     /// Cannot access kernel file.
     #[error("Cannot access kernel file: {0}")]
     KernelFile(io::Error),
@@ -429,7 +433,7 @@ impl Vmm {
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
         #[cfg(target_arch = "aarch64")]
-        use devices::legacy::SerialDevice;
+        use crate::devices::legacy::SerialDevice;
         #[cfg(target_arch = "x86_64")]
         let mut serial = self
             .pio_device_manager

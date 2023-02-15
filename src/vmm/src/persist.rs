@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-use devices::virtio::TYPE_NET;
+use crate::devices::virtio::TYPE_NET;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;

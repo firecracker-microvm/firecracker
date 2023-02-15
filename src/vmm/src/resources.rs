@@ -497,7 +497,7 @@ mod tests {
     use std::fs::File;
     use std::os::linux::fs::MetadataExt;
 
-    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
+    use crate::devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
@@ -953,7 +953,7 @@ mod tests {
             None,
         ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                devices::virtio::net::Error::TapOpen { .. },
+                crate::devices::virtio::net::Error::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
         }

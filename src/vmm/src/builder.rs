@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex};
 
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-use devices::legacy::{
+use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::{
     EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
 };
-use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use crate::devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
@@ -62,7 +62,7 @@ pub enum StartMicrovmError {
     /// This error is thrown by the minimal boot loader implementation.
     ConfigureSystem(crate::arch::Error),
     /// Internal errors are due to resource exhaustion.
-    CreateNetDevice(devices::virtio::net::Error),
+    CreateNetDevice(crate::devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
@@ -927,7 +927,7 @@ pub(crate) fn attach_boot_timer_device(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    let boot_timer = devices::pseudo::BootTimer::new(request_ts);
+    let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
         .register_mmio_boot_timer(boot_timer)
@@ -1019,8 +1019,8 @@ pub mod tests {
     use std::io::Cursor;
 
     use crate::arch::DeviceType;
-    use devices::virtio::vsock::VSOCK_DEV_ID;
-    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
+    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
     use mmds::data_store::{Mmds, MmdsVersion};
     use mmds::ns::MmdsNetworkStack;
@@ -1619,7 +1619,7 @@ pub mod tests {
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(devices::virtio::net::Error::EventFd(
+        let err = CreateNetDevice(crate::devices::virtio::net::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);
