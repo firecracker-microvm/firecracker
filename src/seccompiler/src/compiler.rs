@@ -17,7 +17,7 @@
 //! [`SeccompCmpOp`](../backend/enum.SeccompCmpOp.html),
 //! [`SeccompCmpArgLen`](../backend/enum.SeccompCmpArgLen.html).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::{Into, TryInto};
 use std::{fmt, result};
 
@@ -48,7 +48,7 @@ pub(crate) enum Error {
 }
 
 /// Deserializable object that represents the Json filter file.
-pub(crate) struct JsonFile(pub HashMap<String, Filter>);
+pub(crate) struct JsonFile(pub BTreeMap<String, Filter>);
 
 // Implement a custom deserializer, that returns an error for duplicate thread keys.
 impl<'de> Deserialize<'de> for JsonFile {
@@ -59,7 +59,7 @@ impl<'de> Deserialize<'de> for JsonFile {
         struct JsonFileVisitor;
 
         impl<'d> Visitor<'d> for JsonFileVisitor {
-            type Value = HashMap<String, Filter>;
+            type Value = BTreeMap<String, Filter>;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
                 f.write_str("a map of filters")
@@ -69,7 +69,7 @@ impl<'de> Deserialize<'de> for JsonFile {
             where
                 M: MapAccess<'d>,
             {
-                let mut values = Self::Value::with_capacity(access.size_hint().unwrap_or(0));
+                let mut values = Self::Value::new();
 
                 while let Some((key, value)) = access.next_entry()? {
                     if values.insert(key, value).is_some() {
@@ -162,7 +162,7 @@ impl Compiler {
     }
 
     /// Perform semantic checks after deserialization.
-    fn validate_filters(&self, filters: &HashMap<String, Filter>) -> Result<()> {
+    fn validate_filters(&self, filters: &BTreeMap<String, Filter>) -> Result<()> {
         // Validate all `Filter`s.
         filters
             .iter()
@@ -174,11 +174,11 @@ impl Compiler {
     /// Main compilation function.
     pub fn compile_blob(
         &self,
-        filters: HashMap<String, Filter>,
+        filters: BTreeMap<String, Filter>,
         is_basic: bool,
-    ) -> Result<HashMap<String, BpfProgram>> {
+    ) -> Result<BTreeMap<String, BpfProgram>> {
         self.validate_filters(&filters)?;
-        let mut bpf_map: HashMap<String, BpfProgram> = HashMap::new();
+        let mut bpf_map: BTreeMap<String, BpfProgram> = BTreeMap::new();
 
         for (thread_name, filter) in filters.into_iter() {
             if is_basic {
@@ -247,7 +247,7 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::convert::TryInto;
     use std::env::consts::ARCH;
 
@@ -449,7 +449,7 @@ mod tests {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
         // Test with malformed filters.
 
-        let mut wrong_syscall_name_filters = HashMap::new();
+        let mut wrong_syscall_name_filters = BTreeMap::new();
         wrong_syscall_name_filters.insert(
             "T1".to_string(),
             Filter::new(
@@ -467,7 +467,7 @@ mod tests {
             ))
         );
 
-        let mut identical_action_filters = HashMap::new();
+        let mut identical_action_filters = BTreeMap::new();
         identical_action_filters.insert(
             "T1".to_string(),
             Filter::new(SeccompAction::Allow, SeccompAction::Allow, vec![]),
@@ -479,7 +479,7 @@ mod tests {
         );
 
         // Test with correct filters.
-        let mut correct_filters = HashMap::new();
+        let mut correct_filters = BTreeMap::new();
         correct_filters.insert(
             "Thread1".to_string(),
             Filter::new(
