@@ -99,7 +99,6 @@ def setup_vm(context):
         resource_path=root_path,
         bin_cloner_path=bin_cloner_path,
     )
-    vm.setup()
 
     # Change kernel name to match the one in the config file.
     kernel_full_path = os.path.join(vm.path, DEST_KERNEL_NAME)

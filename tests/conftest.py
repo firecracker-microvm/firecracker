@@ -429,7 +429,6 @@ def microvm(test_fc_session_root_path, bin_cloner_path):
         resource_path=test_fc_session_root_path,
         bin_cloner_path=bin_cloner_path,
     )
-    vm.setup()
     yield vm
     vm.kill()
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
@@ -462,7 +461,6 @@ def microvm_factory(tmp_path, bin_cloner_path):
                 resource_path=self.tmp_path,
                 bin_cloner_path=self.bin_cloner_path,
             )
-            vm.setup()
             self.vms.append(vm)
             if kernel is not None:
                 kernel_path = Path(kernel.local_path())
