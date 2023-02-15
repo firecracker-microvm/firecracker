@@ -106,7 +106,6 @@ class MicrovmBuilder:
             jailer_binary_path=jailer_binary,
             bin_cloner_path=self.bin_cloner_path,
         )
-        vm.setup()
         vm.jailer.daemonize = daemonize
         # Start firecracker.
         vm.spawn(use_ramdisk=use_ramdisk)
@@ -210,7 +209,6 @@ class MicrovmBuilder:
                 jailer_binary_path=jailer_binary,
                 bin_cloner_path=self.bin_cloner_path,
             )
-            vm.setup()
             vm.jailer.daemonize = daemonize
             vm.spawn(log_level="Error", use_ramdisk=use_ramdisk)
             vm.api_session.untime()
