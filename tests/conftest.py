@@ -152,31 +152,20 @@ class NopResultsDumper(ResultsDumperInterface):
 class JsonFileDumper(ResultsDumperInterface):
     """Class responsible with outputting test results to files."""
 
-    def __init__(self, request):
+    def __init__(self, test_name):
         """Initialize the instance."""
-        self._results_file = None
-
-        test_name = request.node.originalname
         self._root_path = defs.TEST_RESULTS_DIR
         # Create the root directory, if it doesn't exist.
         self._root_path.mkdir(exist_ok=True)
-        self._results_file = os.path.join(
-            self._root_path,
-            "{}_results_{}.json".format(test_name, utils.get_kernel_version(level=1)),
-        )
-
-    @staticmethod
-    def __dump_pretty_json(file, data, flags):
-        """Write the `data` dictionary to the output file in pretty format."""
-        with open(file, flags, encoding="utf-8") as file_fd:
-            json.dump(data, file_fd)
-            file_fd.write("\n")  # Add newline cause Py JSON does not
-            file_fd.flush()
+        kv = utils.get_kernel_version(level=1)
+        self._results_file = self._root_path / f"{test_name}_results_{kv}.json"
 
     def dump(self, result):
         """Dump the results in JSON format."""
-        if self._results_file:
-            self.__dump_pretty_json(self._results_file, result, "a")
+        with self._results_file.open("a", encoding="utf-8") as file_fd:
+            json.dump(result, file_fd)
+            file_fd.write("\n")  # Add newline cause Py JSON does not
+            file_fd.flush()
 
 
 def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None):
@@ -352,8 +341,7 @@ def test_session_tmp_path(test_fc_session_root_path):
 def results_file_dumper(request):
     """Yield the custom --dump-results-to-file test flag."""
     if request.config.getoption("--dump-results-to-file"):
-        return JsonFileDumper(request)
-
+        return JsonFileDumper(request.node.originalname)
     return NopResultsDumper()
 
 
