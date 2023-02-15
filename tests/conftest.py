@@ -305,16 +305,6 @@ def metrics(request):
     metrics_logger.flush()
 
 
-def test_session_root_path():
-    """Create and return the testrun session root directory.
-
-    Testrun session root directory confines any other test temporary file.
-    If it exists, consider this as a noop.
-    """
-    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
-    return defs.DEFAULT_TEST_SESSION_ROOT_PATH
-
-
 @pytest.fixture(autouse=True, scope="session")
 def test_fc_session_root_path():
     """Ensure and yield the fc session root directory.
@@ -322,8 +312,9 @@ def test_fc_session_root_path():
     Create a unique temporary session directory. This is important, since the
     scheduler will run multiple pytest sessions concurrently.
     """
+    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
     fc_session_root_path = tempfile.mkdtemp(
-        prefix="fctest-", dir=f"{test_session_root_path()}"
+        prefix="fctest-", dir=defs.DEFAULT_TEST_SESSION_ROOT_PATH
     )
     yield fc_session_root_path
     shutil.rmtree(fc_session_root_path)
