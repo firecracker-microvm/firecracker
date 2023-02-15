@@ -527,17 +527,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9448015e586b611e5d322f6703812bbca2f1e709d5773ecd38ddb4e3bb649504"
 
 [[package]]
-name = "io_uring"
-version = "0.1.0"
-dependencies = [
- "derive_more",
- "libc",
- "proptest",
- "utils",
- "vm-memory 0.3.0",
-]
-
-[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1302,7 +1291,6 @@ dependencies = [
  "device_tree",
  "dumbo",
  "event-manager",
- "io_uring",
  "kvm-bindings",
  "kvm-ioctls",
  "lazy_static",

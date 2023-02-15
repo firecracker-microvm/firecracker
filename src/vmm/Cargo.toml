@@ -35,7 +35,6 @@ virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
 dumbo = { path = "../dumbo" }
 net_gen = { path = "../net_gen" }
-io_uring = { path = "../io_uring" }
 
 [dev-dependencies]
 criterion = "0.4.0"

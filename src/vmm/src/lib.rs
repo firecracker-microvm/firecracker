@@ -10,6 +10,17 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+/// High-level interface over Linux io_uring.
+///
+/// Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
+/// assumptions. The crate does not currently aim at supporting all io_uring features and use
+/// cases. For example, it only works with pre-registered fds and read/write/fsync requests.
+///
+/// Requires at least kernel version 5.10.51.
+/// For more information on io_uring, refer to the man pages.
+/// [This pdf](https://kernel.dk/io_uring.pdf) is also very useful, though outdated at times.
+pub mod io_uring;
+
 /// Emulates virtual and hardware devices.
 #[allow(missing_docs)]
 pub mod devices;

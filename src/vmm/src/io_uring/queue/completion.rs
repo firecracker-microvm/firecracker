@@ -9,8 +9,8 @@ use std::sync::atomic::Ordering;
 use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
-use crate::bindings;
-use crate::operation::Cqe;
+use crate::io_uring::bindings;
+use crate::io_uring::operation::Cqe;
 
 #[derive(Debug, derive_more::From)]
 /// CQueue Error.

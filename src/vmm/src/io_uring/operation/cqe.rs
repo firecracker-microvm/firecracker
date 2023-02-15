@@ -5,7 +5,7 @@ use std::result::Result;
 
 use vm_memory::ByteValued;
 
-use crate::bindings::io_uring_cqe;
+use crate::io_uring::bindings::io_uring_cqe;
 
 // SAFETY: Struct is POD and contains no references or niches.
 unsafe impl ByteValued for io_uring_cqe {}
