@@ -7,8 +7,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::warn;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};

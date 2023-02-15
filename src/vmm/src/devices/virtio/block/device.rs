@@ -16,7 +16,7 @@ use std::{cmp, result};
 
 use block_io::FileEngine;
 use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter};
+use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -635,7 +635,7 @@ pub(crate) mod tests {
     use std::time::Duration;
     use std::{thread, u32};
 
-    use rate_limiter::TokenType;
+    use crate::rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};

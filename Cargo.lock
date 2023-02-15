@@ -909,18 +909,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rate_limiter"
-version = "0.1.0"
-dependencies = [
- "logger",
- "snapshot",
- "timerfd",
- "utils",
- "versionize",
- "versionize_derive",
-]
-
-[[package]]
 name = "rayon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1300,7 +1288,6 @@ dependencies = [
  "mmds",
  "net_gen",
  "proptest",
- "rate_limiter",
  "seccompiler",
  "serde",
  "serde_json",
