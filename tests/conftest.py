@@ -321,14 +321,6 @@ def test_fc_session_root_path():
 
 
 @pytest.fixture
-def test_session_tmp_path(test_fc_session_root_path):
-    """Yield a random temporary directory. Destroyed on teardown."""
-    tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
-    yield tmp_path
-    shutil.rmtree(tmp_path)
-
-
-@pytest.fixture
 def results_file_dumper(request):
     """Yield the custom --dump-results-to-file test flag."""
     if request.config.getoption("--dump-results-to-file"):
@@ -514,24 +506,6 @@ def microvm_factory(tmp_path, bin_cloner_path):
     uvm_factory = MicroVMFactory(tmp_path, bin_cloner_path)
     yield uvm_factory
     uvm_factory.kill()
-
-
-@pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))
-def test_microvm_any(request, microvm):
-    """Yield a microvm that can have any image in the spec bucket.
-
-    A test case using this fixture will run for every microvm image.
-
-    When using a pytest parameterized fixture, a test case is created for each
-    parameter in the list. We generate the list dynamically based on the
-    capability filter. This will result in
-    `len(MICROVM_S3_FETCHER.list_microvm_images(capability_filter=['*']))`
-    test cases for each test that depends on this fixture, each receiving a
-    microvm instance with a different microvm image.
-    """
-
-    MICROVM_S3_FETCHER.init_vm_resources(request.param, microvm)
-    yield microvm
 
 
 def firecracker_id(fc):
