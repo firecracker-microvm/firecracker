@@ -8,7 +8,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use libc::O_NONBLOCK;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
 
 /// Wrapper for configuring the balloon device.

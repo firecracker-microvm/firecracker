@@ -10,6 +10,8 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+pub mod rate_limiter;
+
 /// High-level interface over Linux io_uring.
 ///
 /// Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
@@ -75,7 +77,7 @@ use crate::devices::virtio::{
 use crate::devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
-use rate_limiter::BucketUpdate;
+use crate::rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;

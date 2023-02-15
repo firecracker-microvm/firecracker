@@ -224,7 +224,7 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
+    use crate::rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
 
     use super::*;

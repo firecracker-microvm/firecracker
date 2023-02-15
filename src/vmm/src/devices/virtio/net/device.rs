@@ -17,7 +17,7 @@ use libc::EAGAIN;
 use logger::{error, warn, IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use virtio_gen::virtio_net::{
@@ -835,7 +835,7 @@ pub mod tests {
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
-    use rate_limiter::{RateLimiter, TokenBucket, TokenType};
+    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::net::mac::MAC_ADDR_LEN;
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,

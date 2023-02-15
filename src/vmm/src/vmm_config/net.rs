@@ -185,7 +185,7 @@ impl NetBuilder {
 mod tests {
     use std::str;
 
-    use rate_limiter::RateLimiter;
+    use crate::rate_limiter::RateLimiter;
 
     use super::*;
 

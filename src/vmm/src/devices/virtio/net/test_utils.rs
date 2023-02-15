@@ -14,7 +14,7 @@ use std::{mem, result};
 
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::RateLimiter;
+use crate::rate_limiter::RateLimiter;
 use utils::net::mac::MacAddr;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
