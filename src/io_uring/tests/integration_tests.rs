@@ -1,6 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::AsRawFd;
 use std::thread;
@@ -301,7 +303,7 @@ fn test_write() {
     // Create & init a memory mapping for storing the write buffers.
     let mem_region: MmapRegion = MmapRegion::build(
         None,
-        NUM_BYTES as usize,
+        NUM_BYTES,
         libc::PROT_READ | libc::PROT_WRITE,
         libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
     )
@@ -312,7 +314,7 @@ fn test_write() {
     for i in 0..NUM_BYTES {
         mem_region
             .as_volatile_slice()
-            .write_obj(i as u8, i as usize)
+            .write_obj(i as u8, i)
             .unwrap();
     }
 
@@ -342,7 +344,7 @@ fn test_read() {
     // Create & init a memory mapping for storing the read buffers.
     let mem_region: MmapRegion = MmapRegion::build(
         None,
-        NUM_BYTES as usize,
+        NUM_BYTES,
         libc::PROT_READ | libc::PROT_WRITE,
         libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
     )
