@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
-use arch::aarch64::DeviceInfoForFDT;
-use arch::DeviceType;
-use arch::DeviceType::Virtio;
+use crate::arch::aarch64::DeviceInfoForFDT;
+use crate::arch::DeviceType;
+use crate::arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
 #[cfg(target_arch = "aarch64")]
@@ -572,8 +572,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
 
@@ -601,8 +601,8 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
 
@@ -612,7 +612,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
 
-        for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
+        for _i in crate::arch::IRQ_BASE..=crate::arch::IRQ_MAX {
             device_manager
                 .register_virtio_test_device(
                     vm.fd(),
@@ -668,8 +668,8 @@ mod tests {
 
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
@@ -688,7 +688,7 @@ mod tests {
             device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].addr
         );
         assert_eq!(
-            arch::IRQ_BASE,
+            crate::arch::IRQ_BASE,
             device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id)].irqs[0]
         );
 
@@ -722,33 +722,33 @@ mod tests {
     fn test_slot_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
         let device_info = device_manager.allocate_mmio_resources(0).unwrap();
         assert_eq!(device_info.irqs.len(), 0);
         let device_info = device_manager.allocate_mmio_resources(1).unwrap();
-        assert_eq!(device_info.irqs[0], arch::IRQ_BASE);
+        assert_eq!(device_info.irqs[0], crate::arch::IRQ_BASE);
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE + 1)
+                    .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
             "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
 
-        for i in arch::IRQ_BASE..arch::IRQ_MAX {
+        for i in crate::arch::IRQ_BASE..crate::arch::IRQ_MAX {
             device_manager.irq_allocator.free_id(i).unwrap();
         }
 
         let device_info = device_manager
-            .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE - 1)
+            .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE - 1)
             .unwrap();
-        assert_eq!(device_info.irqs[16], arch::IRQ_BASE + 16);
+        assert_eq!(device_info.irqs[16], crate::arch::IRQ_BASE + 16);
         assert_eq!(
             format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
             "Failed to allocate requested resource: The requested resource is not available."

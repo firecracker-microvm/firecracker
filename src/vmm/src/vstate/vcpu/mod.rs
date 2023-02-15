@@ -890,9 +890,9 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         let entry_addr = linux_loader::loader::elf::Elf::load(
             vm_memory,
-            Some(GuestAddress(arch::get_kernel_start())),
+            Some(GuestAddress(crate::arch::get_kernel_start())),
             &mut kernel_file,
-            Some(GuestAddress(arch::get_kernel_start())),
+            Some(GuestAddress(crate::arch::get_kernel_start())),
         )
         .map_err(StartMicrovmError::KernelLoader);
         #[cfg(target_arch = "aarch64")]
