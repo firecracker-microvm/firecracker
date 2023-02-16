@@ -23,7 +23,7 @@ from framework.defs import (
 )
 from framework.utils import compare_versions, get_kernel_version
 from framework.utils_cpuid import get_instance_type
-from host_tools.snapshot_helper import merge_memory_bitmaps
+from host_tools.cargo_build import run_rebase_snap_bin
 
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
 
@@ -421,7 +421,7 @@ class Snapshot:
 
     def rebase_snapshot(self, base):
         """Rebases current incremental snapshot onto a specified base layer."""
-        merge_memory_bitmaps(base.mem, self.mem)
+        run_rebase_snap_bin(base.mem, self.mem)
         self._mem = base.mem
 
     def cleanup(self):
