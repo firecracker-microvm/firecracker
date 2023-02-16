@@ -660,7 +660,7 @@ cmd_test() {
         -v /boot:/boot \
         ${ramdisk_args} \
         -- \
-        pytest "$@"
+        pytest -W error::pytest.PytestUnraisableExceptionWarning -W error::pytest.PytestUnhandledThreadExceptionWarning "$@"
 
     ret=$?
 

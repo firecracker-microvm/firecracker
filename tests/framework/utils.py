@@ -13,6 +13,7 @@ import typing
 import time
 import platform
 
+from typing import Dict
 from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
@@ -52,7 +53,7 @@ class ProcessManager:
         return psutil.Process(pid).cpu_affinity(real_cpulist)
 
     @staticmethod
-    def get_cpu_percent(pid: int) -> float:
+    def get_cpu_percent(pid: int) -> Dict[str, Dict[str, float]]:
         """Return the instant process CPU utilization percent."""
         _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
         cpu_percentages = {}
@@ -60,11 +61,15 @@ class ProcessManager:
         # Take all except the last line
         lines = stdout.strip().split(sep="\n")
         for line in lines:
+            # sometimes the firecracker process will have gone away, in which case top does not return anything
+            if not line:
+                continue
+
             info = line.strip().split()
             # We need at least CPU utilization and threads names cols (which
             # might be two cols e.g `fc_vcpu 0`).
             info_len = len(info)
-            assert info_len > 11
+            assert info_len > 11, line
 
             cpu_percent = float(info[8])
             task_id = info[0]

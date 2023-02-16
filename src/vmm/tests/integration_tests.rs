@@ -108,8 +108,8 @@ fn test_dirty_bitmap_success() {
     thread::sleep(Duration::from_millis(100));
     let bitmap = vmm.lock().unwrap().get_dirty_bitmap().unwrap();
     let num_dirty_pages: u32 = bitmap
-        .iter()
-        .map(|(_, bitmap_per_region)| {
+        .values()
+        .map(|bitmap_per_region| {
             // Gently coerce to u32
             let num_dirty_pages_per_region: u32 =
                 bitmap_per_region.iter().map(|n| n.count_ones()).sum();
@@ -286,7 +286,7 @@ fn test_snapshot_load_sanity_checks() {
     );
 
     // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
-    for _ in 0..(MAX_SUPPORTED_VCPUS as f64).log2() as usize {
+    for _ in 0..f64::from(MAX_SUPPORTED_VCPUS).log2() as usize {
         microvm_state
             .vcpu_states
             .append(&mut microvm_state.vcpu_states.clone());

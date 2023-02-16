@@ -67,10 +67,21 @@ class CpuLoadMonitor(Thread):
         It is up to the caller to check the queue.
         """
         while not self._should_stop:
-            cpu_load = utils.ProcessManager.get_cpu_percent(self._process_pid)["real"]
-            if cpu_load > self.threshold:
-                self.cpu_load_samples.append(cpu_load)
-            time.sleep(1)  # 1 second granularity.
+            cpus = utils.ProcessManager.get_cpu_percent(self._process_pid)
+
+            try:
+                fc_threads = cpus["firecracker"]
+
+                # There can be multiple "firecracker" threads sometimes, see #3429
+                assert len(fc_threads) > 0
+
+                for _, cpu_load in fc_threads.items():
+                    if cpu_load > self._threshold:
+                        self._cpu_load_samples.append(cpu_load)
+            except KeyError:
+                pass  # no firecracker process
+
+            time.sleep(0.05)  # 50 milliseconds granularity.
 
     def check_samples(self):
         """Check that there are no samples above the threshold."""
