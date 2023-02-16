@@ -241,6 +241,7 @@ impl super::AmdCpuid {
     }
 
     /// Update extended cache topology entry.
+    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn update_extended_cache_topology_entry(
         &mut self,
         cpu_count: u8,
@@ -255,9 +256,7 @@ impl super::AmdCpuid {
                     .eax
                     .num_sharing_cache_mut()
                     // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-                    .checked_assign(u32::from(unsafe {
-                        cpus_per_core.checked_sub(1).unwrap_unchecked()
-                    }))
+                    .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
                     .map_err(ExtendedCacheTopologyError::NumSharingCache)?,
                 // L3 Cache
                 // The L3 cache is shared among all the logical threads
@@ -277,6 +276,7 @@ impl super::AmdCpuid {
     }
 
     /// Update extended apic id entry
+    #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
     fn update_extended_apic_id_entry(
         &mut self,
         cpu_index: u8,
@@ -294,7 +294,7 @@ impl super::AmdCpuid {
         // logical CPU 3 -> core id: 1
         let core_id =
             // SAFETY: We know `cpus_per_core != 0` therefore this is always safe.
-            unsafe { u32::from(cpu_index.checked_div(cpus_per_core).unwrap_unchecked()) };
+            u32::from(cpu_index.checked_div(cpus_per_core).unwrap());
 
         let leaf_8000001e = self
             .leaf_mut::<0x8000001e>()
@@ -314,9 +314,7 @@ impl super::AmdCpuid {
             .ebx
             .threads_per_compute_unit_mut()
             // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-            .checked_assign(u32::from(unsafe {
-                cpus_per_core.checked_sub(1).unwrap_unchecked()
-            }))
+            .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
             .map_err(ExtendedApicIdError::ThreadPerComputeUnit)?;
 
         // SAFETY: We know the value always fits within the range and thus is always safe.
