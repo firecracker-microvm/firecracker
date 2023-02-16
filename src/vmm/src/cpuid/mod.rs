@@ -283,7 +283,7 @@ pub trait CpuidTrait {
 
 impl CpuidTrait for kvm_bindings::CpuId {
     /// Gets a given sub-leaf.
-    #[allow(clippy::transmute_ptr_to_ptr)]
+    #[allow(clippy::transmute_ptr_to_ptr, clippy::unwrap_used)]
     #[inline]
     fn get(&self, CpuidKey { leaf, subleaf }: &CpuidKey) -> Option<&CpuidEntry> {
         let entry_opt = self
@@ -296,15 +296,14 @@ impl CpuidTrait for kvm_bindings::CpuId {
             // SAFETY: The `kvm_cpuid_entry2` and `CpuidEntry` are `repr(C)` with known sizes.
             unsafe {
                 let arr: &[u8; size_of::<kvm_bindings::kvm_cpuid_entry2>()] = transmute(entry);
-                let arr2: &[u8; size_of::<CpuidEntry>()] =
-                    arr.get_unchecked(8..28).try_into().unwrap_unchecked();
+                let arr2: &[u8; size_of::<CpuidEntry>()] = arr[8..28].try_into().unwrap();
                 transmute::<_, &CpuidEntry>(arr2)
             }
         })
     }
 
     /// Gets a given sub-leaf.
-    #[allow(clippy::transmute_ptr_to_ptr)]
+    #[allow(clippy::transmute_ptr_to_ptr, clippy::unwrap_used)]
     #[inline]
     fn get_mut(&mut self, CpuidKey { leaf, subleaf }: &CpuidKey) -> Option<&mut CpuidEntry> {
         let entry_opt = self
@@ -317,7 +316,7 @@ impl CpuidTrait for kvm_bindings::CpuId {
             unsafe {
                 let arr: &mut [u8; size_of::<kvm_bindings::kvm_cpuid_entry2>()] = transmute(entry);
                 let arr2: &mut [u8; size_of::<CpuidEntry>()] =
-                    arr.get_unchecked_mut(8..28).try_into().unwrap_unchecked();
+                    (&mut arr[8..28]).try_into().unwrap();
                 transmute::<_, &mut CpuidEntry>(arr2)
             }
         })
