@@ -352,7 +352,11 @@ def iperf_workload(context):
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from artifacts.
     vm_instance = vm_builder.build(
-        kernel=context.kernel, disks=[rw_disk], ssh_key=ssh_key, config=context.microvm
+        kernel=context.kernel,
+        disks=[rw_disk],
+        ssh_key=ssh_key,
+        config=context.microvm,
+        monitor_memory=False,
     )
     basevm = vm_instance.vm
     basevm.start()
