@@ -17,6 +17,7 @@ import re
 import select
 import shutil
 import time
+import uuid
 import weakref
 from functools import cached_property
 from pathlib import Path
@@ -25,16 +26,13 @@ from threading import Lock
 from retry import retry
 
 import host_tools.logging as log_tools
+import host_tools.cargo_build as build_tools
 import host_tools.cpu_load as cpu_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
 from framework import utils
-from framework.defs import (
-    MICROVM_KERNEL_RELPATH,
-    MICROVM_FSFILES_RELPATH,
-    FC_PID_FILE_NAME,
-)
+from framework.defs import FC_PID_FILE_NAME
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import (
@@ -76,25 +74,30 @@ class Microvm:
     def __init__(
         self,
         resource_path,
-        fc_binary_path,
-        jailer_binary_path,
-        microvm_id,
+        fc_binary_path=None,
+        jailer_binary_path=None,
+        microvm_id=None,
         monitor_memory=True,
         bin_cloner_path=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
+        if microvm_id is None:
+            microvm_id = str(uuid.uuid4())
         self._microvm_id = microvm_id
 
         # Compose the paths to the resources specific to this microvm.
         self._path = os.path.join(resource_path, microvm_id)
-        self._kernel_path = os.path.join(self._path, MICROVM_KERNEL_RELPATH)
-        self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
+        os.makedirs(self._path, exist_ok=True)
         self.kernel_file = ""
         self.rootfs_file = ""
         self.initrd_file = ""
 
         # The binaries this microvm will use to start.
+        if fc_binary_path is None:
+            fc_binary_path, _ = build_tools.get_firecracker_binaries()
+        if jailer_binary_path is None:
+            _, jailer_binary_path = build_tools.get_firecracker_binaries()
         self._fc_binary_path = fc_binary_path
         assert os.path.exists(self._fc_binary_path)
         self._jailer_binary_path = jailer_binary_path
@@ -106,7 +109,6 @@ class Microvm:
             exec_file=self._fc_binary_path,
         )
         self.jailer_clone_pid = None
-        self._screen_log = None
 
         # Copy the /etc/localtime file in the jailer root
         self.jailer.copy_into_root("/etc/localtime", create_jail=True)
@@ -143,9 +145,10 @@ class Microvm:
         # Initialize the logging subsystem.
         self.logging_thread = None
         self._screen_pid = None
+        self._screen_log = None
 
         # Initalize memory monitor
-        self._memory_monitor = None
+        self.memory_monitor = None
 
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
@@ -158,7 +161,7 @@ class Microvm:
 
         # Deal with memory monitoring.
         if monitor_memory:
-            self._memory_monitor = mem_tools.MemoryMonitor()
+            self.memory_monitor = mem_tools.MemoryMonitor()
 
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
@@ -208,11 +211,11 @@ class Microvm:
             # different from the jailer pid that was previously killed.
             utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
 
-        if self._memory_monitor:
-            if self._memory_monitor.is_alive():
-                self._memory_monitor.signal_stop()
-                self._memory_monitor.join(timeout=1)
-            self._memory_monitor.check_samples()
+        if self.memory_monitor:
+            if self.memory_monitor.is_alive():
+                self.memory_monitor.signal_stop()
+                self.memory_monitor.join(timeout=1)
+            self.memory_monitor.check_samples()
 
         if self._cpu_load_monitor:
             self._cpu_load_monitor.signal_stop()
@@ -241,6 +244,9 @@ class Microvm:
         """Return the path on disk used that represents this microVM."""
         return self._path
 
+    # some functions use this
+    fsfiles = path
+
     @property
     def id(self):
         """Return the unique identifier of this microVM."""
@@ -258,19 +264,9 @@ class Microvm:
         return log_data
 
     @property
-    def fsfiles(self):
-        """Path to filesystem used by this microvm to attach new drives."""
-        return self._fsfiles_path
-
-    @property
     def ssh_config(self):
         """Get the ssh configuration used to ssh into some microVMs."""
         return self._ssh_config
-
-    @property
-    def memory_monitor(self):
-        """Get the memory monitor."""
-        return self._memory_monitor
 
     @property
     def state(self):
@@ -284,11 +280,6 @@ class Microvm:
         This is kept for legacy snapshot support.
         """
         return json.loads(self.desc_inst.get().content)["started"]
-
-    @memory_monitor.setter
-    def memory_monitor(self, monitor):
-        """Set the memory monitor."""
-        self._memory_monitor = monitor
 
     @property
     def pid_in_new_ns(self):
@@ -371,35 +362,6 @@ class Microvm:
     def chroot(self):
         """Get the chroot of this microVM."""
         return self.jailer.chroot_path()
-
-    def setup(self):
-        """Create a microvm associated folder on the host.
-
-        The root path of some microvm is `self._path`.
-        Also creates the where essential resources (i.e. kernel and root
-        filesystem) will reside.
-
-         # Microvm Folder Layout
-
-             There is a fixed tree layout for a microvm related folder:
-
-             ``` file_tree
-             <microvm_uuid>/
-                 kernel/
-                     <kernel_file_n>
-                     ....
-                 fsfiles/
-                     <fsfile_n>
-                     <initrd_file_n>
-                     <ssh_key_n>
-                     <other fsfiles>
-                     ...
-                  ...
-             ```
-        """
-        os.makedirs(self._path, exist_ok=True)
-        os.makedirs(self._kernel_path, exist_ok=True)
-        os.makedirs(self._fsfiles_path, exist_ok=True)
 
     @property
     def screen_log(self):

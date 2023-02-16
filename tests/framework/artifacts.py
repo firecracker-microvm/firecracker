@@ -111,7 +111,7 @@ class Artifact:
             platform.machine(),
         )
 
-    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False):
+    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False, perms=None):
         """Save the artifact in the folder specified target_path."""
         assert self.bucket is not None
         self._local_folder = target_folder
@@ -120,7 +120,9 @@ class Artifact:
         if force or not local_path.exists():
             self._bucket.download_file(self._key, local_path)
             # Artifacts are read-only by design.
-            local_path.chmod(0o400)
+            if perms is None:
+                perms = 0o400
+            local_path.chmod(perms)
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -177,116 +179,6 @@ class Artifact:
         """Teardown the object."""
         if self._is_copy:
             self.cleanup()
-
-
-class SnapshotArtifact:
-    """Manages snapshot S3 artifact objects."""
-
-    def __init__(self, bucket, key, artifact_type=ArtifactType.SNAPSHOT):
-        """Initialize bucket, key and type."""
-        self._bucket = bucket
-        self._type = artifact_type
-        self._key = key
-
-        self._mem = Artifact(
-            self._bucket, "{}vm.mem".format(key), artifact_type=ArtifactType.MISC
-        )
-        self._vmstate = Artifact(
-            self._bucket, "{}vm.vmstate".format(key), artifact_type=ArtifactType.MISC
-        )
-        self._ssh_key = Artifact(
-            self._bucket, "{}ssh_key".format(key), artifact_type=ArtifactType.SSH_KEY
-        )
-        self._disks = []
-
-        disk_prefix = "{}disk".format(key)
-        snaphot_disks = self._bucket.objects.filter(Prefix=disk_prefix)
-
-        for disk in snaphot_disks:
-            artifact = Artifact(self._bucket, disk.key, artifact_type=ArtifactType.DISK)
-            self._disks.append(artifact)
-
-        # Get the name of the snapshot folder.
-        snapshot_name = self.name
-        self._local_folder = os.path.join(
-            ARTIFACTS_LOCAL_ROOT, self.type.value, snapshot_name
-        )
-
-    @property
-    def type(self):
-        """Return the artifact type."""
-        return self._type
-
-    @property
-    def key(self):
-        """Return the artifact key."""
-        return self._key
-
-    @property
-    def mem(self):
-        """Return the memory artifact."""
-        return self._mem
-
-    @property
-    def vmstate(self):
-        """Return the vmstate artifact."""
-        return self._vmstate
-
-    @property
-    def ssh_key(self):
-        """Return the vmstate artifact."""
-        return self._ssh_key
-
-    @property
-    def disks(self):
-        """Return the disk artifacts."""
-        return self._disks
-
-    @property
-    def name(self):
-        """Return the name of the artifact."""
-        return self._key.strip("/").split("/")[-1]
-
-    def download(self):
-        """Download artifacts and return a Snapshot object."""
-        self.mem.download(self._local_folder)
-        self.vmstate.download(self._local_folder)
-        # SSH key is not needed by microvm, it is needed only by
-        # test functions.
-        self.ssh_key.download(self._local_folder)
-
-        for disk in self.disks:
-            disk.download(self._local_folder)
-            os.chmod(disk.local_path(), 0o700)
-
-    def copy(self, vm_root_folder):
-        """Copy artifacts and return a Snapshot object."""
-        assert self._local_folder is not None
-
-        dst_mem_path = os.path.join(vm_root_folder, self.mem.name())
-        dst_state_file = os.path.join(vm_root_folder, self.vmstate.name())
-        dst_ssh_key = os.path.join(vm_root_folder, self.ssh_key.name())
-
-        # Copy mem, state & ssh_key.
-        copyfile(self.mem.local_path(), dst_mem_path)
-        copyfile(self.vmstate.local_path(), dst_state_file)
-        copyfile(self.ssh_key.local_path(), dst_ssh_key)
-        # Set proper permissions for ssh key.
-        os.chmod(dst_ssh_key, 0o400)
-
-        disk_paths = []
-        for disk in self.disks:
-            dst_disk_path = os.path.join(vm_root_folder, disk.name())
-            copyfile(disk.local_path(), dst_disk_path)
-            disk_paths.append(dst_disk_path)
-
-        return Snapshot(
-            dst_mem_path,
-            dst_state_file,
-            disks=disk_paths,
-            net_ifaces=None,
-            ssh_key=dst_ssh_key,
-        )
 
 
 class DiskArtifact(Artifact):
@@ -389,43 +281,6 @@ class ArtifactCollection:
                 )
         return artifacts
 
-    def snapshots(self, keyword=None):
-        """Return snapshot artifacts for the current arch."""
-        # Snapshot artifacts are special since they need to contain
-        # a variable number of files: mem, state, disks, ssh key.
-        # To simplify the way we retrieve and store snapshot artifacts
-        # we are going to group all snapshot file in a folder and the
-        # "keyword" parameter will filter this folder name.
-        #
-        # Naming convention for files within the snapshot below.
-        # Snapshot folder /ci-artifacts/snapshots/x86_64/fc_snapshot_v0.22:
-        # - vm.mem
-        # - vm.vmstate
-        # - disk0 <---- this is the root disk
-        # - disk1
-        # - diskN
-        # - ssh_key
-
-        artifacts = []
-        prefix = ArtifactCollection.ARTIFACTS_ROOT
-        prefix += ArtifactCollection.ARTIFACTS_SNAPSHOTS
-        snaphot_dirs = self.bucket.objects.filter(Prefix=prefix)
-        for snapshot_dir in snaphot_dirs:
-            key = snapshot_dir.key
-            # Filter out the snapshot artifacts root folder.
-            # Select only files with specified keyword.
-            if (
-                key[-1] == "/"
-                and key != prefix
-                and (keyword is None or keyword in snapshot_dir.key)
-            ):
-                artifact_type = ArtifactType.SNAPSHOT
-                artifacts.append(
-                    SnapshotArtifact(self.bucket, key, artifact_type=artifact_type)
-                )
-
-        return artifacts
-
     def microvms(self, keyword=None):
         """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
@@ -446,25 +301,23 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        # Filter out binaries with versions older than the `min_version` arg.
-        if min_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, min_version) >= 0,
-                    firecrackers,
-                )
-            )
+        res = []
+        for fc in firecrackers:
+            # Filter out binaries with versions older than `min_version`
+            if (
+                min_version is not None
+                and compare_versions(fc.version, min_version) < 0
+            ):
+                continue
+            # Filter out binaries with versions newer than `max_version`
+            if (
+                max_version is not None
+                and compare_versions(fc.version, max_version) > 0
+            ):
+                continue
+            res.append(fc)
 
-        # Filter out binaries with versions newer than the `max_version` arg.
-        if max_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, max_version) <= 0,
-                    firecrackers,
-                )
-            )
-
-        return firecrackers
+        return res
 
     def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
