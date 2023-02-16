@@ -309,14 +309,17 @@ impl KvmVcpu {
         // additional MSRs for boot to correctly enable some CPU features. As stated in
         // the previous comment, we get from the template a static list of MSRs we need
         // to save at snapshot as well.
-        // C3 and T2 currently don't have extra MSRs to save/set
-        if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
-            self.msr_list.extend(t2s::msr_entries_to_save());
-            t2s::update_msr_entries(&mut msr_boot_entries);
-        }
-        if vcpu_config.cpu_template == CpuFeaturesTemplate::T2CL {
-            self.msr_list.extend(t2cl::msr_entries_to_save());
-            t2cl::update_msr_entries(&mut msr_boot_entries);
+        // C3, T2 and T2A currently don't have extra MSRs to save/set.
+        match vcpu_config.cpu_template {
+            CpuFeaturesTemplate::T2S => {
+                self.msr_list.extend(t2s::msr_entries_to_save());
+                t2s::update_msr_entries(&mut msr_boot_entries);
+            }
+            CpuFeaturesTemplate::T2CL => {
+                self.msr_list.extend(t2cl::msr_entries_to_save());
+                t2cl::update_msr_entries(&mut msr_boot_entries);
+            }
+            _ => (),
         }
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
