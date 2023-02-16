@@ -8,11 +8,11 @@
 use std::convert::TryFrom;
 
 use arch::x86_64::interrupts;
-use arch::x86_64::msr::{ArchCapaMSRFlags, SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
+use arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use kvm_bindings::{
-    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_msr_entry, kvm_regs, kvm_sregs,
-    kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
+    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
@@ -31,37 +31,6 @@ mod cpuid_templates;
 // the QEMU approach, more details here:
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
 const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
-
-/// Add the MSR entries specific to this T2S template.
-#[inline]
-pub fn update_t2s_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
-    let capabilities = ArchCapaMSRFlags::RSBA
-        | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
-        | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
-        | ArchCapaMSRFlags::MISC_PACKAGE_CTRLS
-        | ArchCapaMSRFlags::ENERGY_FILTERING_CTL;
-    msr_entries.push(kvm_msr_entry {
-        index: MSR_IA32_ARCH_CAPABILITIES,
-        data: capabilities.bits(),
-        ..kvm_msr_entry::default()
-    });
-}
-
-/// Add the MSR entries specific to this T2S template.
-#[inline]
-pub fn update_t2cl_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
-    let capabilities = ArchCapaMSRFlags::RDCL_NO
-        | ArchCapaMSRFlags::IBRS_ALL
-        | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
-        | ArchCapaMSRFlags::MDS_NO
-        | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
-        | ArchCapaMSRFlags::TSX_CTRL;
-    msr_entries.push(kvm_msr_entry {
-        index: MSR_IA32_ARCH_CAPABILITIES,
-        data: capabilities.bits(),
-        ..kvm_msr_entry::default()
-    });
-}
 
 #[allow(clippy::missing_docs_in_private_items)]
 static EXTRA_MSR_ENTRIES: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
@@ -292,11 +261,11 @@ impl KvmVcpu {
 
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match vcpu_config.cpu_template {
-            CpuFeaturesTemplate::C3 => cpuid_templates::c3(),
-            CpuFeaturesTemplate::T2 => cpuid_templates::t2(),
-            CpuFeaturesTemplate::T2S => cpuid_templates::t2s(),
-            CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl(),
-            CpuFeaturesTemplate::T2A => cpuid_templates::t2a(),
+            CpuFeaturesTemplate::C3 => cpuid_templates::c3::template(),
+            CpuFeaturesTemplate::T2 => cpuid_templates::t2::template(),
+            CpuFeaturesTemplate::T2S => cpuid_templates::t2s::template(),
+            CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl::template(),
+            CpuFeaturesTemplate::T2A => cpuid_templates::t2a::template(),
             // If a template is not supplied we use the given `cpuid` as the base.
             CpuFeaturesTemplate::None => {
                 crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid.clone()))
@@ -352,11 +321,11 @@ impl KvmVcpu {
         // C3 and T2 currently don't have extra MSRs to save/set
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2S {
             self.msr_list.extend(msr_entries_to_save());
-            update_t2s_msr_entries(&mut msr_boot_entries);
+            cpuid_templates::t2s::update_msr_entries(&mut msr_boot_entries);
         }
         if vcpu_config.cpu_template == CpuFeaturesTemplate::T2CL {
             self.msr_list.extend(msr_entries_to_save());
-            update_t2cl_msr_entries(&mut msr_boot_entries);
+            cpuid_templates::t2cl::update_msr_entries(&mut msr_boot_entries);
         }
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
