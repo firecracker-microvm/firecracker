@@ -333,42 +333,10 @@ class MicrovmBuilder:
             io_engine=io_engine,
         )
 
-    def build_vm_nano(
-        self,
-        fc_binary=None,
-        jailer_binary=None,
-        net_ifaces=None,
-        diff_snapshots=False,
-        daemonize=True,
-        io_engine=None,
-    ):
+    def build_vm_nano(self, **kwargs):
         """Create a clean VM in an initial state."""
         return self.build_from_artifacts(
-            "2vcpu_256mb",
-            "vmlinux-4.14",
-            "ubuntu-18.04",
-            None,
-            net_ifaces=net_ifaces,
-            diff_snapshots=diff_snapshots,
-            fc_binary=fc_binary,
-            jailer_binary=jailer_binary,
-            daemonize=daemonize,
-            io_engine=io_engine,
-        )
-
-    def build_vm_micro(
-        self, fc_binary=None, jailer_binary=None, net_ifaces=None, diff_snapshots=False
-    ):
-        """Create a clean VM in an initial state."""
-        return self.build_from_artifacts(
-            "2vcpu_512mb",
-            "vmlinux-4.14",
-            "ubuntu-18.04",
-            None,
-            net_ifaces=net_ifaces,
-            diff_snapshots=diff_snapshots,
-            fc_binary=fc_binary,
-            jailer_binary=jailer_binary,
+            "2vcpu_256mb", "vmlinux-4.14", "ubuntu-18.04", None, **kwargs
         )
 
     def cleanup(self):
