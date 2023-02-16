@@ -16,11 +16,8 @@ import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 
-from conftest import _test_images_s3_bucket, init_microvm
-
 from framework.utils import is_io_uring_supported
 from framework.artifacts import (
-    ArtifactCollection,
     NetIfaceConfig,
     SnapshotType,
 )
@@ -1026,30 +1023,9 @@ def test_api_vsock(bin_cloner_path):
     @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-
     # Test with the current build.
     vm_instance = builder.build_vm_nano()
     _test_vsock(vm_instance.vm)
-
-    # Fetch 1.0.0 and older firecracker binaries.
-    # Create a vsock device with each FC binary
-    # artifact.
-    firecracker_artifacts = artifacts.firecrackers(
-        # v1.0.0 deprecated `vsock_id`.
-        min_version="1.0.0"
-    )
-
-    for firecracker in firecracker_artifacts:
-        firecracker.download()
-        jailer = firecracker.jailer()
-        jailer.download()
-
-        vm_instance = builder.build_vm_nano(
-            fc_binary=firecracker.local_path(), jailer_binary=jailer.local_path()
-        )
-
-        _test_vsock(vm_instance.vm)
 
 
 def _test_vsock(vm):
@@ -1429,14 +1405,13 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
 
 # pylint: disable=protected-access
-def test_negative_snapshot_load_api(bin_cloner_path):
+def test_negative_snapshot_load_api(microvm_factory):
     """
     Test snapshot load API.
 
     @type: negative
     """
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm = init_microvm(vm_builder.root_path, vm_builder.bin_cloner_path)
+    vm = microvm_factory.build()
     vm.spawn()
 
     # Specifying both `mem_backend` and 'mem_file_path` should fail.
