@@ -465,7 +465,6 @@ def test_older_snapshot_resume_latency(
     @type: performance
     """
     logger = logging.getLogger("old_snapshot_load")
-
     builder = MicrovmBuilder(bin_cloner_path)
     snapshot_type = SnapshotType.FULL
     microvm.download()
@@ -476,8 +475,13 @@ def test_older_snapshot_resume_latency(
     logger.info("Source Jailer: %s", jailer.local_path())
 
     # Create a fresh microvm with the binary artifacts.
-    vm_instance = builder.build_vm_micro(
-        firecracker_release.local_path(), jailer.local_path()
+    vm_instance = builder.build_from_artifacts(
+        "2vcpu_512mb",
+        "vmlinux-4.14",
+        "ubuntu-18.04",
+        None,
+        fc_binary=firecracker_release.local_path(),
+        jailer_binary=jailer.local_path(),
     )
     basevm = vm_instance.vm
     basevm.start()
