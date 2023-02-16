@@ -132,6 +132,7 @@ def get_snap_restore_latency(
         net_ifaces=ifaces,
         use_ramdisk=True,
         io_engine="Sync",
+        monitor_memory=False,
     )
     basevm = vm_instance.vm
     response = basevm.machine_cfg.put(

@@ -56,7 +56,6 @@ from framework.resources import (
 LOG = logging.getLogger("microvm")
 data_lock = Lock()
 
-
 # pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
