@@ -1194,11 +1194,13 @@ cmd_build_rootfs() {
 
     create_dir "$rootfs_dir_host"
 
-    run_devctr \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        -- /bin/bash -c "gcc -o  $rootfs_dir_ctr/init $resources_dir_ctr/init.c && \
-        gcc -o  $rootfs_dir_ctr/fillmem $resources_dir_ctr/fillmem.c && \
-        gcc -o  $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c"
+    docker run --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker" "$FROM_CTR" bash -s <<EOF
+apt-get update && \
+apt-get install -y gcc && \
+gcc -o $rootfs_dir_ctr/init $resources_dir_ctr/init.c && \
+gcc -o $rootfs_dir_ctr/fillmem $resources_dir_ctr/fillmem.c && \
+gcc -o $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c
+EOF
 
     img_file="$rootfs_dir_host/$ROOTFS_NAME"
 
