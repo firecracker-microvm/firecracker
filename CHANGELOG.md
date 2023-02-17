@@ -12,7 +12,10 @@
 ### Changed
 
 - Improved error message when invalid network backend provided.
+- Improved TCP throughput by between 5% and 15% (depending on CPU) by using
+  scatter-gather I/O in the net device's TX path.
 - Upgraded Rust toolchain from 1.64.0 to 1.66.0.
+- Made seccompiler output bit-reproducible.
 
 ### Fixed
 
