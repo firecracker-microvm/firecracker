@@ -159,7 +159,7 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
 cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-cp -r test_results "$RELEASE_DIR/test_results-$SUFFIX"
+cp -v tests/test-report.json "$RELEASE_DIR/"
 
 (
     cd "$RELEASE_DIR"
