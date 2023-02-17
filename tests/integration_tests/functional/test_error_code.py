@@ -28,7 +28,7 @@ def test_enosys_error_code(test_microvm_with_initrd):
     vm.spawn()
     vm.memory_monitor = None
 
-    vm.initrd_file = os.path.join(vm.path, "fsfiles/", "initrd_enosys.img")
+    vm.initrd_file = os.path.join(vm.path, "fsfiles", "initrd_enosys.img")
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,

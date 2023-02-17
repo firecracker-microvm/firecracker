@@ -5,6 +5,7 @@
 import os
 import platform
 import re
+from pathlib import Path
 
 from shutil import copyfile
 from typing import List
@@ -125,7 +126,9 @@ class MicrovmImageS3Fetcher:
                     self._microvm_images_bucket, resource_rel_path, resource_local_path
                 )
 
-            if not os.path.exists(microvm_dest_path):
+            dest_path = Path(microvm_dest_path)
+            dest_path.parent.mkdir(exist_ok=True, parents=True)
+            if not dest_path.exists():
                 copyfile(resource_local_path, microvm_dest_path)
 
             if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):

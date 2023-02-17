@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from conftest import init_microvm, _test_images_s3_bucket
+from conftest import _test_images_s3_bucket
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.artifacts import (
     ArtifactCollection,
@@ -19,6 +19,7 @@ from framework.artifacts import (
     SnapshotType,
 )
 from framework import utils
+from framework.microvm import Microvm
 import host_tools.logging as log_tools
 
 
@@ -97,10 +98,15 @@ class MicrovmBuilder:
         smt=None,
         daemonize=True,
         io_engine=None,
+        monitor_memory=True,
     ):
         """Build a fresh microvm."""
-        vm = init_microvm(
-            self.root_path, self.bin_cloner_path, fc_binary, jailer_binary
+        vm = Microvm(
+            self.root_path,
+            fc_binary_path=fc_binary,
+            jailer_binary_path=jailer_binary,
+            bin_cloner_path=self.bin_cloner_path,
+            monitor_memory=monitor_memory,
         )
         vm.jailer.daemonize = daemonize
         # Start firecracker.
@@ -167,7 +173,8 @@ class MicrovmBuilder:
             track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )
-        vm.memory_monitor.guest_mem_mib = microvm_config["mem_size_mib"]
+        if monitor_memory:
+            vm.memory_monitor.guest_mem_mib = microvm_config["mem_size_mib"]
         assert vm.api_session.is_status_no_content(response.status_code)
 
         vm.vcpus_count = int(microvm_config["vcpu_count"])
@@ -199,11 +206,11 @@ class MicrovmBuilder:
     ):
         """Build a microvm from a snapshot artifact."""
         if vm is None:
-            vm = init_microvm(
+            vm = Microvm(
                 self.root_path,
-                self.bin_cloner_path,
-                fc_binary,
-                jailer_binary,
+                fc_binary_path=fc_binary,
+                jailer_binary_path=jailer_binary,
+                bin_cloner_path=self.bin_cloner_path,
             )
             vm.jailer.daemonize = daemonize
             vm.spawn(log_level="Error", use_ramdisk=use_ramdisk)

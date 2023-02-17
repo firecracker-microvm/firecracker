@@ -37,7 +37,7 @@ mod common;
 mod compiler;
 mod syscall_table;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -154,7 +154,7 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: HashMap<String, BpfProgram> = compiler
+    let bpf_data: BTreeMap<String, BpfProgram> = compiler
         .compile_blob(filters.0, args.is_basic)
         .map_err(Error::FileFormat)?;
 
