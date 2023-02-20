@@ -1145,74 +1145,11 @@ cmd_build_kernel() {
     # It is mandatory to provide a valid config file for building the kernel.
     [ -z "$kernel_config" ] && die "You need to provide the path to a valid kernel config!"
 
-    arch=$(uname -m)
-    if [ "$arch" = "x86_64" ]; then
-        target="vmlinux"
-        bin_path=$target
-        cfg_pattern="x86"
-    elif [ "$arch" = "aarch64" ]; then
-        target="Image"
-        bin_path="arch/arm64/boot/$target"
-        cfg_pattern="arm64"
-    else
-        die "Unsupported architecture!"
-    fi
-
     run_devctr \
         --user "$(id -u):$(id -g)" \
-        --workdir ""
-
-    kernel_dir_host="$FC_BUILD_DIR"/kernel
-    kernel_dir_ctr="$CTR_FC_BUILD_DIR"/kernel
-    create_dir "$kernel_dir_host"
-
-    # Extract the kernel version from the config file provided as parameter.
-    kernel_version=$(grep -Po "^# Linux\/$cfg_pattern (([0-9]+.)[0-9]+)" "$kernel_config" | cut -d ' ' -f 3)
-    validate_kernel_version "$kernel_version"
-
-    kernel_major_version="${kernel_version%%.*}"
-    kernel_url_base="https://cdn.kernel.org/pub/linux/kernel"
-    kernel_latest_version=$( \
-        curl -s $kernel_url_base/v$kernel_major_version.x/ \
-        | grep -o "linux-$kernel_version\.[0-9]*\.tar.xz" \
-        | sort -rn -t . -k 3 \
-        | head -n 1)
-    kernel_url="$kernel_url_base/v$kernel_major_version.x/$kernel_latest_version"
-
-    echo "Downloading kernel from $kernel_url"
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "curl -L $kernel_url > $kernel_latest_version"
-    ok_or_die "Could not download kernel: $kernel_url"
-
-    echo "Extracting kernel sources..."
-    kernel_dest_dir="linux-$kernel_version"
-    kernel_dest_dir_host="$kernel_dir_host/$kernel_dest_dir"
-    kernel_dest_dir_ctr="$kernel_dir_ctr/$kernel_dest_dir"
-    create_dir "$kernel_dest_dir_host"
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "tar --skip-old-files --strip-components=1 -xf $kernel_latest_version -C $kernel_dest_dir"
-    ok_or_die "Could not extract kernel sources: $kernel_dir_host/$kernel_latest_version"
-
-    echo "Building kernel..."
-    cp "$kernel_config" "$kernel_dest_dir_host/.config"
-    kernel_binary_name="vmlinux-$kernel_version-$arch.bin"
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$kernel_dest_dir_ctr" \
-        -- /bin/bash -c "\
-            apt-get update \
-            && apt-get install -y flex bison bc \
-            && make olddefconfig \
-            && make -j $nproc $target \
-            && cp $bin_path $kernel_binary_name"
-    ok_or_die "Could not build kernel"
-
+        -- sh -c "resources/tests/build_kernel.sh $kernel_config $nprocs"
+    ok_or_die "Could not build kernel."
     say "Successfully built kernel!"
-    say "Kernel binary placed in: $kernel_dest_dir_host/$kernel_binary_name"
 }
 
 # `./devtool build_rootfs -s 500M`
