@@ -9,13 +9,13 @@ import tempfile
 
 import pytest
 
-from conftest import _test_images_s3_bucket
 from framework.artifacts import (
     ArtifactCollection,
     ArtifactSet,
     create_net_devices_configuration,
 )
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.defs import _test_images_s3_bucket
 from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
