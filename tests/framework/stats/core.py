@@ -84,11 +84,17 @@ class Core:
             if len(custom) > 0:
                 self._result["custom"][tag] = custom
 
+        self.raise_if_regression()
+        return self._result
+
+    def raise_if_regression(self):
+        """Raise an exception if there was an issue or a regression was
+        detected.
+        """
         if self._failure_aggregator.has_any():
             self._failure_aggregator.result = self._result
+            # If we had Python 3.11 we could use ExceptionGroup
             raise self._failure_aggregator
-
-        return self._result
 
     @property
     def name(self):
