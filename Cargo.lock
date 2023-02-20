@@ -1227,6 +1227,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "thiserror",
  "userfaultfd",
  "utils",
 ]

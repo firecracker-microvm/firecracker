@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use utils::{get_page_size, GuestRegionUffdMapping};
 
+use crate::{Error, Result};
+
 pub struct MemRegion {
     pub mapping: GuestRegionUffdMapping,
     pub page_states: HashMap<usize, MemPageState>,
@@ -45,13 +47,15 @@ pub fn create_mem_regions(mappings: Vec<GuestRegionUffdMapping>) -> Vec<MemRegio
 }
 
 /// Deserialize memory mappings received through UDS from Firecracker.
-pub fn deserialize_mappings(msg: &str, size: usize) -> Vec<GuestRegionUffdMapping> {
+pub fn deserialize_mappings(msg: &str, size: usize) -> Result<Vec<GuestRegionUffdMapping>> {
     let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(msg)
-        .expect("Cannot deserialize memory mappings.");
+        .map_err(Error::DeserializeMemoryMappings)?;
     let memsize: usize = mappings.iter().map(|r| r.size).sum();
     // The mappings' memory size must match the size of the snapshot memory file, otherwise
     // the memory mappings might be corrupted.
-    assert_eq!(memsize, size);
+    if memsize != size {
+        return Err(Error::CorruptedMemoryMappings);
+    }
 
-    mappings
+    Ok(mappings)
 }

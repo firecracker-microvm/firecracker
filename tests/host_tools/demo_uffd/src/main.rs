@@ -19,7 +19,7 @@ fn main() {
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
     // Parse unix stream to get userfaultfd.
-    let (file, _) = parse_unix_stream(&stream);
+    let (file, _) = parse_unix_stream(&stream).expect("Failed to parse unix stream.");
     let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
     let mut pollfd = libc::pollfd {
