@@ -49,8 +49,8 @@ BASELINES = {
             "crc": {"target": 0.050, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.057, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.063, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.031, "delta": 0.02},  # milliseconds  # milliseconds
+            "crc": {"target": 0.038, "delta": 0.02},  # milliseconds  # milliseconds
         },
     },
 }

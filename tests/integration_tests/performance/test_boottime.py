@@ -29,7 +29,10 @@ INITRD_BOOT_TIME_US = {
     "aarch64": {
         "m6g.metal": {
             "ARM_NEOVERSE_N1": 205000,
-        }
+        },
+        "c7g.metal": {
+            "ARM_NEOVERSE_V1": 205000,
+        },
     },
 }
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
