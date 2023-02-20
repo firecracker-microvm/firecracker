@@ -11,7 +11,8 @@ use uffd_handler::common::parse_unix_stream;
 use userfaultfd::Uffd;
 
 fn main() {
-    let uffd_sock_path = std::env::args().nth(1).expect("No socket path given");
+    // First collected value is the argument name, then the value.
+    let uffd_sock_path = std::env::args().nth(2).expect("No socket path given");
 
     // Communicate with the Firecracker process to receive the file
     // descriptor to poll for page fault events on.

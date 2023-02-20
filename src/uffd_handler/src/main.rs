@@ -15,6 +15,7 @@ use std::os::unix::net::UnixListener;
 use std::{io, mem, process, ptr};
 
 use userfaultfd::Uffd;
+use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag, Error as ArgumentError};
 
 use crate::common::{parse_unix_stream, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
@@ -27,7 +28,7 @@ pub enum Error {
     #[error("Failed to accept connection on userfaultfd socket: {0}")]
     AcceptConnection(io::Error),
     #[error("Failed to parse arguments: {0}")]
-    ArgumentParsing(String),
+    ArgumentParsing(ArgumentError),
     #[error("Failed to bind userfaultfd socket path: {0}")]
     BindSocket(io::Error),
     #[error("Memory mappings received through uffd socket might be corrupted: {0}")]
@@ -63,18 +64,54 @@ fn validate_snapshot_file(file_name: &str) -> Result<(File, usize)> {
     Ok((file, size))
 }
 
-fn create_handler<U>() -> Result<PageFaultHandler<Uffd>>
+#[derive(Debug, PartialEq)]
+struct Arguments {
+    /// The path to the UDS through which the UFFD handler communicates with Firecracker.
+    socket: String,
+    /// The path to the snapshot memory file to serve page faults from.
+    mem_file: String,
+}
+
+fn get_argument_values(args: &ArgumentsBag) -> Result<Arguments> {
+    let socket = args
+        .single_value("socket")
+        .ok_or_else(|| Error::ArgumentParsing(ArgumentError::MissingValue("socket".to_string())))?;
+    let mem_file = args.single_value("mem-file").ok_or_else(|| {
+        Error::ArgumentParsing(ArgumentError::MissingValue("mem-file".to_string()))
+    })?;
+
+    Ok(Arguments {
+        socket: socket.to_owned(),
+        mem_file: mem_file.to_owned(),
+    })
+}
+
+/// Create an ArgParser object which contains info about the command line argument parser and
+/// populate it with the expected arguments and their characteristics.
+fn build_arg_parser() -> ArgParser<'static> {
+    ArgParser::new()
+        .arg(
+            Argument::new("socket")
+                .required(true)
+                .takes_value(true)
+                .help(
+                    "The path to the UDS through which the UFFD handler communicates with \
+                     Firecracker.",
+                ),
+        )
+        .arg(
+            Argument::new("mem-file")
+                .required(true)
+                .takes_value(true)
+                .help("The path to the snapshot memory file to serve page faults from."),
+        )
+}
+
+fn create_handler<U>(args: &Arguments) -> Result<PageFaultHandler<Uffd>>
 where
     U: UffdManager,
 {
-    let uffd_sock_path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| Error::ArgumentParsing(String::from("No socket path provided")))?;
-    let mem_file_path = std::env::args()
-        .nth(2)
-        .ok_or_else(|| Error::ArgumentParsing(String::from("No memory file provided")))?;
-
-    let (file, mem_file_size) = validate_snapshot_file(&mem_file_path)?;
+    let (file, mem_file_size) = validate_snapshot_file(&args.mem_file)?;
 
     // mmap() a memory area used to bring in the faulting regions.
     // SAFETY: Safe because the parameters are valid.
@@ -93,7 +130,7 @@ where
     }
 
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
-    let listener = UnixListener::bind(uffd_sock_path).map_err(Error::BindSocket)?;
+    let listener = UnixListener::bind(&args.socket).map_err(Error::BindSocket)?;
     let (stream, _) = listener.accept().map_err(Error::AcceptConnection)?;
 
     let (file, msg_body) = parse_unix_stream(&stream).map_err(Error::ParseStream)?;
@@ -143,7 +180,29 @@ fn get_peer_process_credentials(fd: RawFd) -> Result<libc::ucred> {
 }
 
 fn main() {
-    let mut uffd_handler = create_handler::<Uffd>().unwrap_or_else(|err| {
+    let mut arg_parser = build_arg_parser();
+    match arg_parser.parse_from_cmdline() {
+        Err(err) => {
+            eprintln!(
+                "Arguments parsing error: {:?} \n\nFor more information try --help.",
+                err
+            );
+            process::exit(EXIT_CODE_ERROR);
+        }
+        _ => {
+            if arg_parser.arguments().flag_present("help") {
+                println!("{}\n", arg_parser.formatted_help());
+                process::exit(0);
+            }
+        }
+    }
+
+    let args = get_argument_values(arg_parser.arguments()).unwrap_or_else(|err| {
+        eprintln!("{:?}", err);
+        process::exit(EXIT_CODE_ERROR);
+    });
+
+    let mut uffd_handler = create_handler::<Uffd>(&args).unwrap_or_else(|err| {
         eprintln!("Creating userfaulfd handler failed: {:?}", err);
         process::exit(EXIT_CODE_ERROR);
     });
@@ -163,7 +222,10 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::get_peer_process_credentials;
-    use crate::{validate_snapshot_file, Error};
+    use crate::{
+        build_arg_parser, get_argument_values, validate_snapshot_file, ArgumentError, Arguments,
+        Error,
+    };
 
     #[test]
     fn test_validate_snapshot_file_fail() {
@@ -184,6 +246,116 @@ mod tests {
 
         let (_, size) = validate_snapshot_file(mem_file.as_path().to_str().unwrap()).unwrap();
         assert_eq!(size, written);
+    }
+
+    #[test]
+    fn test_get_argument_values_successful() {
+        let socket = "uffd.sock";
+        let mem_file = "vm.mem";
+
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        arguments
+            .parse(
+                vec!["uffd-handler", "--socket", socket, "--mem-file", mem_file]
+                    .into_iter()
+                    .map(String::from)
+                    .collect::<Vec<String>>()
+                    .as_ref(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            get_argument_values(arguments).unwrap(),
+            Arguments {
+                socket: socket.to_string(),
+                mem_file: mem_file.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_argument_values_no_args() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        let res = arguments.parse(vec![String::from("uffd-handler")].as_slice());
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap(),
+            ArgumentError::MissingArgument(String::from("mem-file"))
+        );
+    }
+
+    #[test]
+    fn test_get_argument_values_no_mem_value() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        let res = arguments
+            .parse(vec![String::from("uffd-handler"), String::from("--mem-file")].as_slice());
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap(),
+            ArgumentError::MissingValue(String::from("mem-file"))
+        );
+    }
+
+    #[test]
+    fn test_get_argument_values_no_socket() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        let res = arguments.parse(
+            vec!["uffd-handler", "--mem-file", "vm.mem"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+        );
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap(),
+            ArgumentError::MissingArgument(String::from("socket"))
+        );
+    }
+
+    #[test]
+    fn test_get_argument_values_no_socket_value() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        let res = arguments.parse(
+            vec!["uffd-handler", "--mem-file", "vm.mem", "--socket"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+        );
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap(),
+            ArgumentError::MissingValue(String::from("socket"))
+        );
+    }
+
+    #[test]
+    fn test_get_argument_values_unexpected_argument() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        let res = arguments.parse(
+            vec!["uffd-handler", "--foo", "vm.mem", "--socket"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+        );
+
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap(),
+            ArgumentError::UnexpectedArgument(String::from("foo"))
+        );
     }
 
     #[test]

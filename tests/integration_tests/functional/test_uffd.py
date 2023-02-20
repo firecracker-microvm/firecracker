@@ -57,7 +57,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     jailed_handler = vm.create_jailed_resource(handler_path)
 
     handler_name = os.path.basename(jailed_handler)
-    args = [SOCKET_PATH, jailed_mem]
+    args = ["--socket", SOCKET_PATH, "--mem-file", jailed_mem]
 
     uffd_handler = UffdHandler(handler_name, args)
     real_root = os.open("/", os.O_RDONLY)
