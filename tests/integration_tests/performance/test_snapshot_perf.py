@@ -142,7 +142,25 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 330},
                 },
             },
-        }
+        },
+        "c7g.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 320},
+                    "2vcpu_512mb.json": {"target": 360},
+                },
+            },
+        },
     },
 }
 
