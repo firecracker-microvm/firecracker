@@ -206,3 +206,195 @@ fn page_start_of_addr(addr: usize) -> Result<usize> {
 
     Ok(dst as usize)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::io::RawFd;
+    use std::ptr;
+
+    use utils::GuestRegionUffdMapping;
+
+    use super::*;
+    use crate::create_mem_regions;
+
+    const PAGE_SIZE: usize = 4096;
+
+    struct MockUffd;
+
+    impl AsRawFd for MockUffd {
+        fn as_raw_fd(&self) -> RawFd {
+            RawFd::MIN
+        }
+    }
+
+    impl UffdManager for MockUffd {
+        fn poll_fd(&self) -> Result<Event> {
+            Err(HandlerError::EventNotReady)
+        }
+
+        // Simulate copying the first page.
+        fn populate_from_file(
+            &self,
+            _buff: *const libc::c_void,
+            _region: &MemRegion,
+        ) -> Result<(usize, usize)> {
+            Ok((0x0, 0x1000))
+        }
+
+        // Simulate zeroing out the third page.
+        fn zero_out(&self, _addr: usize) -> Result<(usize, usize)> {
+            Ok((0x1000, 0x2000))
+        }
+    }
+
+    fn create_handler(start: usize, mem_size: usize) -> PageFaultHandler<MockUffd> {
+        // Create a memory mapping of one region with size and address specified.
+        let mappings = vec![GuestRegionUffdMapping {
+            base_host_virt_addr: start,
+            size: mem_size,
+            offset: 0,
+        }];
+
+        PageFaultHandler::new(create_mem_regions(mappings), ptr::null(), MockUffd {}, 0)
+    }
+
+    #[test]
+    fn test_serve_page_fault() {
+        let start = 0;
+        let size = PAGE_SIZE * 3;
+        let mut handler = create_handler(start, size);
+
+        // Serve page fault for the first page (address 0x0).
+        // Handling a page fault on an Uninitialized page should trigger
+        // a copy from file. The first page should now be marked as `FromFile`.
+        assert_eq!(
+            *handler.mem_regions[0].page_states.get(&start).unwrap(),
+            MemPageState::Uninitialized
+        );
+        handler.serve_page_fault(0x100).unwrap();
+        assert_eq!(
+            *handler.mem_regions[0].page_states.get(&start).unwrap(),
+            MemPageState::FromFile
+        );
+
+        // Mark the second page in the memory region as `Removed`.
+        // Handling a page fault on this type of page should trigger a zero out.
+        handler.mem_regions[0]
+            .page_states
+            .insert(0x1000, MemPageState::Removed);
+        handler.serve_page_fault(0x1500).unwrap();
+        // The second page should now be marked as `Anonymous`.
+        assert_eq!(
+            *handler.mem_regions[0]
+                .page_states
+                .get(&(start + PAGE_SIZE))
+                .unwrap(),
+            MemPageState::Anonymous
+        );
+
+        // Serving a page fault for an address outside of region should fail.
+        let res = handler.serve_page_fault(size + 1);
+        assert!(res.is_err());
+        assert_eq!(
+            HandlerError::AddressNotInRegion.to_string(),
+            res.err().unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn test_update_mem_state_mappings() {
+        let start = 0;
+        let size = PAGE_SIZE * 3;
+        let mut handler = create_handler(start, size);
+        assert!(handler
+            .mem_regions
+            .iter()
+            .flat_map(|region| region.page_states.values())
+            .all(|state| matches!(state, MemPageState::Uninitialized)));
+
+        handler.update_mem_state_mappings(start, size, MemPageState::FromFile);
+        assert!(handler
+            .mem_regions
+            .iter()
+            .flat_map(|region| region.page_states.values())
+            .all(|state| matches!(state, MemPageState::FromFile)));
+
+        // Attempt to update pages from outside the current region. Mapping should not change.
+        handler.update_mem_state_mappings(size + 1, size, MemPageState::Removed);
+        assert!(handler
+            .mem_regions
+            .iter()
+            .flat_map(|region| region.page_states.values())
+            .all(|state| matches!(state, MemPageState::FromFile)));
+    }
+
+    #[test]
+    fn test_handle_pf_event() {
+        let start = 0;
+        let size = PAGE_SIZE * 3;
+        let mut handler = create_handler(start, size);
+
+        assert_eq!(
+            *handler.mem_regions[0].page_states.get(&start).unwrap(),
+            MemPageState::Uninitialized
+        );
+        assert!(handler
+            .handle_event(Event::Pagefault {
+                kind: userfaultfd::FaultKind::Missing,
+                rw: userfaultfd::ReadWrite::Read,
+                addr: start as *mut libc::c_void
+            })
+            .is_ok());
+        assert_eq!(
+            *handler.mem_regions[0].page_states.get(&start).unwrap(),
+            MemPageState::FromFile
+        );
+    }
+
+    #[test]
+    fn test_handle_remove_event() {
+        let start = 0;
+        let size = PAGE_SIZE * 3;
+        let mut handler = create_handler(start, size);
+
+        assert!(handler
+            .handle_event(Event::Remove {
+                start: start as *mut libc::c_void,
+                end: PAGE_SIZE as *mut libc::c_void
+            })
+            .is_ok());
+        assert_eq!(
+            *handler.mem_regions[0].page_states.get(&start).unwrap(),
+            MemPageState::Removed
+        );
+    }
+
+    #[test]
+    fn test_handle_unexpected_event() {
+        let start = 0;
+        let size = PAGE_SIZE * 3;
+        let mut handler = create_handler(start, size);
+
+        let event = Event::Unmap {
+            start: start as *mut libc::c_void,
+            end: PAGE_SIZE as *mut libc::c_void,
+        };
+        let res = handler.handle_event(event);
+        assert!(res.is_err());
+        assert!(matches!(
+            res.err().unwrap(),
+            HandlerError::UnexpectedEvent(_)
+        ));
+    }
+
+    #[test]
+    fn test_page_start_of_addr() {
+        assert_eq!(page_start_of_addr(0).unwrap(), 0);
+        assert_eq!(page_start_of_addr(PAGE_SIZE / 2).unwrap(), 0);
+        assert_eq!(page_start_of_addr(PAGE_SIZE - 1).unwrap(), 0);
+        assert_eq!(
+            page_start_of_addr(PAGE_SIZE * 10 - 1).unwrap(),
+            PAGE_SIZE * 9
+        );
+    }
+}
