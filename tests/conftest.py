@@ -99,6 +99,7 @@ from host_tools.metrics import get_metrics_logger
 from framework import utils
 from framework import defs
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
+from framework.defs import _test_images_s3_bucket
 from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
@@ -117,13 +118,6 @@ if sys.version_info < (3, 10):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
-
-
-def _test_images_s3_bucket():
-    """Auxiliary function for getting this session's bucket name."""
-    return os.environ.get(
-        defs.ENV_TEST_IMAGES_S3_BUCKET, defs.DEFAULT_TEST_IMAGES_S3_BUCKET
-    )
 
 
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())

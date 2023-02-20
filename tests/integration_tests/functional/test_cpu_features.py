@@ -15,12 +15,11 @@ import time
 import pytest
 import pandas as pd
 
-from conftest import _test_images_s3_bucket
 from framework import utils
 from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.defs import SUPPORTED_KERNELS
+from framework.defs import SUPPORTED_KERNELS, _test_images_s3_bucket
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 import framework.utils_cpuid as cpuid_utils
 

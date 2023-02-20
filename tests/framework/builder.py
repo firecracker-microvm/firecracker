@@ -7,8 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from conftest import _test_images_s3_bucket
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
+
 from framework.artifacts import (
     ArtifactCollection,
     Artifact,
@@ -18,6 +17,7 @@ from framework.artifacts import (
     SnapshotMemBackendType,
     SnapshotType,
 )
+from framework.defs import _test_images_s3_bucket, DEFAULT_TEST_SESSION_ROOT_PATH
 from framework import utils
 from framework.microvm import Microvm
 import host_tools.logging as log_tools

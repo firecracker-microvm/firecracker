@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Some common defines used in different modules of the testing framework."""
 
+import os
 from pathlib import Path
 
 # URL prefix used for the API calls through a UNIX domain socket
@@ -57,3 +58,8 @@ MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
 SUPPORTED_KERNELS = ["4.14", "5.10"]
 
 SUPPORTED_KERNELS_NO_SVE = ["4.14", "5.10-no-sve"]
+
+
+def _test_images_s3_bucket():
+    """Auxiliary function for getting this session's bucket name."""
+    return os.environ.get(ENV_TEST_IMAGES_S3_BUCKET, DEFAULT_TEST_IMAGES_S3_BUCKET)
