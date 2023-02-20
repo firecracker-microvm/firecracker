@@ -434,13 +434,20 @@ def microvm(test_fc_session_root_path, bin_cloner_path):
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
 
 
+@pytest.fixture
+def fc_tmp_path(test_fc_session_root_path):
+    """A tmp_path substitute
+
+    We should use pytest's tmp_path fixture instead of this, but this can create
+    very long paths, which can run into the UDS 108 character limit.
+    """
+    return Path(tempfile.mkdtemp(dir=test_fc_session_root_path))
+
+
 @pytest.fixture()
-def microvm_factory(tmp_path, bin_cloner_path):
+def microvm_factory(fc_tmp_path, bin_cloner_path):
     """Fixture to create microvms simply.
 
-    tmp_path is cleaned up by pytest after 3 sessions.
-    However, since we only run one session per docker container execution,
-    tmp_path is never cleaned up by pytest for us.
     In order to avoid running out of space when instantiating many microvms,
     we remove the directory manually when the fixture is destroyed
     (that is after every test).
@@ -451,7 +458,7 @@ def microvm_factory(tmp_path, bin_cloner_path):
         """MicroVM factory"""
 
         def __init__(self, tmp_path, bin_cloner):
-            self.tmp_path = tmp_path
+            self.tmp_path = Path(tmp_path)
             self.bin_cloner_path = bin_cloner
             self.vms = []
 
@@ -480,7 +487,7 @@ def microvm_factory(tmp_path, bin_cloner_path):
                 vm.kill()
             shutil.rmtree(self.tmp_path)
 
-    uvm_factory = MicroVMFactory(tmp_path, bin_cloner_path)
+    uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
     yield uvm_factory
     uvm_factory.kill()
 
