@@ -82,7 +82,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 """
 
 import inspect
-import json
 import os
 import platform
 import re
@@ -123,42 +122,6 @@ if os.geteuid() != 0:
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 METRICS = get_metrics_logger()
-
-
-# pylint: disable=too-few-public-methods
-class ResultsDumperInterface:
-    """Interface for dumping results to file."""
-
-    def dump(self, result):
-        """Dump the results in JSON format."""
-
-
-# pylint: disable=too-few-public-methods
-class NopResultsDumper(ResultsDumperInterface):
-    """Interface for dummy dumping results to file."""
-
-    def dump(self, result):
-        """Do not do anything."""
-
-
-# pylint: disable=too-few-public-methods
-class JsonFileDumper(ResultsDumperInterface):
-    """Class responsible with outputting test results to files."""
-
-    def __init__(self, test_name):
-        """Initialize the instance."""
-        self._root_path = defs.TEST_RESULTS_DIR
-        # Create the root directory, if it doesn't exist.
-        self._root_path.mkdir(exist_ok=True)
-        kv = utils.get_kernel_version(level=1)
-        self._results_file = self._root_path / f"{test_name}_results_{kv}.json"
-
-    def dump(self, result):
-        """Dump the results in JSON format."""
-        with self._results_file.open("a", encoding="utf-8") as file_fd:
-            json.dump(result, file_fd)
-            file_fd.write("\n")  # Add newline cause Py JSON does not
-            file_fd.flush()
 
 
 def pytest_configure(config):
@@ -292,14 +255,6 @@ def test_fc_session_root_path():
     )
     yield fc_session_root_path
     shutil.rmtree(fc_session_root_path)
-
-
-@pytest.fixture
-def results_file_dumper(request):
-    """Yield the custom --dump-results-to-file test flag."""
-    if request.config.getoption("--dump-results-to-file"):
-        return JsonFileDumper(request.node.originalname)
-    return NopResultsDumper()
 
 
 @with_filelock
