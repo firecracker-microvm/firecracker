@@ -262,12 +262,21 @@ def metrics(request):
     Ref: https://github.com/awslabs/aws-embedded-metrics-python
     """
     metrics_logger = get_metrics_logger()
-    yield metrics_logger
-    # we set the properties /after/ the test has finished to make sure we
-    # capture any properties set by later fixtures
     for prop_name, prop_val in request.node.user_properties:
         metrics_logger.set_property(prop_name, prop_val)
+    yield metrics_logger
     metrics_logger.flush()
+
+
+@pytest.fixture
+def record_property(record_property, metrics):
+    """Override pytest's record_property to also set a property in our metrics context."""
+
+    def sub(key, value):
+        record_property(key, value)
+        metrics.set_property(key, value)
+
+    return sub
 
 
 @pytest.fixture(autouse=True, scope="session")
