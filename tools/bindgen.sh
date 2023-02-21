@@ -101,6 +101,18 @@ fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/mpspec_def.h \
            >src/arch_gen/src/x86/mpspec.rs
 # https://github.com/rust-lang/rust-bindgen/issues/1274
 
+info "BINDGEN msr-index.h"
+cp -r amazonlinux-v5.10.y/include/asm-generic amazonlinux-v5.10.y/include/asm
+sed -i -E 's/__no_(sanitize|kasan)_or_inline//g' amazonlinux-v5.10.y/include/asm/rwonce.h
+fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
+    --allowlist-var "^MSR_.*$" \
+    -- \
+    -Iamazonlinux-v5.10.y/include/ \
+    -Iamazonlinux-v5.10.y/arch/x86/include/ \
+    -Wno-macro-redefined \
+    >src/arch_gen/src/x86/msr_index.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/arch_gen/src/x86/msr_index.rs
+
 info "BINDGEN io_uring.h"
 fc-bindgen \
     --allowlist-var "IORING_.+" \

@@ -89,7 +89,6 @@ import re
 import shutil
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 
 import pytest
@@ -152,59 +151,20 @@ class NopResultsDumper(ResultsDumperInterface):
 class JsonFileDumper(ResultsDumperInterface):
     """Class responsible with outputting test results to files."""
 
-    def __init__(self, request):
+    def __init__(self, test_name):
         """Initialize the instance."""
-        self._results_file = None
-
-        test_name = request.node.originalname
         self._root_path = defs.TEST_RESULTS_DIR
         # Create the root directory, if it doesn't exist.
         self._root_path.mkdir(exist_ok=True)
-        self._results_file = os.path.join(
-            self._root_path,
-            "{}_results_{}.json".format(test_name, utils.get_kernel_version(level=1)),
-        )
-
-    @staticmethod
-    def __dump_pretty_json(file, data, flags):
-        """Write the `data` dictionary to the output file in pretty format."""
-        with open(file, flags, encoding="utf-8") as file_fd:
-            json.dump(data, file_fd)
-            file_fd.write("\n")  # Add newline cause Py JSON does not
-            file_fd.flush()
+        kv = utils.get_kernel_version(level=1)
+        self._results_file = self._root_path / f"{test_name}_results_{kv}.json"
 
     def dump(self, result):
         """Dump the results in JSON format."""
-        if self._results_file:
-            self.__dump_pretty_json(self._results_file, result, "a")
-
-
-def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None):
-    """Auxiliary function for instantiating a microvm and setting it up."""
-    microvm_id = str(uuid.uuid4())
-
-    # Update permissions for custom binaries.
-    if fc_binary is not None:
-        os.chmod(fc_binary, 0o555)
-    if jailer_binary is not None:
-        os.chmod(jailer_binary, 0o555)
-
-    if fc_binary is None or jailer_binary is None:
-        fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
-
-    # Make sure we always have both binaries.
-    assert fc_binary
-    assert jailer_binary
-
-    vm = Microvm(
-        resource_path=root_path,
-        fc_binary_path=fc_binary,
-        jailer_binary_path=jailer_binary,
-        microvm_id=microvm_id,
-        bin_cloner_path=bin_cloner_path,
-    )
-    vm.setup()
-    return vm
+        with self._results_file.open("a", encoding="utf-8") as file_fd:
+            json.dump(result, file_fd)
+            file_fd.write("\n")  # Add newline cause Py JSON does not
+            file_fd.flush()
 
 
 def pytest_configure(config):
@@ -316,16 +276,6 @@ def metrics(request):
     metrics_logger.flush()
 
 
-def test_session_root_path():
-    """Create and return the testrun session root directory.
-
-    Testrun session root directory confines any other test temporary file.
-    If it exists, consider this as a noop.
-    """
-    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
-    return defs.DEFAULT_TEST_SESSION_ROOT_PATH
-
-
 @pytest.fixture(autouse=True, scope="session")
 def test_fc_session_root_path():
     """Ensure and yield the fc session root directory.
@@ -333,27 +283,19 @@ def test_fc_session_root_path():
     Create a unique temporary session directory. This is important, since the
     scheduler will run multiple pytest sessions concurrently.
     """
+    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
     fc_session_root_path = tempfile.mkdtemp(
-        prefix="fctest-", dir=f"{test_session_root_path()}"
+        prefix="fctest-", dir=defs.DEFAULT_TEST_SESSION_ROOT_PATH
     )
     yield fc_session_root_path
     shutil.rmtree(fc_session_root_path)
 
 
 @pytest.fixture
-def test_session_tmp_path(test_fc_session_root_path):
-    """Yield a random temporary directory. Destroyed on teardown."""
-    tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
-    yield tmp_path
-    shutil.rmtree(tmp_path)
-
-
-@pytest.fixture
 def results_file_dumper(request):
     """Yield the custom --dump-results-to-file test flag."""
     if request.config.getoption("--dump-results-to-file"):
-        return JsonFileDumper(request)
-
+        return JsonFileDumper(request.node.originalname)
     return NopResultsDumper()
 
 
@@ -483,7 +425,10 @@ def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
-    vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
+    vm = Microvm(
+        resource_path=test_fc_session_root_path,
+        bin_cloner_path=bin_cloner_path,
+    )
     yield vm
     vm.kill()
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
@@ -512,7 +457,10 @@ def microvm_factory(tmp_path, bin_cloner_path):
 
         def build(self, kernel=None, rootfs=None):
             """Build a fresh microvm."""
-            vm = init_microvm(self.tmp_path, self.bin_cloner_path)
+            vm = Microvm(
+                resource_path=self.tmp_path,
+                bin_cloner_path=self.bin_cloner_path,
+            )
             self.vms.append(vm)
             if kernel is not None:
                 kernel_path = Path(kernel.local_path())
@@ -535,24 +483,6 @@ def microvm_factory(tmp_path, bin_cloner_path):
     uvm_factory = MicroVMFactory(tmp_path, bin_cloner_path)
     yield uvm_factory
     uvm_factory.kill()
-
-
-@pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))
-def test_microvm_any(request, microvm):
-    """Yield a microvm that can have any image in the spec bucket.
-
-    A test case using this fixture will run for every microvm image.
-
-    When using a pytest parameterized fixture, a test case is created for each
-    parameter in the list. We generate the list dynamically based on the
-    capability filter. This will result in
-    `len(MICROVM_S3_FETCHER.list_microvm_images(capability_filter=['*']))`
-    test cases for each test that depends on this fixture, each receiving a
-    microvm instance with a different microvm image.
-    """
-
-    MICROVM_S3_FETCHER.init_vm_resources(request.param, microvm)
-    yield microvm
 
 
 def firecracker_id(fc):
@@ -579,9 +509,9 @@ def firecracker_artifacts(*args, **kwargs):
 def firecracker_release(request, record_property):
     """Return all supported firecracker binaries."""
     firecracker = request.param
+    firecracker.download(perms=0o555)
+    firecracker.jailer().download(perms=0o555)
     record_property("firecracker_release", firecracker.version)
-    firecracker.download()
-    firecracker.jailer().download()
     return firecracker
 
 

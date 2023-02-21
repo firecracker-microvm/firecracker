@@ -236,7 +236,7 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
                     values[measurement_id][value_idx] = []
                 values[measurement_id][value_idx].append(int(data[1].strip()))
 
-    for (measurement_id, value_indexes) in values.items():
+    for measurement_id, value_indexes in values.items():
         for idx in value_indexes:
             # Discard data points which were not measured by all jobs.
             if len(value_indexes[idx]) != numjobs:
@@ -351,7 +351,11 @@ def fio_workload(context):
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from artifacts.
     vm_instance = vm_builder.build(
-        kernel=context.kernel, disks=[rw_disk], ssh_key=ssh_key, config=context.microvm
+        kernel=context.kernel,
+        disks=[rw_disk],
+        ssh_key=ssh_key,
+        config=context.microvm,
+        monitor_memory=False,
     )
     basevm = vm_instance.vm
 

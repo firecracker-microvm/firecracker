@@ -34,9 +34,6 @@ MICROVM_KERNEL_RELPATH = "kernel/"
 # Relative path to the location of the filesystems
 MICROVM_FSFILES_RELPATH = "fsfiles/"
 
-# The s3 bucket that holds global Firecracker specifications
-SPEC_S3_BUCKET = "spec.ccfc.min"
-
 # The default s3 bucket that holds Firecracker microvm test images
 DEFAULT_TEST_IMAGES_S3_BUCKET = "spec.ccfc.min"
 

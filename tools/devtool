@@ -1129,7 +1129,7 @@ cmd_build_kernel() {
             "-h"|"--help")      { cmd_help; exit 1; } ;;
             "-c"|"--config")
                 shift
-                local KERNEL_CFG="$1"
+                kernel_config="$1"
                 ;;
             "-n"|"--nproc")
                 shift
@@ -1143,48 +1143,13 @@ cmd_build_kernel() {
     done
 
     # It is mandatory to provide a valid config file for building the kernel.
-    [ -z "$KERNEL_CFG" ] && die "You need to provide the path to a valid kernel config!"
+    [ -z "$kernel_config" ] && die "You need to provide the path to a valid kernel config!"
 
-    arch=$(uname -m)
-    if [ "$arch" = "x86_64" ]; then
-        target="vmlinux"
-        cfg_pattern="x86"
-        format="elf"
-    elif [ "$arch" = "aarch64" ]; then
-        target="Image"
-        cfg_pattern="arm64"
-        format="pe"
-    else
-        die "Unsupported architecture!"
-    fi
-
-    kernel_dir_host="$FC_BUILD_DIR"/kernel
-    kernel_dir_ctr="$CTR_FC_BUILD_DIR"/kernel
-    create_dir "$kernel_dir_host"
-
-    # Extract the kernel version from the config file provided as parameter.
-    KERNEL_VERSION=$(grep -Po "^# Linux\/$cfg_pattern (([0-9]+.)[0-9]+)" "$KERNEL_CFG" | cut -d ' ' -f 3)
-    validate_kernel_version "$KERNEL_VERSION"
-
-    recipe_commit="b551cccc405a73a6d316c0c09dfe0b3e7a73ba3f"
-    recipe_url="https://raw.githubusercontent.com/rust-vmm/vmm-reference/$recipe_commit/resources/kernel/make_kernel.sh"
     run_devctr \
         --user "$(id -u):$(id -g)" \
-        --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "curl -LO $recipe_url && source make_kernel.sh && extract_kernel_srcs $KERNEL_VERSION"
-    ok_or_die "Could not extract kernel sources with recipe $recipe_url!"
-
-    cp "$KERNEL_CFG" "$kernel_dir_host/linux-$KERNEL_VERSION/.config"
-
-    KERNEL_BINARY_NAME="vmlinux-$KERNEL_VERSION-$arch.bin"
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$kernel_dir_ctr" \
-        -- /bin/bash -c "source make_kernel.sh && make_kernel "$kernel_dir_ctr/linux-"$KERNEL_VERSION"" $format $target $nprocs $KERNEL_BINARY_NAME"
-    ok_or_die "Could not build kernel!"
-
+        -- sh -c "resources/tests/build_kernel.sh $kernel_config $nprocs"
+    ok_or_die "Could not build kernel."
     say "Successfully built kernel!"
-    say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
 }
 
 # `./devtool build_rootfs -s 500M`
@@ -1193,8 +1158,8 @@ cmd_build_kernel() {
 cmd_build_rootfs() {
     # Default size for the resulting rootfs image is 300M.
     SIZE="300M"
-    FROM_CTR=ubuntu:18.04
-    flavour="bionic"
+    FROM_CTR=ubuntu:22.04
+    flavour="jammy"
     ROOTFS_DIR=/firecracker/build/rootfs
     MNT_DIR=$ROOTFS_DIR/mnt
 
@@ -1229,11 +1194,13 @@ cmd_build_rootfs() {
 
     create_dir "$rootfs_dir_host"
 
-    run_devctr \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        -- /bin/bash -c "gcc -o  $rootfs_dir_ctr/init $resources_dir_ctr/init.c && \
-        gcc -o  $rootfs_dir_ctr/fillmem $resources_dir_ctr/fillmem.c && \
-        gcc -o  $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c"
+    docker run --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker" "$FROM_CTR" bash -s <<EOF
+apt-get update && \
+apt-get install -y gcc && \
+gcc -o $rootfs_dir_ctr/init $resources_dir_ctr/init.c && \
+gcc -o $rootfs_dir_ctr/fillmem $resources_dir_ctr/fillmem.c && \
+gcc -o $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c
+EOF
 
     img_file="$rootfs_dir_host/$ROOTFS_NAME"
 

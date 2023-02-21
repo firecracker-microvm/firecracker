@@ -8,6 +8,7 @@ import logging
 import tempfile
 
 import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import (
     ArtifactCollection,
@@ -131,18 +132,18 @@ def get_snap_restore_latency(
         net_ifaces=ifaces,
         use_ramdisk=True,
         io_engine="Sync",
+        monitor_memory=False,
     )
     basevm = vm_instance.vm
     response = basevm.machine_cfg.put(
         vcpu_count=vcpus,
         mem_size_mib=mem_size,
     )
-    basevm.memory_monitor.guest_mem_mib = mem_size
     assert basevm.api_session.is_status_no_content(response.status_code)
 
     extra_disk_paths = []
     if blocks > 1:
-        for (name, diskfile) in scratch_drives[: (blocks - 1)]:
+        for name, diskfile in scratch_drives[: (blocks - 1)]:
             basevm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0
