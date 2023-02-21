@@ -85,11 +85,19 @@ parser.add_argument(
     action="append",
     default=[],
 )
+parser.add_argument(
+    "--extra",
+    required=False,
+    action="append",
+    default=[],
+)
 args = parser.parse_args()
 if not args.instances:
     args.instances = DEFAULT_INSTANCES
 if not args.kernels:
     args.kernels = DEFAULT_KERNELS
+if args.extra:
+    args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
 tests = perf_test[args.test]
 if isinstance(tests, dict):
@@ -97,8 +105,8 @@ if isinstance(tests, dict):
 for test_data in tests:
     test_data.setdefault("kernels", args.kernels)
     test_data.setdefault("instances", args.instances)
+    test_data.update(args.extra)
     group_steps.append(build_group(test_data))
-
 
 pipeline = {
     "env": {
