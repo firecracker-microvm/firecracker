@@ -9,36 +9,46 @@ import json
 
 from common import group, DEFAULT_INSTANCES, DEFAULT_KERNELS
 
+common = {
+    # retry if the step failed
+    "retry": {"automatic": {"exit_status": 1, "limit": 3}}
+}
+
 perf_test = {
     "block": {
         "label": "🖴 Block Performance",
         "test_path": "integration_tests/performance/test_block_performance.py",
         "devtool_opts": "-r 16834m -c 1-10 -m 0",
         "timeout_in_minutes": 240,
+        **common,
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_restore_performance.py",
         "devtool_opts": "-c 1-12 -m 0",
         "timeout_in_minutes": 45,
+        **common,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
         "test_path": "integration_tests/performance/test_vsock_throughput.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 20,
+        **common,
     },
     "network-latency": {
         "label": "🖧 Network Latency",
         "test_path": "integration_tests/performance/test_network_latency.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 10,
+        **common,
     },
     "network-throughput": {
         "label": "🖧 Network TCP Throughput",
         "test_path": "integration_tests/performance/test_network_tcp_throughput.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 45,
+        **common,
     },
 }
 
@@ -55,16 +65,13 @@ def build_group(test):
         instances=test.pop("instances"),
         kernels=test.pop("kernels"),
         # and the rest can be command arguments
-        **test
+        **test,
     )
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--test",
-    required=True,
-    choices=list(perf_test.keys()),
-    help="performance test"
+    "--test", required=True, choices=list(perf_test.keys()), help="performance test"
 )
 parser.add_argument(
     "--add-instance",
@@ -91,6 +98,6 @@ pipeline = {
         "AWS_EMF_NAMESPACE": "PerfTests",
     },
     "agents": {"queue": "public-prod-us-east-1"},
-    "steps": group_steps
+    "steps": group_steps,
 }
 print(json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False))
