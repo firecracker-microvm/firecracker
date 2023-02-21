@@ -647,6 +647,8 @@ cmd_test() {
     # in order to set-up the Firecracker jail (manipulating cgroups, net
     # namespaces, etc).
     # We need to run a privileged container to get that kind of access.
+    env |grep -P "^(AWS_EMF_|BUILDKITE_)" > env.list
+
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
@@ -656,7 +658,7 @@ cmd_test() {
         --workdir "$CTR_FC_ROOT_DIR/tests" \
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
-        -e AWS_EMF_AGENT_ENDPOINT -e AWS_EMF_SERVICE_NAME -e AWS_EMF_NAMESPACE -e AWS_EMF_DISABLE_METRIC_EXTRACTION \
+        --env-file env.list \
         -v /boot:/boot \
         ${ramdisk_args} \
         -- \
