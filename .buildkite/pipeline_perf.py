@@ -74,21 +74,29 @@ parser.add_argument(
     "--test", required=True, choices=list(perf_test.keys()), help="performance test"
 )
 parser.add_argument(
-    "--add-instance",
+    "--instances",
     required=False,
     action="append",
-    default=DEFAULT_INSTANCES,
+    default=[],
+)
+parser.add_argument(
+    "--kernels",
+    required=False,
+    action="append",
+    default=[],
 )
 args = parser.parse_args()
-if not args.add_instance:
-    args.add_instance = DEFAULT_INSTANCES
+if not args.instances:
+    args.instances = DEFAULT_INSTANCES
+if not args.kernels:
+    args.kernels = DEFAULT_KERNELS
 group_steps = []
 tests = perf_test[args.test]
 if isinstance(tests, dict):
     tests = [tests]
 for test_data in tests:
-    test_data.setdefault("kernels", DEFAULT_KERNELS)
-    test_data.setdefault("instances", args.add_instance)
+    test_data.setdefault("kernels", args.kernels)
+    test_data.setdefault("instances", args.instances)
     group_steps.append(build_group(test_data))
 
 
