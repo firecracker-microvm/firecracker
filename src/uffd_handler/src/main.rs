@@ -17,12 +17,15 @@ use std::{mem, process, ptr};
 use userfaultfd::Uffd;
 
 use crate::common::parse_unix_stream;
-use crate::handler::UffdPfHandler;
+use crate::handler::{PageFaultHandler, UffdManager};
 use crate::memory_region::{create_mem_regions, deserialize_mappings, MemPageState};
 
 const EXIT_CODE_ERROR: i32 = 1;
 
-fn create_handler() -> UffdPfHandler {
+fn create_handler<T>() -> PageFaultHandler<Uffd>
+where
+    T: UffdManager,
+{
     let uffd_sock_path = std::env::args().nth(1).expect("No socket path given");
     let mem_file_path = std::env::args().nth(2).expect("No memory file given");
 
@@ -61,7 +64,7 @@ fn create_handler() -> UffdPfHandler {
     // Get credentials of Firecracker process sent through the stream.
     let creds: libc::ucred = get_peer_process_credentials(stream);
 
-    UffdPfHandler::new(mem_regions, memfile_buffer, uffd, creds.pid as u32)
+    PageFaultHandler::new(mem_regions, memfile_buffer, uffd, creds.pid as u32)
 }
 
 fn get_peer_process_credentials(stream: UnixStream) -> libc::ucred {
@@ -93,7 +96,7 @@ fn get_peer_process_credentials(stream: UnixStream) -> libc::ucred {
 }
 
 fn main() {
-    let mut uffd_handler = create_handler();
+    let mut uffd_handler = create_handler::<Uffd>();
 
     let mut pollfd = libc::pollfd {
         fd: uffd_handler.uffd.as_raw_fd(),
@@ -110,11 +113,7 @@ fn main() {
         }
 
         // Read an event from the userfaultfd.
-        let event = uffd_handler
-            .uffd
-            .read_event()
-            .expect("Failed to read uffd_msg")
-            .expect("uffd_msg not ready");
+        let event = uffd_handler.uffd.poll_fd();
 
         // We expect to receive either a Page Fault or Removed
         // event (if the balloon device is enabled).
