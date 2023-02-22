@@ -7,16 +7,18 @@
 
 mod common;
 mod handler;
+mod memory_region;
 
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::{mem, process, ptr};
+
 use userfaultfd::Uffd;
 
-use common::{create_mem_regions, parse_unix_stream, MemPageState, MemRegion};
-use handler::UffdPfHandler;
-use utils::GuestRegionUffdMapping;
+use crate::common::parse_unix_stream;
+use crate::handler::UffdPfHandler;
+use crate::memory_region::{create_mem_regions, deserialize_mappings, MemPageState};
 
 const EXIT_CODE_ERROR: i32 = 1;
 
@@ -53,13 +55,8 @@ fn create_handler() -> UffdPfHandler {
     let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
     // Create guest memory regions from mappings received from Firecracker process.
-    let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&msg_body)
-        .expect("Cannot deserialize memory mappings.");
-    let memsize: usize = mappings.iter().map(|r| r.size).sum();
-    let mem_regions = create_mem_regions(&mappings);
-
-    // Make sure memory size matches backing data size.
-    assert_eq!(memsize, size);
+    let mappings = deserialize_mappings(&msg_body, size);
+    let mem_regions = create_mem_regions(mappings);
 
     // Get credentials of Firecracker process sent through the stream.
     let creds: libc::ucred = get_peer_process_credentials(stream);
