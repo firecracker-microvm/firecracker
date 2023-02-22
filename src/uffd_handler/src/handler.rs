@@ -8,6 +8,12 @@ use utils::get_page_size;
 
 use crate::memory_region::{MemPageState, MemRegion};
 
+/// Timeout for poll()ing on the userfaultfd for events.
+/// A negative value translates to an infinite timeout. Page faults are not meant to
+/// appear at a constant frequency, so depending on the guest workload, there can be
+/// situations when we need to wait longer for events.
+const POLL_TIMEOUT: i32 = -1;
+
 #[derive(Debug, thiserror::Error)]
 pub enum HandlerError {
     #[error("Page fault address does not belong to any of the guest memory regions.")]
@@ -24,6 +30,8 @@ pub enum HandlerError {
     UffdNoOperation(String),
     #[error("Userfaultfd failed to zero out pages: {0}")]
     UffdZero(userfaultfd::Error),
+    #[error("Userfaultfd received unexpected event: {0:?}.")]
+    UnexpectedEvent(Event),
 }
 
 type Result<T> = std::result::Result<T, HandlerError>;
@@ -114,7 +122,7 @@ where
         }
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: usize, end: usize, state: MemPageState) {
+    fn update_mem_state_mappings(&mut self, start: usize, end: usize, state: MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
                 if (start..end).contains(key) {
@@ -124,11 +132,8 @@ where
         }
     }
 
-    pub fn serve_pf(&mut self, addr: usize) -> Result<()> {
-        let page_size = get_page_size().map_err(HandlerError::PageSize)?;
-
-        // Find the start of the page that the current faulting address belongs to.
-        let fault_page_addr = addr & !(page_size - 1);
+    fn serve_page_fault(&mut self, addr: usize) -> Result<()> {
+        let fault_page_addr = page_start_of_addr(addr)?;
 
         // Get the state of the current faulting page.
         for region in self.mem_regions.iter() {
@@ -157,4 +162,47 @@ where
 
         Err(HandlerError::AddressNotInRegion)
     }
+
+    fn handle_event(&mut self, event: Event) -> Result<()> {
+        // Expect to receive either a `PageFault` or `Removed` event
+        // (if the balloon device is enabled).
+        match event {
+            Event::Pagefault { addr, .. } => self.serve_page_fault(addr as usize)?,
+            Event::Remove { start, end } => {
+                self.update_mem_state_mappings(start as usize, end as usize, MemPageState::Removed)
+            }
+            event => return Err(HandlerError::UnexpectedEvent(event)),
+        }
+        Ok(())
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        let mut pollfd = libc::pollfd {
+            fd: self.uffd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        // Loop, handling incoming events on the userfaultfd file descriptor.
+        loop {
+            // SAFETY: Safe because fd, nfds and timeout are valid parameters.
+            let nready = unsafe { libc::poll(&mut pollfd, 1, POLL_TIMEOUT) };
+            // Poll has an infinite timeout, therefore in theory this case should never happen.
+            if nready == -1 {
+                unreachable!();
+            }
+
+            // Read an event from the userfaultfd.
+            let event = self.uffd.poll_fd()?;
+            self.handle_event(event)?;
+        }
+    }
+}
+
+/// Find the start of the page that the current address belongs to.
+fn page_start_of_addr(addr: usize) -> Result<usize> {
+    let page_size = get_page_size().map_err(HandlerError::PageSize)?;
+    let dst = (addr & !(page_size - 1)) as *mut libc::c_void;
+
+    Ok(dst as usize)
 }
