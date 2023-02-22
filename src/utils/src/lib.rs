@@ -30,7 +30,7 @@ use std::result::Result;
 ///
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
 /// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct GuestRegionUffdMapping {
     /// Base host virtual address where the guest memory contents for this region
     /// should be copied/populated.

@@ -1,9 +1,10 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{MemPageState, MemRegion};
 use userfaultfd::Uffd;
 use utils::get_page_size;
+
+use crate::memory_region::{MemPageState, MemRegion};
 
 pub struct UffdPfHandler {
     mem_regions: Vec<MemRegion>,
