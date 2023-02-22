@@ -18,14 +18,9 @@ use userfaultfd::Uffd;
 
 use crate::common::{parse_unix_stream, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
-use crate::memory_region::{create_mem_regions, deserialize_mappings, MemPageState};
+use crate::memory_region::{create_mem_regions, deserialize_mappings};
 
 const EXIT_CODE_ERROR: i32 = 1;
-/// Timeout for poll()ing on the userfaultfd for events.
-/// A negative value translates to an infinite timeout. Page faults are not meant to
-/// appear at a constant frequency, so depending on the guest workload, there can be
-/// situations when we need to wait longer for events.
-const POLL_TIMEOUT: i32 = -1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -146,45 +141,8 @@ fn main() {
         process::exit(EXIT_CODE_ERROR);
     });
 
-    let mut pollfd = libc::pollfd {
-        fd: uffd_handler.uffd.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-
-    // Loop, handling incoming events on the userfaultfd file descriptor.
-    loop {
-        // SAFETY: Safe because fd, nfds and timeout are valid parameters.
-        let nready = unsafe { libc::poll(&mut pollfd, 1, POLL_TIMEOUT) };
-        // Poll has an infinite timeout, therefore in theory, this case should never happen.
-        if nready == -1 {
-            unreachable!();
-        }
-
-        // Read an event from the userfaultfd.
-        let event = uffd_handler.uffd.poll_fd().unwrap_or_else(|err| {
-            eprintln!("Reading event from userfaultfd failed: {:?}", err);
-            process::exit(EXIT_CODE_ERROR);
-        });
-
-        // We expect to receive either a Page Fault or Removed
-        // event (if the balloon device is enabled).
-        match event {
-            userfaultfd::Event::Pagefault { addr, .. } => {
-                uffd_handler.serve_pf(addr as usize).unwrap_or_else(|err| {
-                    eprintln!("Processing page fault failed: {:?}", err);
-                    process::exit(EXIT_CODE_ERROR);
-                })
-            }
-            userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
-                start as usize,
-                end as usize,
-                MemPageState::Removed,
-            ),
-            _ => {
-                eprintln!("Unexpected event received on userfaultfd.");
-                process::exit(EXIT_CODE_ERROR);
-            }
-        }
-    }
+    uffd_handler.run().unwrap_or_else(|err| {
+        eprintln!("Userfaultfd handler failed: {:?}", err);
+        process::exit(EXIT_CODE_ERROR);
+    });
 }
