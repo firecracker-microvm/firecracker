@@ -17,11 +17,11 @@ pub fn drive_submission_and_completion(
     opcode: OpCode,
     num_bytes: usize,
 ) {
-    let mut left_at: isize = -1;
+    let mut left_at: usize = 0;
     loop {
-        for i in ((left_at + 1) as usize)..num_bytes {
-            left_at = i as isize;
-
+        // left_at is only increased if the iteration succeeds, if the iteration fails it will be
+        // retried
+        for i in left_at..num_bytes {
             let operation = match opcode {
                 OpCode::Read => Operation::read(
                     0,
@@ -55,15 +55,17 @@ pub fn drive_submission_and_completion(
                     ring.submit_and_wait_all().unwrap();
                     drain_cqueue(ring);
 
-                    // Decrement the left_at because we need to retry this op.
-                    left_at -= 1;
+                    // Do not increment the left_at because we need to retry this op.
                     break;
                 }
                 Err(_) => panic!("Unexpected error."),
             }
+
+            // Increment the left_at since this iteration was successful
+            left_at = i;
         }
 
-        if left_at == ((num_bytes - 1) as isize) {
+        if left_at == (num_bytes - 1) {
             break;
         }
     }

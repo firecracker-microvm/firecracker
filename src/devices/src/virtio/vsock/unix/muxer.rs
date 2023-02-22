@@ -536,7 +536,11 @@ impl VsockMuxer {
         };
 
         self.epoll
-            .ctl(ControlOperation::Add, fd, EpollEvent::new(evset, fd as u64))
+            .ctl(
+                ControlOperation::Add,
+                fd,
+                EpollEvent::new(evset, u64::try_from(fd).unwrap()),
+            )
             .map(|_| {
                 self.listener_map.insert(fd, listener);
             })
@@ -686,7 +690,7 @@ impl VsockMuxer {
                         .ctl(
                             ControlOperation::Modify,
                             fd,
-                            EpollEvent::new(new_evset, fd as u64),
+                            EpollEvent::new(new_evset, u64::try_from(fd).unwrap()),
                         )
                         .unwrap_or_else(|err| {
                             // This really shouldn't happen, like, ever. However, "famous last
