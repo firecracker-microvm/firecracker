@@ -142,9 +142,9 @@ impl SubmissionQueue {
                 std::ptr::null::<libc::sigset_t>(),
             )
         } as libc::c_int)
-        .into_result()?
+        .into_result()?;
         // It's safe to convert to u32 since the syscall didn't return an error.
-        as u32;
+        let submitted = u32::try_from(submitted).unwrap();
 
         // This is safe since submitted <= self.to_submit. However we use a saturating_sub
         // for extra safety.

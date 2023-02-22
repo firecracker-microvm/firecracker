@@ -83,6 +83,7 @@ impl VgicRegEngine for VgicSysRegEngine {
         KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS
     }
 
+    #[allow(clippy::cast_sign_loss)] // bit mask
     fn mpidr_mask() -> u64 {
         KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
     }

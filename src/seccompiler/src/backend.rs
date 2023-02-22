@@ -714,7 +714,7 @@ impl SeccompFilter {
         let mut built_syscall = Vec::with_capacity(1 + chain_len + 1);
         built_syscall.push(BPF_JUMP(
             BPF_JMP + BPF_JEQ + BPF_K,
-            syscall_number as u32,
+            u32::try_from(syscall_number).unwrap(),
             0,
             1,
         ));
@@ -954,8 +954,12 @@ mod tests {
         }
 
         // Build seccomp filter.
-        let filter =
-            SeccompFilter::new(rule_map, SeccompAction::Errno(failure_code as u32), ARCH).unwrap();
+        let filter = SeccompFilter::new(
+            rule_map,
+            SeccompAction::Errno(u32::try_from(failure_code).unwrap()),
+            ARCH,
+        )
+        .unwrap();
 
         // We need to run the validation inside another thread in order to avoid setting
         // the seccomp filter for the entire unit tests process.

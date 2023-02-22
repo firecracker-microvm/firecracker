@@ -193,7 +193,7 @@ impl Tap {
         if ret == -1 {
             return Err(IoError::last_os_error());
         }
-        Ok(ret as usize)
+        Ok(usize::try_from(ret).unwrap())
     }
 }
 

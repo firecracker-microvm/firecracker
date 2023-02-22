@@ -73,10 +73,10 @@ mod tests {
 
         let vm_state = save_state(gic_fd, &mpidr).unwrap();
         let val: u32 = 0;
-        let gicd_statusr_off = 0x0010;
+        let gicd_statusr_off = 0x0010u64;
         let mut gic_dist_attr = kvm_bindings::kvm_device_attr {
             group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS,
-            attr: gicd_statusr_off as u64,
+            attr: gicd_statusr_off,
             addr: &val as *const u32 as u64,
             flags: 0,
         };

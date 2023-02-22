@@ -32,7 +32,7 @@ impl<T> Cqe<T> {
 
     /// Return the number of bytes successfully transferred by this operation.
     pub fn count(&self) -> u32 {
-        i32::max(self.res, 0) as u32
+        u32::try_from(self.res).unwrap_or(0)
     }
 
     /// Return the result associated to the IO operation.
@@ -42,7 +42,7 @@ impl<T> Cqe<T> {
         if res < 0 {
             Err(std::io::Error::from_raw_os_error(res))
         } else {
-            Ok(res as u32)
+            Ok(u32::try_from(self.res).unwrap())
         }
     }
 
