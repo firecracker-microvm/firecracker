@@ -12,6 +12,21 @@ use userfaultfd::Uffd;
 use utils::get_page_size;
 use utils::sock_ctrl_msg::ScmSocket;
 
+/// Parse the unix stream received from the Firecracker process to obtain
+/// the userfaultfd used to poll for events and the message containing memory mappings.
+pub fn parse_unix_stream(stream: &UnixStream) -> (File, String) {
+    let mut message_buf = vec![0u8; 1024];
+    let (bytes_read, file) = stream
+        .recv_with_fd(&mut message_buf[..])
+        .expect("Cannot recv_with_fd");
+    message_buf.resize(bytes_read, 0);
+
+    let body = String::from_utf8(message_buf).unwrap();
+    let file = file.expect("Uffd not passed through UDS!");
+
+    (file, body)
+}
+
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
 /// buffer or file backend for a guest memory region. It is used to tell an external
@@ -54,23 +69,16 @@ pub enum MemPageState {
 
 impl UffdPfHandler {
     pub fn from_unix_stream(stream: UnixStream, data: *const u8, size: usize) -> Self {
-        let mut message_buf = vec![0u8; 1024];
-        let (bytes_read, file) = stream
-            .recv_with_fd(&mut message_buf[..])
-            .expect("Cannot recv_with_fd");
-        message_buf.resize(bytes_read, 0);
+        let (file, msg_body) = parse_unix_stream(&stream);
+        let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let body = String::from_utf8(message_buf).unwrap();
-        let file = file.expect("Uffd not passed through UDS!");
-
-        let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body)
+        // Create guest memory regions from mappings received from Firecracker process.
+        let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&msg_body)
             .expect("Cannot deserialize memory mappings.");
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
-
-        let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
         let creds: libc::ucred = get_peer_process_credentials(stream);
 
