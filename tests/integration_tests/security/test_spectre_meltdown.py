@@ -10,7 +10,12 @@ import pytest
 import requests
 
 from framework import utils
+from framework.properties import global_props
 
+pytestmark = pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
