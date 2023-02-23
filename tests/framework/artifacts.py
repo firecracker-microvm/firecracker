@@ -6,6 +6,7 @@ import functools
 import os
 import platform
 import tempfile
+from dataclasses import dataclass
 from shutil import copyfile
 from enum import Enum
 from stat import S_IREAD, S_IWRITE
@@ -464,69 +465,30 @@ DEFAULT_NETMASK = 30
 
 def create_net_devices_configuration(num):
     """Define configuration for the requested number of net devices."""
-    host_ip = "192.168.{}.1"
-    guest_ip = "192.168.{}.2"
-    tap_name = "tap{}"
-    dev_name = "eth{}"
-
-    net_ifaces = []
-    for i in range(num):
-        net_iface = NetIfaceConfig(
-            host_ip=host_ip.format(i),
-            guest_ip=guest_ip.format(i),
-            tap_name=tap_name.format(i),
-            dev_name=dev_name.format(i),
-        )
-        net_ifaces.append(net_iface)
-
-    return net_ifaces
+    return [NetIfaceConfig.with_id(i) for i in range(num)]
 
 
+@dataclass(frozen=True, repr=True)
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
-    def __init__(
-        self,
-        host_ip=DEFAULT_HOST_IP,
-        guest_ip=DEFAULT_GUEST_IP,
-        tap_name=DEFAULT_TAP_NAME,
-        dev_name=DEFAULT_DEV_NAME,
-        netmask=DEFAULT_NETMASK,
-    ):
-        """Initialize object."""
-        self._host_ip = host_ip
-        self._guest_ip = guest_ip
-        self._guest_mac = net_tools.mac_from_ip(guest_ip)
-        self._tap_name = tap_name
-        self._dev_name = dev_name
-        self._netmask = netmask
-
-    @property
-    def host_ip(self):
-        """Return the host IP."""
-        return self._host_ip
-
-    @property
-    def guest_ip(self):
-        """Return the guest IP."""
-        return self._guest_ip
+    host_ip: str = DEFAULT_HOST_IP
+    guest_ip: str = DEFAULT_GUEST_IP
+    tap_name: str = DEFAULT_TAP_NAME
+    dev_name: str = DEFAULT_DEV_NAME
+    netmask: int = DEFAULT_NETMASK
 
     @property
     def guest_mac(self):
         """Return the guest MAC address."""
-        return self._guest_mac
+        return net_tools.mac_from_ip(self.guest_ip)
 
-    @property
-    def tap_name(self):
-        """Return the tap device name."""
-        return self._tap_name
-
-    @property
-    def dev_name(self):
-        """Return the guest device name."""
-        return self._dev_name
-
-    @property
-    def netmask(self):
-        """Return the netmask."""
-        return self._netmask
+    @staticmethod
+    def with_id(i):
+        """Define network iface with id `i`."""
+        return NetIfaceConfig(
+            host_ip=f"192.168.{i}.1",
+            guest_ip=f"192.168.{i}.2",
+            tap_name=f"tap{i}",
+            dev_name=f"eth{i}",
+        )
