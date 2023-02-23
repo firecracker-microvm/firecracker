@@ -3,8 +3,8 @@
 """Helper functions for testing CPU identification functionality."""
 
 import platform
-import subprocess
 import re
+import subprocess
 from enum import Enum, auto
 
 from framework.utils import run_cmd

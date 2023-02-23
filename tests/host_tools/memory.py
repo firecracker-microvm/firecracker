@@ -1,9 +1,9 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for measuring memory utilization for a process."""
-from queue import Queue
 import time
-from threading import Thread, Lock
+from queue import Queue
+from threading import Lock, Thread
 
 from framework import utils
 

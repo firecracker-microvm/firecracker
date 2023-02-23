@@ -4,10 +4,11 @@
 
 import hashlib
 import os.path
-from select import select
-from socket import socket, AF_UNIX, SOCK_STREAM
-from threading import Thread, Event
 import re
+from select import select
+from socket import AF_UNIX, SOCK_STREAM, socket
+from threading import Event, Thread
+
 from framework import utils
 
 ECHO_SERVER_PORT = 5252

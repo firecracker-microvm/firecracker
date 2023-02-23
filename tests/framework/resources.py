@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Defines classes for all the resources a microvm could need attaching."""
 
-import urllib
 import re
+import urllib
 
-from framework.utils import compare_versions, run_cmd
 from framework.defs import API_USOCKET_URL_PREFIX
+from framework.utils import compare_versions, run_cmd
 
 
 class Actions:

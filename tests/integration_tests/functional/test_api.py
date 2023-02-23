@@ -15,13 +15,9 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-
-from framework.utils import is_io_uring_supported
-from framework.artifacts import (
-    NetIfaceConfig,
-    SnapshotType,
-)
+from framework.artifacts import NetIfaceConfig, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
+from framework.utils import is_io_uring_supported
 
 MEM_LIMIT = 1000000000
 

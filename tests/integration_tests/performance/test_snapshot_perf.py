@@ -6,24 +6,24 @@ import json
 import logging
 import os
 import platform
+
 import pytest
 
+import host_tools.logging as log_tools
 from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.defs import _test_images_s3_bucket
-from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.defs import _test_images_s3_bucket
+from framework.matrix import TestContext, TestMatrix
+from framework.stats import consumer, core, criteria, function, producer, types
 from framework.utils import (
-    eager_map,
     CpuMap,
+    eager_map,
     get_firecracker_version_from_toml,
     get_kernel_version,
     is_io_uring_supported,
 )
 from framework.utils_cpuid import get_instance_type
-from framework.stats import core, consumer, producer, types, criteria, function
 from integration_tests.performance.utils import handle_failure
-
-import host_tools.logging as log_tools
 
 # How many latencies do we sample per test.
 SAMPLE_COUNT = 3

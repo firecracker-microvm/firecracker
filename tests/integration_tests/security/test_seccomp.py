@@ -4,11 +4,11 @@
 
 import json as json_lib
 import os
-import tempfile
 import platform
+import tempfile
 
-from host_tools.cargo_build import run_seccompiler_bin
 from framework import utils
+from host_tools.cargo_build import run_seccompiler_bin
 
 
 def _get_basic_syscall_list():

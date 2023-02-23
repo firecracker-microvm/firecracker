@@ -406,11 +406,4 @@ Output:
 
 """
 
-from . import core
-from . import consumer
-from . import producer
-from . import types
-from . import criteria
-from . import function
-from . import baseline
-from . import metadata
+from . import baseline, consumer, core, criteria, function, metadata, producer, types

@@ -9,20 +9,20 @@ import time
 
 import pytest
 
-from integration_tests.performance.configs import defs
 from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
+    CmdBuilder,
+    CpuMap,
+    DictQuery,
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
-    CpuMap,
-    CmdBuilder,
-    DictQuery,
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
+from integration_tests.performance.configs import defs
 
 TEST_ID = "network_tcp_throughput"
 kernel_version = get_kernel_version(level=1)

@@ -21,36 +21,35 @@ import uuid
 import weakref
 from functools import cached_property
 from pathlib import Path
-
 from threading import Lock
+
 from retry import retry
 
-import host_tools.logging as log_tools
 import host_tools.cargo_build as build_tools
 import host_tools.cpu_load as cpu_tools
+import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
-
 from framework import utils
 from framework.defs import FC_PID_FILE_NAME
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import (
+    MMDS,
     Actions,
     Balloon,
     BootSource,
-    Drive,
     DescribeInstance,
+    Drive,
     FullConfig,
     InstanceVersion,
     Logger,
-    MMDS,
     MachineConfigure,
     Metrics,
     Network,
+    SnapshotHelper,
     Vm,
     Vsock,
-    SnapshotHelper,
 )
 
 LOG = logging.getLogger("microvm")

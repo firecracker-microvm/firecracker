@@ -2,25 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
-import os
-import json
-import time
 import concurrent.futures
+import json
+import os
+import time
 
 import pytest
+
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
-    CpuMap,
     CmdBuilder,
-    run_cmd,
+    CpuMap,
+    DictQuery,
     get_cpu_percent,
     get_kernel_version,
-    DictQuery,
+    run_cmd,
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-from framework.utils_vsock import make_host_port_path, VSOCK_UDS_PATH
+from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
 from integration_tests.performance.configs import defs
 
 TEST_ID = "vsock_throughput"

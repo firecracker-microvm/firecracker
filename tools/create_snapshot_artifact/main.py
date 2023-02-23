@@ -6,9 +6,8 @@ import json
 import os
 import re
 import shutil
-import tempfile
 import sys
-
+import tempfile
 from functools import partial
 
 # Hack to be able to import testing framework functions.
@@ -17,6 +16,7 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # pylint: disable=wrong-import-position
 # The test infra assumes it is running from the `tests` directory.
 os.chdir("tests")
+import host_tools.network as net_tools  # pylint: disable=import-error
 from conftest import _gcc_compile
 from framework.artifacts import (
     ArtifactCollection,
@@ -25,16 +25,16 @@ from framework.artifacts import (
 )
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, _test_images_s3_bucket
-from framework.matrix import TestMatrix, TestContext
+from framework.matrix import TestContext, TestMatrix
 from framework.microvm import Microvm
 from framework.utils import (
-    generate_mmds_session_token,
     generate_mmds_get_request,
+    generate_mmds_session_token,
     run_cmd,
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import _configure_vm_from_json
-import host_tools.network as net_tools  # pylint: disable=import-error
+
 # restore directory
 os.chdir("..")
 

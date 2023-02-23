@@ -3,9 +3,10 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import os
+
+import host_tools.logging as log_tools
 from framework.builder import MicrovmBuilder
 from framework.resources import DescribeInstance
-import host_tools.logging as log_tools
 
 
 def verify_net_emulation_paused(metrics):

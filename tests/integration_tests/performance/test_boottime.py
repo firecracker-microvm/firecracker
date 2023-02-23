@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
-import re
 import platform
-from framework.utils_cpuid import get_instance_type, get_cpu_model_name
+import re
 
 from framework.properties import global_props
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000

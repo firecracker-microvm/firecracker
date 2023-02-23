@@ -5,12 +5,11 @@
 
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 from conftest import ARTIFACTS_COLLECTION
 from framework.artifacts import DiskArtifact
 from framework.builder import MicrovmBuilder
-import framework.utils_cpuid as cpuid_utils
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
-
 
 # CPU templates designed to provide instruction set feature parity
 INST_SET_TEMPLATES = ["T2A", "T2CL"]

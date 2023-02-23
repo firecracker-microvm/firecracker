@@ -4,24 +4,25 @@
 
 # pylint: disable=too-many-lines
 
-from difflib import unified_diff
-from pathlib import Path
-import platform
 import os
-import shutil
+import platform
 import re
+import shutil
 import sys
 import time
-import pytest
-import pandas as pd
+from difflib import unified_diff
+from pathlib import Path
 
+import pandas as pd
+import pytest
+
+import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
-from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
 from framework.defs import SUPPORTED_KERNELS, _test_images_s3_bucket
+from framework.matrix import TestContext, TestMatrix
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
-import framework.utils_cpuid as cpuid_utils
 
 PLATFORM = platform.machine()
 

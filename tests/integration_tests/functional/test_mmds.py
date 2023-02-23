@@ -4,25 +4,24 @@
 
 # pylint: disable=too-many-lines
 import json
+import os
 import random
 import string
-import os
 import time
 
 import pytest
 
 import host_tools.logging as log_tools
-from framework.artifacts import NetIfaceConfig, ArtifactCollection
+from framework.artifacts import ArtifactCollection, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import _test_images_s3_bucket
 from framework.utils import (
-    generate_mmds_session_token,
+    compare_versions,
     configure_mmds,
     generate_mmds_get_request,
+    generate_mmds_session_token,
     get_firecracker_version_from_toml,
-    compare_versions,
 )
-
 
 # Minimum lifetime of token.
 MIN_TOKEN_TTL_SECONDS = 1

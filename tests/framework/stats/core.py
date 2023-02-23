@@ -4,14 +4,16 @@
 """Core module for statistics component management."""
 
 
-from datetime import datetime
-from collections import namedtuple, defaultdict
 import types
+from collections import defaultdict, namedtuple
+from datetime import datetime
+
 from typing_extensions import TypedDict
+
 from framework.utils import ExceptionAggregator
 
-from .producer import Producer
 from .consumer import Consumer, ProcessingException
+from .producer import Producer
 
 
 class CoreException(ExceptionAggregator):
