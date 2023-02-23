@@ -10,9 +10,9 @@ import json
 
 import pytest
 
+from framework import defs, utils
+from framework.properties import global_props
 from framework.stats import core
-from framework import defs
-from framework import utils
 
 
 # pylint: disable=too-few-public-methods
@@ -41,7 +41,10 @@ class JsonFileDumper(ResultsDumperInterface):
         # Create the root directory, if it doesn't exist.
         self._root_path.mkdir(exist_ok=True)
         kv = utils.get_kernel_version(level=1)
-        self._results_file = self._root_path / f"{test_name}_results_{kv}.json"
+        instance = global_props.instance
+        self._results_file = (
+            self._root_path / f"{test_name}_results_{instance}_{kv}.ndjson"
+        )
 
     def dump(self, result):
         """Dump the results in JSON format."""
