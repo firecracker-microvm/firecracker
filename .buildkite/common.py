@@ -5,6 +5,8 @@
 Common helpers to create Buildkite pipelines
 """
 
+import json
+
 DEFAULT_INSTANCES = [
     "m5d.metal",
     "m6i.metal",
@@ -14,6 +16,7 @@ DEFAULT_INSTANCES = [
 ]
 
 DEFAULT_KERNELS = ["linux_4.14", "linux_5.10"]
+DEFAULT_QUEUE = "public-prod-us-east-1"
 
 
 def group(label, command, instances, kernels, agent_tags=None, **kwargs):
@@ -40,3 +43,8 @@ def group(label, command, instances, kernels, agent_tags=None, **kwargs):
             steps.append(step)
 
     return {"group": label, "steps": steps}
+
+
+def pipeline_to_json(pipeline):
+    """Serialize a pipeline dictionary to JSON"""
+    return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
