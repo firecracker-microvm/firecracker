@@ -12,4 +12,5 @@ def test_python_style():
     @type: style
     """
     # Runs command
-    utils.run_cmd("black . --check --diff")
+    utils.run_cmd("black --check --diff .")
+    utils.run_cmd("isort --check --diff .")

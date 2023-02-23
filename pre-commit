@@ -3,8 +3,8 @@
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# We avoid checks which require building firecracker due to the issues this introduces when 
-# attempting to interact with the repository from an enviroment in which you cannot build 
+# We avoid checks which require building firecracker due to the issues this introduces when
+# attempting to interact with the repository from an enviroment in which you cannot build
 # firecracker.
 
 # This will only fail when a staged file does not contain an appropriate license
@@ -30,8 +30,9 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
         rustfmt $i --config $rustfmt_config
     fi
     if [ "$extension" = "py" ]; then
-        # Run `black` for this file
+        # Apply formatters for this file
         black $i
+        isort $i
     fi
     # Add changes to this file (as a result of formatting) to the commit.
     git add $i
