@@ -1,9 +1,10 @@
+#!/bin/env python3
 # Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Script used to calculate baselines from raw performance test output."""
 
 # We need to call sys.path.append(os.path.join(os.getcwd(), 'tests'))
-# before importing SUPPORTED_KERNELS. But this results in a pyling error.
+# before importing SUPPORTED_KERNELS. But this results in a pylint error.
 # pylint: disable=wrong-import-position
 
 import argparse
@@ -56,7 +57,7 @@ def read_data_files(args):
     assert os.path.isdir(args.data_folder)
 
     res_files = [
-        f"{filename}_results_{args.kernel}.json"
+        f"{filename}_results_{args.instance}_{args.kernel}.json"
         for filename in OUTPUT_FILENAMES[args.test]
     ]
     # Get all files in the dir tree that have the right name.
