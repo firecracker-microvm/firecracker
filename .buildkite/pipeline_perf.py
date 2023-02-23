@@ -8,10 +8,6 @@ import argparse
 
 from common import DEFAULT_INSTANCES, DEFAULT_KERNELS, group, pipeline_to_json
 
-common = {
-    # retry if the step failed
-    "retry": {"automatic": {"exit_status": 1, "limit": 3}}
-}
 
 perf_test = {
     "block": {
@@ -19,35 +15,30 @@ perf_test = {
         "test_path": "integration_tests/performance/test_block_performance.py",
         "devtool_opts": "-r 16834m -c 1-10 -m 0",
         "timeout_in_minutes": 240,
-        **common,
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_restore_performance.py",
         "devtool_opts": "-c 1-12 -m 0",
         "timeout_in_minutes": 45,
-        **common,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
         "test_path": "integration_tests/performance/test_vsock_throughput.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 20,
-        **common,
     },
     "network-latency": {
         "label": "🖧 Network Latency",
         "test_path": "integration_tests/performance/test_network_latency.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 10,
-        **common,
     },
     "network-throughput": {
         "label": "🖧 Network TCP Throughput",
         "test_path": "integration_tests/performance/test_network_tcp_throughput.py",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 45,
-        **common,
     },
 }
 
@@ -88,6 +79,7 @@ parser.add_argument(
     action="append",
     default=[],
 )
+parser.add_argument("--retries", type=int, default=0)
 parser.add_argument(
     "--extra",
     required=False,
@@ -107,6 +99,9 @@ for test_data in tests:
     test_data.setdefault("kernels", args.kernels)
     test_data.setdefault("instances", args.instances)
     test_data.update(args.extra)
+    if args.retries > 0:
+        # retry if the step fails
+        test_data.setdefault("retry", {"automatic": {"exit_status": 1, "limit": args.retries}})
     group_steps.append(build_group(test_data))
 
 pipeline = {
