@@ -77,6 +77,7 @@
  'thiserror-impl',
  'timerfd',
  'typenum',
+ 'uffd_handler',
  'unicode-ident',
  'universal-hash',
  'userfaultfd',
