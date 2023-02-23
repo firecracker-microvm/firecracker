@@ -7,14 +7,15 @@ import os
 import platform
 import tempfile
 from dataclasses import dataclass
-from shutil import copyfile
 from enum import Enum
-from stat import S_IREAD, S_IWRITE
 from pathlib import Path
+from shutil import copyfile
+from stat import S_IREAD, S_IWRITE
 
 import boto3
 import botocore.client
 
+import host_tools.network as net_tools
 from framework.defs import (
     DEFAULT_TEST_SESSION_ROOT_PATH,
     SUPPORTED_KERNELS,
@@ -22,7 +23,6 @@ from framework.defs import (
 )
 from framework.utils import compare_versions, get_kernel_version
 from framework.utils_cpuid import get_instance_type
-import host_tools.network as net_tools
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"

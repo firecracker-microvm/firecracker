@@ -3,9 +3,10 @@
 """Tests the metrics system."""
 
 import datetime
-import os
 import math
+import os
 import platform
+
 import host_tools.logging as log_tools
 
 

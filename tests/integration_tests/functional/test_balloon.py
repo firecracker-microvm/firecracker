@@ -11,9 +11,8 @@ from retry import retry
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import _test_images_s3_bucket
-from framework.matrix import TestMatrix, TestContext
+from framework.matrix import TestContext, TestMatrix
 from framework.utils import get_free_mem_ssh, run_cmd
-
 
 MB_TO_PAGES = 256
 STATS_POLLING_INTERVAL_S = 1

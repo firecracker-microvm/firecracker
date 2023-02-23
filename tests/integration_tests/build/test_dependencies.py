@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Enforces controls over dependencies."""
 
-import os
 import ast
+import os
 
 import pytest
 
 from framework import utils
 from host_tools import proc
-
 
 pytestmark = pytest.mark.skipif(
     "Intel" not in proc.proc_type(), reason="test only runs on Intel"

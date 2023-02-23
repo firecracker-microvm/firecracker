@@ -3,6 +3,7 @@
 """Module for common statistic tests baselines providers."""
 
 from abc import ABC, abstractmethod
+
 from framework.utils import DictQuery
 
 

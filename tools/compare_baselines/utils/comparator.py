@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utility classes to compare baseline data"""
 
-import sys
-import math
 import json
+import math
+import sys
 
-from utils.defs import CODENAME2DICT, BASELINE_FILENAME_FORMAT
+from utils.defs import BASELINE_FILENAME_FORMAT, CODENAME2DICT
 from utils.fetcher import BaselineDirectoryFetcher
-
 
 EPS = sys.float_info.epsilon
 

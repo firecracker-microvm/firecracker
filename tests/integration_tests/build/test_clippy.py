@@ -4,7 +4,9 @@
 
 
 import platform
+
 import pytest
+
 from framework import utils
 
 SUCCESS_CODE = 0

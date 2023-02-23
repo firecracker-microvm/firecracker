@@ -10,8 +10,8 @@ conflicts.
 Helper classes to hand out IPs.
 """
 
-import os
 import math
+import os
 from ipaddress import ip_network
 
 import pytest

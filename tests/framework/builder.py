@@ -8,19 +8,19 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import host_tools.logging as log_tools
+from framework import utils
 from framework.artifacts import (
-    ArtifactCollection,
     Artifact,
+    ArtifactCollection,
     DiskArtifact,
     NetIfaceConfig,
     Snapshot,
     SnapshotMemBackendType,
     SnapshotType,
 )
-from framework.defs import _test_images_s3_bucket, DEFAULT_TEST_SESSION_ROOT_PATH
-from framework import utils
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, _test_images_s3_bucket
 from framework.microvm import Microvm
-import host_tools.logging as log_tools
 
 
 class VmInstance:

@@ -9,6 +9,7 @@ of the cartesian product of all artifact sets.
 import os
 import sys
 import traceback
+
 from framework.artifacts import ARTIFACTS_LOCAL_ROOT
 from framework.utils import ExceptionAggregator
 

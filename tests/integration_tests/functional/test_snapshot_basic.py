@@ -10,25 +10,21 @@ from pathlib import Path
 
 import pytest
 
+import host_tools.drive as drive_tools
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import _test_images_s3_bucket
-from framework.matrix import TestMatrix, TestContext
-from framework.utils import (
-    wait_process_termination,
-    check_filesystem,
-)
+from framework.matrix import TestContext, TestMatrix
+from framework.utils import check_filesystem, wait_process_termination
 from framework.utils_vsock import (
-    make_blob,
-    check_host_connections,
-    check_guest_connections,
-    _copy_vsock_data_to_guest,
-    VSOCK_UDS_PATH,
-    make_host_port_path,
     ECHO_SERVER_PORT,
+    VSOCK_UDS_PATH,
+    _copy_vsock_data_to_guest,
+    check_guest_connections,
+    check_host_connections,
+    make_blob,
+    make_host_port_path,
 )
-
-import host_tools.drive as drive_tools
 
 
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):

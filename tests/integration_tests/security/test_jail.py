@@ -1,25 +1,23 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
+import functools
 import http.client as http_client
 import os
 import resource
 import stat
 import subprocess
 import time
-import functools
-
-import pytest
 
 import psutil
+import pytest
 import requests
 import urllib3
 
+import host_tools.cargo_build as build_tools
 from framework.builder import SnapshotBuilder
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
-import host_tools.cargo_build as build_tools
-
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (

@@ -2,17 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that the --seccomp-filter parameter works as expected."""
 
+import json
 import os
 import platform
-import json
 import tempfile
 import time
+
 import psutil
 import pytest
 import requests
-from framework import utils
-import host_tools.logging as log_tools
 
+import host_tools.logging as log_tools
+from framework import utils
 from host_tools.cargo_build import run_seccompiler_bin
 
 

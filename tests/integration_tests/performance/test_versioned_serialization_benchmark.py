@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test that ensures that all unit tests pass at integration time."""
 
-import os
-import logging
 import json
-import shutil
+import logging
+import os
 import platform
+import shutil
 from pathlib import Path
 
 import pytest

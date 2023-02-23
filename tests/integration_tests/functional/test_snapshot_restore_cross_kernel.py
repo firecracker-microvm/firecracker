@@ -4,33 +4,33 @@
 import json
 import logging
 import os
-import re
 import pathlib
+import re
 import shutil
+
 import pytest
 
 from framework.artifacts import (
-    Snapshot,
     Artifact,
     ArtifactType,
+    Snapshot,
     create_net_devices_configuration,
 )
 from framework.builder import MicrovmBuilder
-from framework.defs import FC_WORKSPACE_DIR, DEFAULT_TEST_SESSION_ROOT_PATH
-from framework.utils_vsock import check_vsock_device
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, FC_WORKSPACE_DIR
 from framework.utils import (
-    generate_mmds_session_token,
     generate_mmds_get_request,
+    generate_mmds_session_token,
     guest_run_fio_iteration,
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
-from integration_tests.functional.test_mmds import _populate_data_store
+from framework.utils_vsock import check_vsock_device
 from integration_tests.functional.test_balloon import (
+    MB_TO_PAGES,
     get_stable_rss_mem_by_pid,
     make_guest_dirty_memory,
-    MB_TO_PAGES,
 )
-
+from integration_tests.functional.test_mmds import _populate_data_store
 
 # Define 4 net device configurations.
 net_ifaces = create_net_devices_configuration(4)

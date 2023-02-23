@@ -15,22 +15,21 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
-
 from socket import timeout as SocketTimeout
-from framework.utils_vsock import (
-    make_blob,
-    check_host_connections,
-    check_guest_connections,
-    check_vsock_device,
-    _copy_vsock_data_to_guest,
-    make_host_port_path,
-    HostEchoWorker,
-    ECHO_SERVER_PORT,
-    VSOCK_UDS_PATH,
-)
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
 import host_tools.logging as log_tools
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils_vsock import (
+    ECHO_SERVER_PORT,
+    VSOCK_UDS_PATH,
+    HostEchoWorker,
+    _copy_vsock_data_to_guest,
+    check_guest_connections,
+    check_host_connections,
+    check_vsock_device,
+    make_blob,
+    make_host_port_path,
+)
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10

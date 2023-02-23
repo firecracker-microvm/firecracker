@@ -6,18 +6,19 @@ import functools
 import glob
 import logging
 import os
+import platform
 import re
 import subprocess
 import threading
-import typing
 import time
-import platform
-
+import typing
+from collections import defaultdict, namedtuple
 from typing import Dict
-from collections import namedtuple, defaultdict
+
 import psutil
 from retry import retry
 from retry.api import retry_call
+
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")

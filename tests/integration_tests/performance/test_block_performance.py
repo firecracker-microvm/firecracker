@@ -10,19 +10,19 @@ from enum import Enum
 
 import pytest
 
+import framework.stats as st
+import host_tools.drive as drive_tools
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
+    CmdBuilder,
+    DictQuery,
     get_cpu_percent,
     get_kernel_version,
     is_io_uring_supported,
-    CmdBuilder,
-    DictQuery,
     run_cmd,
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-import host_tools.drive as drive_tools
-import framework.stats as st
 from integration_tests.performance.configs import defs
 
 TEST_ID = "block_performance"

@@ -7,11 +7,9 @@ up in the configured logging FIFO.
 """
 import os
 import re
-
 from time import strptime
 
 import host_tools.logging as log_tools
-
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.

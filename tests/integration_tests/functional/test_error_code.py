@@ -4,7 +4,9 @@
 
 import os
 import platform
+
 import pytest
+
 from framework.utils import wait_process_termination
 
 

@@ -5,10 +5,9 @@
 import os
 import platform
 
-from framework import utils
-
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
+from framework import utils
 
 PARTUUID = {"x86_64": "f647d602-01", "aarch64": "69d7c052-01"}
 MB = 1024 * 1024

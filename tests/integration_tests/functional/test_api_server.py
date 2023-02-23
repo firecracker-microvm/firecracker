@@ -3,6 +3,7 @@
 """Tests scenario exercising api server functionality."""
 
 import socket
+
 from framework.utils import run_cmd
 
 

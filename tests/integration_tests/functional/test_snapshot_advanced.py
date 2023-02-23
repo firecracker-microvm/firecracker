@@ -5,12 +5,13 @@
 import logging
 import platform
 import tempfile
+
 import pytest
 from test_balloon import _test_rss_memory_lower
+
+import host_tools.drive as drive_tools
 from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-import host_tools.drive as drive_tools
-
 
 # Define 4 net device configurations.
 net_ifaces = create_net_devices_configuration(4)

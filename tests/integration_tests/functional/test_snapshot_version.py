@@ -3,9 +3,11 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import platform
+
 import pytest
+
 from framework.artifacts import NetIfaceConfig
-from framework.builder import SnapshotBuilder, MicrovmBuilder
+from framework.builder import MicrovmBuilder, SnapshotBuilder
 
 # Firecracker v0.23 used 16 IRQ lines. For virtio devices,
 # IRQs are available from 5 to 23, so the maximum number

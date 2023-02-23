@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Define data types and abstractions for parsers."""
 
-from abc import abstractmethod, ABC
-from collections.abc import Iterator
+from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterator
 from typing import List
-
 
 # pylint: disable=R0903
 

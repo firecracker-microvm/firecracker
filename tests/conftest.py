@@ -93,18 +93,17 @@ from pathlib import Path
 import pytest
 
 import host_tools.cargo_build as build_tools
-from host_tools.ip_generator import network_config, subnet_generator
-from host_tools.metrics import get_metrics_logger
-from framework import utils
-from framework import defs
+from framework import defs, utils
 from framework.artifacts import ArtifactCollection, FirecrackerArtifact
 from framework.defs import _test_images_s3_bucket
 from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml
-from framework.with_filelock import with_filelock
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.with_filelock import with_filelock
+from host_tools.ip_generator import network_config, subnet_generator
+from host_tools.metrics import get_metrics_logger
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))

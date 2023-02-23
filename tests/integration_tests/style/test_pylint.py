@@ -3,7 +3,6 @@
 """Tests ensuring codebase style compliance for Python."""
 
 import sys
-
 from subprocess import run
 
 

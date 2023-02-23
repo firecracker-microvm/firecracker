@@ -4,9 +4,10 @@
 """Module for multiple statistics consumers."""
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from numbers import Number
 from typing import Any, Callable
-from collections import defaultdict
+
 from framework.utils import ExceptionAggregator
 
 from .criteria import CriteriaException

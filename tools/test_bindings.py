@@ -45,11 +45,11 @@ $ python3 ./tools/test_bindings.py firecracker_old firecracker_new
 ```
 """
 
-import sys
-import re
-import logging
-import subprocess
 import argparse
+import logging
+import re
+import subprocess
+import sys
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)

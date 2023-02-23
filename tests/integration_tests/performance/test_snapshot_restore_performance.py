@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
 
-import os
 import json
 import logging
+import os
 import tempfile
 
 import pytest
 
+import framework.stats as st
+import host_tools.drive as drive_tools
 from framework.artifacts import (
     ArtifactCollection,
     ArtifactSet,
@@ -20,10 +22,8 @@ from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import get_kernel_version, DictQuery
+from framework.utils import DictQuery, get_kernel_version
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-import host_tools.drive as drive_tools
-import framework.stats as st
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
 

@@ -3,6 +3,7 @@
 """Tests scenario for adding the maximum number of devices to a microVM."""
 
 import platform
+
 import pytest
 
 # IRQs are available from 5 to 23, so the maximum number of devices

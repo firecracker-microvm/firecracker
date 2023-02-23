@@ -4,18 +4,16 @@
 
 import json
 import os
+import platform
 import re
 import shutil
-import platform
-
-from retry.api import retry_call
 
 import pytest
+from retry.api import retry_call
 
-from framework import utils
+from framework import utils, utils_cpuid
 from framework.artifacts import NetIfaceConfig
-from framework.utils import generate_mmds_session_token, generate_mmds_get_request
-from framework import utils_cpuid
+from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 
 
 def _configure_vm_from_json(test_microvm, vm_config_file, json_xform=None):

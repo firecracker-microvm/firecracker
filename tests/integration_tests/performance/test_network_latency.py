@@ -2,20 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network latency of a Firecracker guest."""
 
-import re
-import os
 import json
+import os
+import re
 
 import pytest
 
+from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import get_kernel_version, CpuMap, DictQuery
-from framework.artifacts import DEFAULT_HOST_IP
+from framework.utils import CpuMap, DictQuery, get_kernel_version
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.configs import defs
-
 
 TEST_ID = "network_latency"
 kernel_version = get_kernel_version(level=1)
