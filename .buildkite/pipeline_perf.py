@@ -70,7 +70,11 @@ def build_group(test):
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--test", required=True, choices=list(perf_test.keys()), help="performance test"
+    "--test",
+    required=True,
+    choices=list(perf_test.keys()),
+    help="performance test",
+    action="append",
 )
 parser.add_argument(
     "--instances",
@@ -98,9 +102,7 @@ if not args.kernels:
 if args.extra:
     args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
-tests = perf_test[args.test]
-if isinstance(tests, dict):
-    tests = [tests]
+tests = [perf_test[test] for test in args.test]
 for test_data in tests:
     test_data.setdefault("kernels", args.kernels)
     test_data.setdefault("instances", args.instances)
