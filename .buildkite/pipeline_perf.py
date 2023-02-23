@@ -5,9 +5,8 @@
 """Generate Buildkite performance pipelines dynamically"""
 
 import argparse
-import json
 
-from common import group, DEFAULT_INSTANCES, DEFAULT_KERNELS
+from common import DEFAULT_INSTANCES, DEFAULT_KERNELS, group, pipeline_to_json
 
 common = {
     # retry if the step failed
@@ -116,4 +115,4 @@ pipeline = {
     "agents": {"queue": "public-prod-us-east-1"},
     "steps": group_steps,
 }
-print(json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False))
+print(pipeline_to_json(pipeline))
