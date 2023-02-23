@@ -4,12 +4,11 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-import json
+import subprocess
+from pathlib import Path
 
-from common import group, DEFAULT_INSTANCES, DEFAULT_KERNELS
+from common import DEFAULT_INSTANCES, DEFAULT_KERNELS, DEFAULT_QUEUE, group, pipeline_to_json
 
-
-DEFAULT_QUEUE = "public-prod-us-east-1"
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
 DEFAULT_PRIORITY = 1
@@ -91,5 +90,4 @@ pipeline = {
     "agents": {"queue": DEFAULT_QUEUE},
     "steps": steps,
 }
-
-print(json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False))
+print(pipeline_to_json(pipeline))
