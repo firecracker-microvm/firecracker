@@ -3,7 +3,7 @@
 use bit_fields::CheckedAssignError;
 
 use super::registers;
-use crate::cpuid::{
+use crate::guest_config::cpuid::{
     host_brand_string, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH,
 };

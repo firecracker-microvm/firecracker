@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 use bit_fields::CheckedAssignError;
 
-use crate::cpuid::common::get_vendor_id_from_host;
-use crate::cpuid::{
-    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, MissingBrandStringLeaves,
+use crate::guest_config::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::guest_config::cpuid::{
+    cpuid, cpuid_count, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
+    MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
 };
 
 /// Error type for [`AmdCpuid::normalize`].
@@ -42,7 +43,7 @@ pub enum NormalizeCpuidError {
 pub enum PassthroughCacheTopologyError {
     /// Failed to get the host vendor id.
     #[error("Failed to get the host vendor id: {0}")]
-    NoVendorId(crate::cpuid::common::GetCpuidError),
+    NoVendorId(GetCpuidError),
     /// The host vendor id does not match AMD.
     #[error("The host vendor id does not match AMD.")]
     BadVendorId,
@@ -98,7 +99,7 @@ pub enum ExtendedApicIdError {
 #[allow(clippy::multiple_inherent_impl)]
 impl super::AmdCpuid {
     /// We always use this brand string.
-    const DEFAULT_BRAND_STRING: &[u8; crate::cpuid::BRAND_STRING_LENGTH] =
+    const DEFAULT_BRAND_STRING: &[u8; BRAND_STRING_LENGTH] =
         b"AMD EPYC\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 
     /// Applies required modifications to CPUID respective of a vCPU.
@@ -141,7 +142,7 @@ impl super::AmdCpuid {
     /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
     fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
         if get_vendor_id_from_host().map_err(PassthroughCacheTopologyError::NoVendorId)?
-            != *crate::cpuid::VENDOR_ID_AMD
+            != *VENDOR_ID_AMD
         {
             return Err(PassthroughCacheTopologyError::BadVendorId);
         }
@@ -157,13 +158,13 @@ impl super::AmdCpuid {
                 CpuidKey::leaf(0x8000001e),
                 CpuidEntry {
                     flags: KvmCpuidFlags::empty(),
-                    result: CpuidRegisters::from(crate::cpuid::cpuid(0x8000001e)),
+                    result: CpuidRegisters::from(cpuid(0x8000001e)),
                 },
             );
 
             // 0x8000001d - Cache Topology Information
             for subleaf in 0.. {
-                let result = CpuidRegisters::from(crate::cpuid::cpuid_count(0x8000001d, subleaf));
+                let result = CpuidRegisters::from(cpuid_count(0x8000001d, subleaf));
                 // From 'AMD64 Architecture Programmer’s Manual Volume 3: General-Purpose and System
                 // Instructions':
                 //

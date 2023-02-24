@@ -477,7 +477,7 @@ mod tests {
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 
     use super::*;
-    use crate::cpuid::{CpuidRegisters, CpuidTrait};
+    use crate::guest_config::cpuid::{CpuidRegisters, CpuidTrait};
 
     #[test]
     fn raw_cpuid_nent() {

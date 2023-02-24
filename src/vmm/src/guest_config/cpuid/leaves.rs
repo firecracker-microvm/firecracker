@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[allow(clippy::wildcard_imports)]
-use crate::cpuid::registers::*;
+use crate::guest_config::cpuid::registers::*;
 
 /// A generic leaf formed of 4 members `eax`, `ebx`, `ecx` and `edx`.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

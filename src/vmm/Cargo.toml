@@ -24,8 +24,6 @@ vm-allocator = "0.1.0"
 log = "0.4.17"
 vm-superio = "0.7.0"
 
-
-arch_gen = { path = "../arch_gen" }
 bit-fields = { path = "../bit-fields" }
 devices = { path = "../devices" }
 logger = { path = "../logger" }
