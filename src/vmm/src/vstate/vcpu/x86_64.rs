@@ -22,12 +22,12 @@ use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::SetMSRsError;
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use crate::cpuid::static_templates::c3::c3;
-use crate::cpuid::static_templates::t2::t2;
-use crate::cpuid::static_templates::t2a::t2a;
-use crate::cpuid::static_templates::t2cl::{t2cl, update_t2cl_msr_entries};
-use crate::cpuid::static_templates::t2s::{t2s, update_t2s_msr_entries};
-use crate::cpuid::static_templates::{msr_entries_to_save, TSC_KHZ_TOL};
+use crate::guest_config::static_templates::c3::c3;
+use crate::guest_config::static_templates::t2::t2;
+use crate::guest_config::static_templates::t2a::t2a;
+use crate::guest_config::static_templates::t2cl::{t2cl, update_t2cl_msr_entries};
+use crate::guest_config::static_templates::t2s::{t2s, update_t2s_msr_entries};
+use crate::guest_config::static_templates::{msr_entries_to_save, TSC_KHZ_TOL};
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -148,20 +148,22 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Error type for [`KvmVcpu::configure`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    /// Failed to construct `cpuid::Cpuid` from snapshot.
-    #[error("Failed to construct `cpuid::RawCpuid` from `kvm_bindings::CpuId`")]
-    SnapshotCpuid(crate::cpuid::CpuidTryFromRawCpuid),
+    /// Failed to construct `crate::guest_config::cpuid::Cpuid` from snapshot.
+    #[error(
+        "Failed to construct `crate::guest_config::cpuid::RawCpuid` from `kvm_bindings::CpuId`"
+    )]
+    SnapshotCpuid(crate::guest_config::cpuid::CpuidTryFromRawCpuid),
     /// Failed to join given cpuid and specified CPUID template (specified template is for
     /// different manufacturer than the given cpuid).
     #[error("Failed to join given `cpuid` and specified CPUID template: {0}")]
-    Join(#[from] crate::cpuid::CpuidJoinError),
+    Join(#[from] crate::guest_config::cpuid::CpuidJoinError),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
-    NormalizeCpuidError(crate::cpuid::NormalizeCpuidError),
+    NormalizeCpuidError(crate::guest_config::cpuid::NormalizeCpuidError),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to get MSRs to save from CPUID: {0}")]
-    MsrsToSaveByCpuid(crate::cpuid::common::Leaf0NotFoundInCpuid),
+    MsrsToSaveByCpuid(crate::guest_config::cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(#[from] SetMSRsError),
     #[error("Failed to setup registers: {0}")]
@@ -220,8 +222,10 @@ impl KvmVcpu {
         cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         // We use the given `cpuid` as the base.
-        let cpuid = crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid))
-            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?;
+        let cpuid = crate::guest_config::cpuid::Cpuid::try_from(
+            crate::guest_config::cpuid::RawCpuid::from(cpuid),
+        )
+        .map_err(KvmVcpuConfigureError::SnapshotCpuid)?;
 
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match vcpu_config.cpu_template {
@@ -231,10 +235,10 @@ impl KvmVcpu {
             CpuFeaturesTemplate::T2CL => t2cl(),
             CpuFeaturesTemplate::T2A => t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
-            CpuFeaturesTemplate::None => {
-                crate::cpuid::Cpuid::try_from(crate::cpuid::RawCpuid::from(cpuid.clone()))
-                    .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
-            }
+            CpuFeaturesTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
+                crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
+            )
+            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
         };
 
         // Apply machine specific changes to CPUID.
@@ -270,7 +274,7 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs = crate::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
+        let extra_msrs = crate::guest_config::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
         self.msr_list.extend(extra_msrs);
 
@@ -715,15 +719,15 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        match &crate::cpuid::common::get_vendor_id_from_host().unwrap() {
-            crate::cpuid::VENDOR_ID_INTEL => {
+        match &crate::guest_config::cpuid::common::get_vendor_id_from_host().unwrap() {
+            crate::guest_config::cpuid::VENDOR_ID_INTEL => {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
                 assert!(t2s_res.is_ok());
                 assert!(t2cl_res.is_ok());
                 assert!(t2a_res.is_err());
             }
-            crate::cpuid::VENDOR_ID_AMD => {
+            crate::guest_config::cpuid::VENDOR_ID_AMD => {
                 assert!(t2_res.is_err());
                 assert!(c3_res.is_err());
                 assert!(t2s_res.is_err());

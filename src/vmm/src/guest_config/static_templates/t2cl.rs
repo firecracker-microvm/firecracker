@@ -1,14 +1,16 @@
-// Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::kvm_msr_entry;
 
-use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags};
+use crate::arch::x86_64::msr::ArchCapaMSRFlags;
+use crate::arch_gen::x86::msr_index::MSR_IA32_ARCH_CAPABILITIES;
+use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
+use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
 
 /// Add the MSR entries specific to this T2S template.
 #[inline]
-pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
+pub fn update_t2cl_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
     let capabilities = ArchCapaMSRFlags::RDCL_NO
         | ArchCapaMSRFlags::IBRS_ALL
         | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
@@ -69,7 +71,8 @@ pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
 ///    0x80860000 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0xc0000000 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 /// ```
-pub fn template() -> Cpuid {
+#[allow(clippy::too_many_lines)]
+pub fn t2cl() -> Cpuid {
     Cpuid::Intel(IntelCpuid({
         let mut map = std::collections::BTreeMap::new();
         map.insert(
