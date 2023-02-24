@@ -569,7 +569,7 @@ pub struct CpuidEntry {
     ///     0x80000008u32 => KvmCpuidFlags::empty(),
     /// };
     /// ```
-    pub flags: crate::cpuid::cpuid_ffi::KvmCpuidFlags,
+    pub flags: crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags,
     /// Register values.
     pub result: CpuidRegisters,
 }

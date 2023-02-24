@@ -4,7 +4,9 @@
 use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::kvm_msr_entry;
 
-use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags};
+use crate::guest_config::cpuid::{
+    Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
+};
 
 /// Add the MSR entries specific to this T2S template.
 #[inline]
