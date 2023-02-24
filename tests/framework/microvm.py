@@ -22,6 +22,7 @@ import weakref
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
+from typing import Optional
 
 from retry import retry
 
@@ -539,6 +540,7 @@ class Microvm:
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
         rootfs_io_engine=None,
+        cpu_template: Optional[str] = None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -556,6 +558,7 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
+            cpu_template=cpu_template,
         )
         assert self._api_session.is_status_no_content(
             response.status_code

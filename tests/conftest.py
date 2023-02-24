@@ -94,7 +94,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import ArtifactCollection, FirecrackerArtifact
+from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
 from framework.defs import _test_images_s3_bucket
 from framework.microvm import Microvm
 from framework.properties import global_props
@@ -492,6 +492,22 @@ def guest_kernel(request, record_property):
 @pytest.fixture(params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda fs: fs.name())
 def rootfs(request, record_property):
     """Return all supported rootfs."""
+    fs = request.param
+    record_property("rootfs", fs.name())
+    fs.download()
+    fs.ssh_key().download()
+    return fs
+
+
+@pytest.fixture(
+    params=ARTIFACTS_COLLECTION.disks("bionic-msrtools"),
+    ids=lambda fs: fs.name() if isinstance(fs, DiskArtifact) else None,
+)
+def rootfs_msrtools(request, record_property):
+    """Common disk fixture for tests needing msrtools
+
+    When we regenerate the rootfs, we should include this always
+    """
     fs = request.param
     record_property("rootfs", fs.name())
     fs.download()
