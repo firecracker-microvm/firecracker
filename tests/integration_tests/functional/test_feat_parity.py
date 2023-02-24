@@ -6,43 +6,16 @@
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
-from conftest import ARTIFACTS_COLLECTION
-from framework.artifacts import DiskArtifact
-from framework.builder import MicrovmBuilder
+from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+
+pytestmark = pytest.mark.skipif(
+    global_props.cpu_architecture != "x86_64", reason="x86_64 specific tests"
+)
+
 
 # CPU templates designed to provide instruction set feature parity
 INST_SET_TEMPLATES = ["T2A", "T2CL"]
-
-
-@pytest.fixture(name="vm_builder", scope="session")
-def vm_builder_fxt(bin_cloner_path):
-    """Return a microvm builder."""
-    return MicrovmBuilder(bin_cloner_path)
-
-
-@pytest.fixture(
-    name="microvm",
-    params=ARTIFACTS_COLLECTION.microvms(keyword="1vcpu_1024mb"),
-    ids=lambda uvm: uvm.name(),
-)
-def microvm_fxt(request):
-    """Common microvm fixture for tests in this file"""
-    uvm = request.param
-    uvm.download()
-    return uvm
-
-
-@pytest.fixture(
-    name="disk",
-    params=ARTIFACTS_COLLECTION.disks(keyword="bionic-msrtools"),
-    ids=lambda disk: disk.name() if isinstance(disk, DiskArtifact) else None,
-)
-def disk_fxt(request):
-    """Common disk fixture for tests in this file"""
-    disk = request.param
-    disk.download()
-    return disk
 
 
 @pytest.fixture(
@@ -54,41 +27,29 @@ def inst_set_cpu_template_fxt(request):
     return request.param
 
 
-@pytest.fixture(
-    name="inst_set_cpu_template_ext",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"]),
-)
-def inst_set_cpu_template_ext_fxt(request):
-    """CPU template fixture for instruction set feature parity templates plus T2"""
-    return request.param
-
-
-def create_vm(vm_builder, cpu_template, microvm, kernel, disk):
+@pytest.fixture(name="vm")
+def vm_fxt(
+    microvm_factory,
+    inst_set_cpu_template,
+    guest_kernel,
+    rootfs_msrtools,
+    network_config,
+):
     """
-    Create a VM.
+    Create a VM, using the normal CPU templates
     """
-    root_disk = disk.copy()
-    vm_instance = vm_builder.build(
-        kernel=kernel,
-        disks=[root_disk],
-        ssh_key=disk.ssh_key(),
-        config=microvm,
-        cpu_template=cpu_template,
-    )
-    vm = vm_instance.vm
-
+    vm = microvm_factory.build(guest_kernel, rootfs_msrtools)
+    vm.spawn()
+    vm.basic_config(vcpu_count=1, mem_size_mib=1024, cpu_template=inst_set_cpu_template)
+    vm.ssh_network_config(network_config, "1")
+    vm.start()
     return vm
 
 
-def check_cpuid_feat_flags(
-    vm_builder, cpu_template, microvm, kernel, disk, must_be_set, must_be_unset
-):
+def check_cpuid_feat_flags(vm, must_be_set, must_be_unset):
     """
     Check that CPUID feature flag are set and unset as expected.
     """
-    vm = create_vm(vm_builder, cpu_template, microvm, kernel, disk)
-    vm.start()
-
     cpuid = cpuid_utils.get_guest_cpuid(vm)
     allowed_regs = ["eax", "ebx", "ecx", "edx"]
 
@@ -109,7 +70,7 @@ def check_cpuid_feat_flags(
         ), f"{leaf=:#x} {subleaf=:#x} {reg=} {actual=:#x}, {expected=:#x}"
 
 
-def test_feat_parity_cpuid_mpx(vm_builder, cpu_template, microvm, guest_kernel, disk):
+def test_feat_parity_cpuid_mpx(vm):
     """
     Verify that MPX (Memory Protection Extensions) is not enabled in any of the supported CPU templates.
 
@@ -125,19 +86,18 @@ def test_feat_parity_cpuid_mpx(vm_builder, cpu_template, microvm, guest_kernel, 
     # fmt: on
 
     check_cpuid_feat_flags(
-        vm_builder,
-        cpu_template,
-        microvm,
-        guest_kernel,
-        disk,
+        vm,
         must_be_set,
         must_be_unset,
     )
 
 
-def test_feat_parity_cpuid_inst_set(
-    vm_builder, inst_set_cpu_template_ext, microvm, guest_kernel, disk
-):
+@pytest.mark.parametrize(
+    "inst_set_cpu_template",
+    set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"]),
+    indirect=True,
+)
+def test_feat_parity_cpuid_inst_set(vm):
     """
     Verify that CPUID feature flags related to instruction sets are properly set
     for T2, T2CL and T2A CPU templates.
@@ -209,19 +169,13 @@ def test_feat_parity_cpuid_inst_set(
     # fmt: on
 
     check_cpuid_feat_flags(
-        vm_builder,
-        inst_set_cpu_template_ext,
-        microvm,
-        guest_kernel,
-        disk,
+        vm,
         must_be_set,
         must_be_unset,
     )
 
 
-def test_feat_parity_cpuid_sec(
-    vm_builder, inst_set_cpu_template, microvm, guest_kernel, disk
-):
+def test_feat_parity_cpuid_sec(vm):
     """
     Verify that security-related CPUID feature flags are properly set
     for T2CL and T2A CPU templates.
@@ -297,32 +251,25 @@ def test_feat_parity_cpuid_sec(
         raise Exception("Unsupported CPU vendor.")
 
     check_cpuid_feat_flags(
-        vm_builder,
-        inst_set_cpu_template,
-        microvm,
-        guest_kernel,
-        disk,
+        vm,
         must_be_set,
         must_be_unset,
     )
 
 
-def test_feat_parity_msr_arch_cap(
-    vm_builder, inst_set_cpu_template, microvm, guest_kernel, disk
-):
+def test_feat_parity_msr_arch_cap(vm):
     """
     Verify availability and value of the IA32_ARCH_CAPABILITIES MSR for T2CL and T2A CPU templates.
 
     @type: functional
     """
-    vm = create_vm(vm_builder, inst_set_cpu_template, microvm, guest_kernel, disk)
-    vm.start()
-
     arch_capabilities_addr = "0x10a"
     rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"
     _, stdout, stderr = vm.ssh.execute_command(rdmsr_cmd)
 
-    if inst_set_cpu_template == "T2CL":
+    cpu_template = vm.full_cfg.get().json()["machine-config"]["cpu_template"]
+
+    if cpu_template == "T2CL":
         assert stderr.read() == ""
         actual = int(stdout.read().strip(), 16)
         # fmt: off
@@ -336,6 +283,6 @@ def test_feat_parity_msr_arch_cap(
         )
         # fmt: on
         assert actual == expected, f"{actual=:#x} != {expected=:#x}"
-    elif inst_set_cpu_template == "T2A":
+    elif cpu_template == "T2A":
         # IA32_ARCH_CAPABILITIES shall not be available
         assert stderr.read() != ""
