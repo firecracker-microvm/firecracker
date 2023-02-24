@@ -19,6 +19,7 @@ use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
+use utils::GuestRegionUffdMapping;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -116,25 +117,6 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DeviceStates,
-}
-
-/// This describes the mapping between Firecracker base virtual address and
-/// offset in the buffer or file backend for a guest memory region. It is used
-/// to tell an external process/thread where to populate the guest memory data
-/// for this range.
-///
-/// E.g. Guest memory contents for a region of `size` bytes can be found in the
-/// backend at `offset` bytes from the beginning, and should be copied/populated
-/// into `base_host_address`.
-#[derive(Clone, Debug, Serialize)]
-pub struct GuestRegionUffdMapping {
-    /// Base host virtual address where the guest memory contents for this
-    /// region should be copied/populated.
-    pub base_host_virt_addr: u64,
-    /// Region size.
-    pub size: usize,
-    /// Offset in the backend file/buffer where the region contents are.
-    pub offset: u64,
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -645,7 +627,7 @@ fn guest_memory_from_uffd(
         uffd.register(host_base_addr.cast(), size as _)
             .map_err(GuestMemoryFromUffdError::Register)?;
         backend_mappings.push(GuestRegionUffdMapping {
-            base_host_virt_addr: host_base_addr as u64,
+            base_host_virt_addr: host_base_addr as usize,
             size,
             offset: state_region.offset,
         });
