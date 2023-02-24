@@ -30,7 +30,7 @@ fn create_handler() -> UffdPfHandler {
 
     // mmap a memory area used to bring in the faulting regions.
     // SAFETY: Safe because the parameters are valid.
-    let ret = unsafe {
+    let memfile_buffer = unsafe {
         libc::mmap(
             ptr::null_mut(),
             size,
@@ -40,10 +40,9 @@ fn create_handler() -> UffdPfHandler {
             0,
         )
     };
-    if ret == libc::MAP_FAILED {
+    if memfile_buffer == libc::MAP_FAILED {
         panic!("mmap failed");
     }
-    let memfile_buffer = ret as *const u8;
 
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");

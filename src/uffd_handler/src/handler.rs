@@ -7,7 +7,7 @@ use utils::get_page_size;
 
 pub struct UffdPfHandler {
     mem_regions: Vec<MemRegion>,
-    backing_buffer: *const u8,
+    backing_buffer: *const libc::c_void,
     pub uffd: Uffd,
     // Not currently used but included to demonstrate how a page fault handler can
     // fetch Firecracker's PID in order to make it aware of any crashes/exits.
@@ -15,7 +15,12 @@ pub struct UffdPfHandler {
 }
 
 impl UffdPfHandler {
-    pub fn new(mem_regions: Vec<MemRegion>, buf: *const u8, uffd: Uffd, pid: u32) -> Self {
+    pub fn new(
+        mem_regions: Vec<MemRegion>,
+        buf: *const libc::c_void,
+        uffd: Uffd,
+        pid: u32,
+    ) -> Self {
         UffdPfHandler {
             mem_regions,
             backing_buffer: buf,
