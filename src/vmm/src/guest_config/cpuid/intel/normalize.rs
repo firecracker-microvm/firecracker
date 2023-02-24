@@ -3,7 +3,9 @@
 use bit_fields::CheckedAssignError;
 
 use super::registers;
-use crate::cpuid::{host_brand_string, CpuidTrait, MissingBrandStringLeaves, BRAND_STRING_LENGTH};
+use crate::guest_config::cpuid::{
+    host_brand_string, CpuidTrait, MissingBrandStringLeaves, BRAND_STRING_LENGTH,
+};
 
 /// Error type for [`IntelCpuid::normalize`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
