@@ -7,7 +7,7 @@
 import subprocess
 from pathlib import Path
 
-from common import DEFAULT_INSTANCES, DEFAULT_KERNELS, DEFAULT_QUEUE, group, pipeline_to_json
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, DEFAULT_QUEUE, group, pipeline_to_json
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -30,7 +30,7 @@ step_style = {
 
 defaults = {
     "instances": DEFAULT_INSTANCES,
-    "kernels": DEFAULT_KERNELS,
+    "platforms": DEFAULT_PLATFORMS,
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
     "timeout_in_minutes": 30,
