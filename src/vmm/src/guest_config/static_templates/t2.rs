@@ -1,15 +1,15 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::cpuid::cpuid_ffi::KvmCpuidFlags;
-use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
+use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
+use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
 
-/// This is translated from `cpuid -r` within a C3 guest microVM on an ec2 m5.metal instance:
+/// This is translated from `cpuid -r` within a T2 guest microVM on an ec2 m5.metal instance:
 ///
 /// ```text
 /// CPU 0:
 ///    0x00000000 0x00: eax=0x00000016 ebx=0x756e6547 ecx=0x6c65746e edx=0x49656e69
-///    0x00000001 0x00: eax=0x000306e4 ebx=0x00020800 ecx=0xffba2203 edx=0x178bfbff
+///    0x00000001 0x00: eax=0x000306f2 ebx=0x00020800 ecx=0xfffa3203 edx=0x178bfbff
 ///    0x00000002 0x00: eax=0x76036301 ebx=0x00f0b5ff ecx=0x00000000 edx=0x00c30000
 ///    0x00000003 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0x00000004 0x00: eax=0x04000121 ebx=0x01c0003f ecx=0x0000003f edx=0x00000000
@@ -18,7 +18,7 @@ use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
 ///    0x00000004 0x03: eax=0x04004163 ebx=0x0280003f ecx=0x0000bfff edx=0x00000004
 ///    0x00000005 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0x00000006 0x00: eax=0x00000004 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
-///    0x00000007 0x00: eax=0x00000000 ebx=0x00100283 ecx=0x00000000 edx=0xac000400
+///    0x00000007 0x00: eax=0x00000000 ebx=0x001007ab ecx=0x00000000 edx=0xac000400
 ///    0x00000008 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0x00000009 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0x0000000a 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
@@ -40,7 +40,7 @@ use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
 ///    0x40000000 0x00: eax=0x40000001 ebx=0x4b4d564b ecx=0x564b4d56 edx=0x0000004d
 ///    0x40000001 0x00: eax=0x01007efb ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 ///    0x80000000 0x00: eax=0x80000008 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
-///    0x80000001 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000001 edx=0x28100800
+///    0x80000001 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000021 edx=0x28100800
 ///    0x80000002 0x00: eax=0x65746e49 ebx=0x2952286c ecx=0x6f655820 edx=0x2952286e
 ///    0x80000003 0x00: eax=0x6f725020 ebx=0x73736563 ecx=0x4020726f edx=0x352e3220
 ///    0x80000004 0x00: eax=0x7a484730 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
@@ -52,7 +52,7 @@ use crate::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid};
 ///    0xc0000000 0x00: eax=0x00000000 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 /// ```
 #[allow(clippy::too_many_lines)]
-pub fn c3() -> Cpuid {
+pub fn t2() -> Cpuid {
     Cpuid::Intel(IntelCpuid({
         let mut map = std::collections::BTreeMap::new();
         map.insert(
@@ -78,9 +78,9 @@ pub fn c3() -> Cpuid {
             CpuidEntry {
                 flags: KvmCpuidFlags(0x0),
                 result: CpuidRegisters {
-                    eax: 0x306e4,
+                    eax: 0x306f2,
                     ebx: 0x20800,
-                    ecx: 0xffba2203,
+                    ecx: 0xfffa3203,
                     edx: 0x178bfbff,
                 },
             },
@@ -214,7 +214,7 @@ pub fn c3() -> Cpuid {
                 flags: KvmCpuidFlags(0x1),
                 result: CpuidRegisters {
                     eax: 0x0,
-                    ebx: 0x100283,
+                    ebx: 0x1007ab,
                     ecx: 0x0,
                     edx: 0xac000400,
                 },
@@ -319,7 +319,7 @@ pub fn c3() -> Cpuid {
                 flags: KvmCpuidFlags(0x1),
                 result: CpuidRegisters {
                     eax: 0x7,
-                    ebx: 0x340,
+                    ebx: 0x0340,
                     ecx: 0xa88,
                     edx: 0x0,
                 },
@@ -545,7 +545,7 @@ pub fn c3() -> Cpuid {
                 result: CpuidRegisters {
                     eax: 0x0,
                     ebx: 0x0,
-                    ecx: 0x1,
+                    ecx: 0x21,
                     edx: 0x28100800,
                 },
             },

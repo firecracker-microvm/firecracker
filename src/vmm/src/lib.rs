@@ -20,13 +20,11 @@ pub mod arch_gen;
 /// Supported platforms: x86_64 and aarch64.
 pub mod arch;
 
-/// Utility for configuring the CPUID (CPU identification) for the guest microVM.
-#[cfg(target_arch = "x86_64")]
-pub mod cpuid;
-
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 pub(crate) mod device_manager;
+/// Types for guest configuration.
+pub mod guest_config;
 pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;

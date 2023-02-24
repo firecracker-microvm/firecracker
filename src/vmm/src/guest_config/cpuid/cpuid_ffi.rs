@@ -9,7 +9,7 @@ use std::mem::{size_of, transmute, MaybeUninit};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-use crate::cpuid::{CpuidEntry, CpuidKey};
+use crate::guest_config::cpuid::{CpuidEntry, CpuidKey};
 
 /// Converts `u32` to `usize`.
 #[cfg(target_pointer_width = "64")]
@@ -481,7 +481,7 @@ mod tests {
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 
     use super::*;
-    use crate::cpuid::{CpuidRegisters, CpuidTrait};
+    use crate::guest_config::cpuid::{CpuidRegisters, CpuidTrait};
 
     #[test]
     fn raw_cpuid_nent() {
