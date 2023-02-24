@@ -14,10 +14,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::{mem, process, ptr};
 use userfaultfd::Uffd;
 
-use common::{
-    create_mem_regions, parse_unix_stream, GuestRegionUffdMapping, MemPageState, MemRegion,
-};
+use common::{create_mem_regions, parse_unix_stream, MemPageState, MemRegion};
 use handler::UffdPfHandler;
+use utils::GuestRegionUffdMapping;
 
 const EXIT_CODE_ERROR: i32 = 1;
 
