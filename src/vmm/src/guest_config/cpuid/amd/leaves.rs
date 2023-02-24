@@ -3,8 +3,8 @@
 #![allow(clippy::similar_names, clippy::module_name_repetitions)]
 
 #[allow(clippy::wildcard_imports)]
-use crate::cpuid::amd::registers::*;
-use crate::cpuid::Leaf;
+use crate::guest_config::cpuid::amd::registers::*;
+use crate::guest_config::cpuid::Leaf;
 
 /// Leaf 07H
 pub type Leaf7 = Leaf<Leaf7Eax, Leaf7Ebx, Leaf7Ecx, Leaf7Edx>;

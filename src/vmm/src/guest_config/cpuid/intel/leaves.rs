@@ -3,8 +3,8 @@
 #![allow(clippy::similar_names, clippy::module_name_repetitions)]
 
 #[allow(clippy::wildcard_imports)]
-use crate::cpuid::intel::registers::*;
-use crate::cpuid::Leaf;
+use crate::guest_config::cpuid::intel::registers::*;
+use crate::guest_config::cpuid::Leaf;
 
 impl From<(u32, u32, u32, u32)> for Leaf2 {
     #[inline]
