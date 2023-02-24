@@ -29,7 +29,7 @@ impl UffdPfHandler {
         }
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: MemPageState) {
+    pub fn update_mem_state_mappings(&mut self, start: usize, end: usize, state: MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
                 if (start..end).contains(key) {
@@ -39,7 +39,7 @@ impl UffdPfHandler {
         }
     }
 
-    fn populate_from_file(&self, region: &MemRegion) -> (u64, u64) {
+    fn populate_from_file(&self, region: &MemRegion) -> (usize, usize) {
         let src = self.backing_buffer as u64 + region.mapping.offset;
         let start_addr = region.mapping.base_host_virt_addr;
         let len = region.mapping.size;
@@ -56,10 +56,10 @@ impl UffdPfHandler {
         // Make sure the UFFD copied some bytes.
         assert!(ret > 0);
 
-        (start_addr, start_addr + len as u64)
+        (start_addr, start_addr + len)
     }
 
-    fn zero_out(&mut self, addr: u64) -> (u64, u64) {
+    fn zero_out(&mut self, addr: usize) -> (usize, usize) {
         let page_size = get_page_size().unwrap();
 
         // SAFETY: this is safe because the parameters are controlled by us.
@@ -71,15 +71,14 @@ impl UffdPfHandler {
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
 
-        (addr, addr + page_size as u64)
+        (addr, addr + page_size)
     }
 
-    pub fn serve_pf(&mut self, addr: *mut u8) {
+    pub fn serve_pf(&mut self, addr: usize) {
         let page_size = get_page_size().unwrap();
 
         // Find the start of the page that the current faulting address belongs to.
-        let dst = (addr as usize & !(page_size - 1)) as *mut libc::c_void;
-        let fault_page_addr = dst as u64;
+        let fault_page_addr = addr & !(page_size - 1);
 
         // Get the state of the current faulting page.
         for region in self.mem_regions.iter() {

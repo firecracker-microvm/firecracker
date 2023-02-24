@@ -123,10 +123,10 @@ fn main() {
         // We expect to receive either a Page Fault or Removed
         // event (if the balloon device is enabled).
         match event {
-            userfaultfd::Event::Pagefault { addr, .. } => uffd_handler.serve_pf(addr.cast::<u8>()),
+            userfaultfd::Event::Pagefault { addr, .. } => uffd_handler.serve_pf(addr as usize),
             userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
-                start.cast::<u8>() as u64,
-                end.cast::<u8>() as u64,
+                start as usize,
+                end as usize,
                 MemPageState::Removed,
             ),
             _ => {
