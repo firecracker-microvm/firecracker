@@ -35,7 +35,7 @@ pub fn parse_unix_stream(stream: &UnixStream) -> (File, String) {
 pub struct GuestRegionUffdMapping {
     /// Base host virtual address where the guest memory contents for this region
     /// should be copied/populated.
-    pub base_host_virt_addr: u64,
+    pub base_host_virt_addr: usize,
     /// Region size.
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
@@ -44,7 +44,7 @@ pub struct GuestRegionUffdMapping {
 
 pub struct MemRegion {
     pub mapping: GuestRegionUffdMapping,
-    pub page_states: HashMap<u64, MemPageState>,
+    pub page_states: HashMap<usize, MemPageState>,
 }
 
 #[derive(Clone, Copy)]
@@ -65,12 +65,12 @@ pub fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegi
     for r in mappings.iter() {
         let mapping = r.clone();
         let mut addr = r.base_host_virt_addr;
-        let end_addr = r.base_host_virt_addr + r.size as u64;
+        let end_addr = r.base_host_virt_addr + r.size;
         let mut page_states = HashMap::new();
 
         while addr < end_addr {
             page_states.insert(addr, MemPageState::Uninitialized);
-            addr += page_size as u64;
+            addr += page_size;
         }
         mem_regions.push(MemRegion {
             mapping,
