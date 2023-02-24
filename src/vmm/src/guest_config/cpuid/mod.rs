@@ -35,14 +35,11 @@
 use std::convert::TryFrom;
 use std::mem::{size_of, transmute};
 
-/// cpuid static template functions.
-pub(crate) mod static_templates;
-
 /// cpuid utility functions.
 pub mod common;
 
 /// Raw CPUID specification handling.
-mod cpuid_ffi;
+pub(crate) mod cpuid_ffi;
 pub use cpuid_ffi::*;
 
 /// AMD CPUID specification handling.
@@ -592,7 +589,7 @@ pub struct CpuidEntry {
     ///     0x80000008u32 => KvmCpuidFlags::empty(),
     /// };
     /// ```
-    pub flags: cpuid_ffi::KvmCpuidFlags,
+    pub flags: crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags,
     /// Register values.
     pub result: CpuidRegisters,
 }
