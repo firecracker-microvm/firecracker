@@ -25,8 +25,7 @@ pub struct MemRegion {
     pub page_states: HashMap<usize, MemPageState>,
 }
 
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MemPageState {
     Uninitialized,
     FromFile,

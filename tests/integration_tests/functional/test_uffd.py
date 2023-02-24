@@ -8,6 +8,7 @@ import socket
 import stat
 from subprocess import TimeoutExpired
 
+import pytest
 import requests
 import urllib3
 
@@ -49,7 +50,7 @@ def create_snapshot(bin_cloner_path):
     return snapshot
 
 
-def spawn_pf_handler(vm, handler_path, mem_path):
+def spawn_pf_handler(vm, handler_path, mem_path, after=0):
     """Spawn page fault handler process."""
     # Copy snapshot memory file into chroot of microVM.
     jailed_mem = vm.create_jailed_resource(mem_path)
@@ -57,7 +58,14 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     jailed_handler = vm.create_jailed_resource(handler_path)
 
     handler_name = os.path.basename(jailed_handler)
-    args = ["--socket", SOCKET_PATH, "--mem-file", jailed_mem]
+    args = [
+        "--socket",
+        SOCKET_PATH,
+        "--mem-file",
+        jailed_mem,
+        "--pages-after",
+        f"{after}",
+    ]
 
     uffd_handler = UffdHandler(handler_name, args)
     real_root = os.open("/", os.O_RDONLY)
@@ -150,7 +158,10 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     ) in response.text
 
 
-def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
+@pytest.mark.parametrize("after", [0, 5, 100, 10000])
+def test_valid_handler(
+    bin_cloner_path, test_microvm_with_api, uffd_handler_paths, after
+):
     """
     Test valid uffd handler scenario.
 
@@ -168,7 +179,7 @@ def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_path
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
+        vm, uffd_handler_paths["valid_handler"], snapshot.mem, after
     )
 
     vm, _ = vm_builder.build_from_snapshot(

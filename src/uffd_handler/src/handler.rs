@@ -8,7 +8,7 @@ use userfaultfd::{Event, Uffd};
 use utils::get_page_size;
 
 use crate::memory_region::{MemPageState, MemRegion};
-use crate::UffdPrefaulter;
+use crate::prefaulter::UffdPrefaulter;
 
 /// Timeout for poll()ing on the userfaultfd for events.
 /// A negative value translates to an infinite timeout. Page faults are not meant to
@@ -46,6 +46,8 @@ pub trait UffdManager: AsRawFd {
     fn populate_from_file(
         &self,
         buff: *const libc::c_void,
+        start_addr: usize,
+        end_addr: usize,
         region: &MemRegion,
     ) -> Result<(usize, usize)>;
 
@@ -65,18 +67,30 @@ impl UffdManager for Uffd {
     fn populate_from_file(
         &self,
         buff: *const libc::c_void,
+        start_addr: usize,
+        end_addr: usize,
         region: &MemRegion,
     ) -> Result<(usize, usize)> {
-        let src = buff as u64 + region.mapping.offset;
-        let start_addr = region.mapping.base_host_virt_addr;
-        let len = region.mapping.size;
-        // Populate whole region from backing mem-file.
-        // This offers an example of how memory can be loaded in RAM,
-        // however this can be adjusted to accommodate use case needs.
+        let page_size = get_page_size().map_err(HandlerError::PageSize)?;
+        // The result will always be positive because both start_addr and end_addr are within the
+        // current region and the difference between them is always at least page size.
+        let mut len = end_addr - start_addr;
+        // Length to uffd copy must be multiple of page size.
+        let reminder = len % page_size;
+        if reminder != 0 {
+            len += page_size - reminder;
+        }
+
+        // Compute source to prefault the memory chunk from.
+        let prefault_offset = start_addr - region.mapping.base_host_virt_addr;
+        let src = buff as u64 + region.mapping.offset + prefault_offset as u64;
+
         // SAFETY: this is safe because the parameters are valid.
-        let ret = unsafe {
-            self.copy(src as *const _, start_addr as *mut _, len, true)
-                .map_err(HandlerError::UffdCopy)?
+        let ret = match unsafe { self.copy(src as *const _, start_addr as *mut _, len, true) } {
+            // Allow partial copy, which happens when a part of the requested region for
+            // prefaulting has already been brought into RAM when serving a previous page fault.
+            Ok(ret) | Err(userfaultfd::Error::PartiallyCopied(ret)) => ret,
+            Err(err) => return Err(HandlerError::UffdCopy(err)),
         };
 
         // Make sure the UFFD copied some bytes.
@@ -108,7 +122,7 @@ pub struct PageFaultHandler<T: UffdManager> {
     mem_regions: Vec<MemRegion>,
     backing_buffer: *const libc::c_void,
     pub uffd: T,
-    _prefaulter: UffdPrefaulter,
+    prefaulter: UffdPrefaulter,
     // Not currently used but included to demonstrate how a page fault handler can
     // fetch Firecracker's PID in order to make it aware of any crashes/exits.
     _firecracker_pid: u32,
@@ -129,7 +143,7 @@ where
             mem_regions,
             backing_buffer: buff,
             uffd,
-            _prefaulter: prefaulter,
+            prefaulter,
             _firecracker_pid: pid,
         }
     }
@@ -159,7 +173,18 @@ where
                 //    event was received. This can be a consequence of guest reclaiming back its
                 //    memory from the host (through balloon device)
                 Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
-                    let (start, end) = self.uffd.populate_from_file(self.backing_buffer, region)?;
+                    let start_addr = self
+                        .prefaulter
+                        .get_prefaulting_start_address(fault_page_addr)?;
+                    let end_addr = self
+                        .prefaulter
+                        .get_prefaulting_end_address(fault_page_addr, region)?;
+                    let (start, end) = self.uffd.populate_from_file(
+                        self.backing_buffer,
+                        start_addr,
+                        end_addr,
+                        region,
+                    )?;
                     self.update_mem_state_mappings(start, end, MemPageState::FromFile);
                     return Ok(());
                 }
@@ -219,7 +244,7 @@ where
 }
 
 /// Find the start of the page that the current address belongs to.
-fn page_start_of_addr(addr: usize) -> Result<usize> {
+pub fn page_start_of_addr(addr: usize) -> Result<usize> {
     let page_size = get_page_size().map_err(HandlerError::PageSize)?;
     let dst = (addr & !(page_size - 1)) as *mut libc::c_void;
 
@@ -256,6 +281,8 @@ mod tests {
         fn populate_from_file(
             &self,
             _buff: *const libc::c_void,
+            _start: usize,
+            _end: usize,
             _region: &MemRegion,
         ) -> Result<(usize, usize)> {
             Ok((0x0, 0x1000))
