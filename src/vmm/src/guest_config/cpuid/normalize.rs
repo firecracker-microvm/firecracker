@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use bit_fields::CheckedAssignError;
 
-use crate::cpuid::CpuidTrait;
+use crate::guest_config::cpuid::CpuidTrait;
 
 /// Error type for [`Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -10,10 +10,10 @@ use crate::cpuid::CpuidTrait;
 pub enum NormalizeCpuidError {
     /// Failed to apply modifications to Intel CPUID.
     #[error("Failed to apply modifications to Intel CPUID: {0}")]
-    Intel(#[from] crate::cpuid::intel::NormalizeCpuidError),
+    Intel(#[from] crate::guest_config::cpuid::intel::NormalizeCpuidError),
     /// Failed to apply modifications to AMD CPUID.
     #[error("Failed to apply modifications to AMD CPUID: {0}")]
-    Amd(#[from] crate::cpuid::amd::NormalizeCpuidError),
+    Amd(#[from] crate::guest_config::cpuid::amd::NormalizeCpuidError),
     /// Failed to set feature information leaf.
     #[error("Failed to set feature information leaf: {0}")]
     FeatureInformation(#[from] FeatureInformationError),

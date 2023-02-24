@@ -4,7 +4,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::registers::*;
-use crate::cpuid::Leaf;
+use crate::guest_config::cpuid::Leaf;
 
 impl From<(u32, u32, u32, u32)> for Leaf2 {
     #[inline]

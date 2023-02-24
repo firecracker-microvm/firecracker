@@ -14,10 +14,9 @@
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
-/// CPUID information.
-#[cfg(cpuid)]
-mod cpuid;
 pub(crate) mod device_manager;
+/// Types for guest configuration.
+pub mod guest_config;
 pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;

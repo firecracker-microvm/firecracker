@@ -3,8 +3,9 @@
 use bit_fields::CheckedAssignError;
 
 use super::registers;
-use crate::cpuid::{
-    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, BRAND_STRING_LENGTH,
+use crate::guest_config::cpuid::{
+    host_brand_string, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
+    MissingBrandStringLeaves, BRAND_STRING_LENGTH,
 };
 
 /// Error type for [`IntelCpuid::normalize`].
@@ -30,7 +31,7 @@ pub enum NormalizeCpuidError {
     GetBrandString(DefaultBrandStringError),
     /// Failed to set brand string.
     #[error("Failed to set brand string: {0}")]
-    ApplyBrandString(crate::cpuid::MissingBrandStringLeaves),
+    ApplyBrandString(MissingBrandStringLeaves),
 }
 
 /// Error type for setting leaf 4 section of `IntelCpuid::normalize`.
@@ -319,7 +320,7 @@ impl super::IntelCpuid {
     /// Update brand string entry
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // Get host brand string.
-        let host_brand_string: [u8; BRAND_STRING_LENGTH] = crate::cpuid::host_brand_string();
+        let host_brand_string: [u8; BRAND_STRING_LENGTH] = host_brand_string();
 
         let default_brand_string =
             default_brand_string(host_brand_string).map_err(NormalizeCpuidError::GetBrandString)?;
@@ -335,10 +336,10 @@ impl super::IntelCpuid {
 pub enum DefaultBrandStringError {
     /// Missing frequency.
     #[error("Missing frequency: {0:?}.")]
-    MissingFrequency([u8; crate::cpuid::BRAND_STRING_LENGTH]),
+    MissingFrequency([u8; BRAND_STRING_LENGTH]),
     /// Missing space.
     #[error("Missing space: {0:?}.")]
-    MissingSpace([u8; crate::cpuid::BRAND_STRING_LENGTH]),
+    MissingSpace([u8; BRAND_STRING_LENGTH]),
     /// Insufficient space in brand string.
     #[error("Insufficient space in brand string.")]
     Overflow,
