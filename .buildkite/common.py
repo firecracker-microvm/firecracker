@@ -15,11 +15,12 @@ DEFAULT_INSTANCES = [
     "c7g.metal",
 ]
 
-DEFAULT_KERNELS = ["linux_4.14", "linux_5.10"]
+DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
+
 DEFAULT_QUEUE = "public-prod-us-east-1"
 
 
-def group(label, command, instances, kernels, agent_tags=None, **kwargs):
+def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     """
     Generate a group step with specified parameters, for each instance+kernel
     combination
@@ -32,11 +33,11 @@ def group(label, command, instances, kernels, agent_tags=None, **kwargs):
     label1 = label[0]
     steps = []
     for instance in instances:
-        for kv in kernels:
-            agents = [f"instance={instance}", f"kv={kv}"] + agent_tags
+        for (os, kv) in platforms:
+            agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
             step = {
                 "command": command,
-                "label": f"{label1} {instance} {kv}",
+                "label": f"{label1} {instance} {os} {kv}",
                 "agents": agents,
                 **kwargs,
             }
