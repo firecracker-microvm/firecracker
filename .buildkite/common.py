@@ -32,11 +32,17 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     # Use the 1st character of the group name (should be an emoji)
     label1 = label[0]
     steps = []
+    commands = command
+    if isinstance(command, str):
+        commands = [command]
     for instance in instances:
         for (os, kv) in platforms:
+            # fill any templated variables
+            step_commands = [cmd.format(instance=instance, os=os, kv=kv)
+                             for cmd in commands]
             agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
             step = {
-                "command": command,
+                "command": step_commands,
                 "label": f"{label1} {instance} {os} {kv}",
                 "agents": agents,
                 **kwargs,
