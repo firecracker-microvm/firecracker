@@ -1373,7 +1373,7 @@ def test_get_full_config(test_microvm_with_api):
     assert response.json() == expected_cfg
 
 
-def test_map_private_seccomp_regression(test_microvm_with_ssh):
+def test_map_private_seccomp_regression(test_microvm_with_api):
     """
     Seccomp mmap MAP_PRIVATE regression test.
 
@@ -1383,7 +1383,7 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
     @type: regression
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update(
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )

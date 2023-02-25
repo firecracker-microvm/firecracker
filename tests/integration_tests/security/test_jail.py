@@ -579,13 +579,13 @@ def test_args_resource_limits(test_microvm_with_initrd):
     check_limits(pid, NOFILE, FSIZE)
 
 
-def test_negative_file_size_limit(test_microvm_with_ssh):
+def test_negative_file_size_limit(test_microvm_with_api):
     """
     Test creating snapshot file fails when size exceeds `fsize` limit.
 
     @type: negative
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["fsize=1024"]
 
     test_microvm.spawn()
@@ -623,13 +623,13 @@ def test_negative_file_size_limit(test_microvm_with_ssh):
         assert False, "Negative test failed"
 
 
-def test_negative_no_file_limit(test_microvm_with_ssh):
+def test_negative_no_file_limit(test_microvm_with_api):
     """
     Test microVM is killed when exceeding `no-file` limit.
 
     @type: negative
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["no-file=3"]
 
     # pylint: disable=W0703
@@ -642,13 +642,13 @@ def test_negative_no_file_limit(test_microvm_with_ssh):
         assert False, "Negative test failed"
 
 
-def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
+def test_new_pid_ns_resource_limits(test_microvm_with_api):
     """
     Test that Firecracker process inherits jailer resource limits.
 
     @type: security
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
