@@ -864,7 +864,7 @@ pub fn configure_system_for_boot(
     {
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .configure(vmm.guest_memory(), entry_addr)
+                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
                 .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
         }

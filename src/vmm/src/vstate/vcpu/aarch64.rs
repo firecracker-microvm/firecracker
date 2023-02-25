@@ -15,7 +15,8 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
-use crate::vstate::vcpu::VcpuEmulation;
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -103,6 +104,7 @@ impl KvmVcpu {
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
+        vcpu_config: &VcpuConfig,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         arch::aarch64::regs::setup_boot_regs(
             &self.fd,
@@ -114,6 +116,16 @@ impl KvmVcpu {
 
         self.mpidr =
             arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
+
+        // If a template is specified, apply the CPU template as a modifier on
+        // top of the CPU configuration of the host to use as the guest configuration.
+        if let Some(_cpu_template) = vcpu_config.custom_cpu_template {
+            // TODO - Fetch host registers that are specified in the template within VcpuConfig
+
+            // TODO - Apply the template to the register values
+
+            // TODO - Use CPU configuration to configure guest resources in KVM
+        }
 
         Ok(())
     }
@@ -195,6 +207,7 @@ mod tests {
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
+    use crate::vcpu::VcpuConfig;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -233,12 +246,20 @@ mod tests {
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
         assert!(vcpu
-            .configure(&vm_mem, GuestAddress(arch::get_kernel_start()),)
+            .configure(
+                &vm_mem,
+                GuestAddress(arch::get_kernel_start()),
+                &VcpuConfig::default(),
+            )
             .is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(
+            &vm_mem,
+            GuestAddress(arch::get_kernel_start()),
+            &VcpuConfig::default(),
+        );
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
@@ -249,7 +270,11 @@ mod tests {
 
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(
+            &vm_mem,
+            GuestAddress(arch::get_kernel_start()),
+            &VcpuConfig::default(),
+        );
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),

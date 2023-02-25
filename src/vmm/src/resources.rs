@@ -225,6 +225,7 @@ impl VmResources {
             vcpu_count: self.vm_config().vcpu_count,
             smt: self.vm_config().smt,
             cpu_template: self.vm_config().cpu_template,
+            custom_cpu_template: self.vm_config().custom_cpu_template.clone(),
         }
     }
 
@@ -1262,6 +1263,7 @@ mod tests {
             vcpu_count: vm_resources.vm_config().vcpu_count,
             smt: vm_resources.vm_config().smt,
             cpu_template: vm_resources.vm_config().cpu_template,
+            custom_cpu_template: None,
         };
 
         let vcpu_config = vm_resources.vcpu_config();

@@ -263,19 +263,34 @@ impl KvmVcpu {
         )
         .map_err(KvmVcpuConfigureError::SnapshotCpuid)?;
 
-        // If a template is specified, get the CPUID template, else use `cpuid`.
-        let mut config_cpuid = match vcpu_config.cpu_template {
-            CpuFeaturesTemplate::C3 => cpuid_templates::c3::template(),
-            CpuFeaturesTemplate::T2 => cpuid_templates::t2::template(),
-            CpuFeaturesTemplate::T2S => cpuid_templates::t2s::template(),
-            CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl::template(),
-            CpuFeaturesTemplate::T2A => cpuid_templates::t2a::template(),
-            // If a template is not supplied we use the given `cpuid` as the base.
-            CpuFeaturesTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
+        // Apply a custom template is specified, else check for hard coded template config
+        let mut config_cpuid;
+        if let Some(_cpu_template) = &vcpu_config.custom_cpu_template {
+            // TODO - Apply template to cpuid and remove host CPUID code
+            config_cpuid = crate::guest_config::cpuid::Cpuid::try_from(
                 crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
             )
-            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
-        };
+            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
+
+            // TODO - Retrieve host MSR values that are specified in the template
+
+            // TODO - Apply modifiers from template against retrieved MSRs
+
+            // TODO - Extend MSR list
+        } else {
+            config_cpuid = match vcpu_config.cpu_template {
+                CpuFeaturesTemplate::C3 => cpuid_templates::c3::template(),
+                CpuFeaturesTemplate::T2 => cpuid_templates::t2::template(),
+                CpuFeaturesTemplate::T2S => cpuid_templates::t2s::template(),
+                CpuFeaturesTemplate::T2CL => cpuid_templates::t2cl::template(),
+                CpuFeaturesTemplate::T2A => cpuid_templates::t2a::template(),
+                // If a template is not supplied we use the given `cpuid` as the base.
+                CpuFeaturesTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
+                    crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
+                )
+                .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
+            }
+        }
 
         // Apply machine specific changes to CPUID.
         config_cpuid
@@ -323,7 +338,7 @@ impl KvmVcpu {
         // the previous comment, we get from the template a static list of MSRs we need
         // to save at snapshot as well.
         // C3, T2 and T2A currently don't have extra MSRs to save/set.
-        match vcpu_config.cpu_template {
+        match &vcpu_config.cpu_template {
             CpuFeaturesTemplate::T2S => {
                 self.msr_list.extend(msr_entries_to_save());
                 cpuid_templates::t2s::update_msr_entries(&mut msr_boot_entries);
@@ -679,11 +694,7 @@ mod tests {
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let mut vcpu_config = VcpuConfig {
-            vcpu_count: 1,
-            smt: false,
-            cpu_template: CpuFeaturesTemplate::None,
-        };
+        let mut vcpu_config = VcpuConfig::default();
 
         assert_eq!(
             vcpu.configure(

@@ -6,6 +6,8 @@ use serde::{de, Deserialize, Serialize};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
+use crate::guest_config::common::CustomCpuTemplate;
+
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 /// Firecracker aims to support small scale workloads only, so limit the maximum
@@ -65,13 +67,17 @@ pub struct VmConfig {
     /// Enables or disabled SMT.
     #[serde(default, deserialize_with = "deserialize_smt")]
     pub smt: bool,
-    /// A CPU template that it is used to filter the CPU features exposed to the guest.
+    /// A CPU template (hard coded) that it is used to filter the
+    /// CPU features exposed to the guest.
     #[serde(
         default,
         deserialize_with = "deserialize_cpu_template",
         skip_serializing_if = "CpuFeaturesTemplate::is_none"
     )]
     pub cpu_template: CpuFeaturesTemplate,
+    /// CPU template to be defined by the user
+    #[serde(skip_serializing)]
+    pub custom_cpu_template: Option<CustomCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(default)]
     pub track_dirty_pages: bool,
@@ -84,6 +90,7 @@ impl Default for VmConfig {
             mem_size_mib: DEFAULT_MEM_SIZE_MIB,
             smt: false,
             cpu_template: CpuFeaturesTemplate::None,
+            custom_cpu_template: None,
             track_dirty_pages: false,
         }
     }

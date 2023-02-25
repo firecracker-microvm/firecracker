@@ -37,6 +37,8 @@ pub(crate) use aarch64::{Error as VcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
 
+use crate::guest_config::common::CustomCpuTemplate;
+
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -75,8 +77,10 @@ pub struct VcpuConfig {
     pub vcpu_count: u8,
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
-    /// CPUID template to use.
+    /// CPU template
     pub cpu_template: CpuFeaturesTemplate,
+    /// User-defined CPU template
+    pub custom_cpu_template: Option<CustomCpuTemplate>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -692,6 +696,17 @@ mod tests {
         }
     }
 
+    impl Default for VcpuConfig {
+        fn default() -> Self {
+            VcpuConfig {
+                vcpu_count: 1,
+                smt: false,
+                cpu_template: CpuFeaturesTemplate::None,
+                custom_cpu_template: None,
+            }
+        }
+    }
+
     #[test]
     fn test_run_emulation() {
         let (_vm, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
@@ -913,17 +928,13 @@ mod tests {
         // Needs a kernel since we'll actually run this vcpu.
         let entry_addr = load_good_kernel(&vm_mem);
 
+        let vcpu_config = VcpuConfig::default();
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu
-            .configure(&vm_mem, entry_addr)
+            .configure(&vm_mem, entry_addr, &vcpu_config)
             .expect("failed to configure vcpu");
         #[cfg(target_arch = "x86_64")]
         {
-            let vcpu_config = VcpuConfig {
-                vcpu_count: 1,
-                smt: false,
-                cpu_template: CpuFeaturesTemplate::None,
-            };
             vcpu.kvm_vcpu
                 .configure(
                     &vm_mem,
