@@ -1,8 +1,6 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::arch::x86_64::__cpuid as host_cpuid;
-
 use arch::x86_64::cpu_model::CpuModel;
 use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::{kvm_cpuid_entry2, kvm_msr_entry, CpuId};
@@ -52,9 +50,25 @@ impl CpuidTransformer for T2CLCpuidTransformer {
     }
 }
 
+fn validate_at_least_cascade_lake() -> Result<(), Error> {
+    let cascade_lake = CpuModel {
+        extended_family: 0,
+        extended_model: 5,
+        family: 6,
+        model: 5,
+        stepping: 7,
+    };
+
+    if CpuModel::get_cpu_model() < cascade_lake {
+        return Err(Error::InvalidModel);
+    }
+    Ok(())
+}
+
 /// Sets up the CPUID entries for a given VCPU following the T2CL template.
 pub fn set_cpuid_entries(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
     validate_vendor_id()?;
+    validate_at_least_cascade_lake()?;
     T2CLCpuidTransformer.process_cpuid(kvm_cpuid, vm_spec)
 }
 
