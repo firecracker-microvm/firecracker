@@ -630,6 +630,7 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
+    use arch::x86_64::cpu_model::CpuModel;
     use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
 
@@ -661,6 +662,17 @@ mod tests {
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         (vm, vcpu, vm_mem)
+    }
+
+    fn is_at_least_cascade_lake() -> bool {
+        CpuModel::get_cpu_model()
+            >= (CpuModel {
+                extended_family: 0,
+                extended_model: 5,
+                family: 6,
+                model: 5,
+                stepping: 7,
+            })
     }
 
     #[test]
@@ -709,14 +721,17 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        // Test configure while using the T2CL template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
-        let t2cl_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let mut t2cl_res = Ok(());
+        if is_at_least_cascade_lake() {
+            // Test configure while using the T2CL template.
+            vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
+            t2cl_res = vcpu.configure(
+                &vm_mem,
+                GuestAddress(0),
+                &vcpu_config,
+                vm.supported_cpuid().clone(),
+            );
+        }
 
         // Test configure while using the T2S template.
         vcpu_config.cpu_template = CpuFeaturesTemplate::T2A;
