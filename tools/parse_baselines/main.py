@@ -57,7 +57,7 @@ def read_data_files(args):
     assert os.path.isdir(args.data_folder)
 
     res_files = [
-        f"{filename}_results_{args.instance}_{args.kernel}.json"
+        f"{filename}_results_{args.instance}_{args.kernel}.ndjson"
         for filename in OUTPUT_FILENAMES[args.test]
     ]
     # Get all files in the dir tree that have the right name.
