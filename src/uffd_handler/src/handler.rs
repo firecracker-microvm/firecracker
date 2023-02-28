@@ -1,6 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::io;
 use std::os::unix::io::AsRawFd;
 
 use userfaultfd::{Event, Uffd};
@@ -22,6 +23,8 @@ pub enum HandlerError {
     EventNotReady,
     #[error("Failed to fetch system's page size: {0}")]
     PageSize(utils::errno::Error),
+    #[error("Failed to poll on userfaultfd: {0}")]
+    Poll(io::Error),
     #[error("Failed to read userfaultfd event: {0}.")]
     ReadEvent(userfaultfd::Error),
     #[error("Userfaultfd copy failed: {0}")]
@@ -187,9 +190,16 @@ where
         loop {
             // SAFETY: Safe because fd, nfds and timeout are valid parameters.
             let nready = unsafe { libc::poll(&mut pollfd, 1, POLL_TIMEOUT) };
-            // Poll has an infinite timeout, therefore in theory this case should never happen.
             if nready == -1 {
-                unreachable!();
+                let err = io::Error::last_os_error();
+                match err.raw_os_error() {
+                    // Retry in case of `EINTR` error, which means that a signal occurred before
+                    // any requested event (see https://man7.org/linux/man-pages/man2/poll.2.html#ERRORS).
+                    Some(libc::EINTR) => continue,
+                    Some(_) => return Err(HandlerError::Poll(err)),
+                    // When `poll` fails, errno is always set so this case should never happen.
+                    None => unreachable!(),
+                }
             }
 
             // Read an event from the userfaultfd.
