@@ -5,14 +5,7 @@
 import pytest
 
 from framework import utils
-import framework.utils_cpuid as cpuid_utils
 from host_tools import proc
-
-
-def is_on_skylake():
-    """Test is executed on a Skylake host."""
-    skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
-    return cpuid_utils.get_cpu_model_name() == skylake_model
 
 
 # We have different coverages based on the host kernel version. This is
@@ -25,13 +18,9 @@ def is_on_skylake():
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 82.97, "AMD": 81.99, "ARM": 82.43}
+    COVERAGE_DICT = {"Intel": 82.97, "AMD": 82.14, "ARM": 82.43}
 else:
-    COVERAGE_DICT = {
-        "Intel": 79.83 if is_on_skylake() else 80.13,
-        "AMD": 79.13,
-        "ARM": 79.34,
-    }
+    COVERAGE_DICT = {"Intel": 80.13, "AMD": 79.28, "ARM": 79.34}
 
 PROC_MODEL = proc.proc_type()
 
