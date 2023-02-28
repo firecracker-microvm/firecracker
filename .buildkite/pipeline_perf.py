@@ -6,8 +6,8 @@
 
 import argparse
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
-
+from common import (DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group,
+                    pipeline_to_json)
 
 perf_test = {
     "block": {
@@ -102,7 +102,9 @@ for test_data in tests:
     test_data.update(args.extra)
     if args.retries > 0:
         # retry if the step fails
-        test_data.setdefault("retry", {"automatic": {"exit_status": 1, "limit": args.retries}})
+        test_data.setdefault(
+            "retry", {"automatic": {"exit_status": 1, "limit": args.retries}}
+        )
     group_steps.append(build_group(test_data))
 
 pipeline = {
@@ -110,7 +112,6 @@ pipeline = {
         "AWS_EMF_SERVICE_NAME": "PerfTests",
         "AWS_EMF_NAMESPACE": "PerfTests",
     },
-    "agents": {"queue": "public-prod-us-east-1"},
     "steps": group_steps,
 }
 print(pipeline_to_json(pipeline))
