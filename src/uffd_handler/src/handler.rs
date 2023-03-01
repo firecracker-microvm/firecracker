@@ -8,6 +8,7 @@ use userfaultfd::{Event, Uffd};
 use utils::get_page_size;
 
 use crate::memory_region::{MemPageState, MemRegion};
+use crate::UffdPrefaulter;
 
 /// Timeout for poll()ing on the userfaultfd for events.
 /// A negative value translates to an infinite timeout. Page faults are not meant to
@@ -107,6 +108,7 @@ pub struct PageFaultHandler<T: UffdManager> {
     mem_regions: Vec<MemRegion>,
     backing_buffer: *const libc::c_void,
     pub uffd: T,
+    _prefaulter: UffdPrefaulter,
     // Not currently used but included to demonstrate how a page fault handler can
     // fetch Firecracker's PID in order to make it aware of any crashes/exits.
     _firecracker_pid: u32,
@@ -116,11 +118,18 @@ impl<T> PageFaultHandler<T>
 where
     T: UffdManager,
 {
-    pub fn new(mem_regions: Vec<MemRegion>, buff: *const libc::c_void, uffd: T, pid: u32) -> Self {
+    pub fn new(
+        mem_regions: Vec<MemRegion>,
+        buff: *const libc::c_void,
+        uffd: T,
+        prefaulter: UffdPrefaulter,
+        pid: u32,
+    ) -> Self {
         PageFaultHandler {
             mem_regions,
             backing_buffer: buff,
             uffd,
+            _prefaulter: prefaulter,
             _firecracker_pid: pid,
         }
     }
@@ -225,6 +234,7 @@ mod tests {
     use utils::GuestRegionUffdMapping;
 
     use super::*;
+    use crate::handler::UffdPrefaulter;
     use crate::memory_region::create_mem_regions;
 
     const PAGE_SIZE: usize = 4096;
@@ -265,7 +275,13 @@ mod tests {
             offset: 0,
         }];
 
-        PageFaultHandler::new(create_mem_regions(mappings), ptr::null(), MockUffd {}, 0)
+        PageFaultHandler::new(
+            create_mem_regions(mappings),
+            ptr::null(),
+            MockUffd {},
+            UffdPrefaulter::default(),
+            0,
+        )
     }
 
     #[test]

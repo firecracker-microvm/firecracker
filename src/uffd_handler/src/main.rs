@@ -8,6 +8,7 @@
 mod common;
 mod handler;
 mod memory_region;
+mod prefaulter;
 
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
@@ -20,7 +21,9 @@ use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag, Error as
 use crate::common::{parse_unix_stream, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
 use crate::memory_region::{mem_regions_from_stream, MemRegionError};
+use crate::prefaulter::UffdPrefaulter;
 
+const DEFAULT_PREFAULT_AMOUNT: usize = 0;
 const EXIT_CODE_ERROR: i32 = 1;
 
 #[derive(Debug, thiserror::Error)]
@@ -37,6 +40,11 @@ pub enum Error {
     DeserializeMemoryMappings(serde_json::Error),
     #[error("Snapshot memory file is empty.")]
     EmptySnapshotFile,
+    #[error(
+        "Invalid number of pages: {0} to prefault after the faulting page. Conversion to bytes \
+         exceeds `usize`."
+    )]
+    InvalidAmount(usize),
     #[error("Failed to get metadata of snapshot memory file: {0}")]
     Metadata(io::Error),
     #[error("Mmap failed: {0}")]
@@ -70,6 +78,8 @@ struct Arguments {
     socket: String,
     /// The path to the snapshot memory file to serve page faults from.
     mem_file: String,
+    /// The number of pages to prefault after the faulting page.
+    pages_after: usize,
 }
 
 fn get_argument_values(args: &ArgumentsBag) -> Result<Arguments> {
@@ -79,10 +89,19 @@ fn get_argument_values(args: &ArgumentsBag) -> Result<Arguments> {
     let mem_file = args.single_value("mem-file").ok_or_else(|| {
         Error::ArgumentParsing(ArgumentError::MissingValue("mem-file".to_string()))
     })?;
+    let after = args
+        .single_value("pages-after")
+        .map(|pages| {
+            pages
+                .parse::<usize>()
+                .expect("'pages-after' parameter expected to be of 'usize' type.")
+        })
+        .unwrap_or_else(|| DEFAULT_PREFAULT_AMOUNT);
 
     Ok(Arguments {
         socket: socket.to_owned(),
         mem_file: mem_file.to_owned(),
+        pages_after: after,
     })
 }
 
@@ -105,6 +124,15 @@ fn build_arg_parser() -> ArgParser<'static> {
                 .takes_value(true)
                 .help("The path to the snapshot memory file to serve page faults from."),
         )
+        .arg(Argument::new("pages-after").takes_value(true).help(
+            "The maximum number of pages to bring into RAM after the faulting page. Starting from \
+             the faulting page, the handler will copy pages until it finds one that has already \
+             been brought into memory (during a previous page fault) or until a number of \
+             `pages-after` pages have been copied. Therefore, there is no guarantee that the \
+             handler will always fetch the requested number of pages. If this argument is \
+             unspecified, the default value is 0 and only the faulting page is brought into \
+             memory.",
+        ))
 }
 
 fn create_handler<U>(args: &Arguments) -> Result<PageFaultHandler<Uffd>>
@@ -147,6 +175,8 @@ where
         mem_regions,
         memfile_buffer,
         uffd,
+        UffdPrefaulter::new(args.pages_after)?,
+        // This is safe to unwrap() because `pid_t` is backed by `i32`.
         u32::try_from(creds.pid).unwrap(),
     ))
 }
@@ -269,7 +299,37 @@ mod tests {
             get_argument_values(arguments).unwrap(),
             Arguments {
                 socket: socket.to_string(),
-                mem_file: mem_file.to_string()
+                mem_file: mem_file.to_string(),
+                pages_after: 0
+            }
+        );
+
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        arguments
+            .parse(
+                vec![
+                    "uffd-handler",
+                    "--socket",
+                    socket,
+                    "--mem-file",
+                    mem_file,
+                    "--pages-after",
+                    "1",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            get_argument_values(arguments).unwrap(),
+            Arguments {
+                socket: socket.to_string(),
+                mem_file: mem_file.to_string(),
+                pages_after: 1
             }
         );
     }
@@ -356,6 +416,58 @@ mod tests {
             res.err().unwrap(),
             ArgumentError::UnexpectedArgument(String::from("foo"))
         );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_get_argument_values_invalid_value() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        arguments
+            .parse(
+                vec![
+                    "uffd-handler",
+                    "--mem-file",
+                    "vm.mem",
+                    "--socket",
+                    "uffd.sock",
+                    "--pages-after",
+                    "foo",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+            )
+            .unwrap();
+
+        get_argument_values(arguments).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_get_argument_value_too_large() {
+        let arg_parser = build_arg_parser();
+        let arguments = &mut arg_parser.arguments().clone();
+        arguments
+            .parse(
+                vec![
+                    "uffd-handler",
+                    "--mem-file",
+                    "vm.mem",
+                    "--socket",
+                    "uffd.sock",
+                    "--pages-after",
+                    &u128::MAX.to_string(),
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+            )
+            .unwrap();
+
+        get_argument_values(arguments).unwrap();
     }
 
     #[test]
