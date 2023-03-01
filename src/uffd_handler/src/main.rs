@@ -37,6 +37,8 @@ pub enum Error {
     CorruptedMemoryMappings,
     #[error("Deserializing guest memory mappings failed: {0}")]
     DeserializeMemoryMappings(serde_json::Error),
+    #[error("Snapshot memory file is empty.")]
+    EmptySnapshotFile,
     #[error("Failed to get metadata of snapshot memory file: {0}")]
     Metadata(io::Error),
     #[error("Mmap failed: {0}")]
@@ -53,6 +55,17 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+fn validate_snapshot_file(file_name: &str) -> Result<(File, usize)> {
+    let file = File::open(file_name).map_err(Error::Open)?;
+    let metadata = file.metadata().map_err(Error::Metadata)?;
+    let size = metadata.len() as usize;
+    if size == 0 {
+        return Err(Error::EmptySnapshotFile);
+    }
+
+    Ok((file, size))
+}
+
 fn create_handler<U>() -> Result<PageFaultHandler<Uffd>>
 where
     U: UffdManager,
@@ -64,9 +77,7 @@ where
         .nth(2)
         .ok_or_else(|| Error::ArgumentParsing(String::from("No memory file provided")))?;
 
-    let file = File::open(mem_file_path).map_err(Error::Open)?;
-    let metadata = file.metadata().map_err(Error::Metadata)?;
-    let size = metadata.len() as usize;
+    let (file, size) = validate_snapshot_file(&mem_file_path)?;
 
     // mmap() a memory area used to bring in the faulting regions.
     // SAFETY: Safe because the parameters are valid.
@@ -149,13 +160,35 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
 
     use utils::tempfile::TempFile;
 
     use super::get_peer_process_credentials;
-    use crate::Error;
+    use crate::{validate_snapshot_file, Error};
+
+    #[test]
+    fn test_validate_snapshot_file_fail() {
+        let res = validate_snapshot_file("foo");
+        assert!(res.is_err());
+        assert!(matches!(res.err().unwrap(), Error::Open(_)));
+
+        let mem_file = TempFile::new().unwrap();
+        let res = validate_snapshot_file(mem_file.as_path().to_str().unwrap());
+        assert!(res.is_err());
+        assert!(matches!(res.err().unwrap(), Error::EmptySnapshotFile));
+    }
+
+    #[test]
+    fn test_validate_snapshot_file_successful() {
+        let mem_file = TempFile::new().unwrap();
+        let written = mem_file.as_file().write(b"hello world").unwrap();
+
+        let (_, size) = validate_snapshot_file(mem_file.as_path().to_str().unwrap()).unwrap();
+        assert_eq!(size, written);
+    }
 
     #[test]
     fn test_get_peer_process_credentials_successful() {
