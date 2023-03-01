@@ -18,7 +18,7 @@ use userfaultfd::Uffd;
 
 use crate::common::{parse_unix_stream, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
-use crate::memory_region::{create_mem_regions, deserialize_mappings};
+use crate::memory_region::{mem_regions_from_stream, MemRegionError};
 
 const EXIT_CODE_ERROR: i32 = 1;
 
@@ -30,11 +30,8 @@ pub enum Error {
     ArgumentParsing(String),
     #[error("Failed to bind userfaultfd socket path: {0}")]
     BindSocket(io::Error),
-    #[error(
-        "Size of snapshot memory file differs from the size of memory mappings.  Mappings \
-         received through uffd socket might be corrupted."
-    )]
-    CorruptedMemoryMappings,
+    #[error("Memory mappings received through uffd socket might be corrupted: {0}")]
+    CorruptedMemoryMappings(MemRegionError),
     #[error("Deserializing guest memory mappings failed: {0}")]
     DeserializeMemoryMappings(serde_json::Error),
     #[error("Snapshot memory file is empty.")]
@@ -77,14 +74,14 @@ where
         .nth(2)
         .ok_or_else(|| Error::ArgumentParsing(String::from("No memory file provided")))?;
 
-    let (file, size) = validate_snapshot_file(&mem_file_path)?;
+    let (file, mem_file_size) = validate_snapshot_file(&mem_file_path)?;
 
     // mmap() a memory area used to bring in the faulting regions.
     // SAFETY: Safe because the parameters are valid.
     let memfile_buffer = unsafe {
         libc::mmap(
             ptr::null_mut(),
-            size,
+            mem_file_size,
             libc::PROT_READ,
             libc::MAP_PRIVATE,
             file.as_raw_fd(),
@@ -104,8 +101,7 @@ where
     let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
     // Create guest memory regions from mappings received from Firecracker process.
-    let mappings = deserialize_mappings(&msg_body, size)?;
-    let mem_regions = create_mem_regions(mappings);
+    let mem_regions = mem_regions_from_stream(&msg_body, mem_file_size)?;
 
     // Get credentials of Firecracker process sent through the stream.
     let creds: libc::ucred = get_peer_process_credentials(stream.as_raw_fd())?;
