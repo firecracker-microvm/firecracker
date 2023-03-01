@@ -225,7 +225,7 @@ mod tests {
     use utils::GuestRegionUffdMapping;
 
     use super::*;
-    use crate::create_mem_regions;
+    use crate::memory_region::create_mem_regions;
 
     const PAGE_SIZE: usize = 4096;
 
