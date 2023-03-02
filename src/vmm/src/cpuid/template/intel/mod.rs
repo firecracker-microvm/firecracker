@@ -12,8 +12,8 @@ pub mod t2cl;
 /// that are speciffic to an Intel Skylake CPU.
 pub mod t2s;
 
-use crate::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
-use crate::transformer::Error;
+use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
+use crate::cpuid::transformer::Error;
 
 pub fn validate_vendor_id() -> Result<(), Error> {
     let vendor_id = get_vendor_id_from_host()?;

@@ -11,20 +11,19 @@ use std::collections::HashSet;
 use arch_gen::x86::msr_index::*;
 use kvm_bindings::CpuId;
 
-use crate::common::{get_vendor_id_from_cpuid, VENDOR_ID_AMD, VENDOR_ID_INTEL};
-use crate::cpuid_is_feature_set;
-use crate::transformer::Error;
+use crate::cpuid::common::{get_vendor_id_from_cpuid, VENDOR_ID_AMD, VENDOR_ID_INTEL};
+use crate::cpuid::transformer::Error;
 
 /// Returns MSRs to be saved based on the CPUID features that are enabled.
 fn cpuid_to_msrs_to_save(cpuid: &CpuId) -> HashSet<u32> {
-    use crate::cpu_leaf::*;
+    use crate::cpuid::cpu_leaf::*;
 
     let mut msrs = HashSet::new();
 
     // Macro used for easy definition of CPUID-MSR dependencies.
     macro_rules! cpuid_msr_dep {
         ($leaf:expr, $index:expr, $reg:tt, $feature_bit:expr, $msr:expr) => {
-            if cpuid_is_feature_set!(cpuid, $leaf, $index, $reg, $feature_bit) {
+            if crate::cpuid_is_feature_set!(cpuid, $leaf, $index, $reg, $feature_bit) {
                 msrs.extend($msr)
             }
         };
@@ -109,7 +108,7 @@ pub mod tests {
     fn test_msrs_to_save_by_cpuid_one() {
         use kvm_bindings::kvm_cpuid_entry2;
 
-        use crate::cpu_leaf::leaf_0x7;
+        use crate::cpuid::cpu_leaf::leaf_0x7;
 
         // One CPUID entry with MPX feature flag is provided
         // that causes MSR_IA32_BNDCFGS to be pulled in.
