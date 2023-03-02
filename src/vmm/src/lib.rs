@@ -10,6 +10,10 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+/// Utility for configuring the CPUID (CPU identification) for the guest microVM.
+#[cfg(target_arch = "x86_64")]
+pub mod cpuid;
+
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 pub(crate) mod device_manager;

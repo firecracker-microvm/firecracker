@@ -4,9 +4,9 @@
 use kvm_bindings::{CpuId, KVM_CPUID_FLAG_SIGNIFCANT_INDEX};
 
 use super::*;
-use crate::bit_helper::BitHelper;
-use crate::cpu_leaf::*;
-use crate::transformer::common::use_host_cpuid_function;
+use crate::cpuid::bit_helper::BitHelper;
+use crate::cpuid::cpu_leaf::*;
+use crate::cpuid::transformer::common::use_host_cpuid_function;
 
 // Largest extended function. It has to be larger then 0x8000001d (Extended Cache Topology).
 const LARGEST_EXTENDED_FN: u32 = 0x8000_001f;
@@ -21,7 +21,7 @@ pub fn update_structured_extended_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x7::index0::*;
+    use crate::cpuid::cpu_leaf::leaf_0x7::index0::*;
 
     // according to the EPYC PPR, only the leaf 0x7 with index 0 contains the
     // structured extended feature identifiers
@@ -37,7 +37,7 @@ pub fn update_largest_extended_fn_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000000::*;
+    use crate::cpuid::cpu_leaf::leaf_0x80000000::*;
 
     // KVM sets the largest extended function to 0x80000000. Change it to 0x8000001f
     // Since we also use the leaf 0x8000001d (Extended Cache Topology).
@@ -52,7 +52,7 @@ pub fn update_extended_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000001::*;
+    use crate::cpuid::cpu_leaf::leaf_0x80000001::*;
 
     // set the Topology Extension bit since we use the Extended Cache Topology leaf
     entry.ecx.write_bit(ecx::TOPOEXT_BITINDEX, true);
@@ -64,7 +64,7 @@ pub fn update_amd_features_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000008::*;
+    use crate::cpuid::cpu_leaf::leaf_0x80000008::*;
 
     // We don't support more then 128 threads right now.
     // It's safe to put them all on the same processor.
@@ -89,7 +89,7 @@ pub fn update_extended_apic_id_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x8000001e::*;
+    use crate::cpuid::cpu_leaf::leaf_0x8000001e::*;
 
     // When hyper-threading is enabled each pair of 2 consecutive logical CPUs
     // will have the same core id since they represent 2 threads in the same core.
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_update_structured_extended_entry() {
-        use crate::cpu_leaf::leaf_0x7::index0::*;
+        use crate::cpuid::cpu_leaf::leaf_0x7::index0::*;
 
         // Check that if index == 0 the entry is processed
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_update_largest_extended_fn_entry() {
-        use crate::cpu_leaf::leaf_0x80000000::*;
+        use crate::cpuid::cpu_leaf::leaf_0x80000000::*;
 
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let entry = &mut kvm_cpuid_entry2 {
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_update_extended_feature_info_entry() {
-        use crate::cpu_leaf::leaf_0x80000001::*;
+        use crate::cpuid::cpu_leaf::leaf_0x80000001::*;
 
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let entry = &mut kvm_cpuid_entry2 {
@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn check_update_amd_features_entry(cpu_count: u8, smt: bool) {
-        use crate::cpu_leaf::leaf_0x80000008::*;
+        use crate::cpuid::cpu_leaf::leaf_0x80000008::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
         let entry = &mut kvm_cpuid_entry2 {
@@ -288,7 +288,7 @@ mod tests {
         expected_core_id: u32,
         expected_threads_per_core: u32,
     ) {
-        use crate::cpu_leaf::leaf_0x8000001e::*;
+        use crate::cpuid::cpu_leaf::leaf_0x8000001e::*;
 
         let vm_spec = VmSpec::new(cpu_id, cpu_count, smt).expect("Error creating vm_spec");
         let entry = &mut kvm_cpuid_entry2 {

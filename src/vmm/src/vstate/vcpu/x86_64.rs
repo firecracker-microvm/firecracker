@@ -12,7 +12,6 @@ use std::{fmt, result};
 use arch::x86_64::interrupts;
 use arch::x86_64::msr::SetMSRsError;
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
@@ -23,6 +22,7 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+use crate::cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -37,7 +37,7 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 #[derive(Debug)]
 pub enum Error {
     /// A call to cpuid instruction failed.
-    CpuId(cpuid::Error),
+    CpuId(crate::cpuid::Error),
     /// A FamStructWrapper operation has failed.
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
@@ -188,11 +188,11 @@ impl std::error::Error for SetTscError {}
 #[derive(Debug, thiserror::Error)]
 pub enum KvmVcpuConfigureError {
     #[error("Failed to create `VmSpec`: {0}")]
-    VmSpec(cpuid::Error),
+    VmSpec(crate::cpuid::Error),
     #[error("Failed to filter CPUID: {0}")]
-    FilterCpuid(cpuid::Error),
+    FilterCpuid(crate::cpuid::Error),
     #[error("Failed to set CPUID entries: {0}")]
-    SetCpuidEntries(cpuid::Error),
+    SetCpuidEntries(crate::cpuid::Error),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to push MSR entry to FamStructWrapper.")]
@@ -626,22 +626,21 @@ impl VcpuState {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    extern crate cpuid;
 
     use std::os::unix::io::AsRawFd;
 
     use arch::x86_64::cpu_model::CpuModel;
-    use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
     use kvm_ioctls::Cap;
 
     use super::*;
+    use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
         fn default() -> Self {
             VcpuState {
-                cpuid: CpuId::new(1).unwrap(),
+                cpuid: crate::cpuid::CpuId::new(1).unwrap(),
                 msrs: Msrs::new(1).unwrap(),
                 saved_msrs: vec![Msrs::new(1).unwrap()],
                 debug_regs: Default::default(),

@@ -279,18 +279,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpuid"
-version = "0.1.0"
-dependencies = [
- "arch",
- "arch_gen",
- "kvm-bindings",
- "kvm-ioctls",
- "thiserror",
- "utils",
-]
-
-[[package]]
 name = "crc64"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1360,7 +1348,7 @@ name = "vmm"
 version = "0.1.0"
 dependencies = [
  "arch",
- "cpuid",
+ "arch_gen",
  "criterion",
  "derive_more",
  "devices",
