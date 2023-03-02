@@ -91,13 +91,13 @@ checksum = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
 
 [[package]]
 name = "seccompiler"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "bincode",
- "derive_more",
  "libc",
  "serde",
  "serde_json",
+ "thiserror",
  "utils",
 ]
 
@@ -144,6 +144,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "thiserror"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a9cd18aa97d5c45c6603caea1da6628790b37f7a34b6ca89522331c5180fed0"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fb327af4685e4d03fa8cbcf1716380da910eeb2bb8be417e7f9fd3fb164f36f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -157,6 +177,7 @@ dependencies = [
  "libc",
  "net_gen",
  "serde",
+ "thiserror",
  "versionize",
  "versionize_derive",
  "vmm-sys-util",
