@@ -3,3 +3,11 @@
 
 #[cfg(cpuid)]
 pub mod cpuid;
+
+/// Module containing type implementations needed for aarch64 (ARM) CPU configuration
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+
+/// Module containing type implementations needed for x86 CPU configuration
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64;
