@@ -218,11 +218,10 @@ def test_arbitrary_usocket_location(test_microvm_with_initrd):
 
 
 @functools.lru_cache(maxsize=None)
-def cgroup_v1_available():
-    """Check if cgroup-v1 is disabled on the system."""
-    with open("/proc/cmdline", encoding="utf-8") as cmdline_file:
-        cmdline = cmdline_file.readline()
-        return bool("cgroup_no_v1=all" not in cmdline)
+def cgroup_v2_available():
+    """Check if cgroup-v2 is enabled on the system."""
+    # https://rootlesscontaine.rs/getting-started/common/cgroup2/#checking-whether-cgroup-v2-is-already-enabled
+    return os.path.isfile("/sys/fs/cgroup/cgroup.controllers")
 
 
 @pytest.fixture
@@ -234,7 +233,7 @@ def sys_setup_cgroups():
     This set-up is important to do when running from inside a Docker
     container while the system is using cgroup-v2.
     """
-    cgroup_version = 1 if cgroup_v1_available() else 2
+    cgroup_version = 2 if cgroup_v2_available() else 1
     if cgroup_version == 2:
         # Cgroup-v2 adds a no internal process constraint which means that
         # non-root cgroups can distribute domain resources to their children
@@ -510,7 +509,7 @@ def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):
 
 
 @pytest.mark.skipif(
-    cgroup_v1_available() is False, reason="Requires system with cgroup-v1 enabled."
+    cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
 )
 @pytest.mark.usefixtures("sys_setup_cgroups")
 def test_v1_default_cgroups(test_microvm_with_initrd):
