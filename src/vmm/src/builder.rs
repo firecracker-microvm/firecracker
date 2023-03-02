@@ -3,6 +3,7 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
+use std::collections::HashMap;
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
@@ -43,6 +44,12 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+#[cfg(target_arch = "aarch64")]
+use crate::guest_config::aarch64::Aarch64CpuConfiguration;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::cpuid::{Cpuid, RawCpuid};
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::X86_64CpuConfiguration;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -833,7 +840,13 @@ pub fn configure_system_for_boot(
                     vmm.guest_memory(),
                     entry_addr,
                     &vcpu_config,
-                    vmm.vm.supported_cpuid().clone(),
+                    X86_64CpuConfiguration {
+                        cpuid: Cpuid::try_from(
+                            RawCpuid::from(vmm.vm.supported_cpuid().clone()).clone(),
+                        )
+                        .unwrap(),
+                        msrs: HashMap::new(),
+                    },
                 )
                 .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
@@ -864,7 +877,13 @@ pub fn configure_system_for_boot(
     {
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .configure(vmm.guest_memory(), entry_addr)
+                .configure(
+                    vmm.guest_memory(),
+                    entry_addr,
+                    Aarch64CpuConfiguration {
+                        regs: HashMap::new(),
+                    },
+                )
                 .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
         }
