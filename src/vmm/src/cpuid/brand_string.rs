@@ -4,7 +4,7 @@
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
 
-use crate::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
+use crate::cpuid::common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
