@@ -15,6 +15,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+use crate::guest_config::aarch64::Aarch64CpuConfiguration;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
@@ -103,7 +104,9 @@ impl KvmVcpu {
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
+        _cpu_config: Aarch64CpuConfiguration,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
+        // TODO - Apply CPU config
         arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
@@ -233,12 +236,20 @@ mod tests {
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
         assert!(vcpu
-            .configure(&vm_mem, GuestAddress(arch::get_kernel_start()),)
+            .configure(
+                &vm_mem,
+                GuestAddress(arch::get_kernel_start()),
+                Aarch64CpuConfiguration::default(),
+            )
             .is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(
+            &vm_mem,
+            GuestAddress(arch::get_kernel_start()),
+            Aarch64CpuConfiguration::default(),
+        );
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
@@ -249,7 +260,11 @@ mod tests {
 
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(
+            &vm_mem,
+            GuestAddress(arch::get_kernel_start()),
+            Aarch64CpuConfiguration::default(),
+        );
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
