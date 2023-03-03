@@ -27,6 +27,14 @@ from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 PLATFORM = platform.machine()
 
 
+def clean_and_mkdir(dir_path):
+    """
+    Create a clean directory
+    """
+    shutil.rmtree(dir_path, ignore_errors=True)
+    os.makedirs(dir_path)
+
+
 def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     expected_cpu_features = {
         "cpu count": "{} ({})".format(hex(expected_cpu_count), expected_cpu_count),
@@ -445,8 +453,7 @@ def _test_cpu_wrmsr_snapshot(context):
         / context.kernel.base_name()
         / get_cpu_template_dir(cpu_template)
     )
-    shutil.rmtree(snapshot_artifacts_dir, ignore_errors=True)
-    os.makedirs(snapshot_artifacts_dir)
+    clean_and_mkdir(snapshot_artifacts_dir)
 
     msrs_before_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
 
@@ -621,7 +628,7 @@ def _test_cpu_wrmsr_restore(context):
     tmp_snapshot_artifacts_dir = (
         Path() / chroot_dir / "tmp" / context.kernel.base_name()
     )
-    os.makedirs(tmp_snapshot_artifacts_dir)
+    clean_and_mkdir(tmp_snapshot_artifacts_dir)
 
     mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
     snapshot_fname_in_jail = (
@@ -743,7 +750,7 @@ def _test_cpu_cpuid_snapshot(context):
         / context.kernel.base_name()
         / cpu_template_dir
     )
-    os.makedirs(snapshot_artifacts_dir)
+    clean_and_mkdir(snapshot_artifacts_dir)
 
     cpuid_before_fname = (
         Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"]
@@ -866,8 +873,7 @@ def _test_cpu_cpuid_restore(context):
     # Bring snapshot files from the 1st part of the test into the jail
     chroot_dir = vm.chroot()
     tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / context.kernel.base_name()
-    shutil.rmtree(tmp_snapshot_artifacts_dir, ignore_errors=True)
-    os.makedirs(tmp_snapshot_artifacts_dir)
+    clean_and_mkdir(snapshot_artifacts_dir)
 
     mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
     snapshot_fname_in_jail = (
