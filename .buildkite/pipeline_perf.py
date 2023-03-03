@@ -87,6 +87,7 @@ parser.add_argument(
     action="append",
     default=[],
 )
+
 args = parser.parse_args()
 if not args.instances:
     args.instances = DEFAULT_INSTANCES

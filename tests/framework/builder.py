@@ -91,7 +91,7 @@ class MicrovmBuilder:
         config: Artifact,
         net_ifaces=None,
         diff_snapshots=False,
-        cpu_template=None,
+        cpu_template="T2CL",
         fc_binary=None,
         jailer_binary=None,
         use_ramdisk=False,

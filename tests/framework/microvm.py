@@ -540,7 +540,7 @@ class Microvm:
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
         rootfs_io_engine=None,
-        cpu_template: Optional[str] = None,
+        cpu_template: Optional[str] = "T2CL",
     ):
         """Shortcut for quickly configuring a microVM.
 
