@@ -84,6 +84,7 @@ def send_metrics(metrics, stats: core.Core):
         # for example vmlinux-4.14.bin/ubuntu-18.04.ext4/2vcpu_1024mb.json/tcp-p1024K-ws16K-bd
         test = tag.split("/")[-1]
         dimensions["test"] = test
+        dimensions["performance_test"] = stats.name
         metrics.set_dimensions(dimensions)
         metrics.set_property("tag", tag)
 
@@ -98,9 +99,15 @@ def send_metrics(metrics, stats: core.Core):
 
 
 @pytest.fixture
-def st_core(metrics, results_file_dumper):
+def st_core(metrics, results_file_dumper, guest_kernel):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
+    stats.iterations = 1
+    stats.custom = {
+        "cpu_model": global_props.cpu_model,
+        "host_linux": global_props.host_linux_version,
+        "guest_linux": guest_kernel.name(),
+    }
     yield stats
     results_file_dumper.dump(stats.statistics)
     send_metrics(metrics, stats)

@@ -161,18 +161,10 @@ def test_network_latency(
 
     # is this actually needed, beyond baselines?
     guest_config = f"{guest_vcpus}vcpu_{guest_mem_mib}mb.json"
-    st_core.name = "network_latency"
-    st_core.iterations = 1
-    st_core.custom = {
-        "cpu_model": get_cpu_model_name(),
-        "host_linux": kernel_version,
-        "guest_linux": guest_kernel.name(),
-        "guest_config": guest_config.removesuffix(".json"),
-        "performance_test": TEST_ID,
-    }
+    st_core.name = TEST_ID
+    st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
-
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
             measurements=CONFIG_DICT["measurements"],

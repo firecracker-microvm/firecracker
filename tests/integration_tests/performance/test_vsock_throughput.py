@@ -284,14 +284,7 @@ def test_vsock_throughput(
 
     guest_config = f"{vcpus}vcpu_{mem_size_mib}mb.json"
     st_core.name = TEST_ID
-    st_core.iterations = 1
-    st_core.custom = {
-        "cpu_model": get_cpu_model_name(),
-        "host_linux": kernel_version,
-        "guest_linux": guest_kernel.name(),
-        "guest_config": guest_config.removesuffix(".json"),
-        "performance_test": TEST_ID,
-    }
+    st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
