@@ -38,8 +38,9 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     for instance in instances:
         for (os, kv) in platforms:
             # fill any templated variables
-            step_commands = [cmd.format(instance=instance, os=os, kv=kv)
-                             for cmd in commands]
+            step_commands = [
+                cmd.format(instance=instance, os=os, kv=kv) for cmd in commands
+            ]
             agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
             step = {
                 "command": step_commands,

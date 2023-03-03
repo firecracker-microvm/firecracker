@@ -16,7 +16,8 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # pylint: disable=wrong-import-position
 # The test infra assumes it is running from the `tests` directory.
 os.chdir("tests")
-from conftest import ARTIFACTS_COLLECTION as ARTIFACTS, _gcc_compile
+from conftest import ARTIFACTS_COLLECTION as ARTIFACTS
+from conftest import _gcc_compile
 from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
@@ -28,6 +29,7 @@ from framework.utils import (
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from integration_tests.functional.test_cmd_line_start import _configure_vm_from_json
+
 # restore directory
 os.chdir("..")
 
