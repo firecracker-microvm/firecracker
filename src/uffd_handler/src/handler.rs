@@ -107,21 +107,17 @@ pub struct PageFaultHandler<T: UffdManager> {
     mem_regions: Vec<MemRegion>,
     backing_buffer: *const libc::c_void,
     pub uffd: T,
-    // Not currently used but included to demonstrate how a page fault handler can
-    // fetch Firecracker's PID in order to make it aware of any crashes/exits.
-    _firecracker_pid: u32,
 }
 
 impl<T> PageFaultHandler<T>
 where
     T: UffdManager,
 {
-    pub fn new(mem_regions: Vec<MemRegion>, buff: *const libc::c_void, uffd: T, pid: u32) -> Self {
+    pub fn new(mem_regions: Vec<MemRegion>, buff: *const libc::c_void, uffd: T) -> Self {
         PageFaultHandler {
             mem_regions,
             backing_buffer: buff,
             uffd,
-            _firecracker_pid: pid,
         }
     }
 
@@ -265,7 +261,7 @@ mod tests {
             offset: 0,
         }];
 
-        PageFaultHandler::new(create_mem_regions(mappings), ptr::null(), MockUffd {}, 0)
+        PageFaultHandler::new(create_mem_regions(mappings), ptr::null(), MockUffd {})
     }
 
     #[test]

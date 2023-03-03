@@ -4,6 +4,8 @@
 use std::fs::File;
 use std::os::unix::net::UnixStream;
 
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use utils::sock_ctrl_msg::ScmSocket;
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +31,22 @@ pub fn parse_unix_stream(stream: &UnixStream) -> Result<(File, String), StreamEr
     let file = file.ok_or(StreamError::NoFd)?;
 
     Ok((file, body))
+}
+
+/// If the userfaultfd handler process dies, Firecracker will freeze because it will wait
+/// forever for its page faults to be handled. The handler sends a SIGBUS signal to the Firecracker
+/// process to inform it of crashes/exits.
+pub fn send_sigbus(pid: Pid) {
+    match kill(pid, Signal::SIGBUS) {
+        Ok(()) => println!(
+            "Successfully sent SIGBUS signal to process with PID: {:?}",
+            pid
+        ),
+        Err(e) => eprintln!(
+            "Encountered error: {:?} while sending SIGBUS signal to process with PID: {:?}",
+            e, pid
+        ),
+    }
 }
 
 #[cfg(test)]

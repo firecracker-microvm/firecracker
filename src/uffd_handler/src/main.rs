@@ -11,12 +11,13 @@ mod memory_region;
 
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::{io, mem, process, ptr};
 
+use nix::unistd::Pid;
 use userfaultfd::Uffd;
 
-use crate::common::{parse_unix_stream, StreamError};
+use crate::common::{parse_unix_stream, send_sigbus, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
 use crate::memory_region::{mem_regions_from_stream, MemRegionError};
 
@@ -63,18 +64,28 @@ fn validate_snapshot_file(file_name: &str) -> Result<(File, usize)> {
     Ok((file, size))
 }
 
-fn create_handler<U>() -> Result<PageFaultHandler<Uffd>>
+fn get_stream_from_uds(uffd_sock_path: &str) -> Result<UnixStream> {
+    // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
+    let listener = UnixListener::bind(uffd_sock_path).map_err(Error::BindSocket)?;
+    let (stream, _) = listener.accept().map_err(Error::AcceptConnection)?;
+
+    Ok(stream)
+}
+
+fn create_handler<U>(
+    stream: UnixStream,
+    mem_file: File,
+    mem_file_size: usize,
+) -> Result<PageFaultHandler<Uffd>>
 where
     U: UffdManager,
 {
-    let uffd_sock_path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| Error::ArgumentParsing(String::from("No socket path provided")))?;
-    let mem_file_path = std::env::args()
-        .nth(2)
-        .ok_or_else(|| Error::ArgumentParsing(String::from("No memory file provided")))?;
+    let (file, msg_body) = parse_unix_stream(&stream).map_err(Error::ParseStream)?;
+    // SAFETY: Safe because it wraps the Uffd object around the valid raw file descriptor.
+    let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-    let (file, mem_file_size) = validate_snapshot_file(&mem_file_path)?;
+    // Create guest memory regions from mappings received from Firecracker process.
+    let mem_regions = mem_regions_from_stream(&msg_body, mem_file_size)?;
 
     // mmap() a memory area used to bring in the faulting regions.
     // SAFETY: Safe because the parameters are valid.
@@ -84,7 +95,7 @@ where
             mem_file_size,
             libc::PROT_READ,
             libc::MAP_PRIVATE,
-            file.as_raw_fd(),
+            mem_file.as_raw_fd(),
             0,
         )
     };
@@ -92,26 +103,7 @@ where
         return Err(Error::Mmap(io::Error::last_os_error()));
     }
 
-    // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
-    let listener = UnixListener::bind(uffd_sock_path).map_err(Error::BindSocket)?;
-    let (stream, _) = listener.accept().map_err(Error::AcceptConnection)?;
-
-    let (file, msg_body) = parse_unix_stream(&stream).map_err(Error::ParseStream)?;
-    // SAFETY: Safe because it wraps the Uffd object around the valid raw file descriptor.
-    let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
-
-    // Create guest memory regions from mappings received from Firecracker process.
-    let mem_regions = mem_regions_from_stream(&msg_body, mem_file_size)?;
-
-    // Get credentials of Firecracker process sent through the stream.
-    let creds: libc::ucred = get_peer_process_credentials(stream.as_raw_fd())?;
-
-    Ok(PageFaultHandler::new(
-        mem_regions,
-        memfile_buffer,
-        uffd,
-        creds.pid as u32,
-    ))
+    Ok(PageFaultHandler::new(mem_regions, memfile_buffer, uffd))
 }
 
 fn get_peer_process_credentials(fd: RawFd) -> Result<libc::ucred> {
@@ -142,14 +134,42 @@ fn get_peer_process_credentials(fd: RawFd) -> Result<libc::ucred> {
     Ok(creds)
 }
 
+fn print_err_and_exit(error: Error) -> ! {
+    eprintln!("{:?}", error);
+    process::exit(EXIT_CODE_ERROR)
+}
+
 fn main() {
-    let mut uffd_handler = create_handler::<Uffd>().unwrap_or_else(|err| {
-        eprintln!("Creating userfaulfd handler failed: {:?}", err);
-        process::exit(EXIT_CODE_ERROR);
+    let uffd_sock_path = std::env::args().nth(1).unwrap_or_else(|| {
+        print_err_and_exit(Error::ArgumentParsing(String::from(
+            "No socket path provided",
+        )))
     });
+    let mem_file_path = std::env::args().nth(2).unwrap_or_else(|| {
+        print_err_and_exit(Error::ArgumentParsing(String::from(
+            "No memory file provided",
+        )))
+    });
+    let (mem_file, mem_file_size) =
+        validate_snapshot_file(&mem_file_path).unwrap_or_else(|err| print_err_and_exit(err));
+
+    let stream = get_stream_from_uds(&uffd_sock_path).unwrap_or_else(|err| print_err_and_exit(err));
+
+    // Get credentials of Firecracker process sent through the stream.
+    let creds: libc::ucred = get_peer_process_credentials(stream.as_raw_fd())
+        .unwrap_or_else(|err| print_err_and_exit(err));
+    let firecracker_pid = Pid::from_raw(creds.pid);
+
+    let mut uffd_handler =
+        create_handler::<Uffd>(stream, mem_file, mem_file_size).unwrap_or_else(|err| {
+            eprintln!("Creating userfaulfd handler failed: {:?}", err);
+            send_sigbus(firecracker_pid);
+            process::exit(EXIT_CODE_ERROR);
+        });
 
     uffd_handler.run().unwrap_or_else(|err| {
         eprintln!("Userfaultfd handler failed: {:?}", err);
+        send_sigbus(firecracker_pid);
         process::exit(EXIT_CODE_ERROR);
     });
 }

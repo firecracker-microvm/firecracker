@@ -1225,6 +1225,7 @@ name = "uffd_handler"
 version = "1.4.0"
 dependencies = [
  "libc",
+ "nix",
  "serde",
  "serde_json",
  "thiserror",
