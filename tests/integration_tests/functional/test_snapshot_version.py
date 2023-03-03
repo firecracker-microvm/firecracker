@@ -7,7 +7,9 @@ import platform
 import pytest
 
 from framework.artifacts import NetIfaceConfig
-from framework.builder import MicrovmBuilder, SnapshotBuilder
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import get_firecracker_version_from_toml, run_cmd
+from host_tools.cargo_build import get_firecracker_binaries
 
 # Firecracker v0.23 used 16 IRQ lines. For virtio devices,
 # IRQs are available from 5 to 23, so the maximum number
@@ -114,6 +116,47 @@ def test_create_invalid_version(bin_cloner_path):
         assert "Cannot translate microVM version to snapshot data version" in str(error)
     else:
         assert False, "Negative test failed"
+
+
+def test_snapshot_current_version(bin_cloner_path):
+    """Tests taking a snapshot at the version specified in Cargo.toml
+
+    Check that it is possible to take a snapshot at the version of the upcoming
+    release (during the release process this ensures that if we release version
+    x.y, then taking a snapshot at version x.y works - something we'd otherwise
+    only be able to test once the x.y binary has been uploaded to S3, at which
+    point it is too late, see also the 1.3 release).
+
+    @type: functional
+    """
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano(diff_snapshots=True)
+    vm = vm_instance.vm
+    vm.start()
+
+    version = get_firecracker_version_from_toml()
+    # normalize to a snapshot version
+    (major, minor, _) = version.split(".", maxsplit=3)
+    target_version = f"{major}.{minor}.0"
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(vm)
+    disks = [vm_instance.disks[0].local_path()]
+    snapshot = snapshot_builder.create(
+        disks,
+        vm_instance.ssh_key,
+        snapshot_type=SnapshotType.FULL,
+        target_version=target_version,
+    )
+
+    # Fetch Firecracker binary for the latest version
+    fc_binary, _ = get_firecracker_binaries()
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
+
+    code, stdout, stderr = run_cmd(cmd)
+    assert code == 0, stderr
+    assert stderr == ""
+    assert target_version in stdout
 
 
 def test_create_with_newer_virtio_features(bin_cloner_path):
