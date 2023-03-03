@@ -97,7 +97,7 @@ sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
 CHANGED+=(CHANGELOG.md)
 
 git add "${files_to_change[@]}" "${CHANGED[@]}"
-git commit -s -m "Releasing v$version"
+git commit -s -m "chore: release v$version"
 
 
 # pretty print code
