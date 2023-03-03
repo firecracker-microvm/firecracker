@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed taking a snapshot with `target_version = 1.3.0` failing with the
+  message "Cannot translate microVM version to snapshot data version".
+
 ## [1.3.0]
 
 ### Added
