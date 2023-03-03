@@ -7,7 +7,13 @@
 import subprocess
 from pathlib import Path
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, DEFAULT_QUEUE, group, pipeline_to_json
+from common import (
+    DEFAULT_INSTANCES,
+    DEFAULT_PLATFORMS,
+    DEFAULT_QUEUE,
+    group,
+    pipeline_to_json,
+)
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -39,25 +45,25 @@ defaults = {
 build_grp = group(
     "📦 Build",
     "./tools/devtool -y test -- ../tests/integration_tests/build/",
-    **defaults
+    **defaults,
 )
 
 functional_1_grp = group(
     "⚙ Functional [a-n]",
     "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[a-n]*.py`",
-    **defaults
+    **defaults,
 )
 
 functional_2_grp = group(
     "⚙ Functional [o-z]",
     "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[o-z]*.py`",
-    **defaults
+    **defaults,
 )
 
 security_grp = group(
     "🔒 Security",
     "./tools/devtool -y test -- ../tests/integration_tests/security/",
-    **defaults
+    **defaults,
 )
 
 defaults_for_performance = defaults.copy()

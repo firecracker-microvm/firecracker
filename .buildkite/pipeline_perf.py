@@ -6,8 +6,7 @@
 
 import argparse
 
-from common import (DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group,
-                    pipeline_to_json)
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
 
 perf_test = {
     "block": {
