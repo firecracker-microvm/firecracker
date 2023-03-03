@@ -227,7 +227,7 @@ MSR_EXCEPTION_LIST = [
 # fmt: on
 
 
-MSR_SUPPORTED_TEMPLATES = ["T2A", "T2S"]
+MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
 
 
 @pytest.fixture(
