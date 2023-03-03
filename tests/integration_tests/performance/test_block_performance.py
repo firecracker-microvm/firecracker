@@ -296,18 +296,15 @@ def test_block_performance(
         current_cpu_id += 1
         vm.pin_vcpu(vcpu_id, current_cpu_id)
 
+    # define test dimensions
     st_core.name = TEST_ID
-    st_core.iterations = 1
-    # define dimensions
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb"
-    st_core.custom = {
-        "cpu_model": get_cpu_model_name(),
-        "host_linux": kernel_version,
-        "guest_linux": guest_kernel.name(),
-        "guest_config": microvm_cfg.removesuffix(".json"),
-        "performance_test": TEST_ID,
-        "io_engine": io_engine,
-    }
+    st_core.custom.update(
+        {
+            "guest_config": microvm_cfg.removesuffix(".json"),
+            "io_engine": io_engine,
+        }
+    )
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{io_engine.lower()}_{microvm_cfg}"
 
