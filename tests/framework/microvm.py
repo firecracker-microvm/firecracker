@@ -586,10 +586,13 @@ class Microvm:
         ), response.text
 
         if add_root_device and self.rootfs_file != "":
+            jail_fn = self.create_jailed_resource
+            if self.jailer.uses_ramfs:
+                jail_fn = self.copy_to_jail_ramfs
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id="rootfs",
-                path_on_host=self.create_jailed_resource(self.rootfs_file),
+                path_on_host=jail_fn(self.rootfs_file),
                 is_root_device=True,
                 is_read_only=False,
                 io_engine=rootfs_io_engine,
