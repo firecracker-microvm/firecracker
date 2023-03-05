@@ -99,14 +99,16 @@ def send_metrics(metrics, stats: core.Core):
 
 
 @pytest.fixture
-def st_core(metrics, results_file_dumper, guest_kernel):
+def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
     stats.iterations = 1
     stats.custom = {
+        "instance": global_props.instance,
         "cpu_model": global_props.cpu_model,
-        "host_linux": global_props.host_linux_version,
-        "guest_linux": guest_kernel.name(),
+        "host_kernel": "linux-" + global_props.host_linux_version,
+        "guest_kernel": guest_kernel.prop,
+        "rootfs": rootfs.name(),
     }
     yield stats
     results_file_dumper.dump(stats.statistics)
