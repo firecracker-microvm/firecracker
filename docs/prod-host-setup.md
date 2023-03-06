@@ -317,6 +317,16 @@ echo "KSM: ENABLED (Recommendation: DISABLED)"
 
 #### Check for mitigations against Spectre Side Channels
 
+In development we use an integration test to check for spectre vulnerability on
+the host.
+
+The script we run in this test can be downloaded and executed like:
+
+```bash
+# Read https://meltdown.ovh before running it.
+wget -O - https://meltdown.ovh | bash
+```
+
 ##### Branch Target Injection mitigation (Spectre V2, including Spectre-BHB)
 
 ###### Intel and AMD
