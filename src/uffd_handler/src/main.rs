@@ -10,14 +10,14 @@ mod handler;
 mod memory_region;
 
 use std::fs::File;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::{io, mem, process, ptr};
+use std::{io, process, ptr};
 
 use nix::unistd::Pid;
 use userfaultfd::Uffd;
 
-use crate::common::{parse_unix_stream, send_sigbus, StreamError};
+use crate::common::{get_peer_process_credentials, parse_unix_stream, send_sigbus, StreamError};
 use crate::handler::{HandlerError, PageFaultHandler, UffdManager};
 use crate::memory_region::{mem_regions_from_stream, MemRegionError};
 
@@ -106,34 +106,6 @@ where
     Ok(PageFaultHandler::new(mem_regions, memfile_buffer, uffd))
 }
 
-fn get_peer_process_credentials(fd: RawFd) -> Result<libc::ucred> {
-    let mut creds: libc::ucred = libc::ucred {
-        pid: 0,
-        gid: 0,
-        uid: 0,
-    };
-    let mut creds_size = mem::size_of::<libc::ucred>() as u32;
-    let creds_ref: *mut libc::ucred = &mut creds as *mut _;
-
-    // Retrieve socket options in order to obtain credentials of peer process
-    // (in our case, Firecracker's credentials).
-    // SAFETY: Safe because all parameters are valid.
-    let ret = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            creds_ref.cast::<libc::c_void>(),
-            &mut creds_size as *mut libc::socklen_t,
-        )
-    };
-    if ret != 0 {
-        return Err(Error::PeerCredentials);
-    }
-
-    Ok(creds)
-}
-
 fn print_err_and_exit(error: Error) -> ! {
     eprintln!("{:?}", error);
     process::exit(EXIT_CODE_ERROR)
@@ -156,8 +128,10 @@ fn main() {
     let stream = get_stream_from_uds(&uffd_sock_path).unwrap_or_else(|err| print_err_and_exit(err));
 
     // Get credentials of Firecracker process sent through the stream.
-    let creds: libc::ucred = get_peer_process_credentials(stream.as_raw_fd())
-        .unwrap_or_else(|err| print_err_and_exit(err));
+    let (creds, code) = get_peer_process_credentials(stream.as_raw_fd());
+    if code != 0 {
+        print_err_and_exit(Error::PeerCredentials);
+    }
     let firecracker_pid = Pid::from_raw(creds.pid);
 
     let mut uffd_handler =
@@ -177,12 +151,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::os::unix::io::AsRawFd;
-    use std::os::unix::net::UnixStream;
 
     use utils::tempfile::TempFile;
 
-    use super::get_peer_process_credentials;
     use crate::{validate_snapshot_file, Error};
 
     #[test]
@@ -204,26 +175,5 @@ mod tests {
 
         let (_, size) = validate_snapshot_file(mem_file.as_path().to_str().unwrap()).unwrap();
         assert_eq!(size, written);
-    }
-
-    #[test]
-    fn test_get_peer_process_credentials_successful() {
-        let (sender, receiver) = UnixStream::pair().unwrap();
-        let sender_creds = get_peer_process_credentials(sender.as_raw_fd()).unwrap();
-        let receiver_creds = get_peer_process_credentials(receiver.as_raw_fd()).unwrap();
-
-        assert!(sender_creds.pid > 0);
-        assert_eq!(sender_creds, receiver_creds);
-    }
-    #[test]
-    fn test_get_peer_process_credentials_error() {
-        let fd = TempFile::new().unwrap().as_file().as_raw_fd();
-        // Getting credentials for regular file should fail.
-        let res = get_peer_process_credentials(fd);
-        assert!(res.is_err());
-        assert_eq!(
-            Error::PeerCredentials.to_string(),
-            res.err().unwrap().to_string()
-        );
     }
 }

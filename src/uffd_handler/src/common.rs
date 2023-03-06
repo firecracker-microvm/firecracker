@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::File;
+use std::mem;
+use std::os::unix::io::RawFd;
 use std::os::unix::net::UnixStream;
 
 use nix::sys::signal::{kill, Signal};
@@ -33,6 +35,31 @@ pub fn parse_unix_stream(stream: &UnixStream) -> Result<(File, String), StreamEr
     Ok((file, body))
 }
 
+pub fn get_peer_process_credentials(fd: RawFd) -> (libc::ucred, i32) {
+    let mut creds: libc::ucred = libc::ucred {
+        pid: 0,
+        gid: 0,
+        uid: 0,
+    };
+    let mut creds_size = mem::size_of::<libc::ucred>() as u32;
+    let creds_ref: *mut libc::ucred = &mut creds as *mut _;
+
+    // Retrieve socket options in order to obtain credentials of peer process
+    // (in our case, Firecracker's credentials).
+    // SAFETY: Safe because all parameters are valid.
+    let ret = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            creds_ref.cast::<libc::c_void>(),
+            &mut creds_size as *mut libc::socklen_t,
+        )
+    };
+
+    (creds, ret)
+}
+
 /// If the userfaultfd handler process dies, Firecracker will freeze because it will wait
 /// forever for its page faults to be handled. The handler sends a SIGBUS signal to the Firecracker
 /// process to inform it of crashes/exits.
@@ -53,6 +80,8 @@ pub fn send_sigbus(pid: Pid) {
 mod tests {
     use std::io::Write;
     use std::os::unix::io::AsRawFd;
+
+    use utils::tempfile::TempFile;
 
     use super::*;
 
@@ -114,5 +143,24 @@ mod tests {
         let res = parse_unix_stream(&receiver);
         assert!(res.is_err());
         assert!(matches!(res.err().unwrap(), StreamError::InvalidData(_)));
+    }
+
+    #[test]
+    fn test_get_peer_process_credentials_successful() {
+        let (sender, receiver) = UnixStream::pair().unwrap();
+        let (sender_creds, code) = get_peer_process_credentials(sender.as_raw_fd());
+        assert_eq!(code, 0);
+        let (receiver_creds, code) = get_peer_process_credentials(receiver.as_raw_fd());
+        assert_eq!(code, 0);
+
+        assert!(sender_creds.pid > 0);
+        assert_eq!(sender_creds, receiver_creds);
+    }
+    #[test]
+    fn test_get_peer_process_credentials_error() {
+        let fd = TempFile::new().unwrap().as_file().as_raw_fd();
+        // Getting credentials for regular file should fail.
+        let (_, code) = get_peer_process_credentials(fd);
+        assert_ne!(code, 0);
     }
 }
