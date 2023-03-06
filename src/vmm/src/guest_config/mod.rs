@@ -8,6 +8,9 @@ pub mod cpuid;
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 
+/// Module for types used for custom CPU templates
+pub mod templates;
+
 /// Module containing type implementations needed for x86 CPU configuration
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;

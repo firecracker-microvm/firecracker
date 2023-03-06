@@ -40,7 +40,7 @@ use std::mem::{size_of, transmute};
 pub mod common;
 
 /// Raw CPUID specification handling.
-mod cpuid_ffi;
+pub(crate) mod cpuid_ffi;
 pub use cpuid_ffi::*;
 
 /// AMD CPUID specification handling.
