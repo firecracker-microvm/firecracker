@@ -29,7 +29,7 @@ OUTPUT_FILENAMES = {
         "test_block_performance_sync",
         "test_block_performance_async",
     ],
-    "snap_restore_performance": ["test_snap_restore_performance"],
+    "snapshot_restore_performance": ["test_snap_restore_performance"],
     "network_latency": ["test_network_latency"],
 }
 
@@ -37,17 +37,11 @@ DATA_PARSERS = {
     "vsock_throughput": Iperf3DataParser,
     "network_tcp_throughput": Iperf3DataParser,
     "block_performance": BlockDataParser,
-    "snap_restore_performance": SnapshotRestoreDataParser,
+    "snapshot_restore_performance": SnapshotRestoreDataParser,
     "network_latency": LatencyDataParser,
 }
 
-TESTS = [
-    "block_performance",
-    "network_latency",
-    "network_tcp_throughput",
-    "snap_restore_performance",
-    "vsock_throughput",
-]
+TESTS = list(OUTPUT_FILENAMES)
 
 INSTANCES = ["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal", "c7g.metal"]
 
