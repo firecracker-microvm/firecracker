@@ -1,10 +1,9 @@
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Test UFFD related functionality when resuming from snapshot."""
-
+import http
 import logging
 import os
-import socket
 from subprocess import TimeoutExpired
 
 import stat
@@ -216,16 +215,18 @@ def test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_
         vm, uffd_handler_paths["malicious_handler"], snapshot.mem
     )
 
-    # We expect Firecracker to freeze while resuming from a snapshot
-    # due to the malicious handler's unavailability.
+    # The malicious page fault handler is configured to abort on the first page fault.
+    # Without an external process to copy requested pages to RAM, Firecracker would freeze
+    # while resuming from a snapshot. To prevent this, we send a SIGBUS signal to Firecracker
+    # and expect it to shut down.
     try:
         vm_builder.build_from_snapshot(
             snapshot, vm=vm, resume=True, uffd_path=SOCKET_PATH, timeout=30
         )
         assert False
     except (
-        socket.timeout,
-        urllib3.exceptions.ReadTimeoutError,
-        requests.exceptions.ReadTimeout,
+        requests.exceptions.ConnectionError,
+        urllib3.exceptions.ProtocolError,
+        http.client.RemoteDisconnected,
     ) as _err:
         assert True, _err

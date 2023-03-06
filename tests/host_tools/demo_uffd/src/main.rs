@@ -7,7 +7,8 @@
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixListener;
 
-use uffd_handler::common::parse_unix_stream;
+use nix::unistd::Pid;
+use uffd_handler::common::{get_peer_process_credentials, parse_unix_stream, send_sigbus};
 use userfaultfd::Uffd;
 
 fn main() {
@@ -17,6 +18,13 @@ fn main() {
     // descriptor to poll for page fault events on.
     let listener = UnixListener::bind(&uffd_sock_path).expect("Cannot bind to socket path");
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+
+    // Get credentials of Firecracker process sent through the stream.
+    let (creds, code) = get_peer_process_credentials(stream.as_raw_fd());
+    if code != 0 {
+        panic!("Failed to get Firecracker's credentials");
+    }
+    let firecracker_pid = Pid::from_raw(creds.pid);
 
     // Parse unix stream to get userfaultfd.
     let (file, _) = parse_unix_stream(&stream).expect("Failed to parse unix stream.");
@@ -43,6 +51,7 @@ fn main() {
 
         // Panic on PageFault event.
         if let userfaultfd::Event::Pagefault { .. } = event {
+            send_sigbus(firecracker_pid);
             panic!("Fear me! I am the malicious page fault handler.")
         }
     }

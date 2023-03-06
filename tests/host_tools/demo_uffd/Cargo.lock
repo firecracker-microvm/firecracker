@@ -91,6 +91,7 @@ name = "demo_uffd"
 version = "1.1.0"
 dependencies = [
  "libc",
+ "nix",
  "serde",
  "serde_json",
  "uffd_handler",
@@ -320,6 +321,7 @@ name = "uffd_handler"
 version = "1.4.0"
 dependencies = [
  "libc",
+ "nix",
  "serde",
  "serde_json",
  "thiserror",
