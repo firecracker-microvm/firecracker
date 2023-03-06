@@ -3,8 +3,10 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 /// CPU configuration for aarch64 CPUs
-#[derive(Default, Debug)]
+#[derive(Deserialize, Default, Debug, Serialize)]
 pub struct Aarch64CpuConfiguration {
     /// Register values as a key pair
     /// Key: Register pointer
