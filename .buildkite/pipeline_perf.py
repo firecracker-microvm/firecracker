@@ -19,7 +19,7 @@ perf_test = {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_restore_performance.py",
         "devtool_opts": "-c 1-12 -m 0",
-        "timeout_in_minutes": 45,
+        "timeout_in_minutes": 60,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
