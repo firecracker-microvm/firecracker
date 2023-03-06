@@ -25,10 +25,7 @@ from framework.defs import SUPPORTED_KERNELS  # noqa: E402
 OUTPUT_FILENAMES = {
     "vsock_throughput": ["test_vsock_throughput"],
     "network_tcp_throughput": ["test_network_tcp_throughput"],
-    "block_performance": [
-        "test_block_performance_sync",
-        "test_block_performance_async",
-    ],
+    "block_performance": ["test_block_performance"],
     "snapshot_restore_performance": ["test_snap_restore_performance"],
     "network_latency": ["test_network_latency"],
 }
