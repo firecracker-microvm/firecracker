@@ -9,7 +9,7 @@ shopt -s lastpipe
 function check_snapshot_version {
     local version=$1
     local snap_version=$(echo $version |cut -f-2 -d. |tr . _)
-    if ! grep FC_V${snap_version}_SNAP_VERSION src/vmm/src/version_map.rs; then
+    if ! grep -s FC_V${snap_version}_SNAP_VERSION src/vmm/src/version_map.rs; then
        die "I couldn't find FC_V${snap_version}_SNAP_VERSION in src/vmm/src/version_map.rs"
     fi
 }
