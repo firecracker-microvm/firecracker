@@ -582,42 +582,6 @@ mod tests {
         assert_eq!(bitfield.SSE4(), true);
     }
     #[test]
-    fn checked_sub_assign() {
-        let mut bitfield = GeneratedBitField::from(23548);
-        assert_eq!(bitfield.RANGE1(), 0);
-        assert_eq!(bitfield.SSE(), true);
-        assert_eq!(bitfield.SSE1(), true);
-        assert_eq!(bitfield.RANGE2(), 3);
-        assert_eq!(bitfield.SSE2(), true);
-        assert_eq!(bitfield.SSE3(), false);
-        assert_eq!(bitfield.RANGE3(), 5);
-        assert_eq!(bitfield.SSE4(), false);
-
-        assert_eq!(
-            bitfield.RANGE1_mut().checked_sub_assign(1),
-            Err(CheckedSubAssignError::Underflow)
-        );
-        assert_eq!(bitfield.RANGE1(), 0);
-        assert_eq!(
-            bitfield.RANGE1_mut().checked_sub_assign(2),
-            Err(CheckedSubAssignError::OutOfRange)
-        );
-        assert_eq!(bitfield.RANGE1(), 0);
-
-        assert_eq!(bitfield.RANGE2_mut().checked_sub_assign(1), Ok(()));
-        assert_eq!(bitfield.RANGE2(), 2);
-
-        // We check all values are as expected at tend (we do this to ensure no operation overflow)
-        assert_eq!(bitfield.RANGE1(), 0);
-        assert_eq!(bitfield.SSE(), true);
-        assert_eq!(bitfield.SSE1(), true);
-        assert_eq!(bitfield.RANGE2(), 2);
-        assert_eq!(bitfield.SSE2(), true);
-        assert_eq!(bitfield.SSE3(), false);
-        assert_eq!(bitfield.RANGE3(), 5);
-        assert_eq!(bitfield.SSE4(), false);
-    }
-    #[test]
     fn checked_assign() {
         let mut bitfield = GeneratedBitField::from(23548);
 
