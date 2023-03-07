@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed feature flags in T2S CPU template on Intel Ice Lake.
+
 ## [1.3.0]
 
 ### Added

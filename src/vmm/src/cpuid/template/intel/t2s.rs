@@ -18,6 +18,9 @@ impl CpuidTransformer for T2SCpuidTransformer {
             leaf_0x7::LEAF_NUM => Some(crate::cpuid::t2::update_structured_extended_entry),
             leaf_0xd::LEAF_NUM => Some(crate::cpuid::t2::update_xsave_features_entry),
             leaf_0x80000001::LEAF_NUM => Some(crate::cpuid::t2::update_extended_feature_info_entry),
+            leaf_0x80000008::LEAF_NUM => {
+                Some(crate::cpuid::t2::update_extended_feature_extensions_entry)
+            }
             _ => None,
         }
     }
