@@ -35,30 +35,6 @@ pub enum TryFromFlagSetAndFieldMapError {
     CheckedAssign(#[from] CheckedAssignError),
 }
 
-/// Error type for [`crate::BitRangeMut<u8, _, _>::checked_add_assign()`], [`crate::BitRangeMut<u16,
-/// _, _>::checked_add_assign()`], etc.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CheckedAddAssignError {
-    /// Operation would result in overflow of bit range.
-    #[error("Operation would result in overflow of bit range.")]
-    Overflow,
-    /// Given value is more than maximum value storable in bit range.
-    #[error("Given value is more than maximum value storable in bit range.")]
-    OutOfRange,
-}
-
-/// Error type for [`crate::BitRangeMut<u8, _, _>::checked_sub_assign()`], [`crate::BitRangeMut<u16,
-/// _, _>::checked_sub_assign()`], etc.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CheckedSubAssignError {
-    /// Operation would result in underflow of bit range.
-    #[error("Operation would result in underflow of bit range.")]
-    Underflow,
-    /// Given value is more than maximum value storable in bit range.
-    #[error("Given value is more than maximum value storable in bit range.")]
-    OutOfRange,
-}
-
 /// Error type for [`crate::BitRangeMut<u8, _, _>::checked_assign()`], [`crate::BitRangeMut<u16, _,
 /// _>::checked_assign()`], etc.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
