@@ -20,7 +20,7 @@ INST_SET_TEMPLATES = ["T2A", "T2CL"]
 
 @pytest.fixture(
     name="inst_set_cpu_template",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES),
+    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES)),
 )
 def inst_set_cpu_template_fxt(request):
     """CPU template fixture for instruction set feature parity templates"""
@@ -70,7 +70,7 @@ def test_feat_parity_cpuid_mpx(vm):
 
 @pytest.mark.parametrize(
     "inst_set_cpu_template",
-    set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"]),
+    sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"])),
     indirect=True,
 )
 def test_feat_parity_cpuid_inst_set(vm):
