@@ -26,7 +26,7 @@ use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
-mod cpuid_templates;
+pub(crate) mod cpuid_templates;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
