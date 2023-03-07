@@ -223,6 +223,15 @@ MSR_EXCEPTION_LIST = [
     "0xc0010007",  # MSR_K7_PERFCTR3
     "0xc001020b",  # Performance Event Counter MSR_F15H_PERF_CTR5
     "0xc0011029",  # MSR_F10H_DECFG also referred to as MSR_AMD64_DE_CFG
+    "0x830"     ,  # IA32_X2APIC_ICR is interrupt command register and,
+                   # bit 0-7 represent interrupt vector that varies.
+    "0x83F"     ,  # IA32_X2APIC_SELF_IPI
+                   # A self IPI is semantically identical to an
+                   # inter-processor interrupt sent via the ICR,
+                   # with a Destination Shorthand of Self,
+                   # Trigger Mode equal to Edge,
+                   # and a Delivery Mode equal to Fixed.
+                   # bit 0-7 represent interrupt vector that varies.
 ]
 # fmt: on
 
