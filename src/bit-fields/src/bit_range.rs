@@ -183,58 +183,6 @@ macro_rules! bit_mut_range {
                 self.checked_assign(x)
             }
 
-            #[doc = concat!("
-                Adds `x` to the value of the bit range.
-
-                # Errors
-
-                1. When `x` is greater than the maximum value storable in the bit range.
-                2. When adding `x` to the value of the bit range would overflow.
-
-                ```
-                use bit_fields::{BitRangeMut, CheckedAddAssignError};
-                let mut x = 18", stringify!($x), ";
-
-                let mut nibble = BitRangeMut::<_,0,4>(&mut x);
-                assert_eq!(nibble,2);
-                assert_eq!(nibble.checked_add_assign(16),Err(CheckedAddAssignError::OutOfRange));
-                assert_eq!(nibble.checked_add_assign(14),Err(CheckedAddAssignError::Overflow));
-                assert_eq!(nibble.checked_add_assign(2),Ok(()));
-                assert_eq!(nibble,4);
-                assert_eq!(x,20);
-                
-                let mut nibble = BitRangeMut::<_,4,8>(&mut x);
-                assert_eq!(nibble,1);
-                assert_eq!(nibble.checked_add_assign(16),Err(CheckedAddAssignError::OutOfRange));
-                assert_eq!(nibble.checked_add_assign(15),Err(CheckedAddAssignError::Overflow));
-                assert_eq!(nibble.checked_add_assign(2),Ok(()));
-                assert_eq!(nibble,3);
-                assert_eq!(x,52);
-                ```
-            ")]
-            #[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
-            #[inline]
-            pub fn checked_add_assign(
-                &mut self,
-                x: $x,
-            ) -> Result<(), $crate::CheckedAddAssignError> {
-                if x <= Self::MAX {
-                    let cur = self.read();
-                    if x <= Self::MAX - cur {
-                        debug_assert!(cur + x <= Self::MAX);
-                        // SAFETY: `x <= Self::MAX - cur` implies `cur + x <= Self::MAX`.
-                        unsafe {
-                            self.unchecked_assign(cur + x)
-                        }
-                        Ok(())
-                    } else {
-                        Err($crate::CheckedAddAssignError::Overflow)
-                    }
-                } else {
-                    Err($crate::CheckedAddAssignError::OutOfRange)
-                }
-            }
-
             // `x <= Self::MAX` guarantees `x << START` is safe and `x <= cur` guarantees
             // `self.data_mut() -= shift` is safe.
             #[doc = concat!("
