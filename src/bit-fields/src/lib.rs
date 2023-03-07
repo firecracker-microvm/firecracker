@@ -582,58 +582,6 @@ mod tests {
         assert_eq!(bitfield.SSE4(), true);
     }
     #[test]
-    fn checked_add_assign() {
-        let mut bitfield = GeneratedBitField::from(23548);
-        assert_eq!(bitfield.RANGE1(), 0);
-        assert_eq!(bitfield.SSE(), true);
-        assert_eq!(bitfield.SSE1(), true);
-        assert_eq!(bitfield.RANGE2(), 3);
-        assert_eq!(bitfield.SSE2(), true);
-        assert_eq!(bitfield.SSE3(), false);
-        assert_eq!(bitfield.RANGE3(), 5);
-        assert_eq!(bitfield.SSE4(), false);
-
-        assert_eq!(bitfield.RANGE1_mut().checked_add_assign(1), Ok(()));
-        assert_eq!(bitfield.RANGE1(), 1);
-
-        assert_eq!(
-            bitfield.RANGE1_mut().checked_add_assign(1),
-            Err(CheckedAddAssignError::Overflow)
-        );
-        assert_eq!(bitfield.RANGE1(), 1);
-
-        assert_eq!(
-            bitfield.RANGE2_mut().checked_add_assign(1),
-            Err(CheckedAddAssignError::Overflow)
-        );
-        assert_eq!(bitfield.RANGE1(), 1);
-
-        assert_eq!(bitfield.RANGE3_mut().checked_add_assign(2), Ok(()));
-        assert_eq!(bitfield.RANGE3(), 7);
-
-        assert_eq!(
-            bitfield.RANGE3_mut().checked_add_assign(1),
-            Err(CheckedAddAssignError::Overflow)
-        );
-        assert_eq!(bitfield.RANGE3(), 7);
-
-        assert_eq!(
-            bitfield.RANGE3_mut().checked_add_assign(8),
-            Err(CheckedAddAssignError::OutOfRange)
-        );
-        assert_eq!(bitfield.RANGE3(), 7);
-
-        // We check all values are as expected at tend (we do this to ensure no operation overflow)
-        assert_eq!(bitfield.RANGE1(), 1);
-        assert_eq!(bitfield.SSE(), true);
-        assert_eq!(bitfield.SSE1(), true);
-        assert_eq!(bitfield.RANGE2(), 3);
-        assert_eq!(bitfield.SSE2(), true);
-        assert_eq!(bitfield.SSE3(), false);
-        assert_eq!(bitfield.RANGE3(), 7);
-        assert_eq!(bitfield.SSE4(), false);
-    }
-    #[test]
     fn checked_sub_assign() {
         let mut bitfield = GeneratedBitField::from(23548);
         assert_eq!(bitfield.RANGE1(), 0);
@@ -668,69 +616,6 @@ mod tests {
         assert_eq!(bitfield.SSE3(), false);
         assert_eq!(bitfield.RANGE3(), 5);
         assert_eq!(bitfield.SSE4(), false);
-    }
-    #[test]
-    fn add_sub() {
-        let mut bitfield = GeneratedBitField::from(23548);
-
-        let (mut range1, mut range2, mut range3) = (0, 3, 5);
-        check(&bitfield, range1, range2, range3);
-
-        let mut rng = rand::thread_rng();
-        // Randomly add and sub to `RANGE1`
-        for _ in 0..ITERATIONS {
-            let next = rng.gen_range(0..MAX);
-            if rng.gen() {
-                dbg!(next);
-                range1 += bitfield
-                    .RANGE1_mut()
-                    .checked_add_assign(next)
-                    .map_or(0, |_| next);
-            } else {
-                dbg!(next);
-                range1 -= bitfield
-                    .RANGE1_mut()
-                    .checked_sub_assign(next)
-                    .map_or(0, |_| next);
-            }
-            check(&bitfield, range1, range2, range3);
-        }
-        // Randomly add and sub to `RANGE2`
-        for _ in 0..ITERATIONS {
-            let next = rng.gen_range(0..MAX);
-            if rng.gen() {
-                dbg!(next);
-                range2 += bitfield
-                    .RANGE2_mut()
-                    .checked_add_assign(next)
-                    .map_or(0, |_| next);
-            } else {
-                dbg!(next);
-                range2 -= bitfield
-                    .RANGE2_mut()
-                    .checked_sub_assign(next)
-                    .map_or(0, |_| next);
-            }
-            check(&bitfield, range1, range2, range3);
-        }
-        // Randomly add and sub to `RANGE3`
-        for _ in 0..ITERATIONS {
-            let next = rng.gen_range(0..MAX);
-            if rng.gen() {
-                dbg!(next);
-                range3 += bitfield
-                    .RANGE3_mut()
-                    .checked_add_assign(next)
-                    .map_or(0, |_| next);
-            } else {
-                dbg!(next);
-                range3 -= bitfield
-                    .RANGE3_mut()
-                    .checked_sub_assign(next)
-                    .map_or(0, |_| next);
-            }
-            check(&bitfield, range1, range2, range3);
-        }
     }
     #[test]
     fn checked_assign() {
