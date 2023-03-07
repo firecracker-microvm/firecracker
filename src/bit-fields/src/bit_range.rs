@@ -183,59 +183,6 @@ macro_rules! bit_mut_range {
                 self.checked_assign(x)
             }
 
-            // `x <= Self::MAX` guarantees `x << START` is safe and `x <= cur` guarantees
-            // `self.data_mut() -= shift` is safe.
-            #[doc = concat!("
-                Subtract `x` from the value of the bit range.
-
-                # Errors
-
-                1. When `x` is greater than the maximum value storable in the bit range.
-                2. When subtracting `x` from the value of the bit range would underflow.
-
-                ```
-                use bit_fields::{BitRangeMut, CheckedSubAssignError};
-                let mut x = 18", stringify!($x), ";
-
-                let mut nibble = BitRangeMut::<_,0,4>(&mut x);
-                assert_eq!(nibble,2);
-                assert_eq!(nibble.checked_sub_assign(16),Err(CheckedSubAssignError::OutOfRange));
-                assert_eq!(nibble.checked_sub_assign(3),Err(CheckedSubAssignError::Underflow));
-                assert_eq!(nibble.checked_sub_assign(1),Ok(()));
-                assert_eq!(nibble,1);
-                assert_eq!(x,17);
-                
-                let mut nibble = BitRangeMut::<_,4,8>(&mut x);
-                assert_eq!(nibble,1);
-                assert_eq!(nibble.checked_sub_assign(16),Err(CheckedSubAssignError::OutOfRange));
-                assert_eq!(nibble.checked_sub_assign(2),Err(CheckedSubAssignError::Underflow));
-                assert_eq!(nibble.checked_sub_assign(1),Ok(()));
-                assert_eq!(nibble,0);
-                assert_eq!(x,1);
-                ```
-            ")]
-            #[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
-            #[inline]
-            pub fn checked_sub_assign(
-                &mut self,
-                x: $x,
-            ) -> Result<(), $crate::CheckedSubAssignError> {
-                if x <= Self::MAX {
-                    let cur = self.read();
-                    if x <= cur {
-                        // SAFETY: `x <= cur` implies `cur - x >= 0`.
-                        unsafe {
-                            self.unchecked_assign(cur - x);
-                        }
-                        Ok(())
-                    } else {
-                        Err($crate::CheckedSubAssignError::Underflow)
-                    }
-                } else {
-                    Err($crate::CheckedSubAssignError::OutOfRange)
-                }
-            }
-
             // `x <= Self::MAX` guarantees `x << START` is safe.
             #[doc = concat!("
                 Sets the bit range returning `Err(())` when the given `x` is not storable in the
