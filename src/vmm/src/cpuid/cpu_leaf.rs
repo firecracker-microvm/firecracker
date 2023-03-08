@@ -55,7 +55,6 @@ pub mod leaf_0x1 {
         pub const DCA_BITINDEX: u32 = 18;
         pub const MOVBE_BITINDEX: u32 = 22;
         pub const TSC_DEADLINE_TIMER_BITINDEX: u32 = 24;
-        pub const OSXSAVE_BITINDEX: u32 = 27;
         // Cpu is running on a hypervisor.
         pub const HYPERVISOR_BITINDEX: u32 = 31;
     }
@@ -64,7 +63,6 @@ pub mod leaf_0x1 {
         pub const MCE_BITINDEX: u32 = 7; // Memory Check Exception
         pub const MTRR_BITINDEX: u32 = 12; // Memory Type Range Registers
         pub const PSN_BITINDEX: u32 = 18; // Processor Serial Number
-        pub const SSE42_BITINDEX: u32 = 20; // SSE 4.2
         pub const DS_BITINDEX: u32 = 21; // Debug Store.
         pub const ACPI_BITINDEX: u32 = 22; // Thermal Monitor and Software Controlled Clock Facilities.
         pub const SS_BITINDEX: u32 = 27; // Self Snoop

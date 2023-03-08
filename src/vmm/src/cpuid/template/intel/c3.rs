@@ -39,8 +39,7 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bit(ecx::FMA_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::MOVBE_BITINDEX, false)
-        .write_bit(ecx::OSXSAVE_BITINDEX, false);
+        .write_bit(ecx::MOVBE_BITINDEX, false);
 
     entry
         .edx
