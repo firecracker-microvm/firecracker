@@ -3,16 +3,13 @@
 
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
-use crate::bit_helper::BitHelper;
-use crate::cpu_leaf::*;
-use crate::template::intel::validate_vendor_id;
-use crate::transformer::*;
+use crate::cpuid::bit_helper::BitHelper;
+use crate::cpuid::cpu_leaf::*;
+use crate::cpuid::template::intel::validate_vendor_id;
+use crate::cpuid::transformer::*;
 
-pub(crate) fn update_feature_info_entry(
-    entry: &mut kvm_cpuid_entry2,
-    _vm_spec: &VmSpec,
-) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x1::*;
+fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {
+    use crate::cpuid::cpu_leaf::leaf_0x1::*;
 
     entry
         .eax
@@ -24,10 +21,10 @@ pub(crate) fn update_feature_info_entry(
         .write_bits_in_range(&eax::PROCESSOR_TYPE_BITRANGE, 0)
         // Processor Family = 6
         .write_bits_in_range(&eax::PROCESSOR_FAMILY_BITRANGE, 6)
-        // Processor Model = 15
-        .write_bits_in_range(&eax::PROCESSOR_MODEL_BITRANGE, 15)
-        // Stepping = 2
-        .write_bits_in_range(&eax::STEPPING_BITRANGE, 2);
+        // Processor Model = 14
+        .write_bits_in_range(&eax::PROCESSOR_MODEL_BITRANGE, 14)
+        // Stepping = 4
+        .write_bits_in_range(&eax::STEPPING_BITRANGE, 4);
 
     // Enable/disable Features
     entry
@@ -36,14 +33,13 @@ pub(crate) fn update_feature_info_entry(
         .write_bit(ecx::MONITOR_BITINDEX, false)
         .write_bit(ecx::DS_CPL_SHIFT, false)
         .write_bit(ecx::VMX_BITINDEX, false)
-        .write_bit(ecx::SMX_BITINDEX, false)
-        .write_bit(ecx::EIST_BITINDEX, false)
         .write_bit(ecx::TM2_BITINDEX, false)
         .write_bit(ecx::CNXT_ID_BITINDEX, false)
         .write_bit(ecx::SDBG_BITINDEX, false)
+        .write_bit(ecx::FMA_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::DCA_BITINDEX, false)
+        .write_bit(ecx::MOVBE_BITINDEX, false)
         .write_bit(ecx::OSXSAVE_BITINDEX, false);
 
     entry
@@ -51,33 +47,33 @@ pub(crate) fn update_feature_info_entry(
         .write_bit(edx::MCE_BITINDEX, true)
         .write_bit(edx::MTRR_BITINDEX, true)
         .write_bit(edx::PSN_BITINDEX, false)
-        .write_bit(edx::SSE42_BITINDEX, false)
         .write_bit(edx::DS_BITINDEX, false)
         .write_bit(edx::ACPI_BITINDEX, false)
         .write_bit(edx::SS_BITINDEX, false)
         .write_bit(edx::TM_BITINDEX, false)
-        .write_bit(edx::IA64_BITINDEX, false)
         .write_bit(edx::PBE_BITINDEX, false);
 
     Ok(())
 }
 
-pub(crate) fn update_structured_extended_entry(
+fn update_structured_extended_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x7::index0::*;
+    use crate::cpuid::cpu_leaf::leaf_0x7::index0::*;
 
     if entry.index == 0 {
         entry
             .ebx
             .write_bit(ebx::SGX_BITINDEX, false)
+            .write_bit(ebx::BMI1_BITINDEX, false)
             .write_bit(ebx::HLE_BITINDEX, false)
+            .write_bit(ebx::AVX2_BITINDEX, false)
             .write_bit(ebx::FPDP_BITINDEX, false)
-            .write_bit(ebx::ERMS_BITINDEX, true)
+            .write_bit(ebx::BMI2_BITINDEX, false)
+            .write_bit(ebx::INVPCID_BITINDEX, false)
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
-            .write_bit(ebx::FPU_CS_DS_DEPRECATE_BITINDEX, false)
             .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::MPX_BITINDEX, false)
             .write_bit(ebx::AVX512F_BITINDEX, false)
@@ -85,7 +81,6 @@ pub(crate) fn update_structured_extended_entry(
             .write_bit(ebx::RDSEED_BITINDEX, false)
             .write_bit(ebx::ADX_BITINDEX, false)
             .write_bit(ebx::AVX512IFMA_BITINDEX, false)
-            .write_bit(ebx::PCOMMIT_BITINDEX, false)
             .write_bit(ebx::CLFLUSHOPT_BITINDEX, false)
             .write_bit(ebx::CLWB_BITINDEX, false)
             .write_bit(ebx::PT_BITINDEX, false)
@@ -102,12 +97,7 @@ pub(crate) fn update_structured_extended_entry(
             .write_bit(ecx::UMIP_BITINDEX, false)
             .write_bit(ecx::PKU_BITINDEX, false)
             .write_bit(ecx::OSPKE_BITINDEX, false)
-            .write_bit(ecx::AVX512_VBMI2_BITINDEX, false)
-            .write_bit(ecx::GFNI_BITINDEX, false)
-            .write_bit(ecx::VAES_BITINDEX, false)
-            .write_bit(ecx::VPCLMULQDQ_BITINDEX, false)
             .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
-            .write_bit(ecx::AVX512_BITALG_BITINDEX, false)
             .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false)
             .write_bit(ecx::LA57_BITINDEX, false)
             .write_bit(ecx::RDPID_BITINDEX, false)
@@ -116,19 +106,17 @@ pub(crate) fn update_structured_extended_entry(
         entry
             .edx
             .write_bit(edx::AVX512_4VNNIW_BITINDEX, false)
-            .write_bit(edx::AVX512_4FMAPS_BITINDEX, false)
-            .write_bit(edx::FSRM_BITINDEX, false)
-            .write_bit(edx::AVX512_VP2INTERSECT_BITINDEX, false);
+            .write_bit(edx::AVX512_4FMAPS_BITINDEX, false);
     }
 
     Ok(())
 }
 
-pub(crate) fn update_xsave_features_entry(
+fn update_xsave_features_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0xd::*;
+    use crate::cpuid::cpu_leaf::leaf_0xd::*;
 
     if entry.index == 0 {
         // MPX is masked out with the current template so the size in bytes of the save
@@ -159,50 +147,39 @@ pub(crate) fn update_xsave_features_entry(
     Ok(())
 }
 
-pub(crate) fn update_extended_feature_info_entry(
+fn update_extended_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000001::*;
+    use crate::cpuid::cpu_leaf::leaf_0x80000001::*;
 
     entry
         .ecx
         .write_bit(ecx::PREFETCH_BITINDEX, false)
-        .write_bit(ecx::MWAIT_EXTENDED_BITINDEX, false);
+        .write_bit(ecx::LZCNT_BITINDEX, false);
 
     entry.edx.write_bit(edx::PDPE1GB_BITINDEX, false);
 
     Ok(())
 }
 
-pub(crate) fn update_extended_feature_extensions_entry(
-    entry: &mut kvm_cpuid_entry2,
-    _vm_spec: &VmSpec,
-) -> Result<(), Error> {
-    use crate::cpu_leaf::leaf_0x80000008::*;
+/// Sets up the cpuid entries for a given VCPU following a C3 template.
+struct C3CpuidTransformer;
 
-    entry.ebx.write_bit(ebx::WBNOINVD_BITINDEX, false);
-
-    Ok(())
-}
-/// Sets up the cpuid entries for a given VCPU following a T2 template.
-struct T2CpuidTransformer;
-
-impl CpuidTransformer for T2CpuidTransformer {
+impl CpuidTransformer for C3CpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
             leaf_0x1::LEAF_NUM => Some(update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(update_structured_extended_entry),
             leaf_0xd::LEAF_NUM => Some(update_xsave_features_entry),
             leaf_0x80000001::LEAF_NUM => Some(update_extended_feature_info_entry),
-            leaf_0x80000008::LEAF_NUM => Some(update_extended_feature_extensions_entry),
             _ => None,
         }
     }
 }
 
-/// Sets up the cpuid entries for a given VCPU following a T2 template.
+/// Sets up the cpuid entries for a given VCPU following a C3 template.
 pub fn set_cpuid_entries(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
     validate_vendor_id()?;
-    T2CpuidTransformer {}.process_cpuid(kvm_cpuid, vm_spec)
+    C3CpuidTransformer {}.process_cpuid(kvm_cpuid, vm_spec)
 }

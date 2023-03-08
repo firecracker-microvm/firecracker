@@ -5,8 +5,8 @@
 /// Also disables AMD-specific features.
 pub mod t2a;
 
-use crate::common::{get_vendor_id_from_host, VENDOR_ID_AMD};
-use crate::transformer::Error;
+use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD};
+use crate::cpuid::transformer::Error;
 
 pub fn validate_vendor_id() -> Result<(), Error> {
     let vendor_id = get_vendor_id_from_host()?;
