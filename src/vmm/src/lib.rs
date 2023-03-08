@@ -68,8 +68,9 @@ use crate::device_manager::mmio::MMIODeviceManager;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
-use crate::vstate::vm::Vm;
+use crate::vstate::vcpu::VcpuState;
+pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
+pub use crate::vstate::vm::Vm;
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
