@@ -43,15 +43,13 @@ pub(crate) fn update_feature_info_entry(
         .write_bit(ecx::SDBG_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::DCA_BITINDEX, false)
-        .write_bit(ecx::OSXSAVE_BITINDEX, false);
+        .write_bit(ecx::DCA_BITINDEX, false);
 
     entry
         .edx
         .write_bit(edx::MCE_BITINDEX, true)
         .write_bit(edx::MTRR_BITINDEX, true)
         .write_bit(edx::PSN_BITINDEX, false)
-        .write_bit(edx::SSE42_BITINDEX, false)
         .write_bit(edx::DS_BITINDEX, false)
         .write_bit(edx::ACPI_BITINDEX, false)
         .write_bit(edx::SS_BITINDEX, false)
