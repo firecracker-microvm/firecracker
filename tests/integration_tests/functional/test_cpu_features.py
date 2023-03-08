@@ -982,102 +982,194 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
 
 def check_masked_features(test_microvm, cpu_template):
     """Verify the masked features of the given template."""
-    common_masked_features_lscpu = [
-        "dtes64",
-        "monitor",
-        "ds_cpl",
-        "tm2",
-        "cnxt-id",
-        "sdbg",
-        "xtpr",
-        "pdcm",
-        "osxsave",
-        "psn",
-        "ds",
-        "acpi",
-        "tm",
-        "ss",
-        "pbe",
-        "fpdp",
-        "rdt_m",
-        "rdt_a",
-        "mpx",
-        "avx512f",
-        "intel_pt",
-        "avx512_vpopcntdq",
-        "avx512_vnni",
-        "3dnowprefetch",
-        "pdpe1gb",
-        "vmx",
-        "umip",
-    ]
-
-    common_masked_features_cpuid = {
-        "SGX": "false",
-        "HLE": "false",
-        "RTM": "false",
-        "RDSEED": "false",
-        "ADX": "false",
-        "AVX512IFMA": "false",
-        "CLFLUSHOPT": "false",
-        "CLWB": "false",
-        "AVX512PF": "false",
-        "AVX512ER": "false",
-        "AVX512CD": "false",
-        "SHA": "false",
-        "AVX512BW": "false",
-        "AVX512VL": "false",
-        "AVX512VBMI": "false",
-        "PKU": "false",
-        "OSPKE": "false",
-        "RDPID": "false",
-        "SGX_LC": "false",
-        "AVX512_4VNNIW": "false",
-        "AVX512_4FMAPS": "false",
-        "XSAVEC": "false",
-        "XGETBV": "false",
-        "XSAVES": "false",
-        "UMIP": "false",
-        "VMX": "false",
-    }
-
-    # These are all discoverable by cpuid -1.
-    c3_masked_features = {
-        "FMA": "false",
-        "MOVBE": "false",
-        "BMI": "false",
-        "AVX2": "false",
-        "BMI2": "false",
-        "INVPCID": "false",
-    }
-
-    # Check that all common features discoverable with lscpu
-    # are properly masked.
-    guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
-    _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
-    assert stderr.read() == ""
-
-    cpu_flags_output = stdout.readline().rstrip().split(" ")
-
-    for feature in common_masked_features_lscpu:
-        assert feature not in cpu_flags_output, feature
-
-    # Check that all common features discoverable with cpuid
-    # are properly masked.
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "cpuid -1", None, "=", common_masked_features_cpuid
-    )
-
+    # fmt: off
     if cpu_template == "C3":
-        cpuid_utils.check_guest_cpuid_output(
-            test_microvm, "cpuid -1", None, "=", c3_masked_features
-        )
+        must_be_unset = [
+            (0x1, 0x0, "ecx",
+                (1 << 2) |  # DTES64
+                (1 << 3) |  # MONITOR
+                (1 << 4) |  # DS_CPL_SHIFT
+                (1 << 5) |  # VMX
+                (1 << 8) |  # TM2
+                (1 << 10) | # CNXT_ID
+                (1 << 11) | # SDBG
+                (1 << 12) | # FMA
+                (1 << 14) | # XTPR_UPDATE
+                (1 << 15) | # PDCM
+                (1 << 22)   # MOVBE
+            ),
+            (0x1, 0x0, "edx",
+                (1 << 18) | # PSN
+                (1 << 20) | # DS
+                (1 << 22) | # ACPI
+                (1 << 27) | # SS
+                (1 << 29) | # TM
+                (1 << 31)   # PBE
+            ),
+            (0x7, 0x0, "ebx",
+                (1 << 2) |  # SGX
+                (1 << 3) |  # BMI1
+                (1 << 4) |  # HLE
+                (1 << 5) |  # AVX2
+                (1 << 6) |  # FPDP
+                (1 << 8) |  # BMI2
+                (1 << 10) | # INVPCID
+                (1 << 11) | # RTM
+                (1 << 12) | # RDT_M
+                (1 << 14) | # MPX
+                (1 << 15) | # RDT_A
+                (1 << 16) | # AVX512F
+                (1 << 17) | # AVX512DQ
+                (1 << 18) | # RDSEED
+                (1 << 19) | # ADX
+                (1 << 21) | # AVX512IFMA
+                (1 << 23) | # CLFLUSHOPT
+                (1 << 24) | # CLWB
+                (1 << 25) | # PT
+                (1 << 26) | # AVX512PF
+                (1 << 27) | # AVX512ER
+                (1 << 28) | # AVX512CD
+                (1 << 29) | # SHA
+                (1 << 30) | # AVX512BW
+                (1 << 31)   # AVX512VL
+            ),
+            (0x7, 0x0, "ecx",
+                (1 << 1) |  # AVX512_VBMI
+                (1 << 2) |  # UMIP
+                (1 << 3) |  # PKU
+                (1 << 4) |  # OSPKE
+                (1 << 11) | # AVX512_VNNI
+                (1 << 14) | # AVX512_VPOPCNTDQ
+                (1 << 16) | # LA57
+                (1 << 22) | # RDPID
+                (1 << 30)   # SGX_LC
+            ),
+            (0x7, 0x0, "edx",
+                (1 << 2) |  # AVX512_4VNNIW
+                (1 << 3)    # AVX512_4FMAPS
+            ),
+            (0xd, 0x0, "eax",
+                (1 << 3) |  # MPX_STATE bit 0
+                (1 << 4) |  # MPX_STATE bit 1
+                (1 << 5) |  # AVX512_STATE bit 0
+                (1 << 6) |  # AVX512_STATE bit 1
+                (1 << 7) |  # AVX512_STATE bit 2
+                (1 << 9)    # PKRU
+            ),
+            (0xd, 0x1, "eax",
+                (1 << 1) |  # XSAVEC_SHIFT
+                (1 << 2) |  # XGETBV_SHIFT
+                (1 << 3)    # XSAVES_SHIFT
+            ),
+            (0x80000001, 0x0, "ecx",
+                (1 << 5) |  # LZCNT
+                (1 << 8)    # PREFETCH
+            ),
+            (0x80000001, 0x0, "edx",
+                (1 << 26)   # PDPE1GB
+            ),
+        ]
+    elif cpu_template in ("T2", "T2S"):
+        must_be_unset = [
+            (0x1, 0x0, "ecx",
+                (1 << 2) |  # DTES64
+                (1 << 3) |  # MONITOR
+                (1 << 4) |  # DS_CPL_SHIFT
+                (1 << 5) |  # VMX
+                (1 << 6) |  # SMX
+                (1 << 7) |  # EIST
+                (1 << 8) |  # TM2
+                (1 << 10) | # CNXT_ID
+                (1 << 11) | # SDBG
+                (1 << 14) | # XTPR_UPDATE
+                (1 << 15) | # PDCM
+                (1 << 18)   # DCA
+            ),
+            (0x1, 0x0, "edx",
+                (1 << 18) | # PSN
+                (1 << 20) | # DS
+                (1 << 22) | # ACPI
+                (1 << 27) | # SS
+                (1 << 29) | # TM
+                (1 << 30) | # IA64
+                (1 << 31)   # PBE
+            ),
+            (0x7, 0x0, "ebx",
+                (1 << 2) |  # SGX
+                (1 << 4) |  # HLE
+                (1 << 6) |  # FPDP
+                (1 << 11) | # RTM
+                (1 << 12) | # RDT_M
+                (1 << 14) | # MPX
+                (1 << 15) | # RDT_A
+                (1 << 16) | # AVX512F
+                (1 << 17) | # AVX512DQ
+                (1 << 18) | # RDSEED
+                (1 << 19) | # ADX
+                (1 << 21) | # AVX512IFMA
+                (1 << 22) | # PCOMMIT
+                (1 << 23) | # CLFLUSHOPT
+                (1 << 24) | # CLWB
+                (1 << 25) | # PT
+                (1 << 26) | # AVX512PF
+                (1 << 27) | # AVX512ER
+                (1 << 28) | # AVX512CD
+                (1 << 29) | # SHA
+                (1 << 30) | # AVX512BW
+                (1 << 31)   # AVX512VL
+            ),
+            (0x7, 0x0, "ecx",
+                (1 << 1) |  # AVX512_VBMI
+                (1 << 2) |  # UMIP
+                (1 << 3) |  # PKU
+                (1 << 4) |  # OSPKE
+                (1 << 6) |  # AVX512_VBMI2
+                (1 << 8) |  # GFNI
+                (1 << 9) |  # VAES
+                (1 << 10) | # VPCLMULQDQ
+                (1 << 11) | # AVX512_VNNI
+                (1 << 12) | # AVX512_BITALG
+                (1 << 14) | # AVX512_VPOPCNTDQ
+                (1 << 16) | # LA57
+                (1 << 22) | # RDPID
+                (1 << 30)   # SGX_LC
+            ),
+            (0x7, 0x0, "edx",
+                (1 << 2) |  # AVX512_4VNNIW
+                (1 << 3) |  # AVX512_4FMAPS
+                (1 << 4) |  # FSRM
+                (1 << 8)    # AVX512_VP2INTERSECT
+            ),
+            (0xd, 0x0, "eax",
+                (1 << 3) |  # MPX_STATE bit 0
+                (1 << 4) |  # MPX_STATE bit 1
+                (1 << 5) |  # AVX512_STATE bit 0
+                (1 << 6) |  # AVX512_STATE bit 1
+                (1 << 7) |  # AVX512_STATE bit 2
+                (1 << 9)    # PKRU
+            ),
+            (0xd, 0x1, "eax",
+                (1 << 1) |  # XSAVEC_SHIFT
+                (1 << 2) |  # XGETBV_SHIFT
+                (1 << 3)    # XSAVES_SHIFT
+            ),
+            (0x80000001, 0x0, "ecx",
+                (1 << 8) |  # PREFETCH
+                (1 << 29)   # MWAIT_EXTENDED
+            ),
+            (0x80000001, 0x0, "edx",
+                (1 << 26)   # PDPE1GB
+            ),
+            (0x80000008, 0x0, "ebx",
+                (1 << 9)    # WBNOINVD
+            )
+        ]
+    # fmt: on
 
-    # Check if XSAVE PKRU is masked for T3/C2.
-    expected_cpu_features = {"XCR0 supported: PKRU state": "false"}
-
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "cpuid -1", None, "=", expected_cpu_features
+    cpuid_utils.check_cpuid_feat_flags(
+        test_microvm,
+        [],
+        must_be_unset,
     )
 
 
