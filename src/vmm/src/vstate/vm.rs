@@ -319,6 +319,7 @@ impl Vm {
     }
 
     #[cfg(target_arch = "aarch64")]
+    /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
         Ok(VmState {
             gic: self
