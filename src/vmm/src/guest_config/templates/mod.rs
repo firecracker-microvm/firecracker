@@ -9,46 +9,6 @@ use serde::{Deserialize, Deserializer};
 // TODO: Refactor code to merge deserialize_* functions for modules x86_64 and aarch64
 /// Templates module to contain sub-modules for aarch64 and x86_64 templates
 
-fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let number_str = String::deserialize(deserializer)?;
-    let deserialized_number: u64 = if number_str.len() > 2 {
-        match &number_str[0..2] {
-            "0b" => u64::from_str_radix(&number_str[2..], 2),
-            "0x" => u64::from_str_radix(&number_str[2..], 16),
-            _ => u64::from_str(&number_str),
-        }
-        .map_err(|err| {
-            SerdeError::custom(format!(
-                "Failed to parse string [{}] as a number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    } else {
-        u64::from_str(&number_str).map_err(|err| {
-            SerdeError::custom(format!(
-                "Failed to parse string [{}] as a decimal number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    };
-
-    Ok(deserialized_number)
-}
-
-/// Errors thrown while configuring templates.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    /// Failure in processing the CPUID configuration.
-    #[error("Error deserializing CPUID")]
-    Cpuid,
-    /// Unknown failure in processing the CPU template.
-    #[error("Internal error processing CPU template")]
-    Internal,
-}
-
 /// Guest config sub-module specifically useful for
 /// config templates.
 #[cfg(target_arch = "x86_64")]
@@ -58,7 +18,7 @@ pub mod x86_64 {
 
     use log::debug;
     use serde::de::Error as SerdeError;
-    use serde::{Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
     use crate::guest_config::cpuid::{
@@ -69,7 +29,7 @@ pub mod x86_64 {
 
     /// CPUID register enumeration
     #[allow(missing_docs)]
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub enum CpuidRegister {
         Eax,
         Ebx,
@@ -78,27 +38,39 @@ pub mod x86_64 {
     }
 
     /// Target register to be modified by a bitmap.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidRegisterModifier {
         /// CPUID register to be modified by the bitmap.
-        #[serde(deserialize_with = "deserialize_cpuid_register")]
+        #[serde(
+            deserialize_with = "deserialize_cpuid_register",
+            serialize_with = "serialize_cpuid_register"
+        )]
         pub register: CpuidRegister,
         /// Bit mapping to be applied as a modifier to the
         /// register's value at the address provided.
-        #[serde(deserialize_with = "deserialize_bitmap")]
+        #[serde(
+            deserialize_with = "deserialize_u64_bitmap",
+            serialize_with = "serialize_u32_bitmap"
+        )]
         pub bitmap: RegisterValueFilter,
     }
 
     /// Composite type that holistically provides
     /// the location of a specific register being used
     /// in the context of a CPUID tree.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidLeafModifier {
         /// Leaf value.
-        #[serde(deserialize_with = "deserialize_u32_from_str")]
+        #[serde(
+            deserialize_with = "deserialize_u32_from_str",
+            serialize_with = "serialize_u32_to_hex_str"
+        )]
         pub leaf: u32,
         /// Sub-Leaf value.
-        #[serde(deserialize_with = "deserialize_u32_from_str")]
+        #[serde(
+            deserialize_with = "deserialize_u32_from_str",
+            serialize_with = "serialize_u32_to_hex_str"
+        )]
         pub subleaf: u32,
         /// KVM feature flags for this leaf-subleaf.
         #[serde(deserialize_with = "deserialize_kvm_cpuid_flags")]
@@ -108,7 +80,7 @@ pub mod x86_64 {
     }
 
     /// Wrapper type to containing x86_64 CPU config modifiers.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct X86_64CpuTemplate {
         /// Modifiers for CPUID configuration.
         #[serde(default)]
@@ -119,7 +91,7 @@ pub mod x86_64 {
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         #[serde(deserialize_with = "deserialize_u64_from_str")]
@@ -131,14 +103,20 @@ pub mod x86_64 {
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
-        #[serde(deserialize_with = "deserialize_u32_from_str")]
+        #[serde(
+            deserialize_with = "deserialize_u32_from_str",
+            serialize_with = "serialize_u32_to_hex_str"
+        )]
         pub addr: u32,
         /// Bit mapping to be applied as a modifier to the
         /// register's value at the address provided.
-        #[serde(deserialize_with = "deserialize_bitmap")]
+        #[serde(
+            deserialize_with = "deserialize_u64_bitmap",
+            serialize_with = "serialize_u64_bitmap"
+        )]
         pub bitmap: RegisterValueFilter,
     }
 
@@ -153,13 +131,10 @@ pub mod x86_64 {
         let mut guest_cpuid_map: BTreeMap<CpuidKey, CpuidEntry>;
 
         // Get the hash map of CPUID data
-        if host_config.cpuid.amd().is_some() {
-            guest_cpuid_map = host_config.cpuid.amd().unwrap().0.clone();
-        } else if host_config.cpuid.intel().is_some() {
-            guest_cpuid_map = host_config.cpuid.intel().unwrap().0.clone();
-        } else {
-            return Err(Error::Cpuid);
-        }
+        guest_cpuid_map = match host_config.cpuid.clone() {
+            Cpuid::Intel(cpuid) => cpuid.0,
+            Cpuid::Amd(cpuid) => cpuid.0,
+        };
 
         // Apply CPUID modifiers
         for mod_leaf in &template.cpuid_modifiers {
@@ -213,19 +188,13 @@ pub mod x86_64 {
             );
         }
 
-        if host_config.cpuid.amd().is_some() {
-            Ok(X86_64CpuConfiguration {
-                cpuid: Cpuid::Amd(AmdCpuid(guest_cpuid_map)),
-                msrs: guest_msrs_map,
-            })
-        } else if host_config.cpuid.intel().is_some() {
-            Ok(X86_64CpuConfiguration {
-                cpuid: Cpuid::Intel(IntelCpuid(guest_cpuid_map)),
-                msrs: guest_msrs_map,
-            })
-        } else {
-            Err(Error::Internal)
-        }
+        Ok(X86_64CpuConfiguration {
+            cpuid: match host_config.cpuid {
+                Cpuid::Amd(_) => Cpuid::Amd(AmdCpuid(guest_cpuid_map)),
+                Cpuid::Intel(_) => Cpuid::Intel(IntelCpuid(guest_cpuid_map)),
+            },
+            msrs: guest_msrs_map,
+        })
     }
 
     fn deserialize_kvm_cpuid_flags<'de, D>(deserializer: D) -> Result<KvmCpuidFlags, D::Error>
@@ -284,6 +253,28 @@ pub mod x86_64 {
         Ok(deserialized_number)
     }
 
+    fn serialize_cpuid_register<S>(
+        cpuid_reg: &CpuidRegister,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match cpuid_reg {
+            CpuidRegister::Eax => serializer.serialize_str("eax"),
+            CpuidRegister::Ebx => serializer.serialize_str("ebx"),
+            CpuidRegister::Ecx => serializer.serialize_str("ecx"),
+            CpuidRegister::Edx => serializer.serialize_str("edx"),
+        }
+    }
+
+    fn serialize_u32_to_hex_str<S>(number: &u32, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(format!("0x{:x}", number).as_str())
+    }
+
     fn apply_mask(source: Option<&u64>, bitmap: &RegisterValueFilter) -> u64 {
         if let Some(value) = source {
             (value & !&bitmap.filter) | bitmap.value
@@ -298,7 +289,7 @@ pub mod x86_64 {
     ///     filter: 1110
     ///     value: 0100
     /// }
-    pub fn deserialize_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
+    pub fn deserialize_u64_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -313,10 +304,10 @@ pub mod x86_64 {
         let value_str = bitmap_str.replace('x', "0");
 
         debug!(
-            "{}",
+            "Deserializing\n{}\n",
             format!(
-                "Input composite bitmap: [{}]\nFilter: [{}]\nValue: [{}]",
-                bitmap_str, filter_str, value_str
+                "Input:\nBitmap: \t[{}]\nOutput:\nFilter: \t[{}]\nValue: \t\t[{}]",
+                bitmap_str, filter_str, value_str,
             )
         );
         Ok(RegisterValueFilter {
@@ -334,6 +325,82 @@ pub mod x86_64 {
             })?,
         })
     }
+
+    /// Serialize a RegisterValueFilter (bitmap)
+    /// into a composite string.
+    /// RegisterValueFilter {
+    ///     filter: 1110
+    ///     value: 0100
+    /// }
+    /// Result string: "010x"
+    fn serialize_u32_bitmap<S>(
+        bitmap: &RegisterValueFilter,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value_str = format!("{:032b}", bitmap.value);
+        let filter_str = format!("{:032b}", bitmap.filter);
+
+        let mut bitmap_str = String::from("0b");
+        for (idx, character) in filter_str.char_indices() {
+            match character {
+                '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
+                _ => bitmap_str.push('x'),
+            }
+        }
+
+        debug!(
+            "Serializing:\n{}\n",
+            format!(
+                "Input:\nFilter: \t[{}]\nValue: \t\t[{}]\nOutput:\nBitmap: \t[{}]\n",
+                filter_str,
+                value_str,
+                bitmap_str.as_str().replace("0b", ""),
+            )
+        );
+
+        serializer.serialize_str(bitmap_str.as_str())
+    }
+
+    /// Serialize a RegisterValueFilter (bitmap)
+    /// into a composite string.
+    /// RegisterValueFilter {
+    ///     filter: 1110
+    ///     value: 0100
+    /// }
+    /// Result string: "010x"
+    fn serialize_u64_bitmap<S>(
+        bitmap: &RegisterValueFilter,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value_str = format!("{:064b}", bitmap.value);
+        let filter_str = format!("{:064b}", bitmap.filter);
+
+        let mut bitmap_str = String::from("0b");
+        for (idx, character) in filter_str.char_indices() {
+            match character {
+                '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
+                _ => bitmap_str.push('x'),
+            }
+        }
+
+        debug!(
+            "Serializing:\n{}\n",
+            format!(
+                "Input:\nFilter: \t[{}]\nValue: \t\t[{}]\nOutput:\nBitmap: \t[{}]\n",
+                filter_str,
+                value_str,
+                bitmap_str.as_str().replace("0b", ""),
+            )
+        );
+
+        serializer.serialize_str(bitmap_str.as_str())
+    }
 }
 
 /// Guest config sub-module specifically for
@@ -350,7 +417,7 @@ pub mod aarch64 {
     use crate::guest_config::templates::{deserialize_u64_from_str, Error};
 
     /// Wrapper type to containing aarch64 CPU config modifiers.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct Aarch64CpuTemplate {
         /// Modifiers for registers on Aarch64 CPUs.
         pub reg_modifiers: Vec<RegisterModifier>,
@@ -358,18 +425,25 @@ pub mod aarch64 {
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
-        #[serde(deserialize_with = "deserialize_u64_from_str")]
+        #[serde(
+            deserialize_with = "deserialize_u64_from_str",
+            serialize_with = "serialize_u64_to_hex_str"
+        )]
         pub addr: u64,
         /// Bit mapping to be applied as a modifier to the
         /// register's value at the address provided.
+        #[serde(
+            deserialize_with = "deserialize_u128_bitmap",
+            serialize_with = "serialize_u128_bitmap"
+        )]
         pub bitmap: RegisterValueFilter,
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         #[serde(deserialize_with = "deserialize_u128_from_str")]
@@ -425,7 +499,7 @@ pub mod aarch64 {
     ///     filter: 1110
     ///     value: 0100
     /// }
-    pub fn deserialize_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
+    pub fn deserialize_u128_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -440,10 +514,10 @@ pub mod aarch64 {
         let value_str = bitmap_str.replace('x', "0");
 
         debug!(
-            "{}",
+            "Deserializing\n{}\n",
             format!(
-                "Input composite bitmap: [{}]\nFilter: [{}]\nValue: [{}]",
-                bitmap_str, filter_str, value_str
+                "Input:\nBitmap: \t[{}]\nOutput:\nFilter: \t[{}]\nValue: \t\t[{}]",
+                bitmap_str, filter_str, value_str,
             )
         );
         Ok(RegisterValueFilter {
@@ -461,12 +535,97 @@ pub mod aarch64 {
             })?,
         })
     }
+
+    fn serialize_u64_to_hex_str<S>(number: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(format!("0x{:x}", number).as_str())
+    }
+
+    /// Serialize a RegisterValueFilter (bitmap) into a composite string
+    /// RegisterValueFilter {
+    ///     filter: 1110
+    ///     value: 0100
+    /// }
+    /// Result string: "010x"
+    fn serialize_u128_bitmap<S>(
+        bitmap: &RegisterValueFilter,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value_str = format!("{:0128b}", bitmap.value);
+        let filter_str = format!("{:0128b}", bitmap.filter);
+
+        let mut bitmap_str = String::from("0b");
+        for (idx, character) in filter_str.char_indices() {
+            match character {
+                '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
+                _ => bitmap_str.push('x'),
+            }
+        }
+
+        debug!(
+            "Serializing:\n{}\n",
+            format!(
+                "Input:\nFilter: \t[{}]\nValue: \t\t[{}]\nOutput:\nBitmap: \t[{}]\n",
+                filter_str,
+                value_str,
+                bitmap_str.as_str().replace("0b", ""),
+            )
+        );
+
+        serializer.serialize_str(bitmap_str.as_str())
+    }
+}
+
+fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let number_str = String::deserialize(deserializer)?;
+    let deserialized_number: u64 = if number_str.len() > 2 {
+        match &number_str[0..2] {
+            "0b" => u64::from_str_radix(&number_str[2..], 2),
+            "0x" => u64::from_str_radix(&number_str[2..], 16),
+            _ => u64::from_str(&number_str),
+        }
+        .map_err(|err| {
+            SerdeError::custom(format!(
+                "Failed to parse string [{}] as a number for CPU template - {:?}",
+                number_str, err
+            ))
+        })?
+    } else {
+        u64::from_str(&number_str).map_err(|err| {
+            SerdeError::custom(format!(
+                "Failed to parse string [{}] as a decimal number for CPU template - {:?}",
+                number_str, err
+            ))
+        })?
+    };
+
+    Ok(deserialized_number)
+}
+
+/// Errors thrown while configuring templates.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Error {
+    /// Failure in processing the CPUID configuration.
+    #[error("Error deserializing CPUID")]
+    Cpuid,
+    /// Unknown failure in processing the CPU template.
+    #[error("Internal error processing CPU template")]
+    Internal,
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "x86_64")]
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
+    use serde_json::Value;
 
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::cpuid::KvmCpuidFlags;
@@ -590,11 +749,12 @@ mod tests {
     }"#;
 
     #[test]
-    fn test_serialization_lifecycle() {
+    fn test_deserialization_lifecycle() {
         #[cfg(target_arch = "x86_64")]
         {
             let cpu_config: X86_64CpuTemplate = serde_json::from_str(X86_64_TEMPLATE_JSON)
                 .expect("Failed to deserialize x86_64 CPU template.");
+
             assert_eq!(5, cpu_config.cpuid_modifiers.len());
             assert_eq!(4, cpu_config.msr_modifiers.len());
         }
@@ -613,13 +773,8 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             let host_configuration = supported_cpu_config();
-
-            let template = X86_64CpuTemplate {
-                cpuid_modifiers: vec![],
-                msr_modifiers: vec![],
-            };
-
-            let guest_config_result = create_guest_cpu_config(&template, &host_configuration);
+            let guest_config_result =
+                create_guest_cpu_config(&X86_64CpuTemplate::default(), &host_configuration);
             assert!(
                 guest_config_result.is_ok(),
                 "{}",
@@ -633,43 +788,12 @@ mod tests {
     }
 
     #[test]
-    fn test_template() {
+    fn test_apply_template() {
         #[cfg(target_arch = "x86_64")]
         {
             let host_configuration = supported_cpu_config();
-
-            let template = X86_64CpuTemplate {
-                cpuid_modifiers: Vec::from([CpuidLeafModifier {
-                    leaf: 0x1,
-                    subleaf: 0x1,
-                    flags: KvmCpuidFlags(KVM_CPUID_FLAG_STATEFUL_FUNC),
-                    modifiers: Vec::from([
-                        CpuidRegisterModifier {
-                            register: CpuidRegister::Eax,
-                            bitmap: RegisterValueFilter {
-                                filter: 0,
-                                value: 0,
-                            },
-                        },
-                        CpuidRegisterModifier {
-                            register: CpuidRegister::Eax,
-                            bitmap: RegisterValueFilter {
-                                filter: 0,
-                                value: 0,
-                            },
-                        },
-                    ]),
-                }]),
-                msr_modifiers: Vec::from([RegisterModifier {
-                    addr: 0x8000,
-                    bitmap: RegisterValueFilter {
-                        filter: 0,
-                        value: 0,
-                    },
-                }]),
-            };
-
-            let guest_config_result = create_guest_cpu_config(&template, &host_configuration);
+            let guest_config_result =
+                create_guest_cpu_config(&build_test_template(), &host_configuration);
             assert!(
                 guest_config_result.is_ok(),
                 "{}",
@@ -680,6 +804,156 @@ mod tests {
 
         // TODO - Aarch64 test
         // #[cfg(target_arch = "aarch64")]
+    }
+
+    #[test]
+    fn test_serialization_lifecycle() {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let template = build_test_template();
+            let template_json_str_result = serde_json::to_string_pretty(&template);
+            assert!(&template_json_str_result.is_ok());
+            let template_json = template_json_str_result.unwrap();
+
+            let deserialization_result = serde_json::from_str::<X86_64CpuTemplate>(&template_json);
+            assert!(deserialization_result.is_ok());
+            assert_eq!(template, deserialization_result.unwrap());
+        }
+    }
+
+    /// Test to confirm that templates for different CPU architectures have
+    /// a size bitmask that is supported by the architecture when serialized to JSON.
+    #[test]
+    fn test_bitmap_width() {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut cpuid_checked = false;
+            let mut msr_checked = false;
+
+            let template = &build_test_template();
+
+            let x86_template_str =
+                serde_json::to_string(template).expect("Error serializing x86 template");
+            let json_tree: Value = serde_json::from_str(&x86_template_str)
+                .expect("Error deserializing x86 template JSON string");
+
+            // Check that bitmaps for CPUID values are 32-bits in width
+            if let Some(cpuid_modifiers_root) = json_tree.get("cpuid_modifiers") {
+                let cpuid_mod_node = &cpuid_modifiers_root.as_array().unwrap()[0];
+                if let Some(modifiers_node) = cpuid_mod_node.get("modifiers") {
+                    let mod_node = &modifiers_node.as_array().unwrap()[0];
+                    if let Some(bit_map_str) = mod_node.get("bitmap") {
+                        // 32-bit width with a "0b" prefix for binary-formatted numbers
+                        assert_eq!(bit_map_str.as_str().unwrap().len(), 34);
+                        cpuid_checked = true;
+                    }
+                }
+            }
+
+            // Check that bitmaps for MSRs are 64-bits in width
+            if let Some(msr_modifiers_root) = json_tree.get("msr_modifiers") {
+                let msr_mod_node = &msr_modifiers_root.as_array().unwrap()[0];
+                if let Some(bit_map_str) = msr_mod_node.get("bitmap") {
+                    // 64-bit width with a "0b" prefix for binary-formatted numbers
+                    assert_eq!(bit_map_str.as_str().unwrap().len(), 66);
+                    assert!(bit_map_str.as_str().unwrap().starts_with("0b"));
+                    msr_checked = true;
+                }
+            }
+
+            assert!(
+                cpuid_checked,
+                "CPUID bitmap width in a x86_64 template was not tested."
+            );
+            assert!(
+                msr_checked,
+                "MSR bitmap width in a x86_64 template was not tested."
+            );
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let mut checked = false;
+
+            let template = &build_test_template();
+
+            let aarch64_template_str =
+                serde_json::to_string(template).expect("Error serializing aarch64 template");
+            let json_tree: Value = serde_json::from_str(&aarch64_template_str)
+                .expect("Error deserializing aarch64 template JSON string");
+
+            // Check that bitmap for aarch64 masks are serialized to 128-bits
+            if let Some(modifiers_root) = json_tree.get("reg_modifiers") {
+                let mod_node = &modifiers_root.as_array().unwrap()[0];
+                if let Some(bit_map_str) = mod_node.get("bitmap") {
+                    // 128-bit width with a "0b" prefix for binary-formatted numbers
+                    assert_eq!(bit_map_str.as_str().unwrap().len(), 130);
+                    assert!(bit_map_str.as_str().unwrap().starts_with("0b"));
+                    checked = true;
+                }
+            }
+
+            assert!(
+                checked,
+                "Bitmap width in a aarch64 template was not tested."
+            );
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn build_test_template() -> X86_64CpuTemplate {
+        X86_64CpuTemplate {
+            cpuid_modifiers: Vec::from([CpuidLeafModifier {
+                leaf: 0x1,
+                subleaf: 0x1,
+                flags: KvmCpuidFlags(KVM_CPUID_FLAG_STATEFUL_FUNC),
+                modifiers: Vec::from([
+                    CpuidRegisterModifier {
+                        register: CpuidRegister::Eax,
+                        bitmap: RegisterValueFilter {
+                            filter: 0,
+                            value: 0,
+                        },
+                    },
+                    CpuidRegisterModifier {
+                        register: CpuidRegister::Eax,
+                        bitmap: RegisterValueFilter {
+                            filter: 0,
+                            value: 0,
+                        },
+                    },
+                ]),
+            }]),
+            msr_modifiers: Vec::from([RegisterModifier {
+                addr: 0x8000,
+                bitmap: RegisterValueFilter {
+                    filter: 0,
+                    value: 0,
+                },
+            }]),
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn build_test_template() -> Aarch64CpuTemplate {
+        Aarch64CpuTemplate {
+            reg_modifiers: Vec::from([
+                RegisterModifier {
+                    addr: 0x8000,
+                    bitmap: RegisterValueFilter {
+                        filter: 100010001,
+                        value: 10000001,
+                    },
+                },
+                RegisterModifier {
+                    addr: 0x8001,
+                    bitmap: RegisterValueFilter {
+                        filter: 0b1110,
+                        value: 0b0110,
+                    },
+                },
+            ]),
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
