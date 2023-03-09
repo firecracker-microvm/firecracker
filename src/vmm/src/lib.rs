@@ -10,6 +10,10 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+/// Implements platform specific functionality.
+/// Supported platforms: x86_64 and aarch64.
+pub mod arch;
+
 /// Utility for configuring the CPUID (CPU identification) for the guest microVM.
 #[cfg(target_arch = "x86_64")]
 pub mod cpuid;
@@ -43,7 +47,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::{fmt, io};
 
-use arch::DeviceType;
 use devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use devices::virtio::balloon::Error as BalloonError;
 use devices::virtio::{
@@ -62,6 +65,7 @@ use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
+use crate::arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
