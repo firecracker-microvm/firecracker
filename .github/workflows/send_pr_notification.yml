@@ -1,0 +1,19 @@
+name: Send notification on PR opened
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+jobs:
+  send_notification:
+    if: ${{ github.event.label.name }} == "Status:\ Reviewer"
+    runs-on: ubuntu-latest
+    steps:
+      - name: notify
+        run: |
+          curl -X POST ${{ secrets.SLACK_PR_NOTIFICATION_WEBHOOK }} \
+               -H 'Content-Type: application/json' \
+               -d '{ "GITHUB_PR_URL": "${{ github.event.pull_request.html_url }}",
+                     "PR_ADDITIONS": "${{ github.event.pull_request.additions }}",
+                     "PR_DELETIONS": "${{ github.event.pull_request.deletions }}",
+                     "PR_CHANGED_FILES": "${{ github.event.pull_request.changed_files }}"}'
