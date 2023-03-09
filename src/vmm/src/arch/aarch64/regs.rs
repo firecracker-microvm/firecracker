@@ -482,7 +482,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::{arch_memory_regions, layout};
+    use crate::arch::aarch64::{arch_memory_regions, layout};
 
     #[test]
     fn test_setup_regs() {

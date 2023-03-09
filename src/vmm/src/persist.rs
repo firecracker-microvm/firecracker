@@ -10,8 +10,6 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use devices::virtio::TYPE_NET;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
@@ -24,6 +22,8 @@ use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::{GuestMemory, GuestMemoryMmap};
 
+#[cfg(target_arch = "aarch64")]
+use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 #[cfg(target_arch = "x86_64")]
 use crate::cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};

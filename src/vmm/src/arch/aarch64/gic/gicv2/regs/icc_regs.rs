@@ -4,8 +4,8 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
-use crate::aarch64::gic::Result;
+use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
+use crate::arch::aarch64::gic::Result;
 
 // CPU interface registers as detailed at page 76 from
 // https://developer.arm.com/documentation/ihi0048/latest/.
@@ -83,7 +83,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::gic::{create_gic, Error, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, Error, GICVersion};
 
     #[test]
     fn test_access_icc_regs() {

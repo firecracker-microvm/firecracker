@@ -31,7 +31,7 @@ pub enum Error {
 /// Extract entry from the cpuid.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
-    // TODO: Use `core::arch::x86_64::has_cpuid`
+    // TODO: Use `core::crate::arch::x86_64::has_cpuid`
     // (https://github.com/firecracker-microvm/firecracker/issues/3271)
     #[cfg(target_env = "sgx")]
     {

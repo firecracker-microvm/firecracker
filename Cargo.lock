@@ -70,27 +70,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arch"
-version = "0.1.0"
-dependencies = [
- "arch_gen",
- "bitflags",
- "derive_more",
- "device_tree",
- "kvm-bindings",
- "kvm-ioctls",
- "libc",
- "linux-loader",
- "logger",
- "thiserror",
- "utils",
- "versionize",
- "versionize_derive",
- "vm-fdt",
- "vm-memory 0.3.0",
-]
-
-[[package]]
 name = "arch_gen"
 version = "0.1.0"
 
@@ -1347,10 +1326,11 @@ checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
- "arch",
  "arch_gen",
+ "bitflags",
  "criterion",
  "derive_more",
+ "device_tree",
  "devices",
  "event-manager",
  "kvm-bindings",
@@ -1372,6 +1352,7 @@ dependencies = [
  "versionize_derive",
  "virtio_gen",
  "vm-allocator",
+ "vm-fdt",
  "vm-memory 0.3.0",
  "vm-superio",
 ]
