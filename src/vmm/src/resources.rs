@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
+#[cfg(target_arch = "aarch64")]
+use crate::guest_config::aarch64::Aarch64CpuConfiguration;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::X86_64CpuConfiguration;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -26,6 +30,11 @@ use crate::vmm_config::vsock::*;
 use crate::vstate::vcpu::VcpuConfig;
 
 type Result<E> = std::result::Result<(), E>;
+
+#[cfg(target_arch = "x86_64")]
+type CpuConfigType = X86_64CpuConfiguration;
+#[cfg(target_arch = "aarch64")]
+type CpuConfigType = Aarch64CpuConfiguration;
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, derive_more::From)]
@@ -217,15 +226,20 @@ impl VmResources {
         }
     }
 
-    /// Returns a VcpuConfig based on the vm config.
-    pub fn vcpu_config(&self) -> VcpuConfig {
-        // The unwraps are ok to use because the values are initialized using defaults if not
-        // supplied by the user.
+    /// Returns `VcpuConfig` and includes CPU config customized by
+    /// a user-defined CPU template.
+    pub fn custom_vcpu_config(&self, custom_cpu_config: Option<CpuConfigType>) -> VcpuConfig {
         VcpuConfig {
             vcpu_count: self.vm_config().vcpu_count,
             smt: self.vm_config().smt,
-            cpu_template: self.vm_config().cpu_template,
+            static_cpu_template: self.vm_config().cpu_template,
+            custom_cpu_config,
         }
+    }
+
+    /// Returns a VcpuConfig based on the vm config.
+    pub fn vcpu_config(&self) -> VcpuConfig {
+        self.custom_vcpu_config(None)
     }
 
     /// Returns whether dirty page tracking is enabled or not.
@@ -1261,7 +1275,8 @@ mod tests {
         let expected_vcpu_config = VcpuConfig {
             vcpu_count: vm_resources.vm_config().vcpu_count,
             smt: vm_resources.vm_config().smt,
-            cpu_template: vm_resources.vm_config().cpu_template,
+            static_cpu_template: vm_resources.vm_config().cpu_template,
+            custom_cpu_config: None,
         };
 
         let vcpu_config = vm_resources.vcpu_config();
