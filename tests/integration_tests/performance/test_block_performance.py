@@ -298,7 +298,7 @@ def test_block_performance(
 
     # define test dimensions
     st_core.name = TEST_ID
-    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb"
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
     st_core.custom.update(
         {
             "guest_config": microvm_cfg.removesuffix(".json"),
