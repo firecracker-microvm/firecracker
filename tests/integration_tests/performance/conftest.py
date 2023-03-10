@@ -112,5 +112,8 @@ def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
         "rootfs": rootfs.name(),
     }
     yield stats
-    results_file_dumper.dump(stats.statistics)
+    # If the test is skipped, there will be no results, so only dump if there
+    # is some.
+    if stats.statistics["results"]:
+        results_file_dumper.dump(stats.statistics)
     send_metrics(metrics, stats)
