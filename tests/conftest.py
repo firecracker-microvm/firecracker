@@ -459,15 +459,15 @@ def firecracker_id(fc):
 
 def firecracker_artifacts(*args, **kwargs):
     """Return all supported firecracker binaries."""
+    max_version = [int(x) for x in get_firecracker_version_from_toml().split(".")]
+    # until the next minor version (but not including)
+    max_version[1] += 1
     params = {
-        "min_version": "1.1.0",
-        "max_version": get_firecracker_version_from_toml(),
+        "min_version": "1.2.0",
+        "max_version_open": ".".join(str(x) for x in max_version),
     }
     params.update(kwargs)
-    return ARTIFACTS_COLLECTION.firecrackers(
-        *args,
-        **params,
-    )
+    return ARTIFACTS_COLLECTION.firecrackers(*args, **params)
 
 
 @pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)

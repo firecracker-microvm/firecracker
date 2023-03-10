@@ -873,7 +873,7 @@ def _test_cpu_cpuid_restore(context):
     # Bring snapshot files from the 1st part of the test into the jail
     chroot_dir = vm.chroot()
     tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / context.kernel.base_name()
-    clean_and_mkdir(snapshot_artifacts_dir)
+    clean_and_mkdir(tmp_snapshot_artifacts_dir)
 
     mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
     snapshot_fname_in_jail = (
