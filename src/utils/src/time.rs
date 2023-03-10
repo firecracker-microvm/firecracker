@@ -149,8 +149,9 @@ pub fn get_time_ns(clock_type: ClockType) -> u64 {
     };
     // SAFETY: Safe because the parameters are valid.
     unsafe { libc::clock_gettime(clock_type.into(), &mut time_struct) };
-    seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow") as u64
-        + (time_struct.tv_nsec as u64)
+    u64::try_from(seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow"))
+        .unwrap()
+        + u64::try_from(time_struct.tv_nsec).unwrap()
 }
 
 /// Returns a timestamp in microseconds based on the provided clock type.
@@ -244,7 +245,7 @@ mod tests {
     #[test]
     fn test_seconds_to_nanoseconds() {
         assert_eq!(
-            seconds_to_nanoseconds(100).unwrap() as u64,
+            u64::try_from(seconds_to_nanoseconds(100).unwrap()).unwrap(),
             100 * NANOS_PER_SECOND
         );
 

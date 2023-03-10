@@ -48,8 +48,11 @@ impl KernelVersion {
         }
 
         Self::parse(String::from_utf8(
-            #[allow(clippy::unnecessary_cast)]
-            name.release.iter().map(|c| *c as u8).collect(),
+            #[allow(clippy::useless_conversion)]
+            name.release
+                .iter()
+                .map(|c| u8::try_from(*c).unwrap())
+                .collect(),
         )?)
     }
 
