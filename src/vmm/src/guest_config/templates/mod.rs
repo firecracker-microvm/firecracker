@@ -403,6 +403,21 @@ pub mod x86_64 {
     }
 }
 
+/// Errors thrown while configuring templates.
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Error {
+    /// Failure in processing the CPUID in template for x86_64 CPU configuration.
+    #[error("Template changes a CPUID entry not supported by the host - [{0}]")]
+    CpuidFeatureNotSupported(String),
+    /// Failure in processing the MSRs in template for x86_64 CPU configuration.
+    #[error("Template changes an MSR entry not supported by the host - [{0}]")]
+    MsrNotSupported(String),
+    /// Internal and unexpected error occurred while using custom templates.
+    #[error("Internal error occurred while using templates - [{0}]")]
+    Internal(String),
+}
+
 /// Guest config sub-module specifically for
 /// config templates.
 #[cfg(target_arch = "aarch64")]
@@ -417,7 +432,7 @@ pub mod aarch64 {
     use crate::guest_config::templates::{deserialize_u64_from_str, Error};
 
     /// Wrapper type to containing aarch64 CPU config modifiers.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct Aarch64CpuTemplate {
         /// Modifiers for registers on Aarch64 CPUs.
         pub reg_modifiers: Vec<RegisterModifier>,
@@ -581,6 +596,18 @@ pub mod aarch64 {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+/// Errors thrown while configuring templates.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Error {
+    /// Failure in processing the aarch64 CPU template.
+    #[error("Template changes a register not supported by the host - [{0}]")]
+    Aarch64RegNotSupported(String),
+    /// Internal and unexpected error occurred while using custom templates.
+    #[error("Internal error occurred while using templates - [{0}]")]
+    Internal(String),
+}
+
 fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
@@ -610,28 +637,21 @@ where
     Ok(deserialized_number)
 }
 
-/// Errors thrown while configuring templates.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    /// Failure in processing the CPUID configuration.
-    #[error("Error deserializing CPUID")]
-    Cpuid,
-    /// Unknown failure in processing the CPU template.
-    #[error("Internal error processing CPU template")]
-    Internal,
-}
-
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "x86_64")]
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
     use serde_json::Value;
 
+    #[cfg(target_arch = "aarch64")]
+    use crate::guest_config::aarch64::Aarch64CpuConfiguration;
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::cpuid::KvmCpuidFlags;
+    #[cfg(target_arch = "x86_64")]
+    use crate::guest_config::static_templates::t2::t2;
     #[cfg(target_arch = "aarch64")]
     use crate::guest_config::templates::aarch64::{
-        Aarch64CpuTemplate, RegisterModifier, RegisterValueFilter,
+        create_guest_cpu_config, Aarch64CpuTemplate, RegisterModifier, RegisterValueFilter,
     };
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::templates::x86_64::{
@@ -640,15 +660,13 @@ mod tests {
     };
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::x86_64::X86_64CpuConfiguration;
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::static_templates::t2::t2;
 
     #[cfg(target_arch = "x86_64")]
     const X86_64_TEMPLATE_JSON: &str = r#"{
         "cpuid_modifiers": [
             {
                 "leaf": "0x80000001",
-                "subleaf": "0x0007",
+                "subleaf": "0b000111",
                 "flags": 0,
                 "modifiers": [
                     {
@@ -675,7 +693,7 @@ mod tests {
             {
                 "leaf": "0x80000003",
                 "subleaf": "0x0004",
-                "flags": 0,
+                "flags": 1,
                 "modifiers": [
                     {
                         "register": "edx",
@@ -720,7 +738,7 @@ mod tests {
                 "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
             },
             {
-                "addr": "0x1",
+                "addr": "0b1",
                 "bitmap": "0bx00111xxx1xxxx111xxxxx101xxxxxx1"
             },
             {
@@ -783,8 +801,18 @@ mod tests {
             assert_eq!(guest_config_result.unwrap(), host_configuration);
         }
 
-        // TODO - Aarch64 test
-        // #[cfg(target_arch = "aarch64")]
+        #[cfg(target_arch = "aarch64")]
+        {
+            let host_configuration = supported_cpu_config();
+            let guest_config_result =
+                create_guest_cpu_config(&Aarch64CpuTemplate::default(), &host_configuration);
+            assert!(
+                guest_config_result.is_ok(),
+                "{}",
+                guest_config_result.unwrap_err()
+            );
+            assert_eq!(guest_config_result.unwrap(), host_configuration);
+        }
     }
 
     #[test]
@@ -802,8 +830,18 @@ mod tests {
             assert_ne!(guest_config_result.unwrap(), host_configuration);
         }
 
-        // TODO - Aarch64 test
-        // #[cfg(target_arch = "aarch64")]
+        #[cfg(target_arch = "aarch64")]
+        {
+            let host_configuration = supported_cpu_config();
+            let guest_config_result =
+                create_guest_cpu_config(&build_test_template(), &host_configuration);
+            assert!(
+                guest_config_result.is_ok(),
+                "{}",
+                guest_config_result.unwrap_err()
+            );
+            assert_ne!(guest_config_result.unwrap(), host_configuration);
+        }
     }
 
     #[test]
@@ -960,7 +998,14 @@ mod tests {
     fn supported_cpu_config() -> X86_64CpuConfiguration {
         X86_64CpuConfiguration {
             cpuid: t2(),
-            msrs: Default::default(),
+            msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn supported_cpu_config() -> Aarch64CpuConfiguration {
+        Aarch64CpuConfiguration {
+            regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
         }
     }
 }
