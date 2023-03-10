@@ -37,6 +37,11 @@ pub(crate) use aarch64::{Error as VcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
 
+#[cfg(target_arch = "aarch64")]
+use crate::guest_config::aarch64::Aarch64CpuConfiguration;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::X86_64CpuConfiguration;
+
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -76,7 +81,12 @@ pub struct VcpuConfig {
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
     /// Hard-coded template to use.
-    pub cpu_template: CpuFeaturesTemplate,
+    pub static_cpu_template: CpuFeaturesTemplate,
+    /// Custom configuration for vCPU,
+    #[cfg(target_arch = "x86_64")]
+    pub custom_cpu_config: Option<X86_64CpuConfiguration>,
+    #[cfg(target_arch = "aarch64")]
+    pub custom_cpu_config: Option<Aarch64CpuConfiguration>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -664,8 +674,6 @@ pub enum VcpuEmulation {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    #[cfg(target_arch = "x86_64")]
-    use std::collections::HashMap;
     use std::fmt;
     use std::sync::{Arc, Barrier, Mutex};
 
@@ -676,12 +684,6 @@ mod tests {
 
     use super::*;
     use crate::builder::StartMicrovmError;
-    #[cfg(target_arch = "aarch64")]
-    use crate::guest_config::aarch64::Aarch64CpuConfiguration;
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::cpuid::{Cpuid, RawCpuid};
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::x86_64::X86_64CpuConfiguration;
     use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::tests::setup_vm;
@@ -924,25 +926,30 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu
-            .configure(&vm_mem, entry_addr, Aarch64CpuConfiguration::default())
+            .configure(
+                &vm_mem,
+                entry_addr,
+                &VcpuConfig {
+                    vcpu_count: 1,
+                    smt: false,
+                    static_cpu_template: CpuFeaturesTemplate::None,
+                    custom_cpu_config: None,
+                },
+            )
             .expect("failed to configure vcpu");
         #[cfg(target_arch = "x86_64")]
         {
-            let vcpu_config = VcpuConfig {
-                vcpu_count: 1,
-                smt: false,
-                cpu_template: CpuFeaturesTemplate::None,
-            };
             vcpu.kvm_vcpu
                 .configure(
                     &vm_mem,
                     entry_addr,
-                    &vcpu_config,
-                    X86_64CpuConfiguration {
-                        cpuid: Cpuid::try_from(RawCpuid::from(_vm.supported_cpuid().clone()))
-                            .unwrap(),
-                        msrs: HashMap::new(),
+                    &VcpuConfig {
+                        vcpu_count: 1,
+                        smt: false,
+                        static_cpu_template: CpuFeaturesTemplate::None,
+                        custom_cpu_config: None,
                     },
+                    _vm.supported_cpuid().clone(),
                 )
                 .expect("failed to configure vcpu");
         }

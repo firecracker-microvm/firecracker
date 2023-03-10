@@ -24,6 +24,15 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
+#[cfg(target_arch = "aarch64")]
+use crate::guest_config::aarch64::Aarch64CpuConfiguration;
+#[cfg(target_arch = "aarch64")]
+use crate::guest_config::templates::aarch64::Aarch64CpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::templates::x86_64::X86_64CpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::X86_64CpuConfiguration;
+
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
@@ -145,50 +154,23 @@ pub struct Vm {
     supported_cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
     supported_msrs: MsrList,
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) guest_cpu_template: Option<X86_64CpuTemplate>,
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) guest_cpu_config: Option<X86_64CpuConfiguration>,
 
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
     irqchip_handle: Option<Box<dyn GICDevice>>,
+    #[cfg(target_arch = "aarch64")]
+    pub(crate) guest_cpu_template: Option<Aarch64CpuTemplate>,
+    #[cfg(target_arch = "aarch64")]
+    pub(crate) guest_cpu_config: Option<Aarch64CpuConfiguration>,
 }
 
+/// Contains Vm functions that are usable across CPU architectures
 impl Vm {
-    /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<Self> {
-        // Create fd for interacting with kvm-vm specific functions.
-        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        let supported_cpuid = kvm
-            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-            .map_err(Error::VmFd)?;
-        #[cfg(target_arch = "x86_64")]
-        let supported_msrs =
-            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
-
-        Ok(Vm {
-            fd: vm_fd,
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            supported_cpuid,
-            #[cfg(target_arch = "x86_64")]
-            supported_msrs,
-            #[cfg(target_arch = "aarch64")]
-            irqchip_handle: None,
-        })
-    }
-
-    /// Returns a ref to the supported `CpuId` for this Vm.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn supported_cpuid(&self) -> &CpuId {
-        &self.supported_cpuid
-    }
-
-    /// Returns a ref to the supported `MsrList` for this Vm.
-    #[cfg(target_arch = "x86_64")]
-    pub fn supported_msrs(&self) -> &MsrList {
-        &self.supported_msrs
-    }
-
     /// Initializes the guest memory.
     pub fn memory_init(
         &mut self,
@@ -208,8 +190,160 @@ impl Vm {
         Ok(())
     }
 
+    pub(crate) fn set_kvm_memory_regions(
+        &self,
+        guest_mem: &GuestMemoryMmap,
+        track_dirty_pages: bool,
+    ) -> Result<()> {
+        let mut flags = 0u32;
+        if track_dirty_pages {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+        guest_mem
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, region)| {
+                let memory_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: region.start_addr().raw_value(),
+                    memory_size: region.len(),
+                    // It's safe to unwrap because the guest address is valid.
+                    userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
+                    flags,
+                };
+
+                // SAFETY: Safe because the fd is a valid KVM file descriptor.
+                unsafe { self.fd.set_user_memory_region(memory_region) }
+            })
+            .map_err(Error::SetUserMemoryRegion)?;
+        Ok(())
+    }
+
+    /// Gets a reference to the kvm file descriptor owned by this VM.
+    pub fn fd(&self) -> &VmFd {
+        &self.fd
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+impl Vm {
+    /// Constructs a new `Vm` using the given `Kvm` instance.
+    pub fn new(kvm: &Kvm, guest_cpu_template: Option<Aarch64CpuTemplate>) -> Result<Self> {
+        // Create fd for interacting with kvm-vm specific functions.
+        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+
+        Ok(Vm {
+            fd: vm_fd,
+            guest_cpu_template,
+            guest_cpu_config: None,
+            irqchip_handle: None,
+        })
+    }
+
+    /// Creates the GIC (Global Interrupt Controller).
+    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
+        self.irqchip_handle = Some(
+            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
+                .map_err(Error::VmCreateGIC)?,
+        );
+        Ok(())
+    }
+
+    /// Gets a reference to the irqchip of the VM.
+    pub fn get_irqchip(&self) -> &dyn GICDevice {
+        self.irqchip_handle
+            .as_ref()
+            .expect("IRQ chip not set")
+            .as_ref()
+    }
+
+    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
+        Ok(VmState {
+            gic: self
+                .get_irqchip()
+                .save_device(mpidrs)
+                .map_err(Error::SaveGic)?,
+        })
+    }
+
+    /// Restore the KVM VM state
+    ///
+    /// # Errors
+    ///
+    /// When [`GICDevice::restore_device`] errors.
+    pub fn restore_state(
+        &self,
+        mpidrs: &[u64],
+        state: &VmState,
+    ) -> std::result::Result<(), RestoreStateError> {
+        self.get_irqchip()
+            .restore_device(mpidrs, &state.gic)
+            .map_err(RestoreStateError)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl Vm {
+    /// Constructs a new `Vm` using the given `Kvm` instance.
+    pub fn new(kvm: &Kvm, guest_cpu_template: Option<X86_64CpuTemplate>) -> Result<Self> {
+        // Create fd for interacting with kvm-vm specific functions.
+        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+
+        let supported_cpuid = kvm
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::VmFd)?;
+        let supported_msrs =
+            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+
+        Ok(Vm {
+            fd: vm_fd,
+            supported_cpuid,
+            supported_msrs,
+            guest_cpu_template,
+            guest_cpu_config: None,
+        })
+    }
+
+    /// Returns a ref to the supported `CpuId` for this Vm.
+    pub fn supported_cpuid(&self) -> &CpuId {
+        &self.supported_cpuid
+    }
+
+    /// Returns a ref to the supported `MsrList` for this Vm.
+    pub fn supported_msrs(&self) -> &MsrList {
+        &self.supported_msrs
+    }
+
+    /// Restores the KVM VM state.
+    ///
+    /// # Errors
+    ///
+    /// When:
+    /// - [`kvm_ioctls::VmFd::set_pit`] errors.
+    /// - [`kvm_ioctls::VmFd::set_clock`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
+        self.fd
+            .set_pit2(&state.pitstate)
+            .map_err(RestoreStateError::SetPit2)?;
+        self.fd
+            .set_clock(&state.clock)
+            .map_err(RestoreStateError::SetClock)?;
+        self.fd
+            .set_irqchip(&state.pic_master)
+            .map_err(RestoreStateError::SetIrqChipPicMaster)?;
+        self.fd
+            .set_irqchip(&state.pic_slave)
+            .map_err(RestoreStateError::SetIrqChipPicSlave)?;
+        self.fd
+            .set_irqchip(&state.ioapic)
+            .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
+        Ok(())
+    }
+
     /// Creates the irq chip and an in-kernel device model for the PIT.
-    #[cfg(target_arch = "x86_64")]
     pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
@@ -221,31 +355,6 @@ impl Vm {
         self.fd.create_pit2(pit_config).map_err(Error::VmSetup)
     }
 
-    /// Creates the GIC (Global Interrupt Controller).
-    #[cfg(target_arch = "aarch64")]
-    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
-        self.irqchip_handle = Some(
-            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
-                .map_err(Error::VmCreateGIC)?,
-        );
-        Ok(())
-    }
-
-    /// Gets a reference to the irqchip of the VM.
-    #[cfg(target_arch = "aarch64")]
-    pub fn get_irqchip(&self) -> &dyn GICDevice {
-        self.irqchip_handle
-            .as_ref()
-            .expect("IRQ chip not set")
-            .as_ref()
-    }
-
-    /// Gets a reference to the kvm file descriptor owned by this VM.
-    pub fn fd(&self) -> &VmFd {
-        &self.fd
-    }
-
-    #[cfg(target_arch = "x86_64")]
     /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self) -> Result<VmState> {
         let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
@@ -285,91 +394,6 @@ impl Vm {
             pic_slave,
             ioapic,
         })
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    /// Restores the KVM VM state.
-    ///
-    /// # Errors
-    ///
-    /// When:
-    /// - [`kvm_ioctls::VmFd::set_pit`] errors.
-    /// - [`kvm_ioctls::VmFd::set_clock`] errors.
-    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
-        self.fd
-            .set_pit2(&state.pitstate)
-            .map_err(RestoreStateError::SetPit2)?;
-        self.fd
-            .set_clock(&state.clock)
-            .map_err(RestoreStateError::SetClock)?;
-        self.fd
-            .set_irqchip(&state.pic_master)
-            .map_err(RestoreStateError::SetIrqChipPicMaster)?;
-        self.fd
-            .set_irqchip(&state.pic_slave)
-            .map_err(RestoreStateError::SetIrqChipPicSlave)?;
-        self.fd
-            .set_irqchip(&state.ioapic)
-            .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
-        Ok(())
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
-        Ok(VmState {
-            gic: self
-                .get_irqchip()
-                .save_device(mpidrs)
-                .map_err(Error::SaveGic)?,
-        })
-    }
-
-    /// Restore the KVM VM state
-    ///
-    /// # Errors
-    ///
-    /// When [`GICDevice::restore_device`] errors.
-    #[cfg(target_arch = "aarch64")]
-    pub fn restore_state(
-        &self,
-        mpidrs: &[u64],
-        state: &VmState,
-    ) -> std::result::Result<(), RestoreStateError> {
-        self.get_irqchip()
-            .restore_device(mpidrs, &state.gic)
-            .map_err(RestoreStateError)
-    }
-
-    pub(crate) fn set_kvm_memory_regions(
-        &self,
-        guest_mem: &GuestMemoryMmap,
-        track_dirty_pages: bool,
-    ) -> Result<()> {
-        let mut flags = 0u32;
-        if track_dirty_pages {
-            flags |= KVM_MEM_LOG_DIRTY_PAGES;
-        }
-        guest_mem
-            .iter()
-            .enumerate()
-            .try_for_each(|(index, region)| {
-                let memory_region = kvm_userspace_memory_region {
-                    slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value(),
-                    memory_size: region.len(),
-                    // It's safe to unwrap because the guest address is valid.
-                    userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
-                    flags,
-                };
-
-                // SAFETY: Safe because the fd is a valid KVM file descriptor.
-                unsafe { self.fd.set_user_memory_region(memory_region) }
-            })
-            .map_err(Error::SetUserMemoryRegion)?;
-        Ok(())
     }
 }
 
@@ -411,7 +435,7 @@ pub(crate) mod tests {
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
                 .unwrap();
 
-        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm.fd(), None).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         (vm, gm)
@@ -423,20 +447,22 @@ pub(crate) mod tests {
 
         use utils::tempfile::TempFile;
         // Testing an error case.
-        let vm =
-            Vm::new(&unsafe { Kvm::from_raw_fd(TempFile::new().unwrap().as_file().as_raw_fd()) });
+        let vm = Vm::new(
+            &unsafe { Kvm::from_raw_fd(TempFile::new().unwrap().as_file().as_raw_fd()) },
+            None,
+        );
         assert!(vm.is_err());
 
         // Testing with a valid /dev/kvm descriptor.
         let kvm = KvmContext::new().unwrap();
-        assert!(Vm::new(kvm.fd()).is_ok());
+        assert!(Vm::new(kvm.fd(), None).is_ok());
     }
 
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let vm = Vm::new(kvm.fd(), None).expect("Cannot create new vm");
         let cpuid = kvm
             .fd()
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -447,7 +473,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vm_memory_init() {
         let kvm_context = KvmContext::new().unwrap();
-        let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm_context.fd(), None).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
         let gm =
@@ -462,7 +488,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vm_save_restore_state() {
         let kvm_fd = Kvm::new().unwrap();
-        let vm = Vm::new(&kvm_fd).expect("new vm failed");
+        let vm = Vm::new(&kvm_fd, None).expect("new vm failed");
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         assert!(vm.save_state().is_err());
 
@@ -517,7 +543,7 @@ pub(crate) mod tests {
     #[test]
     fn test_set_kvm_memory_regions() {
         let kvm_context = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+        let vm = Vm::new(kvm_context.fd(), None).expect("Cannot create new vm");
 
         let gm =
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)

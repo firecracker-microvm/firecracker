@@ -20,8 +20,6 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
-use crate::guest_config::cpuid::Cpuid;
-use crate::guest_config::x86_64::X86_64CpuConfiguration;
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -257,18 +255,18 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-        cpu_config: X86_64CpuConfiguration,
+        cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        let cpuid: Cpuid = cpu_config.cpuid;
-
-        // We use the given `cpuid` as the base.
-        let cpuid = crate::guest_config::cpuid::Cpuid::try_from(
-            crate::guest_config::cpuid::RawCpuid::from(cpuid),
-        )
-        .map_err(KvmVcpuConfigureError::SnapshotCpuid)?;
+        let cpuid = match &vcpu_config.custom_cpu_config {
+            None => crate::guest_config::cpuid::Cpuid::try_from(
+                crate::guest_config::cpuid::RawCpuid::from(cpuid),
+            )
+            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
+            Some(custom_config) => custom_config.cpuid.clone(),
+        };
 
         // If a template is specified, get the CPUID template, else use `cpuid`.
-        let mut config_cpuid = match vcpu_config.cpu_template {
+        let mut config_cpuid = match vcpu_config.static_cpu_template {
             CpuFeaturesTemplate::C3 => cpuid_templates::c3::template(),
             CpuFeaturesTemplate::T2 => cpuid_templates::t2::template(),
             CpuFeaturesTemplate::T2S => cpuid_templates::t2s::template(),
@@ -328,7 +326,7 @@ impl KvmVcpu {
         // the previous comment, we get from the template a static list of MSRs we need
         // to save at snapshot as well.
         // C3, T2 and T2A currently don't have extra MSRs to save/set.
-        match vcpu_config.cpu_template {
+        match vcpu_config.static_cpu_template {
             CpuFeaturesTemplate::T2S => {
                 self.msr_list.extend(msr_entries_to_save());
                 cpuid_templates::t2s::update_msr_entries(&mut msr_boot_entries);
@@ -646,13 +644,11 @@ impl VcpuState {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::collections::HashMap;
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Cap;
 
     use super::*;
-    use crate::guest_config::cpuid::RawCpuid;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -689,7 +685,8 @@ mod tests {
         let mut vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            cpu_template: CpuFeaturesTemplate::None,
+            static_cpu_template: CpuFeaturesTemplate::None,
+            custom_cpu_config: None,
         };
 
         assert_eq!(
@@ -697,72 +694,54 @@ mod tests {
                 &vm_mem,
                 GuestAddress(0),
                 &vcpu_config,
-                X86_64CpuConfiguration {
-                    cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                    msrs: HashMap::new(),
-                },
+                vm.supported_cpuid().clone(),
             ),
             Ok(())
         );
 
         // Test configure while using the T2 template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2;
+        vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2;
         let t2_res = vcpu.configure(
             &vm_mem,
             GuestAddress(arch::get_kernel_start()),
             &vcpu_config,
-            X86_64CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: HashMap::new(),
-            },
+            vm.supported_cpuid().clone(),
         );
 
         // Test configure while using the C3 template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::C3;
+        vcpu_config.static_cpu_template = CpuFeaturesTemplate::C3;
         let c3_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
             &vcpu_config,
-            X86_64CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: HashMap::new(),
-            },
+            vm.supported_cpuid().clone(),
         );
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2S;
+        vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2S;
         let t2s_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
             &vcpu_config,
-            X86_64CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: HashMap::new(),
-            },
+            vm.supported_cpuid().clone(),
         );
 
         // Test configure while using the T2CL template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
+        vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2CL;
         let t2cl_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
             &vcpu_config,
-            X86_64CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: HashMap::new(),
-            },
+            vm.supported_cpuid().clone(),
         );
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2A;
+        vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2A;
         let t2a_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
             &vcpu_config,
-            X86_64CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: HashMap::new(),
-            },
+            vm.supported_cpuid().clone(),
         );
 
         match &crate::guest_config::cpuid::common::get_vendor_id_from_host().unwrap() {
