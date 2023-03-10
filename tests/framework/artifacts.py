@@ -365,33 +365,6 @@ class ArtifactCollection:
         )
 
 
-class ArtifactSet:
-    """Manages a set of artifacts with the same type."""
-
-    def __init__(self, artifacts):
-        """Initialize type and artifact array."""
-        self._type = None
-        self._artifacts = []
-        self.insert(artifacts)
-
-    def insert(self, artifacts):
-        """Add artifacts to set."""
-        if artifacts is not None and len(artifacts) > 0:
-            self._type = self._type or artifacts[0].type
-        for artifact in artifacts:
-            assert artifact.type == self._type
-            self._artifacts.append(artifact)
-
-    @property
-    def artifacts(self):
-        """Return the artifacts array."""
-        return self._artifacts
-
-    def __len__(self):
-        """Return the artifacts array len."""
-        return len(self._artifacts)
-
-
 class SnapshotType(Enum):
     """Supported snapshot types."""
 
