@@ -79,6 +79,23 @@ performance_grp = group(
     **defaults_for_performance,
 )
 
+defaults_for_kani = defaults.copy()
+defaults_for_kani.update(
+    # Kani runs fastest on m6i.metal
+    instances=["m6i.metal"],
+    platforms=[("al2", "linux_5.10")],
+    timeout_in_minutes=300,
+    agent_tags=["ag=1"],
+)
+
+kani_grp = group(
+    "🔍 Kani",
+    "./tools/devtool -y test -- ../tests/integration_tests/test_kani.py -n auto",
+    **defaults_for_kani,
+)
+for step in kani_grp["steps"]:
+    step["label"] = "🔍 Kani"
+
 steps = [step_style]
 changed_files = get_changed_files("main")
 # run the whole test suite if either of:
@@ -89,6 +106,7 @@ if not changed_files or any(
     for x in changed_files
 ):
     steps += [
+        kani_grp,
         build_grp,
         functional_1_grp,
         functional_2_grp,
