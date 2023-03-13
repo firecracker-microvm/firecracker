@@ -26,7 +26,7 @@ Developer Certificate of Origin and signing off your commits, please check
 
 ---
 
-- [ ] This functionality can be added in [`rust-vmm`][1].
+- [ ] This functionality cannot be added in [`rust-vmm`][1].
 
 [1]: https://github.com/rust-vmm
 [2]: https://github.com/firecracker-microvm/firecracker/blob/main/docs/api-change-runbook.md
