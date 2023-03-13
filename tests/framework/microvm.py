@@ -81,6 +81,7 @@ class Microvm:
         bin_cloner_path=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
+        # pylint: disable=too-many-statements
         # Unique identifier for this machine.
         if microvm_id is None:
             microvm_id = str(uuid.uuid4())
@@ -158,6 +159,9 @@ class Microvm:
             "username": "root",
             "netns_file_path": self.jailer.netns_file_path(),
         }
+
+        # iface dictionary
+        self.iface = {}
 
         # Deal with memory monitoring.
         if monitor_memory:
@@ -720,6 +724,25 @@ class Microvm:
     def config_ssh(self, guest_ip):
         """Configure ssh."""
         self.ssh_config["hostname"] = guest_ip
+
+    def add_net_iface(self, iface, tx_rate_limiter=None, rx_rate_limiter=None):
+        """Add a network interface"""
+        tap = net_tools.Tap(
+            iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
+        )
+        self.config_ssh(iface.guest_ip)
+        response = self.network.put(
+            iface_id=iface.dev_name,
+            host_dev_name=iface.tap_name,
+            guest_mac=iface.guest_mac,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter,
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+        self.iface[iface.dev_name] = {
+            "iface": iface,
+            "tap": tap,
+        }
 
     def start(self, check=True):
         """Start the microvm.
