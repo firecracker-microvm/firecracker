@@ -69,14 +69,14 @@ parser.add_argument(
 parser.add_argument(
     "--instances",
     required=False,
-    action="append",
-    default=[],
+    nargs="+",
+    default=DEFAULT_INSTANCES,
 )
 parser.add_argument(
     "--platforms",
+    metavar="OS-KV",
     required=False,
-    action="append",
-    nargs=2,
+    nargs="+",
     default=[],
 )
 parser.add_argument("--retries", type=int, default=0)
@@ -87,10 +87,12 @@ parser.add_argument(
     default=[],
 )
 args = parser.parse_args()
-if not args.instances:
-    args.instances = DEFAULT_INSTANCES
 if not args.platforms:
     args.platforms = DEFAULT_PLATFORMS
+else:
+    args.platforms = [
+        tuple(str(platform).split("-", maxsplit=1)) for platform in args.platforms
+    ]
 if args.extra:
     args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
