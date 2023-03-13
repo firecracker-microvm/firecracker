@@ -77,7 +77,7 @@ Here is an example on how to set multiple resource limits using this argument:
   --resource-limit fsize=250000000 --resource-limit no-file=1024
   ```
 
-- When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
+- When present, the `--daemonize` flag causes the jailer to call `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
 - When present, the `--new-pid-ns` flag causes the jailer to spawn the provided
   binary into a new PID namespace.

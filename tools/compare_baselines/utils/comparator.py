@@ -228,7 +228,7 @@ class CpuComparator(BaseComparator):
                     "kernel": fetcher.kernel,
                     "base": {
                         "instance": base_instance,
-                        "model": base_cpu,
+                        "model": base_model,
                     },
                     "stats": {},
                 }
