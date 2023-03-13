@@ -110,7 +110,7 @@ where
         mem_regions,
         memfile_buffer,
         uffd,
-        creds.pid as u32,
+        u32::try_from(creds.pid).unwrap(),
     ))
 }
 
