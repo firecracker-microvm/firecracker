@@ -484,7 +484,9 @@ def firecracker_release(request, record_property):
 def guest_kernel(request, record_property):
     """Return all supported guest kernels."""
     kernel = request.param
-    record_property("guest_kernel", kernel.name())
+    # linux-major.minor
+    kernel.prop = "linux-" + kernel.name().removesuffix(".bin").split("-")[-1]
+    record_property("guest_kernel", kernel.prop)
     kernel.download()
     return kernel
 

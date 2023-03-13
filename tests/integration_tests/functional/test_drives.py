@@ -154,7 +154,7 @@ def test_rescan_dev(test_microvm_with_api, network_config):
             drive_id="scratch",
             path_on_host=test_microvm.create_jailed_resource(loopback_device),
         )
-        assert session.is_status_no_content(response.status_code)
+        assert session.is_status_no_content(response.status_code), response.content
 
         _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
     finally:
