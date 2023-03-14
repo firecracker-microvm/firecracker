@@ -15,6 +15,17 @@ DEFAULT_INSTANCES = [
     "c7g.metal",
 ]
 
+DEFAULT_INSTANCES_X86 = [
+    "m5d.metal",
+    "m6i.metal",
+    "m6a.metal",
+]
+
+DEFAULT_INSTANCES_AARCH64 = [
+    "m6g.metal",
+    "c7g.metal",
+]
+
 DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
 
 DEFAULT_QUEUE = "public-prod-us-east-1"

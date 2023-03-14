@@ -449,6 +449,7 @@ def _test_snapshot_resume_latency(context):
 ARTIFACTS = ArtifactCollection(_test_images_s3_bucket())
 
 
+@pytest.mark.ci_snapshot
 @pytest.mark.parametrize("io_engine", ENGINES)
 @pytest.mark.parametrize(
     "microvm", ARTIFACTS.microvms(keyword="2vcpu_512mb"), ids=lambda uvm: uvm.name()
@@ -536,6 +537,7 @@ def test_older_snapshot_resume_latency(
     results_file_dumper.dump(result)
 
 
+@pytest.mark.ci_snapshot
 def test_snapshot_create_full_latency(
     network_config, bin_cloner_path, results_file_dumper
 ):
@@ -576,6 +578,7 @@ def test_snapshot_create_full_latency(
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
+@pytest.mark.ci_snapshot
 def test_snapshot_create_diff_latency(
     network_config, bin_cloner_path, results_file_dumper
 ):
@@ -616,6 +619,7 @@ def test_snapshot_create_diff_latency(
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
+@pytest.mark.ci_snapshot
 @pytest.mark.parametrize("io_engine", ENGINES)
 def test_snapshot_resume_latency(
     network_config, bin_cloner_path, results_file_dumper, io_engine

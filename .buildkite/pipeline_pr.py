@@ -9,6 +9,8 @@ from pathlib import Path
 
 from common import (
     DEFAULT_INSTANCES,
+    DEFAULT_INSTANCES_AARCH64,
+    DEFAULT_INSTANCES_X86,
     DEFAULT_PLATFORMS,
     DEFAULT_QUEUE,
     group,
@@ -66,18 +68,44 @@ security_grp = group(
     **defaults,
 )
 
-defaults_for_performance = defaults.copy()
-defaults_for_performance.update(
+defaults_for_nonsnap_performance = defaults.copy()
+defaults_for_nonsnap_performance.update(
     # We specify higher priority so the ag=1 jobs get picked up before the ag=n
     # jobs in ag=1 agents
     priority=DEFAULT_PRIORITY + 1,
     agent_tags=["ag=1"],
 )
 
-performance_grp = group(
-    "⏱ Performance",
+performance_nonsnap_grp = group(
+    "⏱ Performance (non-snapshot)",
     "./tools/devtool -y test -- ../tests/integration_tests/performance/",
-    **defaults_for_performance,
+    **defaults_for_nonsnap_performance,
+)
+
+defaults_for_snap_performance_aarch64 = defaults_for_nonsnap_performance.copy()
+defaults_for_snap_performance_aarch64.update(
+    instances=DEFAULT_INSTANCES_AARCH64,
+)
+
+performance_snap_aarch64_grp = group(
+    "⏱ Performance (snapshot for aarch64)",
+    "./tools/devtool -y test -- -m ci_snapshot ../tests/integration_tests/performance/",
+    **defaults_for_snap_performance_aarch64,
+)
+
+# We have a known issue that snapshot latency is too high on x86 CPUs with cgroups v1.
+# https://github.com/firecracker-microvm/firecracker/issues/2027
+# To avoid this, only snapshot performance tests need to run with cgroups v2.
+defaults_for_snap_performance_x86 = defaults_for_nonsnap_performance.copy()
+defaults_for_snap_performance_x86.update(
+    instances=DEFAULT_INSTANCES_X86,
+    platforms=[("al2", "linux_4.14"), ("al2_cgroupsv2", "linux_5.10")],
+)
+
+performance_snap_x86_grp = group(
+    "⏱ Performance (snapshot for x86)",
+    "./tools/devtool -y test -- -m ci_snapshot ../tests/integration_tests/performance/",
+    **defaults_for_snap_performance_x86,
 )
 
 steps = [step_style]
@@ -88,7 +116,9 @@ if any(x.suffix != ".md" for x in changed_files):
         functional_1_grp,
         functional_2_grp,
         security_grp,
-        performance_grp,
+        performance_nonsnap_grp,
+        performance_snap_aarch64_grp,
+        performance_snap_x86_grp,
     ]
 
 pipeline = {
