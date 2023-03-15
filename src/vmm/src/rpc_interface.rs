@@ -34,7 +34,9 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::FcExitCode;
 use crate::{builder::StartMicrovmError, EventManager};
-use logger::{error, info, update_metric_with_elapsed_time, warn, DEV_PREVIEW_LOG_PREFIX, METRICS};
+use logger::{
+    debug, error, info, update_metric_with_elapsed_time, warn, DEV_PREVIEW_LOG_PREFIX, METRICS,
+};
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
@@ -246,9 +248,13 @@ trait MmdsRequestHandler {
     }
 
     fn patch_mmds(&mut self, value: serde_json::Value) -> ActionResult {
+        debug!("vmm::rpc_interface::MmdsRequestHandler::patch_mmds() IN");
         self.mmds()
             .patch_data(value)
-            .map(|()| VmmData::Empty)
+            .map(|()| {
+                debug!("vmm::rpc_interface::MmdsRequestHandler::patch_mmds() OUT");
+                VmmData::Empty
+            })
             .map_err(|e| match e {
                 data_store::Error::DataStoreLimitExceeded => {
                     VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
@@ -584,6 +590,7 @@ impl MmdsRequestHandler for RuntimeApiController {
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
     pub fn handle_request(&mut self, request: VmmAction) -> ActionResult {
+        debug!("vmm::rpc_interface::RuntimeApiController::handle_request() IN");
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
@@ -614,7 +621,11 @@ impl RuntimeApiController {
             GetVmmVersion => Ok(VmmData::VmmVersion(
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
-            PatchMMDS(value) => self.patch_mmds(value),
+            PatchMMDS(value) => {
+                let result = self.patch_mmds(value);
+                debug!("vmm::rpc_interface::RuntimeApiController::handle_request() OUT");
+                result
+            }
             Pause => self.pause(),
             PutMMDS(value) => self.put_mmds(value),
             Resume => self.resume(),

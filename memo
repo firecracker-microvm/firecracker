@@ -1,0 +1,20 @@
+API server side
+- API server loop in `bind_and_run()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/lib.rs#L203-L238
+    - `handle_request()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/lib.rs#L219
+        - `try_from_request()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/lib.rs#L248
+            - `describe()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/parsed_request.rs#L77
+            - `parse_patch_mmds()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/parsed_request.rs#L126
+                - `VmmAction::PatchMMDS`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/request/mmds.rs#L62
+        - `serve_vmm_action_request()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/lib.rs#L252
+            - send request: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/api_server/src/lib.rs#L297
+===
+VMM side
+- `ApiServerAdapter.handle_request()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/firecracker/src/api_server_adapter.rs#L78
+    - `RuntimeApiController.handle_request()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/firecracker/src/api_server_adapter.rs#L60
+        - `patch_mmds()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/vmm/src/rpc_interface.rs#L617
+            - `patch_data()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/vmm/src/rpc_interface.rs#L250
+                - `check_data_store_initialized()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/mmds/src/data_store.rs#L167
+                    - https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/mmds/src/data_store.rs#L91
+                - `json_patch()`: https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/mmds/src/data_store.rs#L170
+                    - https://github.com/firecracker-microvm/firecracker/blob/v1.1.4/src/mmds/src/lib.rs#L73
+

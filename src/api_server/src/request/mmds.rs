@@ -3,7 +3,7 @@
 
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
-use logger::{IncMetric, METRICS};
+use logger::{debug, IncMetric, METRICS};
 use micro_http::StatusCode;
 use mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
@@ -58,13 +58,18 @@ pub(crate) fn parse_put_mmds(
 }
 
 pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
+    debug!("api_server::request::mmds::parse_patch_mmds() IN");
     METRICS.patch_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::new_sync(VmmAction::PatchMMDS(
-        serde_json::from_slice(body.raw()).map_err(|e| {
-            METRICS.patch_api_requests.mmds_fails.inc();
-            Error::SerdeJson(e)
-        })?,
-    )))
+    Ok({
+        let req = ParsedRequest::new_sync(VmmAction::PatchMMDS(
+            serde_json::from_slice(body.raw()).map_err(|e| {
+                METRICS.patch_api_requests.mmds_fails.inc();
+                Error::SerdeJson(e)
+            })?,
+        ));
+        debug!("api_server::request::mmds::parse_patch_mmds() OUT");
+        req
+    })
 }
 
 #[cfg(test)]

@@ -274,6 +274,7 @@ impl ApiServer {
         vmm_action: Box<VmmAction>,
         request_processing_start_us: u64,
     ) -> Response {
+        debug!("api_server::serve_vmm_action_request() IN");
         let metric_with_action = match *vmm_action {
             VmmAction::CreateSnapshot(ref params) => match params.snapshot_type {
                 SnapshotType::Full => Some((
@@ -293,12 +294,14 @@ impl ApiServer {
             _ => None,
         };
 
+        debug!("Send API request.");
         self.api_request_sender
             .send(vmm_action)
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
+        debug!("Get API response.");
 
         if vmm_outcome.is_ok() {
             if let Some((metric, action)) = metric_with_action {
@@ -307,6 +310,7 @@ impl ApiServer {
                 info!("'{}' API request took {} us.", action, elapsed_time_us);
             }
         }
+        debug!("api_server::serve_vmm_action_request() OUT");
         response
     }
 

@@ -11,7 +11,7 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
+use logger::{debug, error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
 use utils::{epoll::EventSet, eventfd::EventFd};
 use vmm::{
@@ -57,12 +57,15 @@ impl ApiServerAdapter {
     }
 
     fn handle_request(&mut self, req_action: VmmAction) {
+        debug!("firecracker::api_server_adapter::ApiServerAdapter::handle_request() IN");
         let response = self.controller.handle_request(req_action);
         // Send back the result.
+        debug!("Send back API response.");
         self.to_api
             .send(Box::new(response))
             .map_err(|_| ())
             .expect("one-shot channel closed");
+        debug!("firecracker::api_server_adapter::ApiServerAdapter::handle_request() OUT");
     }
 }
 impl MutEventSubscriber for ApiServerAdapter {
@@ -74,6 +77,7 @@ impl MutEventSubscriber for ApiServerAdapter {
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
             match self.from_api.try_recv() {
                 Ok(api_request) => {
+                    debug!("Get API request.");
                     let request_is_pause = *api_request == VmmAction::Pause;
                     self.handle_request(*api_request);
 

@@ -20,6 +20,8 @@ use micro_http::{
 };
 use token_headers::TokenHeaders;
 
+use logger::debug;
+
 pub enum Error {
     InvalidToken,
     InvalidURI,
@@ -71,6 +73,7 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
 /// Patch provided JSON document (given as `serde_json::Value`) in-place with JSON Merge Patch
 /// [RFC 7396](https://tools.ietf.org/html/rfc7396).
 pub fn json_patch(target: &mut Value, patch: &Value) {
+    debug!("mmds::json_patch() IN");
     if patch.is_object() {
         if !target.is_object() {
             // Replace target with a serde_json object so we can recursively copy patch values.
@@ -94,6 +97,7 @@ pub fn json_patch(target: &mut Value, patch: &Value) {
     } else {
         *target = patch.clone();
     }
+    debug!("mmds::json_patch() OUT");
 }
 
 // Make the URI a correct JSON pointer value.

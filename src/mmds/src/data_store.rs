@@ -7,6 +7,7 @@ use serde_json::{to_vec, Value};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
+use logger::debug;
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 pub struct Mmds {
     data_store: Value,
@@ -164,6 +165,7 @@ impl Mmds {
     }
 
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
+        debug!("mmds::data_store::Mmds::patch_data() IN");
         self.check_data_store_initialized()?;
         let mut data_store_clone = self.data_store.clone();
 
@@ -174,6 +176,7 @@ impl Mmds {
             return Err(Error::DataStoreLimitExceeded);
         }
         self.data_store = data_store_clone;
+        debug!("mmds::data_store::Mmds::patch_data() OUT");
         Ok(())
     }
 
