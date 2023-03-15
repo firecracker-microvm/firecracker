@@ -22,14 +22,6 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))
 
 from framework.defs import SUPPORTED_KERNELS  # noqa: E402
 
-OUTPUT_FILENAMES = {
-    "vsock_throughput": ["test_vsock_throughput"],
-    "network_tcp_throughput": ["test_network_tcp_throughput"],
-    "block_performance": ["test_block_performance"],
-    "snapshot_restore_performance": ["test_snap_restore_performance"],
-    "network_latency": ["test_network_latency"],
-}
-
 DATA_PARSERS = {
     "vsock_throughput": Iperf3DataParser,
     "network_tcp_throughput": Iperf3DataParser,
@@ -38,7 +30,7 @@ DATA_PARSERS = {
     "network_latency": LatencyDataParser,
 }
 
-TESTS = list(OUTPUT_FILENAMES)
+TESTS = list(DATA_PARSERS.keys())
 
 INSTANCES = ["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal", "c7g.metal"]
 
@@ -47,15 +39,12 @@ def read_data_files(args):
     """Return all JSON objects contained in the files for this test."""
     assert os.path.isdir(args.data_folder)
 
-    res_files = [
-        f"{filename}_results_{args.instance}_{args.kernel}.ndjson"
-        for filename in OUTPUT_FILENAMES[args.test]
-    ]
+    res_files = f"test_{args.test}_results_{args.instance}_{args.kernel}.ndjson"
     # Get all files in the dir tree that have the right name.
     root_path = Path(args.data_folder)
     for root, _, files in os.walk(root_path):
         for file in files:
-            if file in res_files:
+            if file == res_files:
                 for line in open(Path(root) / file, encoding="utf-8"):
                     yield json.loads(line)
 
