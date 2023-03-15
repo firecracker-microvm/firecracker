@@ -82,7 +82,10 @@ performance_grp = group(
 
 steps = [step_style]
 changed_files = get_changed_files("main")
-if any(x.suffix != ".md" for x in changed_files):
+# run the whole test suite if either of:
+# - any file changed that is not documentation
+# - no files changed
+if not changed_files or any(x.suffix != ".md" for x in changed_files):
     steps += [
         build_grp,
         functional_1_grp,
