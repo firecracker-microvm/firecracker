@@ -19,7 +19,7 @@ from framework.utils import DictQuery, get_kernel_version
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.configs import defs
 
-TEST_ID = "snap_restore_performance"
+TEST_ID = "snapshot_restore_performance"
 WORKLOAD = "restore"
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, get_kernel_version(level=1))
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
