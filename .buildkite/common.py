@@ -36,7 +36,7 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     if isinstance(command, str):
         commands = [command]
     for instance in instances:
-        for (os, kv) in platforms:
+        for os, kv in platforms:
             # fill any templated variables
             step_commands = [
                 cmd.format(instance=instance, os=os, kv=kv) for cmd in commands
