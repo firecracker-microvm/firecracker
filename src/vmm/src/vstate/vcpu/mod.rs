@@ -94,21 +94,21 @@ impl fmt::Display for StartThreadedError {
 
 /// A wrapper around creating and using a vcpu.
 pub struct Vcpu {
-    // Offers kvm-arch specific functionality.
+    /// Access to kvm-arch specific functionality.
     pub kvm_vcpu: KvmVcpu,
 
-    // File descriptor for vcpu to trigger exit event on vmm.
+    /// File descriptor for vcpu to trigger exit event on vmm.
     exit_evt: EventFd,
-    // The receiving end of events channel owned by the vcpu side.
+    /// The receiving end of events channel owned by the vcpu side.
     event_receiver: Receiver<VcpuEvent>,
-    // The transmitting end of the events channel which will be given to the handler.
+    /// The transmitting end of the events channel which will be given to the handler.
     event_sender: Option<Sender<VcpuEvent>>,
-    // The receiving end of the responses channel which will be given to the handler.
+    /// The receiving end of the responses channel which will be given to the handler.
     response_receiver: Option<Receiver<VcpuResponse>>,
-    // The transmitting end of the responses channel owned by the vcpu side.
+    /// The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
 
-    // Exit reason used to test run_emulation function.
+    /// Exit reason used to test run_emulation function.
     #[cfg(test)]
     test_vcpu_exit_reason: Mutex<Option<std::result::Result<VcpuExit<'static>, errno::Error>>>,
 }
@@ -434,6 +434,10 @@ impl Vcpu {
     }
 
     #[cfg(not(test))]
+    /// Calls `KVM_RUN` with this [`Vcpu`]'s underlying file descriptor.
+    ///
+    /// Blocks until a `VM_EXIT` is received, in which case this function returns a [`VcpuExit`]
+    /// containing the reason.
     pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
         self.kvm_vcpu.fd.run()
     }
@@ -584,6 +588,21 @@ pub enum VcpuResponse {
     SavedState(Box<VcpuState>),
 }
 
+impl fmt::Debug for VcpuResponse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use crate::VcpuResponse::*;
+        match self {
+            Paused => write!(f, "VcpuResponse::Paused"),
+            Resumed => write!(f, "VcpuResponse::Resumed"),
+            Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
+            RestoredState => write!(f, "VcpuResponse::RestoredState"),
+            SavedState(_) => write!(f, "VcpuResponse::SavedState"),
+            Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
+            NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
+        }
+    }
+}
+
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
@@ -604,6 +623,12 @@ impl fmt::Display for VcpuSendEventError {
 }
 
 impl VcpuHandle {
+    /// Creates a new [`VcpuHandle`].
+    ///
+    /// # Arguments
+    /// + `event_sender`: [`Sender`] to communicate [`VcpuEvent`] to control the vcpu.
+    /// + `response_received`: [`Received`] from which the vcpu's responses can be read.
+    /// + `vcpu_thread`: A [`JoinHandle`] for the vcpu thread.
     pub fn new(
         event_sender: Sender<VcpuEvent>,
         response_receiver: Receiver<VcpuResponse>,
@@ -634,6 +659,7 @@ impl VcpuHandle {
         Ok(())
     }
 
+    /// Returns a reference to the [`Received`] from which the vcpu's responses can be read.
     pub fn response_receiver(&self) -> &Receiver<VcpuResponse> {
         &self.response_receiver
     }
@@ -663,7 +689,6 @@ pub enum VcpuEmulation {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    use std::fmt;
     use std::sync::{Arc, Barrier, Mutex};
 
     use linux_loader::loader::KernelLoader;
@@ -834,21 +859,6 @@ mod tests {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
                 _ => false,
-            }
-        }
-    }
-
-    impl fmt::Debug for VcpuResponse {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use crate::VcpuResponse::*;
-            match self {
-                Paused => write!(f, "VcpuResponse::Paused"),
-                Resumed => write!(f, "VcpuResponse::Resumed"),
-                Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
-                RestoredState => write!(f, "VcpuResponse::RestoredState"),
-                SavedState(_) => write!(f, "VcpuResponse::SavedState"),
-                Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
-                NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
             }
         }
     }
