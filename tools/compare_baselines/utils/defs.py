@@ -53,7 +53,7 @@ TESTS = [
     "block_performance",
     "network_latency",
     "network_tcp_throughput",
-    "snap_restore_performance",
+    "snapshot_restore_performance",
     "vsock_throughput",
 ]
 
