@@ -48,11 +48,11 @@ use crate::device_manager::persist::MMIODevManagerConstructorArgs;
 use crate::guest_config::aarch64::Aarch64CpuConfiguration;
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::cpuid::{Cpuid, RawCpuid};
-use crate::guest_config::templates;
 #[cfg(target_arch = "aarch64")]
 use crate::guest_config::templates::aarch64::{create_guest_cpu_config, Aarch64CpuTemplate};
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::templates::x86_64::{create_guest_cpu_config, X86_64CpuTemplate};
+use crate::guest_config::templates::Error as GuestConfigError;
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::x86_64::X86_64CpuConfiguration;
 use crate::persist::{MicrovmState, MicrovmStateError};
@@ -69,7 +69,7 @@ use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEven
 #[derive(Debug)]
 pub enum StartMicrovmError {
     /// Error using CPU template to configure vCPUs
-    ApplyCpuTemplate(templates::Error),
+    ApplyCpuTemplate(GuestConfigError),
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
@@ -300,7 +300,7 @@ fn create_vmm_and_vcpus(
                     .map_err(ApplyCpuTemplate)?,
                 );
             } else {
-                return Err(ApplyCpuTemplate(templates::Error::Internal(
+                return Err(ApplyCpuTemplate(GuestConfigError::Internal(
                     "Unable to access a vCPU".to_string(),
                 )));
             }
@@ -346,7 +346,7 @@ fn create_vmm_and_vcpus(
                     .map_err(ApplyCpuTemplate)?,
                 );
             } else {
-                return Err(ApplyCpuTemplate(templates::Error::Internal(
+                return Err(ApplyCpuTemplate(GuestConfigError::Internal(
                     "Unable to access a vCPU".to_string(),
                 )));
             }
