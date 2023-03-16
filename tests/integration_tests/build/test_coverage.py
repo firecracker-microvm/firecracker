@@ -18,9 +18,9 @@ from host_tools.cargo_build import cargo
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 78.08, "AMD": 78.92, "ARM": 81.88}
+    COVERAGE_DICT = {"Intel": 78.28, "AMD": 79.12, "ARM": 82.10}
 else:
-    COVERAGE_DICT = {"Intel": 75.88, "AMD": 76.66, "ARM": 78.84}
+    COVERAGE_DICT = {"Intel": 76.02, "AMD": 76.86, "ARM": 79.06}
 
 PROC_MODEL = proc.proc_type()
 
