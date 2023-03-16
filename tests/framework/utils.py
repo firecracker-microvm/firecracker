@@ -149,7 +149,13 @@ class CpuMap:
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
         """
-        cmd = "cat {}/cpuset.cpus".format(CpuMap._cpuset_mountpoint())
+        # The real processor map is found at different paths based on cgroups version:
+        #  - cgroupsv1: /cpuset.cpus
+        #  - cgroupsv2: /cpuset.cpus.effective
+        # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
+        cmd = "cat /sys/fs/cgroup/cpuset.cpus.effective || cat {}/cpuset.cpus".format(
+            CpuMap._cpuset_mountpoint()
+        )
         _, cpulist, _ = run_cmd(cmd)
         return ListFormatParser(cpulist).parse()
 
