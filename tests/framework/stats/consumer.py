@@ -118,9 +118,9 @@ class Consumer(ABC):
                             "measurement."
                         )
                         continue
-                    self._statistics[ms_name][st_def.name] = self._statistics[ms_name][
-                        st_def.name
-                    ] = {"value": st_def.func(self._results[ms_name][self.DATA_KEY])}
+                    self._statistics[ms_name][st_def.name] = {
+                        "value": st_def.func(self._results[ms_name][self.DATA_KEY])
+                    }
                 else:
                     self._statistics[ms_name][st_def.name] = {
                         "value": self._results[ms_name][st_def.name]
