@@ -128,6 +128,14 @@ class Consumer(ABC):
 
                 pass_criteria = st_def.pass_criteria
                 if pass_criteria:
+                    # if the statistic definition contains a criteria but the
+                    # corresponding baseline is not defined, the test should fail.
+                    if pass_criteria.baseline == {}:
+                        self._failure_aggregator.add_row(
+                            f"Baseline data is not defined for '{ms_name}/{st_def.name}"
+                            f"/{pass_criteria.name}'."
+                        )
+                        continue
                     self._statistics[ms_name][st_def.name]["pass_criteria"] = {
                         pass_criteria.name: pass_criteria.baseline
                     }
