@@ -20,7 +20,7 @@ from host_tools import proc
 if utils.is_io_uring_supported():
     COVERAGE_DICT = {"Intel": 82.67, "AMD": 81.88, "ARM": 82.17}
 else:
-    COVERAGE_DICT = {"Intel": 79.85, "AMD": 79.05, "ARM": 79.11}
+    COVERAGE_DICT = {"Intel": 79.9, "AMD": 79.05, "ARM": 79.11}
 
 PROC_MODEL = proc.proc_type()
 
