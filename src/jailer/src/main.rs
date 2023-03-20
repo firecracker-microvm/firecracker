@@ -6,15 +6,18 @@ mod chroot;
 mod env;
 mod resource_limits;
 use std::ffi::{CString, NulError, OsString};
+use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io, process, result};
 
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
+use utils::syscall::SyscallReturnCode;
 use utils::validators;
 
 use crate::env::Env;
 
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to parse arguments: {0}")]
@@ -51,12 +54,16 @@ pub enum Error {
     CloseNetNsFd(io::Error),
     #[error("Failed to close /dev/null fd: {0}")]
     CloseDevNullFd(io::Error),
+    #[error("Failed to call close range syscall: {0}")]
+    CloseRange(io::Error),
     #[error("{}", format!("Failed to copy {:?} to {:?}: {}", .0, .1, .2).replace('\"', ""))]
     Copy(PathBuf, PathBuf, io::Error),
     #[error("{}", format!("Failed to create directory {:?}: {}", .0, .1).replace('\"', ""))]
     CreateDir(PathBuf, io::Error),
     #[error("Encountered interior \\0 while parsing a string")]
     CStringParsing(NulError),
+    #[error("Failed to open directory {0}: {1}")]
+    DirOpen(String, String),
     #[error("Failed to duplicate fd: {0}")]
     Dup2(io::Error),
     #[error("Failed to exec into Firecracker: {0}")]
@@ -129,6 +136,8 @@ pub enum Error {
     UnshareNewNs(io::Error),
     #[error("Failed to unset the O_CLOEXEC flag on the socket fd: {0}")]
     UnsetCloexec(io::Error),
+    #[error("Slice contains invalid UTF-8 data : {0}")]
+    UTF8Parsing(std::str::Utf8Error),
     #[error("{}", format!("Failed to write to {:?}: {}", .0, .1).replace('\"', ""))]
     Write(PathBuf, io::Error),
 }
@@ -235,21 +244,70 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     Ok(line)
 }
 
-fn sanitize_process() {
-    // First thing to do is make sure we don't keep any inherited FDs
-    // other that IN, OUT and ERR.
-    // SAFETY: Always safe.
-    let fd_limit = i32::try_from(unsafe { libc::sysconf(libc::_SC_OPEN_MAX) }).unwrap();
-    // Close all file descriptors excluding 0 (STDIN), 1 (STDOUT) and 2 (STDERR).
-    for fd in 3..fd_limit {
-        // SAFETY: Safe because close() cannot fail when passed a valid parameter.
-        unsafe {
-            libc::close(fd);
+fn close_fds_by_close_range() -> Result<()> {
+    // First try using the close_range syscall to close all open FDs in the range of 3..UINT_MAX
+    // SAFETY: if the syscall is not available then ENOSYS will be returned
+    SyscallReturnCode(unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            3,
+            libc::c_uint::MAX,
+            libc::CLOSE_RANGE_UNSHARE,
+        )
+    } as libc::c_int)
+    .into_empty_result()
+    .map_err(Error::CloseRange)
+}
+
+fn close_fds_by_reading_proc() -> Result<()> {
+    // Calling this method means that close_range failed (we might be on kernel < 5.9).
+    // We can't use std::fs::ReadDir here as under the hood we need access to the dirfd in order to
+    // not close it twice
+    let path = "/proc/self/fd";
+    let mut dir = nix::dir::Dir::open(
+        path,
+        nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NOATIME,
+        nix::sys::stat::Mode::empty(),
+    )
+    .map_err(|e| Error::DirOpen(path.to_string(), e.to_string()))?;
+
+    let dirfd = dir.as_raw_fd();
+    let mut c = dir.iter();
+
+    while let Some(Ok(path)) = c.next() {
+        let file_name = path.file_name();
+        let fd_str = file_name.to_str().map_err(Error::UTF8Parsing)?;
+
+        // If the entry is an INT entry, we go ahead and we treat it as an FD identifier.
+        if let Ok(fd) = fd_str.parse::<i32>() {
+            if fd > 2 && fd != dirfd {
+                // SAFETY: Safe because close() cannot fail when passed a valid parameter.
+                unsafe { libc::close(fd) };
+            }
         }
     }
+    Ok(())
+}
 
-    // Cleanup environment variables
+// Closes all FDs other than 0 (STDIN), 1 (STDOUT) and 2 (STDERR)
+fn close_inherited_fds() -> Result<()> {
+    // The approach we take here is to firstly try to use the close_range syscall
+    // which is available on kernels > 5.9.
+    // We then fallback to using /proc/sef/fd to close open fds.
+    if close_fds_by_close_range().is_err() {
+        close_fds_by_reading_proc()?;
+    }
+    Ok(())
+}
+
+fn sanitize_process() -> Result<()> {
+    // First thing to do is make sure we don't keep any inherited FDs
+    // other that IN, OUT and ERR.
+    close_inherited_fds()?;
+
+    // Cleanup environment variables.
     clean_env_vars();
+    Ok(())
 }
 
 fn clean_env_vars() {
@@ -275,7 +333,8 @@ pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 }
 
 fn main() {
-    sanitize_process();
+    sanitize_process()
+        .unwrap_or_else(|err| panic!("Failed to sanitize the Jailer process: {}", err));
 
     let mut arg_parser = build_arg_parser();
 
@@ -321,28 +380,31 @@ fn main() {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::env;
+    use std::ffi::CStr;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
-    use utils::arg_parser;
+    use utils::{arg_parser, rand};
 
     use super::*;
 
-    #[test]
-    fn test_sanitize_process() {
+    fn run_close_fds_test(test_fn: fn() -> Result<()>) {
         let n = 100;
 
-        let tmp_dir_path = "/tmp/jailer/tests/sanitize_process";
-        assert!(fs::create_dir_all(tmp_dir_path).is_ok());
+        let tmp_dir_path = format!(
+            "/tmp/jailer/tests/close_fds/_{}",
+            rand::rand_alphanumerics(4).into_string().unwrap()
+        );
+        assert!(fs::create_dir_all(&tmp_dir_path).is_ok());
 
         let mut fds = Vec::new();
         for i in 0..n {
-            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
+            let maybe_file = File::create(format!("{}/{}", &tmp_dir_path, i));
             assert!(maybe_file.is_ok());
             fds.push(maybe_file.unwrap().into_raw_fd());
         }
 
-        sanitize_process();
+        assert!(test_fn().is_ok());
 
         for fd in fds {
             let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
@@ -350,6 +412,37 @@ mod tests {
         }
 
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
+
+    #[test]
+    fn test_fds_close_range() {
+        // SAFETY: Always safe
+        let mut n = unsafe { std::mem::zeroed() };
+        // SAFETY: We check if the uname call succeeded
+        assert_eq!(unsafe { libc::uname(&mut n) }, 0);
+        // SAFETY: Always safe
+        let release = unsafe { CStr::from_ptr(n.release.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        // Parse the major and minor version of the kernel
+        let mut r = release.split('.');
+        let major: i32 = str::parse(r.next().unwrap()).unwrap();
+        let minor: i32 = str::parse(r.next().unwrap()).unwrap();
+
+        // Skip this test if we're running on a too old kernel
+        if major > 5 || (major == 5 && minor >= 9) {
+            run_close_fds_test(close_fds_by_close_range);
+        }
+    }
+
+    #[test]
+    fn test_fds_proc() {
+        run_close_fds_test(close_fds_by_reading_proc);
+    }
+
+    #[test]
+    fn test_sanitize_process() {
+        run_close_fds_test(sanitize_process);
     }
 
     #[test]
