@@ -10,6 +10,7 @@ license = "Apache-2.0"
 
 [dependencies]
 libc = "0.2.117"
+nix = { version = "0.26.2", features = ["dir"] }
 regex = { version = "1.5.5", default-features = false, features = ["std"] }
 thiserror = "1.0.32"
 

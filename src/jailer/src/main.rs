@@ -6,6 +6,7 @@ mod chroot;
 mod env;
 mod resource_limits;
 use std::ffi::{CString, NulError, OsString};
+use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io, process, result};
 
@@ -235,21 +236,91 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     Ok(line)
 }
 
-fn sanitize_process() {
-    // First thing to do is make sure we don't keep any inherited FDs
-    // other that IN, OUT and ERR.
+fn close_fds_by_close_range() -> Option<()> {
+    // First try using the close_range syscall to close all open FDs in the range of 4..UINT_MAX
+    // SAFETY: if the syscall is not available then ENOSYS will be returned
+    if unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            3,
+            libc::c_uint::MAX,
+            libc::CLOSE_RANGE_UNSHARE,
+        )
+    } == 0
+    {
+        return Some(());
+    }
+    return None;
+}
+
+fn close_fds_by_iteration() -> Option<()> {
+    // Probably the kernel does not support close_range, kernel < 5.9
     // SAFETY: Always safe.
     let fd_limit = i32::try_from(unsafe { libc::sysconf(libc::_SC_OPEN_MAX) }).unwrap();
-    // Close all file descriptors excluding 0 (STDIN), 1 (STDOUT) and 2 (STDERR).
-    for fd in 3..fd_limit {
-        // SAFETY: Safe because close() cannot fail when passed a valid parameter.
-        unsafe {
-            libc::close(fd);
+
+    // Check if the fd_limit is small enough to iterate through - 65536 sounds sane
+    if fd_limit <= 2_i32.pow(16) {
+        // Do not trust values bellow 1024
+        for fd in 3..fd_limit.max(2_i32.pow(10)) {
+            // SAFETY: Safe because close() cannot fail when passed a valid parameter.
+            unsafe {
+                libc::close(fd);
+            }
         }
+        return Some(());
+    }
+    return None;
+}
+
+fn close_fds_by_reading_proc() -> Option<()> {
+    // If both methods failed then fallback to reading /proc
+    // This means that we are on kernel < 5.9 and OPEN_MAX is set to a pathological size
+    // We can't use std::fs::ReadDir here as under the hood we need access to the dirfd in order to
+    // not close it twice
+    if let Ok(mut dir) = nix::dir::Dir::open(
+        "/proc/self/fd",
+        nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NOATIME,
+        nix::sys::stat::Mode::empty(),
+    ) {
+        let dirfd = dir.as_raw_fd();
+
+        let mut c = dir.iter();
+        while let Some(Ok(path)) = c.next() {
+            let file_name = path.file_name();
+            let fd_str = file_name.to_str().unwrap_or("0");
+            let fd = fd_str.parse::<i32>().unwrap_or(0);
+
+            if fd > 2 && fd != dirfd {
+                // SAFETY: Safe because close() cannot fail when passed a valid parameter.
+                unsafe { libc::close(fd) };
+            }
+        }
+
+        return Some(());
     }
 
+    return None;
+}
+
+// Closes all FDs other than 0 (STDIN), 1 (STDOUT) and 2 (STDERR)
+fn close_inherited_fds() -> Option<()> {
+    // Try variuos methods until one of them works
+    if close_fds_by_close_range().is_none()
+        && close_fds_by_iteration().is_none()
+        && close_fds_by_reading_proc().is_none()
+    {
+        return None;
+    }
+    return Some(());
+}
+
+fn sanitize_process() -> Option<()> {
+    // First thing to do is make sure we don't keep any inherited FDs
+    // other that IN, OUT and ERR.
+    close_inherited_fds()?;
     // Cleanup environment variables
     clean_env_vars();
+    Some(())
 }
 
 fn clean_env_vars() {
@@ -275,7 +346,9 @@ pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 }
 
 fn main() {
-    sanitize_process();
+    if sanitize_process().is_none() {
+        panic!("Unable to sanitize the process")
+    }
 
     let mut arg_parser = build_arg_parser();
 
@@ -321,28 +394,31 @@ fn main() {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::env;
+    use std::ffi::CStr;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
-    use utils::arg_parser;
+    use utils::{arg_parser, rand};
 
     use super::*;
 
-    #[test]
-    fn test_sanitize_process() {
+    fn run_close_fds_test(test_fn: fn() -> Option<()>) {
         let n = 100;
 
-        let tmp_dir_path = "/tmp/jailer/tests/sanitize_process";
-        assert!(fs::create_dir_all(tmp_dir_path).is_ok());
+        let tmp_dir_path = format!(
+            "/tmp/jailer/tests/close_fds/_{}",
+            rand::rand_alphanumerics(4).into_string().unwrap()
+        );
+        assert!(fs::create_dir_all(&tmp_dir_path).is_ok());
 
         let mut fds = Vec::new();
         for i in 0..n {
-            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
+            let maybe_file = File::create(format!("{}/{}", &tmp_dir_path, i));
             assert!(maybe_file.is_ok());
             fds.push(maybe_file.unwrap().into_raw_fd());
         }
 
-        sanitize_process();
+        assert_eq!(test_fn(), Some(()));
 
         for fd in fds {
             let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
@@ -350,6 +426,42 @@ mod tests {
         }
 
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
+
+    #[test]
+    fn test_fds_close_range() {
+        // SAFETY: Always safe
+        let mut n = unsafe { std::mem::zeroed() };
+        // SAFETY: We check if the uname call succeeded
+        assert_eq!(unsafe { libc::uname(&mut n) }, 0);
+        // SAFETY: Always safe
+        let release = unsafe { CStr::from_ptr(n.release.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        // Parse the major and minor version of the kernel
+        let mut r = release.split(".");
+        let major: i32 = str::parse(r.next().unwrap()).unwrap();
+        let minor: i32 = str::parse(r.next().unwrap()).unwrap();
+
+        // Skip this test if we're running on a too old kernel
+        if major > 5 || (major == 5 && minor >= 9) {
+            run_close_fds_test(close_fds_by_close_range);
+        }
+    }
+
+    #[test]
+    fn test_fds_iteration() {
+        run_close_fds_test(close_fds_by_iteration);
+    }
+
+    #[test]
+    fn test_fds_proc() {
+        run_close_fds_test(close_fds_by_reading_proc);
+    }
+
+    #[test]
+    fn test_sanitize_process() {
+        run_close_fds_test(sanitize_process);
     }
 
     #[test]
