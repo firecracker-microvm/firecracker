@@ -1,10 +1,10 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use bit_fields::CheckedAssignError;
 
-use super::registers;
+use crate::guest_config::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
 use crate::guest_config::cpuid::{
-    host_brand_string, CpuidTrait, MissingBrandStringLeaves, BRAND_STRING_LENGTH,
+    host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
+    BRAND_STRING_LENGTH,
 };
 
 /// Error type for [`IntelCpuid::normalize`].
@@ -96,47 +96,74 @@ impl super::IntelCpuid {
         cpu_count: u8,
         cpus_per_core: u8,
     ) -> Result<(), DeterministicCacheError> {
-        let leaf_4 = self.leaf_mut::<0x4>();
-        for subleaf in leaf_4.0 {
-            // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
-            // always safe.
-            #[allow(clippy::unwrap_used)]
-            match u32::from(&subleaf.eax.cache_level()) {
-                // L1 & L2 Cache
-                // The L1 & L2 cache is shared by at most 2 hyperthreads
-                1 | 2 => subleaf
-                    .eax
-                    .max_num_addressable_ids_for_logical_processors_sharing_this_cache_mut()
-                    .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
-                    .map_err(DeterministicCacheError::MaxCpusPerCore)?,
-                // L3 Cache
-                // The L3 cache is shared among all the logical threads
-                3 => subleaf
-                    .eax
-                    .max_num_addressable_ids_for_logical_processors_sharing_this_cache_mut()
-                    .checked_assign(u32::from(
-                        cpu_count
-                            .checked_sub(1)
-                            .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
-                    ))
-                    .map_err(DeterministicCacheError::MaxCpusPerCore)?,
-                _ => (),
+        for i in 0.. {
+            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x4, i)) {
+                // Cache Type Field.
+                // - 0 = Null - No more caches.
+                // - 1 = Data Cache.
+                // - 2 = Instruction Cache.
+                // - 3 = Unified Cache.
+                // - 4-31 = Reserved.
+                //
+                // cache_type_field: 0..5,
+                let cache_level = subleaf.result.eax & 15;
+
+                // Maximum number of addressable IDs for logical processors sharing this cache.
+                // - Add one to the return value to get the result.
+                // - The nearest power-of-2 integer that is not smaller than (1 + EAX[25:14]) is the
+                //   number of unique initial APIC IDs reserved for addressing different logical
+                //   processors sharing this cache.
+                //
+                // max_num_addressable_ids_for_logical_processors_sharing_this_cache: 14..26,
+
+                // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
+                // always safe.
+                #[allow(clippy::unwrap_used)]
+                match cache_level {
+                    // L1 & L2 Cache
+                    // The L1 & L2 cache is shared by at most 2 hyperthreads
+                    1 | 2 => {
+                        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                            .map_err(DeterministicCacheError::MaxCpusPerCore)?;
+                    }
+                    // L3 Cache
+                    // The L3 cache is shared among all the logical threads
+                    3 => {
+                        let sub = u32::from(
+                            cpu_count
+                                .checked_sub(1)
+                                .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
+                        );
+                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                            .map_err(DeterministicCacheError::MaxCpusPerCore)?;
+                    }
+                    _ => (),
+                }
+
+                // We know `cpus_per_core !=0` therefore this is always safe.
+                #[allow(clippy::unwrap_used)]
+                let cores = cpu_count.checked_div(cpus_per_core).unwrap();
+
+                // Maximum number of addressable IDs for processor cores in the physical package.
+                // - Add one to the return value to get the result.
+                // - The nearest power-of-2 integer that is not smaller than (1 + EAX[31:26]) is the
+                //   number of unique Core_IDs reserved for addressing different processor cores in
+                //   a physical package. Core ID is a subset of bits of the initial APIC ID.
+                // - The returned value is constant for valid initial values in ECX. Valid ECX
+                //   values start from 0.
+                //
+                // max_num_addressable_ids_for_processor_cores_in_physical_package: 26..32,
+
+                // Put all the cores in the same socket
+                let sub = u32::from(cores)
+                    .checked_sub(1)
+                    .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?;
+                set_range(&mut subleaf.result.eax, 26..32, sub)
+                    .map_err(DeterministicCacheError::MaxCorePerPackage)?;
+            } else {
+                break;
             }
-
-            // We know `cpus_per_core !=0` therefore this is always safe.
-            #[allow(clippy::unwrap_used)]
-            let cores = cpu_count.checked_div(cpus_per_core).unwrap();
-
-            // Put all the cores in the same socket
-            subleaf
-                .eax
-                .max_num_addressable_ids_for_processor_cores_in_physical_package_mut()
-                .checked_assign(
-                    u32::from(cores)
-                        .checked_sub(1)
-                        .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?,
-                )
-                .map_err(DeterministicCacheError::MaxCorePerPackage)?;
         }
         Ok(())
     }
@@ -144,25 +171,36 @@ impl super::IntelCpuid {
     /// Update power management entry
     fn update_power_management_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_6 = self
-            .leaf_mut::<0x6>()
+            .get_mut(&CpuidKey::leaf(0x6))
             .ok_or(NormalizeCpuidError::MissingLeaf6)?;
-        leaf_6.eax.intel_turbo_boost_technology_mut().off();
+
+        // Intel Turbo Boost Technology available (see description of IA32_MISC_ENABLE[38]).
+        //
+        // intel_turbo_boost_technology: 1,
+        set_bit(&mut leaf_6.result.eax, 1, false);
+
+        // The processor supports performance-energy bias preference if CPUID.06H:ECX.SETBH[bit 3]
+        // is set and it also implies the presence of a new architectural MSR called
+        // IA32_ENERGY_PERF_BIAS (1B0H).
+        //
+        // performance_energy_bias: 3,
+
         // Clear X86 EPB feature. No frequency selection in the hypervisor.
-        leaf_6.ecx.performance_energy_bias_mut().off();
+        set_bit(&mut leaf_6.result.ecx, 3, false);
         Ok(())
     }
 
     /// Update performance monitoring entry
     fn update_performance_monitoring_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_a = self
-            .leaf_mut::<0xA>()
+            .get_mut(&CpuidKey::leaf(0xA))
             .ok_or(NormalizeCpuidError::MissingLeafA)?;
-        *leaf_a = super::leaves::LeafA::from((
-            registers::LeafAEax::from(0),
-            registers::LeafAEbx::from(0),
-            registers::LeafAEcx::from(0),
-            registers::LeafAEdx::from(0),
-        ));
+        leaf_a.result = CpuidRegisters {
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+        };
         Ok(())
     }
 
