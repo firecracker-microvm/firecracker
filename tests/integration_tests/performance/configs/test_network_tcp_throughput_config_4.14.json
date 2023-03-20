@@ -138,7 +138,7 @@
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
+                                "vmlinux-5.10-no-sve.bin": {
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
@@ -404,7 +404,7 @@
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
+                                "vmlinux-5.10-no-sve.bin": {
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
@@ -670,7 +670,7 @@
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
+                                "vmlinux-5.10-no-sve.bin": {
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
