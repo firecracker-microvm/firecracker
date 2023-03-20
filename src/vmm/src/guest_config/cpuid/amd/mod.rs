@@ -4,21 +4,12 @@
 
 use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 
-/// Indexing implementations.
-mod indexing;
-
-/// Leaf structs.
-mod leaves;
-
 /// CPUID normalize implementation.
 mod normalize;
 
 pub use normalize::{
     ExtendedApicIdError, ExtendedCacheTopologyError, FeatureEntryError, NormalizeCpuidError,
 };
-
-/// Register bit fields.
-mod registers;
 
 /// A structure matching the AMD CPUID specification as described in
 /// [AMD64 Architecture Programmer’s Manual Volume 3: General-Purpose and System Instructions](https://www.amd.com/system/files/TechDocs/24594.pdf)

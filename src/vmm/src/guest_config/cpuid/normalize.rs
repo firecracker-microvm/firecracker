@@ -1,8 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use bit_fields::CheckedAssignError;
 
-use crate::guest_config::cpuid::CpuidTrait;
+use crate::guest_config::cpuid::{CpuidKey, CpuidTrait};
 
 /// Error type for [`Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -50,6 +49,76 @@ pub enum GetMaxCpusPerPackageError {
     Overflow,
 }
 
+/// Error type for setting a bit range.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Given value is greater than maximum storable value in bit range.")]
+pub struct CheckedAssignError;
+
+/// Sets a given bit to a true or false (1 or 0).
+#[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
+pub fn set_bit(x: &mut u32, bit: u8, y: bool) {
+    debug_assert!(bit < 32);
+    *x = (*x & !(1 << bit)) | ((u32::from(u8::from(y))) << bit);
+}
+
+/// Sets a given range to a given value.
+#[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
+pub fn set_range(
+    x: &mut u32,
+    range: std::ops::Range<u8>,
+    y: u32,
+) -> Result<(), CheckedAssignError> {
+    debug_assert!(range.end >= range.start);
+    match range.end - range.start {
+        z @ 0..=31 => {
+            if y >= 2u32.pow(u32::from(z)) {
+                Err(CheckedAssignError)
+            } else {
+                let shift = y << range.start;
+                *x = shift | (*x & !mask(range));
+                Ok(())
+            }
+        }
+        32 => {
+            let shift = y << range.start;
+            *x = shift | (*x & !mask(range));
+            Ok(())
+        }
+        33.. => Err(CheckedAssignError),
+    }
+}
+
+/// Returns a mask where the given range is ones.
+#[allow(
+    clippy::as_conversions,
+    clippy::integer_arithmetic,
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation
+)]
+const fn mask(range: std::ops::Range<u8>) -> u32 {
+    /// Returns a value where in the binary representation all bits to the right of the x'th bit
+    /// from the left are 1.
+    #[allow(clippy::unreachable)]
+    const fn shift(x: u8) -> u32 {
+        if x == 0 {
+            0
+        } else if x < u32::BITS as u8 {
+            (1 << x) - 1
+        } else if x == u32::BITS as u8 {
+            u32::MAX
+        } else {
+            unreachable!()
+        }
+    }
+
+    debug_assert!(range.end >= range.start);
+    debug_assert!(range.end <= u32::BITS as u8);
+
+    let front = shift(range.start);
+    let back = shift(range.end);
+    !front & back
+}
+
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.
 #[allow(clippy::multiple_inherent_impl)]
@@ -81,38 +150,63 @@ impl super::Cpuid {
             pub const HYPERVISOR_BITINDEX: u8 = 31;
 
             let leaf_1 = self
-                .leaf_mut::<0x1>()
+                .get_mut(&CpuidKey::leaf(0x1))
                 .ok_or(FeatureInformationError::MissingLeaf1)?;
 
-            // X86 hypervisor feature
-            leaf_1.ecx.tsc_deadline_mut().on();
-            // Hypervisor bit
-            leaf_1.ecx.bit_mut::<HYPERVISOR_BITINDEX>().on();
+            // A value of 1 indicates that the processor’s local APIC timer supports one-shot
+            // operation using a TSC deadline value.
+            //
+            // tsc_deadline: 24,
 
-            leaf_1
-                .ebx
-                .initial_apic_id_mut()
-                .checked_assign(u32::from(cpu_index))
+            // X86 hypervisor feature
+            set_bit(&mut leaf_1.result.ecx, 24, true);
+
+            // Hypervisor bit
+            set_bit(&mut leaf_1.result.ecx, HYPERVISOR_BITINDEX, true);
+
+            // Initial APIC ID.
+            //
+            // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
+            // available in Leaf 0BH and Leaf 1FH.
+            //
+            // initial_apic_id: 24..32,
+            set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
                 .map_err(FeatureInformationError::InitialApicId)?;
-            leaf_1
-                .ebx
-                .clflush_mut()
-                .checked_assign(EBX_CLFLUSH_CACHELINE)
+
+            // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
+            //
+            // clflush: 8..16,
+            set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
                 .map_err(FeatureInformationError::Clflush)?;
+
             let max_cpus_per_package = u32::from(
                 get_max_cpus_per_package(cpu_count)
                     .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
             );
-            leaf_1
-                .ebx
-                .max_addressable_logical_processor_ids_mut()
-                .checked_assign(max_cpus_per_package)
+
+            // Maximum number of addressable IDs for logical processors in this physical package.
+            //
+            // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
+            // unique initial APIC IDs reserved for addressing different logical
+            // processors in a physical package. This field is only valid if
+            // CPUID.1.EDX.HTT[bit 28]= 1.
+            //
+            // max_addressable_logical_processor_ids: 16..24,
+            set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
                 .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
+
+            // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
+            // single logical processor in the package and software should assume only a
+            // single APIC ID is reserved. A value of 1 for HTT indicates the value in
+            // CPUID.1.EBX[23:16] (the Maximum number of addressable IDs for logical
+            // processors in this package) is valid for the package.
+            //
+            // htt: 28,
 
             // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
             // (the Maximum number of addressable IDs for logical processors in this package)
             // is valid for the package
-            leaf_1.edx.htt_mut().set(cpu_count > 1);
+            set_bit(&mut leaf_1.result.edx, 28, cpu_count > 1);
         }
 
         // Apply manufacturer specific modifications.
