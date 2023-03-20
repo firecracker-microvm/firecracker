@@ -152,6 +152,7 @@ impl TargetArch {
     }
 }
 
+// TODO Can this be removed?
 impl TryInto<TargetArch> for &str {
     type Error = TargetArchError;
     fn try_into(self) -> std::result::Result<TargetArch, TargetArchError> {
@@ -159,6 +160,18 @@ impl TryInto<TargetArch> for &str {
             "x86_64" => Ok(TargetArch::x86_64),
             "aarch64" => Ok(TargetArch::aarch64),
             _ => Err(TargetArchError::InvalidString(self.to_string())),
+        }
+    }
+}
+
+// Allows passing it on the command line.
+impl std::str::FromStr for TargetArch {
+    type Err = TargetArchError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "x86_64" => Ok(TargetArch::x86_64),
+            "aarch64" => Ok(TargetArch::aarch64),
+            _ => Err(TargetArchError::InvalidString(s.to_string())),
         }
     }
 }

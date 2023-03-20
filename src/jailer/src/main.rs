@@ -9,7 +9,7 @@ use std::ffi::{CString, NulError, OsString};
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io, process, result};
 
-use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
+use clap::Parser;
 use utils::validators;
 
 use crate::env::Env;
@@ -17,8 +17,6 @@ use crate::env::Env;
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Failed to parse arguments: {0}")]
-    ArgumentParsing(ParsingError),
     #[error("{}", format!("Failed to canonicalize path {:?}: {}", .0, .1).replace('\"', ""))]
     Canonicalize(PathBuf, io::Error),
     #[error("{}", format!("Failed to inherit cgroups configurations from file {} in path {:?}", .1, .0).replace('\"', ""))]
@@ -135,83 +133,58 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// Create an ArgParser object which contains info about the command line argument parser and
-/// populate it with the expected arguments and their characteristics.
-pub fn build_arg_parser() -> ArgParser<'static> {
-    ArgParser::new()
-        .arg(
-            Argument::new("id")
-                .required(true)
-                .takes_value(true)
-                .help("Jail ID."),
-        )
-        .arg(
-            Argument::new("exec-file")
-                .required(true)
-                .takes_value(true)
-                .help("File path to exec into."),
-        )
-        .arg(
-            Argument::new("uid")
-                .required(true)
-                .takes_value(true)
-                .help("The user identifier the jailer switches to after exec."),
-        )
-        .arg(
-            Argument::new("gid")
-                .required(true)
-                .takes_value(true)
-                .help("The group identifier the jailer switches to after exec."),
-        )
-        .arg(
-            Argument::new("chroot-base-dir")
-                .takes_value(true)
-                .default_value("/srv/jailer")
-                .help("The base folder where chroot jails are located."),
-        )
-        .arg(
-            Argument::new("netns")
-                .takes_value(true)
-                .help("Path to the network namespace this microVM should join."),
-        )
-        .arg(Argument::new("daemonize").takes_value(false).help(
-            "Daemonize the jailer before exec, by invoking setsid(), and redirecting the standard \
-             I/O file descriptors to /dev/null.",
-        ))
-        .arg(
-            Argument::new("new-pid-ns")
-                .takes_value(false)
-                .help("Exec into a new PID namespace."),
-        )
-        .arg(Argument::new("cgroup").allow_multiple(true).help(
-            "Cgroup and value to be set by the jailer. It must follow this format: \
-             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used multiple times \
-             to add multiple cgroups.",
-        ))
-        .arg(Argument::new("resource-limit").allow_multiple(true).help(
-            "Resource limit values to be set by the jailer. It must follow this format: \
-             <resource>=<value> (e.g no-file=1024). This argument can be used multiple times to \
-             add multiple resource limits. Current available resource values are:\n\t\tfsize: The \
-             maximum size in bytes for files created by the process.\n\t\tno-file: Specifies a \
-             value one greater than the maximum file descriptor number that can be opened by this \
-             process.",
-        ))
-        .arg(
-            Argument::new("cgroup-version")
-                .takes_value(true)
-                .default_value("1")
-                .help("Select the cgroup version used by the jailer."),
-        )
-        .arg(
-            Argument::new("parent-cgroup")
-                .takes_value(true)
-                .help("Parent cgroup in which the cgroup of this microvm will be placed."),
-        )
-        .arg(
-            Argument::new("version")
-                .takes_value(false)
-                .help("Print the binary version number."),
-        )
+#[derive(Debug, Parser)]
+#[clap(trailing_var_arg = true)]
+pub struct Args {
+    /// Jail ID.
+    #[arg(long)]
+    id: String,
+    /// File path to exec into.
+    #[arg(long)]
+    exec_file: String,
+    /// The user identifier the jailer switches to after exec.
+    #[arg(long)]
+    uid: u32,
+    /// The group identifier the jailer switches to after exec.
+    #[arg(long)]
+    gid: u32,
+    /// The base folder where chroot jails are located.
+    #[arg(long, default_value = "/srv/jailer")]
+    chroot_base_dir: String,
+    /// Path to the network namespace this microVM should join.
+    #[arg(long, default_value = None)]
+    netns: Option<String>,
+    /// Daemonize the jailer before exec, by invoking setsid(), and redirecting the standard I/O
+    /// file descriptors to /dev/null.
+    #[arg(long, default_value_t = false)]
+    daemonize: bool,
+    /// Exec into a new PID namespace.
+    #[arg(long, default_value_t = false)]
+    new_pid_ns: bool,
+    /// Cgroup and value to be set by the jailer. It must follow this format: <cgroup_file>=<value>
+    /// (e.g cpu.shares=10). This argument can be used multiple times to add multiple cgroups.
+    #[arg(long, default_value = None)]
+    cgroup: Option<Vec<String>>,
+    /// Resource limit values to be set by the jailer. It must follow this format:
+    /// <resource>=<value> (e.g no-file=1024). This argument can be used multiple times to add
+    /// multiple resource limits. Current available resource values are:
+    /// - fsize: The maximum size in bytes for files created by the process.
+    /// - no-file: Specifies a value one greater than the maximum file descriptor number that can
+    ///   be opened by this process.
+    #[arg(long, default_value = None)]
+    resource_limit: Option<Vec<String>>,
+    /// Select the cgroup version used by the jailer.
+    #[arg(long, default_value_t = 1)]
+    cgroup_version: u8,
+    /// Parent cgroup in which the cgroup of this microvm will be placed.
+    #[arg(long)]
+    parent_cgroup: Option<String>,
+    /// Print the binary version number.
+    #[arg(long, default_value_t = false)]
+    version: bool,
+    // Trailing arguments, arguments after `--`.
+    #[arg()]
+    extra_args: Vec<String>,
 }
 
 // It's called writeln_special because we have to use this rather convoluted way of writing
@@ -277,9 +250,7 @@ pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 fn main() {
     sanitize_process();
 
-    let mut arg_parser = build_arg_parser();
-
-    match arg_parser.parse_from_cmdline() {
+    let arg_parser = match Args::try_parse() {
         Err(err) => {
             println!(
                 "Arguments parsing error: {} \n\nFor more information try --help.",
@@ -287,25 +258,17 @@ fn main() {
             );
             process::exit(1);
         }
-        _ => {
-            if arg_parser.arguments().flag_present("help") {
-                println!("Jailer v{}\n", JAILER_VERSION);
-                println!("{}\n", arg_parser.formatted_help());
-                println!(
-                    "Any arguments after the -- separator will be supplied to the jailed binary.\n"
-                );
-                process::exit(0);
-            }
-
-            if arg_parser.arguments().flag_present("version") {
+        Ok(args) => {
+            if args.version {
                 println!("Jailer v{}\n", JAILER_VERSION);
                 process::exit(0);
             }
+            args
         }
-    }
+    };
 
     Env::new(
-        arg_parser.arguments(),
+        arg_parser,
         utils::time::get_time_us(utils::time::ClockType::Monotonic),
         utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
     )
@@ -323,8 +286,6 @@ mod tests {
     use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
-
-    use utils::arg_parser;
 
     use super::*;
 
@@ -382,16 +343,10 @@ mod tests {
         let proc_mounts = "/proc/mounts";
         let controller = "sysfs";
         let id = "foobar";
-        let err_args_parse = arg_parser::Error::UnexpectedArgument("foo".to_string());
         let err_regex = regex::Error::Syntax(id.to_string());
         let err2_str = "No such file or directory (os error 2)";
         let cgroup_file = "cpuset.mems";
 
-        assert_eq!(
-            format!("{}", Error::ArgumentParsing(err_args_parse)),
-            "Failed to parse arguments: Found argument 'foo' which wasn't expected, or isn't \
-             valid in this context."
-        );
         assert_eq!(
             format!(
                 "{}",

@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, panic, process};
 
+use clap::Parser;
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
-use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
@@ -31,7 +31,6 @@ use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
-const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[cfg(target_arch = "aarch64")]
 /// Enable SSBD mitigation through `prctl`.
@@ -108,128 +107,7 @@ fn main_exitable() -> FcExitCode {
         }
     }));
 
-    let http_max_payload_size_str = HTTP_MAX_PAYLOAD_SIZE.to_string();
-
-    let mut arg_parser = ArgParser::new()
-        .arg(
-            Argument::new("api-sock")
-                .takes_value(true)
-                .default_value(DEFAULT_API_SOCK_PATH)
-                .help("Path to unix domain socket used by the API."),
-        )
-        .arg(
-            Argument::new("id")
-                .takes_value(true)
-                .default_value(DEFAULT_INSTANCE_ID)
-                .help("MicroVM unique identifier."),
-        )
-        .arg(
-            Argument::new("seccomp-filter")
-                .takes_value(true)
-                .forbids(vec!["no-seccomp"])
-                .help(
-                    "Optional parameter which allows specifying the path to a custom seccomp \
-                     filter. For advanced users.",
-                ),
-        )
-        .arg(
-            Argument::new("no-seccomp")
-                .takes_value(false)
-                .forbids(vec!["seccomp-filter"])
-                .help(
-                    "Optional parameter which allows starting and using a microVM without seccomp \
-                     filtering. Not recommended.",
-                ),
-        )
-        .arg(
-            Argument::new("start-time-us")
-                .takes_value(true)
-                .help("Process start time (wall clock, microseconds). This parameter is optional."),
-        )
-        .arg(
-            Argument::new("start-time-cpu-us").takes_value(true).help(
-                "Process start CPU time (wall clock, microseconds). This parameter is optional.",
-            ),
-        )
-        .arg(Argument::new("parent-cpu-time-us").takes_value(true).help(
-            "Parent process CPU time (wall clock, microseconds). This parameter is optional.",
-        ))
-        .arg(
-            Argument::new("config-file")
-                .takes_value(true)
-                .help("Path to a file that contains the microVM configuration in JSON format."),
-        )
-        .arg(
-            Argument::new(MMDS_CONTENT_ARG)
-                .takes_value(true)
-                .help("Path to a file that contains metadata in JSON format to add to the mmds."),
-        )
-        .arg(
-            Argument::new("no-api")
-                .takes_value(false)
-                .requires("config-file")
-                .help(
-                    "Optional parameter which allows starting and using a microVM without an \
-                     active API socket.",
-                ),
-        )
-        .arg(
-            Argument::new("log-path")
-                .takes_value(true)
-                .help("Path to a fifo or a file used for configuring the logger on startup."),
-        )
-        .arg(
-            Argument::new("level")
-                .takes_value(true)
-                .requires("log-path")
-                .default_value("Warning")
-                .help("Set the logger level."),
-        )
-        .arg(
-            Argument::new("show-level")
-                .takes_value(false)
-                .requires("log-path")
-                .help("Whether or not to output the level in the logs."),
-        )
-        .arg(
-            Argument::new("show-log-origin")
-                .takes_value(false)
-                .requires("log-path")
-                .help(
-                    "Whether or not to include the file path and line number of the log's origin.",
-                ),
-        )
-        .arg(
-            Argument::new("metrics-path")
-                .takes_value(true)
-                .help("Path to a fifo or a file used for configuring the metrics on startup."),
-        )
-        .arg(Argument::new("boot-timer").takes_value(false).help(
-            "Whether or not to load boot timer device for logging elapsed time since \
-             InstanceStart command.",
-        ))
-        .arg(Argument::new("version").takes_value(false).help(
-            "Print the binary version number and a list of supported snapshot data format \
-             versions.",
-        ))
-        .arg(
-            Argument::new("describe-snapshot")
-                .takes_value(true)
-                .help("Print the data format version of the provided snapshot state file."),
-        )
-        .arg(
-            Argument::new("http-api-max-payload-size")
-                .takes_value(true)
-                .default_value(&http_max_payload_size_str)
-                .help("Http API request payload max size, in bytes."),
-        )
-        .arg(
-            Argument::new("mmds-size-limit")
-                .takes_value(true)
-                .help("Mmds data store limit, in bytes."),
-        );
-
-    let arguments = match arg_parser.parse_from_cmdline() {
+    let arguments = match Args::try_parse() {
         Err(err) => {
             error!(
                 "Arguments parsing error: {} \n\nFor more information try --help.",
@@ -237,25 +115,18 @@ fn main_exitable() -> FcExitCode {
             );
             return vmm::FcExitCode::ArgParsing;
         }
-        _ => {
-            if arg_parser.arguments().flag_present("help") {
-                println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-                println!("{}", arg_parser.formatted_help());
-                return vmm::FcExitCode::Ok;
-            }
-
-            if arg_parser.arguments().flag_present("version") {
+        Ok(args) => {
+            if args.version {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 print_supported_snapshot_versions();
                 return vmm::FcExitCode::Ok;
             }
-
-            if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
-                print_snapshot_data_format(snapshot_path);
+            if let Some(snapshot_path) = args.describe_snapshot {
+                print_snapshot_data_format(&snapshot_path);
                 return vmm::FcExitCode::Ok;
             }
 
-            arg_parser.arguments()
+            args
         }
     };
 
@@ -264,8 +135,7 @@ fn main_exitable() -> FcExitCode {
     // deprecating one.
     // warn_deprecated_parameters(&arguments);
 
-    // It's safe to unwrap here because the field's been provided with a default value.
-    let instance_id = arguments.single_value("id").unwrap();
+    let instance_id = arguments.id;
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
     let instance_info = InstanceInfo {
@@ -275,11 +145,10 @@ fn main_exitable() -> FcExitCode {
         app_name: "Firecracker".to_string(),
     };
 
-    LOGGER.set_instance_id(instance_id.to_owned());
+    LOGGER.set_instance_id(instance_id);
 
-    if let Some(log) = arguments.single_value("log-path") {
-        // It's safe to unwrap here because the field's been provided with a default value.
-        let level = arguments.single_value("level").unwrap().to_owned();
+    if let Some(log) = arguments.log_path {
+        let level = arguments.level;
         let logger_level = match LoggerLevel::from_string(level) {
             Ok(level) => level,
             Err(err) => {
@@ -290,8 +159,8 @@ fn main_exitable() -> FcExitCode {
                 ));
             }
         };
-        let show_level = arguments.flag_present("show-level");
-        let show_log_origin = arguments.flag_present("show-log-origin");
+        let show_level = arguments.show_level;
+        let show_log_origin = arguments.show_log_origin;
 
         let logger_config = LoggerConfig::new(
             PathBuf::from(log),
@@ -304,7 +173,7 @@ fn main_exitable() -> FcExitCode {
         };
     }
 
-    if let Some(metrics_path) = arguments.single_value("metrics-path") {
+    if let Some(metrics_path) = arguments.metrics_path {
         let metrics_config = MetricsConfig {
             metrics_path: PathBuf::from(metrics_path),
         };
@@ -313,71 +182,43 @@ fn main_exitable() -> FcExitCode {
         };
     }
 
-    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
-        arguments.flag_present("no-seccomp"),
-        arguments.single_value("seccomp-filter"),
-    )
-    .and_then(get_filters)
-    {
-        Ok(filters) => filters,
-        Err(err) => {
-            return generic_error_exit(&format!("Seccomp error: {}", err));
-        }
-    };
+    let mut seccomp_filters: BpfThreadMap =
+        match SeccompConfig::from_args(arguments.no_seccomp, arguments.seccomp_filter.as_ref())
+            .and_then(get_filters)
+        {
+            Ok(filters) => filters,
+            Err(err) => {
+                return generic_error_exit(&format!("Seccomp error: {}", err));
+            }
+        };
 
     let vmm_config_json = arguments
-        .single_value("config-file")
+        .config_file
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
     let metadata_json = arguments
-        .single_value(MMDS_CONTENT_ARG)
+        .metadata
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
-    let boot_timer_enabled = arguments.flag_present("boot-timer");
-    let api_enabled = !arguments.flag_present("no-api");
-    let api_payload_limit = arg_parser
-        .arguments()
-        .single_value("http-api-max-payload-size")
-        .map(|lim| {
-            lim.parse::<usize>()
-                .expect("'http-api-max-payload-size' parameter expected to be of 'usize' type.")
-        })
-        // Safe to unwrap as we provide a default value.
-        .unwrap();
+    let boot_timer_enabled = arguments.boot_timer;
+    let api_enabled = !arguments.no_api;
+    let api_payload_limit = arguments.http_api_max_payload_size;
 
     // If the mmds size limit is not explicitly configured, default to using the
     // `http-api-max-payload-size` value.
-    let mmds_size_limit = arg_parser
-        .arguments()
-        .single_value("mmds-size-limit")
-        .map(|lim| {
-            lim.parse::<usize>()
-                .expect("'mmds-size-limit' parameter expected to be of 'usize' type.")
-        })
-        .unwrap_or_else(|| api_payload_limit);
+    let mmds_size_limit = arguments.mmds_size_limit.unwrap_or(api_payload_limit);
 
     if api_enabled {
         let bind_path = arguments
-            .single_value("api-sock")
+            .api_sock
             .map(PathBuf::from)
             .expect("Missing argument: api-sock");
 
-        let start_time_us = arguments.single_value("start-time-us").map(|s| {
-            s.parse::<u64>()
-                .expect("'start-time-us' parameter expected to be of 'u64' type.")
-        });
-
-        let start_time_cpu_us = arguments.single_value("start-time-cpu-us").map(|s| {
-            s.parse::<u64>()
-                .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
-        });
-
-        let parent_cpu_time_us = arguments.single_value("parent-cpu-time-us").map(|s| {
-            s.parse::<u64>()
-                .expect("'parent-cpu-time-us' parameter expected to be of 'u64' type.")
-        });
+        let start_time_us = arguments.start_time_us;
+        let start_time_cpu_us = arguments.start_time_cpu_us;
+        let parent_cpu_time_us = arguments.parent_cpu_time_us;
 
         let process_time_reporter =
             ProcessTimeReporter::new(start_time_us, start_time_cpu_us, parent_cpu_time_us);
@@ -406,6 +247,88 @@ fn main_exitable() -> FcExitCode {
             metadata_json.as_deref(),
         )
     }
+}
+
+#[derive(Debug, Parser)]
+struct Args {
+    /// Path to unix domain socket used by the API.
+    #[arg(long, default_value = Some(DEFAULT_API_SOCK_PATH))]
+    api_sock: Option<String>,
+    /// MicroVM unique identifier.
+    #[arg(long, default_value = DEFAULT_INSTANCE_ID)]
+    id: String,
+
+    // TODO `seccomp_filter` and `no_seccomp` are mutally exclusive, these should be replaced with
+    // 1 argument `seccomp_filter: SeccompFilter` where
+    // `enum SeccompFilter { None, Default, Custom(String) }`.
+    /// Optional paramter which allows specifying the path to a custom seccomp filter. For advanced
+    /// users.
+    #[arg(long, default_value = None)]
+    seccomp_filter: Option<String>,
+    /// Optional parameter which allows starting and using a microVM without seccomp filtering. Not
+    /// recommended.
+    #[arg(long, default_value_t = false)]
+    no_seccomp: bool,
+
+    /// Process start time (wall clock, microseconds). This parameter is optional.
+    #[arg(long, default_value = None)]
+    start_time_us: Option<u64>,
+    /// Process start CPU time (wall clock, microseconds). This parameter is optional.
+    #[arg(long, default_value = None)]
+    start_time_cpu_us: Option<u64>,
+    /// Parent process CPU time (wall clock, microseconds). This parameter is optional.
+    #[arg(long, default_value = None)]
+    parent_cpu_time_us: Option<u64>,
+
+    // TODO When `no_api` is true it requires `config_file.is_some()`, when `no_api` is false it
+    // requires `api_sock.is_some()`, these arguments should be replaced with 1 argument
+    // `config: Config` where
+    // `enum Config { FileAndApi(String, String), Api(String), File(String) }`
+    /// Path to a file that contains the microVM configuration in JSON format.
+    #[arg(long, default_value = None)]
+    config_file: Option<String>, // TODO Should this be `Option<std::path::Path>`?
+    /// Optional parameter which allows starting and using a microVM without an active API socket.
+    #[arg(long, default_value_t = false)]
+    no_api: bool,
+
+    /// Path to a file that contains metadata in JSON format to add to the mmds.
+    #[arg(long, default_value = None)]
+    metadata: Option<String>, // TODO Should this be `Option<std::path::Path>`?
+
+    // TODO Most loggers default to setting up from enviroment variables, could we do this instead
+    // of passing the setup via the command line?
+    /// Path to a fifo or a file used for configuring the logger on startup.
+    #[arg(long, default_value = None)]
+    log_path: Option<String>,
+    /// Set the logger level.
+    #[arg(long, default_value = "Warning")]
+    level: String,
+    /// Whether or not to output the level in the logs.
+    #[arg(long, default_value_t = false)]
+    show_level: bool,
+    /// Whether or not to include the file path and line number of the log's origin.
+    #[arg(long, default_value_t = false)]
+    show_log_origin: bool,
+
+    /// Path to a fifo or a file used for configuring the metrics on startup.
+    #[arg(long, default_value = None)]
+    metrics_path: Option<String>, // TODO Should this be `Option<std::path::Path>`?
+    /// Whether or not to load boot timer device for logging elapsed time since InstanceStart
+    /// command.
+    #[arg(long, default_value_t = false)]
+    boot_timer: bool,
+    /// Print the binary version number and a list of supported snapshot data format versions.
+    #[arg(long, default_value_t = false)]
+    version: bool,
+
+    /// Print the data format version of the provided snapshot state file.
+    #[arg(long, default_value = None)]
+    describe_snapshot: Option<String>,
+    /// Http API request payload max size, in bytes.
+    #[arg(long, default_value_t = HTTP_MAX_PAYLOAD_SIZE)]
+    http_api_max_payload_size: usize,
+    /// Mmds data store limit, in bytes.
+    mmds_size_limit: Option<usize>,
 }
 
 fn main() {

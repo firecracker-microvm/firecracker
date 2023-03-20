@@ -11,7 +11,6 @@ pub use vmm_sys_util::{
     seek_hole, sock_ctrl_msg, syscall, tempdir, tempfile, terminal,
 };
 
-pub mod arg_parser;
 pub mod byte_order;
 pub mod kernel_version;
 pub mod net;

@@ -6,13 +6,11 @@ use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 use std::{env, process};
 
-use utils::arg_parser::{ArgParser, Argument, Arguments};
+use clap::Parser;
 use utils::seek_hole::SeekHole;
 
 const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
 const EXIT_CODE_SUCCESS: i32 = 0;
-const BASE_FILE: &str = "base-file";
-const DIFF_FILE: &str = "diff-file";
 
 #[derive(Debug)]
 enum Error {
@@ -25,62 +23,27 @@ enum Error {
     Metadata(std::io::Error),
 }
 
-fn build_arg_parser<'a>() -> ArgParser<'a> {
-    let arg_parser = ArgParser::new()
-        .arg(
-            Argument::new(BASE_FILE)
-                .required(true)
-                .takes_value(true)
-                .help("File path of the base mem snapshot."),
-        )
-        .arg(
-            Argument::new(DIFF_FILE)
-                .required(true)
-                .takes_value(true)
-                .help("File path of the diff mem snapshot."),
-        );
-
-    arg_parser
+#[derive(Debug, Parser)]
+struct Args {
+    /// File path of the base mem snapshot.
+    #[arg(long)]
+    base_file: String,
+    /// File path of the diff mem snapshot.
+    #[arg(long)]
+    diff_file: String,
+    #[arg(long, default_value_t = false)]
+    version: bool,
 }
 
-fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
-    arg_parser.parse_from_cmdline().unwrap_or_else(|err| {
-        panic!(
-            "Arguments parsing error: {} \n\nFor more information try --help.",
-            err
-        );
-    });
-
-    if arg_parser.arguments().flag_present("help") {
-        println!("Rebase_snap v{}", REBASE_SNAP_VERSION);
-        println!(
-            "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
-        );
-        println!("{}", arg_parser.formatted_help());
-        process::exit(EXIT_CODE_SUCCESS);
-    }
-    if arg_parser.arguments().flag_present("version") {
-        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
-        process::exit(EXIT_CODE_SUCCESS);
-    }
-
-    arg_parser.arguments()
-}
-
-fn parse_args(args: &Arguments) -> Result<(File, File), Error> {
-    // Safe to unwrap since the required arguments are checked as part of
-    // `arg_parser.parse_from_cmdline()`
-    let base_file_path = args.single_value(BASE_FILE).unwrap();
+fn parse_args(args: &Args) -> Result<(File, File), Error> {
     let base_file = OpenOptions::new()
         .write(true)
-        .open(base_file_path)
+        .open(&args.base_file)
         .map_err(Error::InvalidBaseFile)?;
-    // Safe to unwrap since the required arguments are checked as part of
-    // `arg_parser.parse_from_cmdline()`
-    let diff_file_path = args.single_value(DIFF_FILE).unwrap();
+
     let diff_file = OpenOptions::new()
         .read(true)
-        .open(diff_file_path)
+        .open(&args.diff_file)
         .map_err(Error::InvalidDiffFile)?;
 
     Ok((base_file, diff_file))
@@ -119,10 +82,20 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
 }
 
 fn main() {
-    let mut arg_parser = build_arg_parser();
-    let args = extract_args(&mut arg_parser);
-    let (mut base_file, mut diff_file) =
-        parse_args(args).unwrap_or_else(|err| panic!("Error parsing the cmd line args: {:?}", err));
+    let args = Args::try_parse().unwrap_or_else(|err| {
+        panic!(
+            "Arguments parsing error: {} \n\nFor more information try --help.",
+            err
+        );
+    });
+
+    if args.version {
+        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
+        process::exit(EXIT_CODE_SUCCESS);
+    }
+
+    let (mut base_file, mut diff_file) = parse_args(&args)
+        .unwrap_or_else(|err| panic!("Error parsing the cmd line args: {:?}", err));
 
     rebase(&mut base_file, &mut diff_file)
         .unwrap_or_else(|err| panic!("Error merging the files: {:?}", err));
@@ -136,81 +109,6 @@ mod tests {
     use utils::{rand, tempfile};
 
     use super::*;
-
-    macro_rules! assert_err {
-        ($expression:expr, $($pattern:tt)+) => {
-            match $expression {
-                Err($($pattern)+) => (),
-                ref err =>  {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
-                    assert!(false)
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_parse_args() {
-        let base_file = tempfile::TempFile::new().unwrap();
-        let base_file_path = base_file.as_path().to_str().unwrap().to_string();
-        let diff_file = tempfile::TempFile::new().unwrap();
-        let diff_file_path = diff_file.as_path().to_str().unwrap().to_string();
-
-        let arg_parser = build_arg_parser();
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "rebase_snap",
-                    "--base-file",
-                    "wrong_file",
-                    "--diff-file",
-                    "diff_file",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert_err!(parse_args(arguments), Error::InvalidBaseFile(_));
-
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "rebase_snap",
-                    "--base-file",
-                    &base_file_path,
-                    "--diff-file",
-                    "diff_file",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert_err!(parse_args(arguments), Error::InvalidDiffFile(_));
-
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "rebase_snap",
-                    "--base-file",
-                    &base_file_path,
-                    "--diff-file",
-                    &diff_file_path,
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert!(parse_args(arguments).is_ok());
-    }
 
     fn check_file_content(file: &mut File, expected_content: &[u8]) {
         let mut buf = vec![0u8; expected_content.len()];

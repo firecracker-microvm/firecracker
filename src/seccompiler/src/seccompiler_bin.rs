@@ -38,7 +38,6 @@ mod compiler;
 mod syscall_table;
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
@@ -46,10 +45,10 @@ use std::{io, process};
 
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
+use clap::Parser;
 use common::BpfProgram;
 use compiler::{Compiler, Error as FilterFormatError, JsonFile};
 use serde_json::error::Error as JSONError;
-use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
 const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
@@ -65,88 +64,37 @@ enum Error {
     FileOpen(PathBuf, io::Error),
     #[error("Error parsing JSON: {0}")]
     Json(JSONError),
-    #[error("Missing input file.")]
-    MissingInputFile,
-    #[error("Missing target arch.")]
-    MissingTargetArch,
     #[error("{0}")]
     Arch(#[from] TargetArchError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, PartialEq)]
-struct Arguments {
+#[derive(Debug, Parser, PartialEq)]
+struct Args {
+    /// File path of the JSON input.
+    #[arg(long)]
     input_file: String,
+    /// Optional path of the output file.
+    #[arg(long, default_value = DEFAULT_OUTPUT_FILENAME)]
     output_file: String,
+    /// The computer architecture where the BPF program runs. Supported architectures: x86_64,
+    /// aarch64.
+    #[arg(long)]
     target_arch: TargetArch,
-    is_basic: bool,
-}
-
-fn build_arg_parser() -> ArgParser<'static> {
-    ArgParser::new()
-        .arg(
-            Argument::new("input-file")
-                .required(true)
-                .takes_value(true)
-                .help("File path of the JSON input."),
-        )
-        .arg(
-            Argument::new("output-file")
-                .required(false)
-                .takes_value(true)
-                .default_value(DEFAULT_OUTPUT_FILENAME)
-                .help("Optional path of the output file."),
-        )
-        .arg(
-            Argument::new("target-arch")
-                .required(true)
-                .takes_value(true)
-                .help(
-                    "The computer architecture where the BPF program runs. Supported \
-                     architectures: x86_64, aarch64.",
-                ),
-        )
-        .arg(Argument::new("basic").takes_value(false).help(
-            "Deprecated! Transforms the filters into basic filters. Drops all argument checks and \
-             rule-level actions. Not recommended.",
-        ))
-}
-
-fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
-    let arch_string = arguments.single_value("target-arch");
-    if arch_string.is_none() {
-        return Err(Error::MissingTargetArch);
-    }
-    let target_arch: TargetArch = arch_string.unwrap().as_str().try_into()?;
-
-    let input_file = arguments.single_value("input-file");
-    if input_file.is_none() {
-        return Err(Error::MissingInputFile);
-    }
-
-    let is_basic = arguments.flag_present("basic");
-    if is_basic {
-        println!(
-            "Warning! You are using a deprecated parameter: --basic, that will be removed in a \
-             future version.\n"
-        );
-    }
-
-    Ok(Arguments {
-        target_arch,
-        input_file: input_file.unwrap().to_owned(),
-        // Safe to unwrap because it has a default value
-        output_file: arguments.single_value("output-file").unwrap().to_owned(),
-        is_basic,
-    })
+    /// Deprecated! Transforms the filters into basic filters. Drops all argument checks and
+    /// rule-level actions. Not recommended.
+    #[arg(long, default_value_t = false)]
+    basic: bool,
+    #[arg(long, default_value_t = false)]
+    version: bool,
 }
 
 fn parse_json(reader: impl Read) -> Result<JsonFile> {
     serde_json::from_reader(reader).map_err(Error::Json)
 }
 
-fn compile(args: &Arguments) -> Result<()> {
+fn compile(args: &Args) -> Result<()> {
     let input_file = File::open(&args.input_file)
         .map_err(|err| Error::FileOpen(PathBuf::from(&args.input_file), err))?;
     let mut input_reader = BufReader::new(input_file);
@@ -155,7 +103,7 @@ fn compile(args: &Arguments) -> Result<()> {
 
     // transform the IR into a Map of BPFPrograms
     let bpf_data: BTreeMap<String, BpfProgram> = compiler
-        .compile_blob(filters.0, args.is_basic)
+        .compile_blob(filters.0, args.basic)
         .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
@@ -167,30 +115,21 @@ fn compile(args: &Arguments) -> Result<()> {
 }
 
 fn main() {
-    let mut arg_parser = build_arg_parser();
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!(
+                "Arguments parsing error: {} \n\nFor more information try --help.",
+                err
+            );
+            process::exit(EXIT_CODE_ERROR);
+        }
+    };
 
-    if let Err(err) = arg_parser.parse_from_cmdline() {
-        eprintln!(
-            "Arguments parsing error: {} \n\nFor more information try --help.",
-            err
-        );
-        process::exit(EXIT_CODE_ERROR);
-    }
-
-    if arg_parser.arguments().flag_present("help") {
-        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
-        println!("{}", arg_parser.formatted_help());
-        return;
-    }
-    if arg_parser.arguments().flag_present("version") {
+    if args.version {
         println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         return;
     }
-
-    let args = get_argument_values(arg_parser.arguments()).unwrap_or_else(|err| {
-        eprintln!("{} \n\nFor more information try --help.", err);
-        process::exit(EXIT_CODE_ERROR);
-    });
 
     if let Err(err) = compile(&args) {
         eprintln!("Seccompiler error: {}", err);
@@ -212,10 +151,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::compiler::{Error as FilterFormatError, Filter, SyscallRule};
-    use super::{
-        build_arg_parser, compile, get_argument_values, parse_json, Arguments, Error,
-        DEFAULT_OUTPUT_FILENAME,
-    };
+    use super::{compile, parse_json, Error};
     use crate::backend::SeccompCmpArgLen::*;
     use crate::backend::SeccompCmpOp::{Le, *};
     use crate::backend::{SeccompAction, SeccompCondition as Cond, TargetArch, TargetArchError};
@@ -367,157 +303,12 @@ mod tests {
             )
         );
         assert_eq!(
-            format!("{}", Error::MissingInputFile),
-            "Missing input file."
-        );
-        assert_eq!(
-            format!("{}", Error::MissingTargetArch),
-            "Missing target arch."
-        );
-        assert_eq!(
             format!(
                 "{}",
                 Error::Arch(TargetArchError::InvalidString("lala".to_string()))
             ),
             format!("{}", TargetArchError::InvalidString("lala".to_string()))
         );
-    }
-
-    #[test]
-    fn test_get_argument_values() {
-        let arg_parser = build_arg_parser();
-        // correct arguments
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "seccompiler-bin",
-                    "--input-file",
-                    "foo.txt",
-                    "--target-arch",
-                    "x86_64",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert_eq!(
-            get_argument_values(arguments).unwrap(),
-            Arguments {
-                input_file: "foo.txt".to_string(),
-                output_file: DEFAULT_OUTPUT_FILENAME.to_string(),
-                target_arch: TargetArch::x86_64,
-                is_basic: false,
-            }
-        );
-
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "seccompiler-bin",
-                    "--input-file",
-                    "foo.txt",
-                    "--target-arch",
-                    "x86_64",
-                    "--output-file",
-                    "/path.to/file.txt",
-                    "--basic",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert_eq!(
-            get_argument_values(arguments).unwrap(),
-            Arguments {
-                input_file: "foo.txt".to_string(),
-                output_file: "/path.to/file.txt".to_string(),
-                target_arch: TargetArch::x86_64,
-                is_basic: true
-            }
-        );
-
-        // no args
-        let arguments = &mut arg_parser.arguments().clone();
-        assert!(arguments
-            .parse(
-                vec!["seccompiler-bin"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect::<Vec<String>>()
-                    .as_ref(),
-            )
-            .is_err());
-
-        // missing --target-arch
-        let arguments = &mut arg_parser.arguments().clone();
-        assert!(arguments
-            .parse(
-                vec!["seccompiler-bin", "--input-file", "foo.txt"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect::<Vec<String>>()
-                    .as_ref(),
-            )
-            .is_err());
-
-        // missing --input-file
-        let arguments = &mut arg_parser.arguments().clone();
-        assert!(arguments
-            .parse(
-                vec!["seccompiler-bin", "--target-arch", "x86_64"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect::<Vec<String>>()
-                    .as_ref(),
-            )
-            .is_err());
-
-        // invalid --target-arch
-        let arguments = &mut arg_parser.arguments().clone();
-        arguments
-            .parse(
-                vec![
-                    "seccompiler-bin",
-                    "--input-file",
-                    "foo.txt",
-                    "--target-arch",
-                    "x86_64das",
-                    "--output-file",
-                    "/path.to/file.txt",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .unwrap();
-        assert!(get_argument_values(arguments).is_err());
-
-        // invalid value supplied to --basic
-        let arguments = &mut arg_parser.arguments().clone();
-        assert!(arguments
-            .parse(
-                vec![
-                    "seccompiler-bin",
-                    "--input-file",
-                    "foo.txt",
-                    "--target-arch",
-                    "x86_64",
-                    "--basic",
-                    "invalid",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .as_ref(),
-            )
-            .is_err());
     }
 
     #[test]
@@ -734,11 +525,12 @@ mod tests {
         {
             let mut in_file = TempFile::new().unwrap();
             in_file.remove().unwrap();
-            let args = Arguments {
+            let args = crate::Args {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),
                 target_arch: TargetArch::x86_64,
                 output_file: "bpf.out".to_string(),
-                is_basic: false,
+                basic: false,
+                version: false,
             };
 
             match compile(&args).unwrap_err() {
@@ -757,22 +549,24 @@ mod tests {
                 .write_all(CORRECT_JSON_INPUT.as_bytes())
                 .unwrap();
 
-            let arguments = Arguments {
+            let arguments = crate::Args {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),
                 output_file: out_file.as_path().to_str().unwrap().to_string(),
                 target_arch: TargetArch::x86_64,
-                is_basic: false,
+                basic: false,
+                version: false,
             };
 
             // do the compilation & check for errors
             assert!(compile(&arguments).is_ok());
 
             // also check with is_basic: true
-            let arguments = Arguments {
+            let arguments = crate::Args {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),
                 output_file: out_file.as_path().to_str().unwrap().to_string(),
                 target_arch: TargetArch::x86_64,
-                is_basic: true,
+                basic: true,
+                version: false,
             };
 
             // do the compilation & check for errors
