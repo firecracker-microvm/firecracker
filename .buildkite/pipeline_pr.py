@@ -7,13 +7,7 @@
 import subprocess
 from pathlib import Path
 
-from common import (
-    DEFAULT_INSTANCES,
-    DEFAULT_PLATFORMS,
-    DEFAULT_QUEUE,
-    group,
-    pipeline_to_json,
-)
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -94,9 +88,5 @@ if not changed_files or any(x.suffix != ".md" for x in changed_files):
         performance_grp,
     ]
 
-pipeline = {
-    "env": {},
-    "agents": {"queue": DEFAULT_QUEUE},
-    "steps": steps,
-}
+pipeline = {"steps": steps}
 print(pipeline_to_json(pipeline))
