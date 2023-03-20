@@ -155,7 +155,7 @@ def main():
     else:
         test_group = group_snapshot_restore(cpu_template_test[test_args.test])
 
-    pipeline = {"agents": {"queue": "public-prod-us-east-1"}, "steps": test_group}
+    pipeline = {"steps": test_group}
     print(pipeline_to_json(pipeline))
 
 

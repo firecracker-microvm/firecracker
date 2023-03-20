@@ -17,8 +17,6 @@ DEFAULT_INSTANCES = [
 
 DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
 
-DEFAULT_QUEUE = "public-prod-us-east-1"
-
 
 def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     """
