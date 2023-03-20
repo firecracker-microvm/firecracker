@@ -15,7 +15,6 @@ use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::aarch64::regs::Aarch64Register;
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
