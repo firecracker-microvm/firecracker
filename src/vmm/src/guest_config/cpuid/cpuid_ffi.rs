@@ -416,20 +416,22 @@ impl<const N: usize> PartialEq for Padding<N> {
 
 impl<const N: usize> Eq for Padding<N> {}
 
-bit_fields::bitfield!(
-    /// Definitions from `kvm/arch/x86/include/uapi/asm/kvm.h
-    KvmCpuidFlags,
-    u32,
-    {
-        /// Indicates if the `index` field is used for indexing sub-leaves (if false, this CPUID leaf
-        /// has no subleaves).
-        significant_index: 0,
-        /// Deprecated.
-        stateful_func: 1,
-        /// Deprecated.
-        state_read_next: 2,
-    }
-);
+/// Definitions from `kvm/arch/x86/include/uapi/asm/kvm.h
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy,
+)]
+pub struct KvmCpuidFlags(pub u32);
+impl KvmCpuidFlags {
+    /// Zero.
+    pub const EMPTY: Self = Self(0);
+    /// Indicates if the `index` field is used for indexing sub-leaves (if false, this CPUID leaf
+    /// has no subleaves).
+    pub const SIGNIFICANT_INDEX: Self = Self(1 << 0);
+    /// Deprecated.
+    pub const STATEFUL_FUNC: Self = Self(1 << 1);
+    /// Deprecated.
+    pub const STATE_READ_NEXT: Self = Self(1 << 2);
+}
 
 #[allow(clippy::derivable_impls)]
 impl Default for KvmCpuidFlags {
@@ -496,7 +498,7 @@ mod tests {
             .push(RawKvmCpuidEntry {
                 function: 0,
                 index: 0,
-                flags: KvmCpuidFlags::empty(),
+                flags: KvmCpuidFlags::EMPTY,
                 eax: 0,
                 ebx: 0,
                 ecx: 0,
@@ -517,7 +519,7 @@ mod tests {
         assert_eq!(
             mut_leaf,
             &mut CpuidEntry {
-                flags: KvmCpuidFlags::empty(),
+                flags: KvmCpuidFlags::EMPTY,
                 result: CpuidRegisters {
                     eax: 0,
                     ebx: 0,
@@ -545,7 +547,7 @@ mod tests {
         assert_eq!(
             leaf,
             &CpuidEntry {
-                flags: KvmCpuidFlags::empty(),
+                flags: KvmCpuidFlags::EMPTY,
                 result: set_result
             }
         );
@@ -556,7 +558,7 @@ mod tests {
         let mut entry = RawKvmCpuidEntry {
             function: 0,
             index: 0,
-            flags: KvmCpuidFlags::empty(),
+            flags: KvmCpuidFlags::EMPTY,
             eax: 0,
             ebx: 0,
             ecx: 0,
@@ -571,7 +573,7 @@ mod tests {
         let new_entry = RawKvmCpuidEntry {
             function: 0,
             index: 0,
-            flags: KvmCpuidFlags::empty(),
+            flags: KvmCpuidFlags::EMPTY,
             eax: 0,
             ebx: 0,
             ecx: 0,
