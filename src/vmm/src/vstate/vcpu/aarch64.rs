@@ -15,7 +15,6 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::aarch64::regs::Aarch64Register;
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
