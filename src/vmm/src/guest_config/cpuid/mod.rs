@@ -51,22 +51,10 @@ pub use amd::AmdCpuid;
 pub mod intel;
 pub use intel::IntelCpuid;
 
-/// Indexing implementations (shared between AMD and Intel).
-mod indexing;
-pub(crate) use indexing::index_leaf;
-pub use indexing::{IndexLeaf, IndexLeafMut};
-
-/// Leaf structs (shared between AMD and Intel).
-mod leaves;
-pub use leaves::Leaf;
-
 /// CPUID normalize implementation.
 mod normalize;
 
 pub use normalize::{FeatureInformationError, GetMaxCpusPerPackageError, NormalizeCpuidError};
-
-/// Register bit fields (shared between AMD and Intel).
-mod registers;
 
 /// Intel brand string.
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
@@ -146,26 +134,6 @@ pub trait CpuidTrait {
             ecx[3],
         ];
         Some(arr)
-    }
-
-    /// Get immutable reference to leaf.
-    #[inline]
-    #[must_use]
-    fn leaf<const N: usize>(&self) -> <Self as IndexLeaf<N>>::Output<'_>
-    where
-        Self: IndexLeaf<N>,
-    {
-        <Self as IndexLeaf<N>>::index_leaf(self)
-    }
-
-    /// Get mutable reference to leaf.
-    #[inline]
-    #[must_use]
-    fn leaf_mut<const N: usize>(&mut self) -> <Self as IndexLeafMut<N>>::Output<'_>
-    where
-        Self: IndexLeafMut<N>,
-    {
-        <Self as IndexLeafMut<N>>::index_leaf_mut(self)
     }
 
     /// Gets a given sub-leaf.
@@ -533,40 +501,40 @@ pub struct CpuidEntry {
     /// use cpuid::KvmCpuidFlags;
     /// #[allow(clippy::non_ascii_literal)]
     /// pub static KVM_CPUID_LEAF_FLAGS: phf::Map<u32, KvmCpuidFlags> = phf::phf_map! {
-    ///     0x00u32 => KvmCpuidFlags::empty(),
-    ///     0x01u32 => KvmCpuidFlags::empty(),
-    ///     0x02u32 => KvmCpuidFlags::empty(),
-    ///     0x03u32 => KvmCpuidFlags::empty(),
+    ///     0x00u32 => KvmCpuidFlags::EMPTY,
+    ///     0x01u32 => KvmCpuidFlags::EMPTY,
+    ///     0x02u32 => KvmCpuidFlags::EMPTY,
+    ///     0x03u32 => KvmCpuidFlags::EMPTY,
     ///     0x04u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
-    ///     0x05u32 => KvmCpuidFlags::empty(),
-    ///     0x06u32 => KvmCpuidFlags::empty(),
+    ///     0x05u32 => KvmCpuidFlags::EMPTY,
+    ///     0x06u32 => KvmCpuidFlags::EMPTY,
     ///     0x07u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
-    ///     0x09u32 => KvmCpuidFlags::empty(),
-    ///     0x0Au32 => KvmCpuidFlags::empty(),
+    ///     0x09u32 => KvmCpuidFlags::EMPTY,
+    ///     0x0Au32 => KvmCpuidFlags::EMPTY,
     ///     0x0Bu32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
     ///     0x0Fu32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
     ///     0x10u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
     ///     0x12u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
     ///     0x14u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
-    ///     0x15u32 => KvmCpuidFlags::empty(),
-    ///     0x16u32 => KvmCpuidFlags::empty(),
+    ///     0x15u32 => KvmCpuidFlags::EMPTY,
+    ///     0x16u32 => KvmCpuidFlags::EMPTY,
     ///     0x17u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
     ///     0x18u32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
-    ///     0x19u32 => KvmCpuidFlags::empty(),
-    ///     0x1Au32 => KvmCpuidFlags::empty(),
-    ///     0x1Bu32 => KvmCpuidFlags::empty(),
-    ///     0x1Cu32 => KvmCpuidFlags::empty(),
+    ///     0x19u32 => KvmCpuidFlags::EMPTY,
+    ///     0x1Au32 => KvmCpuidFlags::EMPTY,
+    ///     0x1Bu32 => KvmCpuidFlags::EMPTY,
+    ///     0x1Cu32 => KvmCpuidFlags::EMPTY,
     ///     0x1Fu32 => KvmCpuidFlags::SIGNIFICANT_INDEX,
-    ///     0x20u32 => KvmCpuidFlags::empty(),
-    ///     0x80000000u32 => KvmCpuidFlags::empty(),
-    ///     0x80000001u32 => KvmCpuidFlags::empty(),
-    ///     0x80000002u32 => KvmCpuidFlags::empty(),
-    ///     0x80000003u32 => KvmCpuidFlags::empty(),
-    ///     0x80000004u32 => KvmCpuidFlags::empty(),
-    ///     0x80000005u32 => KvmCpuidFlags::empty(),
-    ///     0x80000006u32 => KvmCpuidFlags::empty(),
-    ///     0x80000007u32 => KvmCpuidFlags::empty(),
-    ///     0x80000008u32 => KvmCpuidFlags::empty(),
+    ///     0x20u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000000u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000001u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000002u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000003u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000004u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000005u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000006u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000007u32 => KvmCpuidFlags::EMPTY,
+    ///     0x80000008u32 => KvmCpuidFlags::EMPTY,
     /// };
     /// ```
     pub flags: crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags,

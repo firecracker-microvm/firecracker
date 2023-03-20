@@ -7,18 +7,9 @@
     clippy::unsafe_derive_deserialize
 )]
 
-/// Leaf structs.
-mod leaves;
-
-/// Indexing implementations.
-mod indexing;
-
 /// CPUID normalize implementation.
 mod normalize;
 pub use normalize::{DeterministicCacheError, ExtendedTopologyError, NormalizeCpuidError};
-
-/// Register bit fields.
-mod registers;
 
 use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 
