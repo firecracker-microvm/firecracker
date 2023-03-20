@@ -23,8 +23,8 @@ versionize_derive = "0.1.5"
 vm-allocator = "0.1.0"
 log = "0.4.17"
 vm-superio = "0.7.0"
+vm-fdt = "0.2.0"
 
-bit-fields = { path = "../bit-fields" }
 devices = { path = "../devices" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }

@@ -1,8 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use bit_fields::CheckedAssignError;
 
 use crate::guest_config::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::guest_config::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
 use crate::guest_config::cpuid::{
     cpuid, cpuid_count, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
@@ -157,7 +157,7 @@ impl super::AmdCpuid {
             self.0.insert(
                 CpuidKey::leaf(0x8000001e),
                 CpuidEntry {
-                    flags: KvmCpuidFlags::empty(),
+                    flags: KvmCpuidFlags::EMPTY,
                     result: CpuidRegisters::from(cpuid(0x8000001e)),
                 },
             );
@@ -176,7 +176,20 @@ impl super::AmdCpuid {
                 //
                 // On non-AMD hosts this condition may never be true thus this loop may be
                 // indefinite.
-                if super::registers::Leaf8000001dEax::from(result.eax).cache_type() == 0 {
+
+                // Cache type. Identifies the type of cache.
+                // ```text
+                // Bits Description
+                // 00h Null; no more caches.
+                // 01h Data cache
+                // 02h Instruction cache
+                // 03h Unified cache
+                // 1Fh-04h Reserved.
+                // ```
+                //
+                // cache_type: 0..4,
+                let cache_type = result.eax & 15;
+                if cache_type == 0 {
                     break;
                 }
                 self.0.insert(
@@ -192,20 +205,19 @@ impl super::AmdCpuid {
     }
 
     /// Update largest extended fn entry.
+    #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
     fn update_largest_extended_fn_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // KVM sets the largest extended function to 0x80000000. Change it to 0x8000001f
         // Since we also use the leaf 0x8000001d (Extended Cache Topology).
         let leaf_80000000 = self
-            .leaf_mut::<0x80000000>()
+            .get_mut(&CpuidKey::leaf(0x80000000))
             .ok_or(NormalizeCpuidError::MissingLeaf0x80000000)?;
 
-        // SAFETY: Safe, as `0x8000_001f` is within the known range.
-        unsafe {
-            leaf_80000000
-                .eax
-                .l_func_ext_mut()
-                .unchecked_assign(0x8000_001f);
-        }
+        // Largest extended function. The largest CPUID extended function input value supported by
+        // the processor implementation.
+        //
+        // l_func_ext: 0..32,
+        set_range(&mut leaf_80000000.result.eax, 0..32, 0x8000_001f).unwrap();
         Ok(())
     }
 
@@ -213,13 +225,18 @@ impl super::AmdCpuid {
     fn update_extended_feature_fn_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // set the Topology Extension bit since we use the Extended Cache Topology leaf
         let leaf_80000001 = self
-            .leaf_mut::<0x80000001>()
+            .get_mut(&CpuidKey::leaf(0x80000001))
             .ok_or(NormalizeCpuidError::MissingLeaf0x80000001)?;
-        leaf_80000001.ecx.topology_extensions_mut().on();
+        // Topology extensions support. Indicates support for CPUID Fn8000_001D_EAX_x[N:0]-CPUID
+        // Fn8000_001E_EDX.
+        //
+        // topology_extensions: 22,
+        set_bit(&mut leaf_80000001.result.ecx, 22, true);
         Ok(())
     }
 
     /// Update AMD feature entry.
+    #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
     fn update_amd_feature_entry(&mut self, cpu_count: u8) -> Result<(), FeatureEntryError> {
         /// This value allows at most 64 logical threads within a package.
         const THREAD_ID_MAX_SIZE: u32 = 7;
@@ -227,25 +244,32 @@ impl super::AmdCpuid {
         // We don't support more then 128 threads right now.
         // It's safe to put them all on the same processor.
         let leaf_80000008 = self
-            .leaf_mut::<0x80000008>()
+            .get_mut(&CpuidKey::leaf(0x80000008))
             .ok_or(FeatureEntryError::MissingLeaf0x80000008)?;
 
-        // SAFETY: `THREAD_ID_MAX_SIZE` is within the known range and always safe.
-        unsafe {
-            leaf_80000008
-                .ecx
-                .apic_id_size_mut()
-                .unchecked_assign(THREAD_ID_MAX_SIZE);
-        }
-        leaf_80000008
-            .ecx
-            .nt_mut()
-            .checked_assign(u32::from(
-                cpu_count
-                    .checked_sub(1)
-                    .ok_or(FeatureEntryError::NumberOfPhysicalThreadsOverflow)?,
-            ))
+        // APIC ID size. The number of bits in the initial APIC20[ApicId] value that indicate
+        // logical processor ID within a package. The size of this field determines the
+        // maximum number of logical processors (MNLP) that the package could
+        // theoretically support, and not the actual number of logical processors that are
+        // implemented or enabled in the package, as indicated by CPUID
+        // Fn8000_0008_ECX[NC]. A value of zero indicates that legacy methods must be
+        // used to determine the maximum number of logical processors, as indicated by
+        // CPUID Fn8000_0008_ECX[NC].
+        //
+        // apic_id_size: 12..16,
+        set_range(&mut leaf_80000008.result.ecx, 12..16, THREAD_ID_MAX_SIZE).unwrap();
+
+        // Number of physical threads - 1. The number of threads in the processor is NT+1
+        // (e.g., if NT = 0, then there is one thread). See “Legacy Method” on page 633.
+        //
+        // nt: 0..8,
+        //
+        let sub = cpu_count
+            .checked_sub(1)
+            .ok_or(FeatureEntryError::NumberOfPhysicalThreadsOverflow)?;
+        set_range(&mut leaf_80000008.result.ecx, 0..8, u32::from(sub))
             .map_err(FeatureEntryError::NumberOfPhysicalThreads)?;
+
         Ok(())
     }
 
@@ -256,29 +280,56 @@ impl super::AmdCpuid {
         cpu_count: u8,
         cpus_per_core: u8,
     ) -> Result<(), ExtendedCacheTopologyError> {
-        let leaf_8000001d: super::leaves::Leaf8000001dMut = self.leaf_mut::<0x8000001d>();
-        for subleaf in leaf_8000001d.0 {
-            match u32::from(&subleaf.eax.cache_level()) {
-                // L1 & L2 Cache
-                // The L1 & L2 cache is shared by at most 2 hyper-threads
-                1 | 2 => subleaf
-                    .eax
-                    .num_sharing_cache_mut()
-                    // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-                    .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
-                    .map_err(ExtendedCacheTopologyError::NumSharingCache)?,
-                // L3 Cache
-                // The L3 cache is shared among all the logical threads
-                3 => subleaf
-                    .eax
-                    .num_sharing_cache_mut()
-                    .checked_assign(u32::from(
-                        cpu_count
+        for i in 0.. {
+            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x8000001d, i)) {
+                // Cache type. Identifies the type of cache.
+                // ```text
+                // Bits Description
+                // 00h Null; no more caches.
+                // 01h Data cache
+                // 02h Instruction cache
+                // 03h Unified cache
+                // 1Fh-04h Reserved.
+                // ```
+                //
+                // cache_type: 0..4,
+                let cache_level = 15 & subleaf.result.eax; // 15 == (2^4)-1
+
+                // Specifies the number of logical processors sharing the cache enumerated by N,
+                // the value passed to the instruction in ECX. The number of logical processors
+                // sharing this cache is the value of this field incremented by 1. To determine
+                // which logical processors are sharing a cache, determine a Share
+                // Id for each processor as follows:
+                //
+                // ShareId = LocalApicId >> log2(NumSharingCache+1)
+                //
+                // Logical processors with the same ShareId then share a cache. If
+                // NumSharingCache+1 is not a power of two, round it up to the next power of two.
+                //
+                // num_sharing_cache: 14..26,
+
+                match cache_level {
+                    // L1 & L2 Cache
+                    // The L1 & L2 cache is shared by at most 2 hyper-threads
+                    1 | 2 => {
+                        // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
+                        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+                        set_range(&mut subleaf.result.eax, 14..28, sub)
+                            .map_err(ExtendedCacheTopologyError::NumSharingCache)?;
+                    }
+                    // L3 Cache
+                    // The L3 cache is shared among all the logical threads
+                    3 => {
+                        let sub = cpu_count
                             .checked_sub(1)
-                            .ok_or(ExtendedCacheTopologyError::NumSharingCacheOverflow)?,
-                    ))
-                    .map_err(ExtendedCacheTopologyError::NumSharingCache)?,
-                _ => (),
+                            .ok_or(ExtendedCacheTopologyError::NumSharingCacheOverflow)?;
+                        set_range(&mut subleaf.result.eax, 14..26, u32::from(sub))
+                            .map_err(ExtendedCacheTopologyError::NumSharingCache)?;
+                    }
+                    _ => (),
+                }
+            } else {
+                break;
             }
         }
         Ok(())
@@ -301,41 +352,60 @@ impl super::AmdCpuid {
         // logical CPU 1 -> core id: 0
         // logical CPU 2 -> core id: 1
         // logical CPU 3 -> core id: 1
-        let core_id =
-            // SAFETY: We know `cpus_per_core != 0` therefore this is always safe.
-            u32::from(cpu_index.checked_div(cpus_per_core).unwrap());
+        //
+        // SAFETY: We know `cpus_per_core != 0` therefore this is always safe.
+        let core_id = u32::from(cpu_index.checked_div(cpus_per_core).unwrap());
 
         let leaf_8000001e = self
-            .leaf_mut::<0x8000001e>()
+            .get_mut(&CpuidKey::leaf(0x8000001e))
             .ok_or(ExtendedApicIdError::MissingLeaf0x8000001e)?;
-        leaf_8000001e
-            .eax
-            .extended_apic_id_mut()
-            .checked_assign(u32::from(cpu_index))
+
+        // Extended APIC ID. If MSR0000_001B[ApicEn] = 0, this field is reserved.
+        //
+        // extended_apic_id: 0..32,
+        set_range(&mut leaf_8000001e.result.eax, 0..32, u32::from(cpu_index))
             .map_err(ExtendedApicIdError::ExtendedApicId)?;
 
-        leaf_8000001e
-            .ebx
-            .compute_unit_id_mut()
-            .checked_assign(core_id)
+        // compute_unit_id: 0..8,
+        set_range(&mut leaf_8000001e.result.ebx, 0..8, core_id)
             .map_err(ExtendedApicIdError::ComputeUnitId)?;
-        leaf_8000001e
-            .ebx
-            .threads_per_compute_unit_mut()
-            // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-            .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
+
+        // Threads per compute unit (zero-based count). The actual number of threads
+        // per compute unit is the value of this field + 1. To determine which logical
+        // processors (threads) belong to a given Compute Unit, determine a ShareId
+        // for each processor as follows:
+        //
+        // ShareId = LocalApicId >> log2(ThreadsPerComputeUnit+1)
+        //
+        // Logical processors with the same ShareId then belong to the same Compute
+        // Unit. (If ThreadsPerComputeUnit+1 is not a power of two, round it up to the
+        // next power of two).
+        //
+        // threads_per_compute_unit: 8..16,
+        //
+        // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
+        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+        set_range(&mut leaf_8000001e.result.ebx, 8..16, sub)
             .map_err(ExtendedApicIdError::ThreadPerComputeUnit)?;
 
+        // Specifies the number of nodes in the package/socket in which this logical
+        // processor resides. Node in this context corresponds to a processor die.
+        // Encoding is N-1, where N is the number of nodes present in the socket.
+        //
+        // nodes_per_processor: 8..10,
+        //
         // SAFETY: We know the value always fits within the range and thus is always safe.
-        unsafe {
-            // Set nodes per processor.
-            leaf_8000001e
-                .ecx
-                .nodes_per_processor_mut()
-                .unchecked_assign(NODES_PER_PROCESSOR);
-            // Put all the cpus in the same node.
-            leaf_8000001e.ecx.node_id_mut().unchecked_assign(0);
-        }
+        // Set nodes per processor.
+        set_range(&mut leaf_8000001e.result.ecx, 8..10, NODES_PER_PROCESSOR).unwrap();
+
+        // Specifies the ID of the node containing the current logical processor. NodeId
+        // values are unique across the system.
+        //
+        // node_id: 0..8,
+        //
+        // Put all the cpus in the same node.
+        set_range(&mut leaf_8000001e.result.ecx, 0..8, 0).unwrap();
+
         Ok(())
     }
 

@@ -1,8 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use bit_fields::CheckedAssignError;
 
-use super::registers;
+use crate::guest_config::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
 use crate::guest_config::cpuid::{
     host_brand_string, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH,
@@ -89,7 +88,7 @@ pub enum ExtendedTopologyError {
     LevelNumber(CheckedAssignError),
     /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present.
     #[error("Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}")]
-    Overflow(<u32 as TryFrom<usize>>::Error),
+    Overflow(<u32 as TryFrom<u32>>::Error),
 }
 
 // We use this 2nd implementation so we can conveniently define functions only used within
@@ -132,47 +131,74 @@ impl super::IntelCpuid {
         cpu_count: u8,
         cpus_per_core: u8,
     ) -> Result<(), DeterministicCacheError> {
-        let leaf_4 = self.leaf_mut::<0x4>();
-        for subleaf in leaf_4.0 {
-            // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
-            // always safe.
-            #[allow(clippy::unwrap_used)]
-            match u32::from(&subleaf.eax.cache_level()) {
-                // L1 & L2 Cache
-                // The L1 & L2 cache is shared by at most 2 hyperthreads
-                1 | 2 => subleaf
-                    .eax
-                    .max_num_addressable_ids_for_logical_processors_sharing_this_cache_mut()
-                    .checked_assign(u32::from(cpus_per_core.checked_sub(1).unwrap()))
-                    .map_err(DeterministicCacheError::MaxCpusPerCore)?,
-                // L3 Cache
-                // The L3 cache is shared among all the logical threads
-                3 => subleaf
-                    .eax
-                    .max_num_addressable_ids_for_logical_processors_sharing_this_cache_mut()
-                    .checked_assign(u32::from(
-                        cpu_count
-                            .checked_sub(1)
-                            .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
-                    ))
-                    .map_err(DeterministicCacheError::MaxCpusPerCore)?,
-                _ => (),
+        for i in 0.. {
+            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x4, i)) {
+                // Cache Type Field.
+                // - 0 = Null - No more caches.
+                // - 1 = Data Cache.
+                // - 2 = Instruction Cache.
+                // - 3 = Unified Cache.
+                // - 4-31 = Reserved.
+                //
+                // cache_type_field: 0..5,
+                let cache_level = subleaf.result.eax & 15;
+
+                // Maximum number of addressable IDs for logical processors sharing this cache.
+                // - Add one to the return value to get the result.
+                // - The nearest power-of-2 integer that is not smaller than (1 + EAX[25:14]) is the
+                //   number of unique initial APIC IDs reserved for addressing different logical
+                //   processors sharing this cache.
+                //
+                // max_num_addressable_ids_for_logical_processors_sharing_this_cache: 14..26,
+
+                // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
+                // always safe.
+                #[allow(clippy::unwrap_used)]
+                match cache_level {
+                    // L1 & L2 Cache
+                    // The L1 & L2 cache is shared by at most 2 hyperthreads
+                    1 | 2 => {
+                        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                            .map_err(DeterministicCacheError::MaxCpusPerCore)?;
+                    }
+                    // L3 Cache
+                    // The L3 cache is shared among all the logical threads
+                    3 => {
+                        let sub = u32::from(
+                            cpu_count
+                                .checked_sub(1)
+                                .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
+                        );
+                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                            .map_err(DeterministicCacheError::MaxCpusPerCore)?;
+                    }
+                    _ => (),
+                }
+
+                // We know `cpus_per_core !=0` therefore this is always safe.
+                #[allow(clippy::unwrap_used)]
+                let cores = cpu_count.checked_div(cpus_per_core).unwrap();
+
+                // Maximum number of addressable IDs for processor cores in the physical package.
+                // - Add one to the return value to get the result.
+                // - The nearest power-of-2 integer that is not smaller than (1 + EAX[31:26]) is the
+                //   number of unique Core_IDs reserved for addressing different processor cores in
+                //   a physical package. Core ID is a subset of bits of the initial APIC ID.
+                // - The returned value is constant for valid initial values in ECX. Valid ECX
+                //   values start from 0.
+                //
+                // max_num_addressable_ids_for_processor_cores_in_physical_package: 26..32,
+
+                // Put all the cores in the same socket
+                let sub = u32::from(cores)
+                    .checked_sub(1)
+                    .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?;
+                set_range(&mut subleaf.result.eax, 26..32, sub)
+                    .map_err(DeterministicCacheError::MaxCorePerPackage)?;
+            } else {
+                break;
             }
-
-            // We know `cpus_per_core !=0` therefore this is always safe.
-            #[allow(clippy::unwrap_used)]
-            let cores = cpu_count.checked_div(cpus_per_core).unwrap();
-
-            // Put all the cores in the same socket
-            subleaf
-                .eax
-                .max_num_addressable_ids_for_processor_cores_in_physical_package_mut()
-                .checked_assign(
-                    u32::from(cores)
-                        .checked_sub(1)
-                        .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?,
-                )
-                .map_err(DeterministicCacheError::MaxCorePerPackage)?;
         }
         Ok(())
     }
@@ -180,25 +206,36 @@ impl super::IntelCpuid {
     /// Update power management entry
     fn update_power_management_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_6 = self
-            .leaf_mut::<0x6>()
+            .get_mut(&CpuidKey::leaf(0x6))
             .ok_or(NormalizeCpuidError::MissingLeaf6)?;
-        leaf_6.eax.intel_turbo_boost_technology_mut().off();
+
+        // Intel Turbo Boost Technology available (see description of IA32_MISC_ENABLE[38]).
+        //
+        // intel_turbo_boost_technology: 1,
+        set_bit(&mut leaf_6.result.eax, 1, false);
+
+        // The processor supports performance-energy bias preference if CPUID.06H:ECX.SETBH[bit 3]
+        // is set and it also implies the presence of a new architectural MSR called
+        // IA32_ENERGY_PERF_BIAS (1B0H).
+        //
+        // performance_energy_bias: 3,
+
         // Clear X86 EPB feature. No frequency selection in the hypervisor.
-        leaf_6.ecx.performance_energy_bias_mut().off();
+        set_bit(&mut leaf_6.result.ecx, 3, false);
         Ok(())
     }
 
     /// Update performance monitoring entry
     fn update_performance_monitoring_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_a = self
-            .leaf_mut::<0xA>()
+            .get_mut(&CpuidKey::leaf(0xA))
             .ok_or(NormalizeCpuidError::MissingLeafA)?;
-        *leaf_a = super::leaves::LeafA::from((
-            registers::LeafAEax::from(0),
-            registers::LeafAEbx::from(0),
-            registers::LeafAEcx::from(0),
-            registers::LeafAEdx::from(0),
-        ));
+        leaf_a.result = CpuidRegisters {
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+        };
         Ok(())
     }
 
@@ -234,84 +271,108 @@ impl super::IntelCpuid {
                 },
             });
 
-        let leaf_b = self.leaf_mut::<0xB>();
-        for (index, subleaf) in leaf_b.0.into_iter().enumerate() {
-            // reset eax, ebx, ecx
-            subleaf.eax.0 = 0;
-            subleaf.ebx.0 = 0;
-            subleaf.ecx.0 = 0;
-            // EDX bits 31..0 contain x2APIC ID of current logical processor
-            // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
-            subleaf.edx.0 = u32::from(cpu_index);
+        for index in 0.. {
+            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0xB, index)) {
+                // reset eax, ebx, ecx
+                subleaf.result.eax = 0;
+                subleaf.result.ebx = 0;
+                subleaf.result.ecx = 0;
+                // EDX bits 31..0 contain x2APIC ID of current logical processor
+                // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
+                subleaf.result.edx = u32::from(cpu_index);
 
-            // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
-            // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and
-            // level type = 1. Number of logical processors at the core level is
-            // reported at level type = 2." (Intel® 64 Architecture x2APIC
-            // Specification, Ch. 2.8)
-            match index {
-                // Thread Level Topology; index = 0
-                0 => {
-                    // To get the next level APIC ID, shift right with at most 1 because we have
-                    // maximum 2 hyperthreads per core that can be represented by 1 bit.
-                    subleaf
-                        .eax
-                        .bit_shifts_right_2x_apic_id_unique_topology_id_mut()
-                        .checked_assign(u32::from(cpu_bits))
-                        .map_err(ExtendedTopologyError::ApicId)?;
-                    // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
-                    // level Otherwise there are 2
-                    subleaf
-                        .ebx
-                        .logical_processors_mut()
-                        .checked_assign(u32::from(cpus_per_core))
-                        .map_err(ExtendedTopologyError::LogicalProcessors)?;
+                // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
+                // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and
+                // level type = 1. Number of logical processors at the core level is
+                // reported at level type = 2." (Intel® 64 Architecture x2APIC
+                // Specification, Ch. 2.8)
+                match index {
+                    // Number of bits to shift right on x2APIC ID to get a unique topology ID of the
+                    // next level type*. All logical processors with the same
+                    // next level ID share current level.
+                    //
+                    // *Software should use this field (EAX[4:0]) to enumerate processor topology of
+                    // the system.
+                    //
+                    // bit_shifts_right_2x_apic_id_unique_topology_id: 0..5
 
-                    subleaf
-                        .ecx
-                        .level_type_mut()
-                        .checked_assign(LEVEL_TYPE_THREAD)
-                        .map_err(ExtendedTopologyError::LevelType)?;
+                    // Number of logical processors at this level type. The number reflects
+                    // configuration as shipped by Intel**.
+                    //
+                    // **Software must not use EBX[15:0] to enumerate processor topology of the
+                    // system. This value in this field (EBX[15:0]) is only
+                    // intended for display/diagnostic purposes. The actual
+                    // number of  logical processors available to BIOS/OS/Applications may be
+                    // different from the value of  EBX[15:0], depending on
+                    // software and platform hardware configurations.
+                    //
+                    // logical_processors: 0..16
+
+                    // Level number. Same value in ECX input.
+                    //
+                    // level_number: 0..8,
+
+                    // Level type***
+                    //
+                    // If an input value n in ECX returns the invalid level-type of 0 in ECX[15:8],
+                    // other input values with ECX>n also return 0 in ECX[15:8].
+                    //
+                    // ***The value of the “level type” field is not related to level numbers in any
+                    // way, higher “level type” values do not mean higher
+                    // levels. Level type field has the following encoding:
+                    // - 0: Invalid.
+                    // - 1: SMT.
+                    // - 2: Core.
+                    // - 3-255: Reserved.
+                    //
+                    // level_type: 8..16
+
+                    // Thread Level Topology; index = 0
+                    0 => {
+                        // To get the next level APIC ID, shift right with at most 1 because we have
+                        // maximum 2 hyperthreads per core that can be represented by 1 bit.
+                        set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
+                            .map_err(ExtendedTopologyError::ApicId)?;
+
+                        // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
+                        // level Otherwise there are 2
+                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
+                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+
+                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_THREAD)
+                            .map_err(ExtendedTopologyError::LevelType)?;
+                    }
+                    // Core Level Processor Topology; index = 1
+                    1 => {
+                        set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
+                            .map_err(ExtendedTopologyError::ApicId)?;
+
+                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
+                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+
+                        // We expect here as this is an extremely rare case that is unlikely to ever
+                        // occur. It would require manual editing of the CPUID structure to push
+                        // more than 2^32 subleaves.
+                        let sub = index;
+                        set_range(&mut subleaf.result.ecx, 0..8, sub)
+                            .map_err(ExtendedTopologyError::LevelNumber)?;
+
+                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_CORE)
+                            .map_err(ExtendedTopologyError::LevelType)?;
+                    }
+                    // Core Level Processor Topology; index >=2
+                    // No other levels available; This should already be set correctly,
+                    // and it is added here as a "re-enforcement" in case we run on
+                    // different hardware
+                    _ => {
+                        // We expect here as this is an extremely rare case that is unlikely to ever
+                        // occur. It would require manual editing of the CPUID structure to push
+                        // more than 2^32 subleaves.
+                        subleaf.result.ecx = index;
+                    }
                 }
-                // Core Level Processor Topology; index = 1
-                1 => {
-                    subleaf
-                        .eax
-                        .bit_shifts_right_2x_apic_id_unique_topology_id_mut()
-                        .checked_assign(LEAFBH_INDEX1_APICID)
-                        .map_err(ExtendedTopologyError::ApicId)?;
-                    subleaf
-                        .ebx
-                        .logical_processors_mut()
-                        .checked_assign(u32::from(cpu_count))
-                        .map_err(ExtendedTopologyError::LogicalProcessors)?;
-                    // We expect here as this is an extremely rare case that is unlikely to ever
-                    // occur. It would require manual editing of the CPUID structure to push
-                    // more than 2^32 subleaves.
-                    subleaf
-                        .ecx
-                        .level_number_mut()
-                        .checked_assign(
-                            u32::try_from(index).map_err(ExtendedTopologyError::Overflow)?,
-                        )
-                        .map_err(ExtendedTopologyError::LevelNumber)?;
-                    subleaf
-                        .ecx
-                        .level_type_mut()
-                        .checked_assign(LEVEL_TYPE_CORE)
-                        .map_err(ExtendedTopologyError::LevelType)?;
-                }
-                // Core Level Processor Topology; index >=2
-                // No other levels available; This should already be set correctly,
-                // and it is added here as a "re-enforcement" in case we run on
-                // different hardware
-                _ => {
-                    // We expect here as this is an extremely rare case that is unlikely to ever
-                    // occur. It would require manual editing of the CPUID structure to push
-                    // more than 2^32 subleaves.
-                    subleaf.ecx.0 =
-                        u32::try_from(index).map_err(ExtendedTopologyError::Overflow)?;
-                }
+            } else {
+                break;
             }
         }
         Ok(())
