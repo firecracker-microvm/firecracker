@@ -20,11 +20,14 @@ import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
 from framework.builder import MicrovmBuilder
-from framework.defs import SUPPORTED_KERNELS, _test_images_s3_bucket
+from framework.defs import SUPPORTED_HOST_KERNELS, _test_images_s3_bucket
 from framework.matrix import TestContext, TestMatrix
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 PLATFORM = platform.machine()
+UNSUPPORTED_HOST_KERNEL = (
+    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
+)
 
 
 def clean_and_mkdir(dir_path):
@@ -257,8 +260,8 @@ def msr_cpu_template_fxt(request):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
@@ -488,8 +491,8 @@ def _test_cpu_wrmsr_snapshot(context):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
@@ -672,8 +675,8 @@ def _test_cpu_wrmsr_restore(context):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
@@ -782,8 +785,8 @@ def _test_cpu_cpuid_snapshot(context):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
@@ -917,8 +920,8 @@ def _test_cpu_cpuid_restore(context):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
