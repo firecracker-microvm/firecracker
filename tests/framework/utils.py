@@ -14,6 +14,7 @@ import threading
 import time
 import typing
 from collections import defaultdict, namedtuple
+from pathlib import Path
 from typing import Dict
 
 import psutil
@@ -110,7 +111,7 @@ class UffdHandler:
         self._proc.kill()
 
 
-# pylint: disable=R0903
+# pylint: disable=too-few-public-methods
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
@@ -138,21 +139,26 @@ class CpuMap:
         return len(CpuMap.arr)
 
     @classmethod
-    def _cpuset_mountpoint(cls):
-        """Obtain the cpuset mountpoint."""
-        cmd = "cat /proc/mounts | grep cgroup | grep cpuset | cut -d' ' -f2"
-        _, stdout, _ = run_cmd(cmd)
-        return stdout.strip()
-
-    @classmethod
     def _cpus(cls):
         """Obtain the real processor map.
 
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
         """
-        cmd = "cat {}/cpuset.cpus".format(CpuMap._cpuset_mountpoint())
-        _, cpulist, _ = run_cmd(cmd)
+        # The real processor map is found at different paths based on cgroups version:
+        #  - cgroupsv1: /cpuset.cpus
+        #  - cgroupsv2: /cpuset.cpus.effective
+        # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
+        cpulist = None
+        for path in [
+            Path("/sys/fs/cgroup/cpuset/cpuset.cpus"),
+            Path("/sys/fs/cgroup/cpuset.cpus.effective"),
+        ]:
+            if path.exists():
+                cpulist = path.read_text("ascii").strip()
+                break
+        else:
+            raise RuntimeError("Could not find cgroups cpuset")
         return ListFormatParser(cpulist).parse()
 
 
