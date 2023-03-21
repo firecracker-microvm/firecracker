@@ -103,8 +103,8 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
+    use utils::vm_memory::{Bytes, GuestAddress};
     use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
-    use vm_memory::{Bytes, GuestAddress};
 
     use super::*;
     use crate::virtio::block::device::FileEngineType;

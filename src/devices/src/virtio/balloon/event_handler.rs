@@ -113,7 +113,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use vm_memory::GuestAddress;
+    use utils::vm_memory::GuestAddress;
 
     use super::*;
     use crate::virtio::balloon::test_utils::set_request;

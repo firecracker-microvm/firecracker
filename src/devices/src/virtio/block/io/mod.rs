@@ -6,7 +6,7 @@ pub mod sync_io;
 
 use std::fs::File;
 
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
@@ -179,8 +179,8 @@ pub mod tests {
 
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
+    use utils::vm_memory::{Bitmap, Bytes, GuestMemory};
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
-    use vm_memory::{Bitmap, Bytes, GuestMemory};
 
     use super::*;
     use crate::virtio::block::device::FileEngineType;
@@ -234,7 +234,7 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
+        utils::vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
             .unwrap()
     }
 
