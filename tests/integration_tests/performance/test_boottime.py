@@ -37,15 +37,14 @@ INITRD_BOOT_TIME_US = {
         },
     },
 }
-# TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 
 DIMENSIONS = {
-    "cpu_arch": global_props.cpu_architecture,
+    "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
-    "host_linux": global_props.host_linux_version,
+    "host_kernel": "linux-" + global_props.host_linux_version,
 }
 
 
