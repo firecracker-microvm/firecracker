@@ -222,8 +222,8 @@ impl KvmVcpu {
         vcpu_config: &VcpuConfig,
         cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        let cpuid = if let CpuConfigurationType::Custom(custom_template) = &vcpu_config.cpu_config {
-            custom_template.cpuid.clone()
+        let cpuid = if let CpuConfigurationType::Custom(cpu_template) = &vcpu_config.cpu_config {
+            cpu_template.cpuid.clone()
         } else {
             crate::guest_config::cpuid::Cpuid::try_from(crate::guest_config::cpuid::RawCpuid::from(
                 cpuid,

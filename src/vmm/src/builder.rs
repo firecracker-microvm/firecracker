@@ -467,21 +467,21 @@ fn build_guest_cpu_config(
     vcpu: &Vcpu,
 ) -> Result<CpuConfigurationType, GuestConfigError> {
     let mut cpu_config: Option<CpuConfiguration> = None;
-    if let Some(custom_template) = &vm_resources.vm_config.custom_cpu_template {
+    if let Some(cpu_template) = &vm_resources.vm_config.custom_cpu_template {
         #[cfg(target_arch = "x86_64")]
         let cpu_config_result = create_guest_cpu_config(
-            custom_template,
+            cpu_template,
             &CpuConfiguration {
                 cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: get_msr_values(vcpu, custom_template),
+                msrs: get_msr_values(vcpu, cpu_template),
             },
         );
 
         #[cfg(target_arch = "aarch64")]
         let cpu_config_result = create_guest_cpu_config(
-            custom_template,
+            cpu_template,
             &CpuConfiguration {
-                regs: get_reg_values(vcpu, custom_template),
+                regs: get_reg_values(vcpu, cpu_template),
             },
         );
 
