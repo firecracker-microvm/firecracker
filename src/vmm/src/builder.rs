@@ -250,15 +250,16 @@ impl VmmEventsObserver for SerialStdin {
 
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 fn create_vmm_and_vcpus(
+    vm_resources: &super::resources::VmResources,
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
     track_dirty_pages: bool,
-    vcpu_count: u8,
 ) -> std::result::Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
+    let vcpu_count = vm_resources.vm_config().vcpu_count;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
@@ -286,7 +287,7 @@ fn create_vmm_and_vcpus(
         vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
         // Apply CPU template to create vCPU custom config if available
-        if let Some(template) = &vm.guest_cpu_template {
+        if let Some(template) = &vm_resources.vm_config().custom_cpu_template {
             if let Some(vcpu) = vcpus.get(0) {
                 vm.guest_cpu_config = Some(
                     create_guest_cpu_config(
@@ -334,7 +335,7 @@ fn create_vmm_and_vcpus(
         vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
         // Apply CPU template to create vCPU custom config if available
-        if let Some(template) = &vm.guest_cpu_template {
+        if let Some(template) = &vm_resources.vm_config().custom_cpu_template {
             if let Some(vcpu) = vcpus.get(0) {
                 vm.guest_cpu_config = Some(
                     create_guest_cpu_config(
@@ -418,12 +419,12 @@ pub fn build_microvm_for_boot(
     let mut boot_cmdline = boot_config.cmdline.clone();
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
+        vm_resources,
         instance_info,
         event_manager,
         guest_memory,
         None,
         track_dirty_pages,
-        vm_resources.vm_config().vcpu_count,
     )?;
     let vcpu_config = vm_resources.custom_vcpu_config(vmm.vm.guest_cpu_config.clone());
 
@@ -571,12 +572,12 @@ pub fn build_microvm_from_snapshot(
 
     // Build Vmm.
     let (mut vmm, vcpus) = create_vmm_and_vcpus(
+        vm_resources,
         instance_info,
         event_manager,
         guest_memory.clone(),
         uffd,
         track_dirty_pages,
-        vcpu_count,
     )?;
 
     #[cfg(target_arch = "x86_64")]
@@ -771,9 +772,7 @@ pub(crate) fn setup_kvm_vm(
     let kvm = KvmContext::new()
         .map_err(Error::KvmContext)
         .map_err(Internal)?;
-    let mut vm = Vm::new(kvm.fd(), None)
-        .map_err(Error::Vm)
-        .map_err(Internal)?;
+    let mut vm = Vm::new(kvm.fd()).map_err(Error::Vm).map_err(Internal)?;
     vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
         .map_err(Error::Vm)
         .map_err(Internal)?;

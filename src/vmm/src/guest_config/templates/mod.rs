@@ -45,7 +45,7 @@ pub mod x86_64 {
 
     /// CPUID register enumeration
     #[allow(missing_docs)]
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub enum CpuidRegister {
         Eax,
         Ebx,
@@ -54,7 +54,7 @@ pub mod x86_64 {
     }
 
     /// Target register to be modified by a bitmap.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidRegisterModifier {
         /// CPUID register to be modified by the bitmap.
         #[serde(
@@ -74,7 +74,7 @@ pub mod x86_64 {
     /// Composite type that holistically provides
     /// the location of a specific register being used
     /// in the context of a CPUID tree.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidLeafModifier {
         /// Leaf value.
         #[serde(
@@ -96,7 +96,7 @@ pub mod x86_64 {
     }
 
     /// Wrapper type to containing x86_64 CPU config modifiers.
-    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct X86_64CpuTemplate {
         /// Modifiers for CPUID configuration.
         #[serde(default)]
@@ -107,7 +107,7 @@ pub mod x86_64 {
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         pub filter: u64,
@@ -117,7 +117,7 @@ pub mod x86_64 {
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
         #[serde(
@@ -428,7 +428,7 @@ pub mod aarch64 {
     use crate::guest_config::templates::Error;
 
     /// Wrapper type to containing aarch64 CPU config modifiers.
-    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct Aarch64CpuTemplate {
         /// Modifiers for registers on Aarch64 CPUs.
         pub reg_modifiers: Vec<RegisterModifier>,
@@ -436,7 +436,7 @@ pub mod aarch64 {
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
         #[serde(
@@ -454,7 +454,7 @@ pub mod aarch64 {
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         pub filter: u128,

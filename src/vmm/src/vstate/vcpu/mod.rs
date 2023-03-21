@@ -23,6 +23,7 @@ use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 
+use crate::guest_config::templates::CpuConfigType;
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vm::Vm;
 use crate::FcExitCode;
@@ -36,11 +37,6 @@ pub(crate) mod x86_64;
 pub(crate) use aarch64::{Error as VcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
-
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::x86_64::X86_64CpuConfiguration;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -82,11 +78,8 @@ pub struct VcpuConfig {
     pub smt: bool,
     /// Hard-coded template to use.
     pub static_cpu_template: CpuFeaturesTemplate,
-    /// Custom configuration for vCPU,
-    #[cfg(target_arch = "x86_64")]
-    pub custom_cpu_config: Option<X86_64CpuConfiguration>,
-    #[cfg(target_arch = "aarch64")]
-    pub custom_cpu_config: Option<Aarch64CpuConfiguration>,
+    /// Custom configuration for vCPU.
+    pub custom_cpu_config: Option<CpuConfigType>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
