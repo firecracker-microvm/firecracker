@@ -32,7 +32,6 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
-vm-memory = { path = "../vm-memory" }
 
 [dev-dependencies]
 criterion = { version = "0.4.0", default-features = false }

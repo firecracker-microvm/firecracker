@@ -14,9 +14,9 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
+use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::SetMSRsError;

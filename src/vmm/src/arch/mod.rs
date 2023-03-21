@@ -49,7 +49,7 @@ pub enum DeviceType {
 /// Type for passing information about the initrd in the guest memory.
 pub struct InitrdConfig {
     /// Load address of initrd in guest memory
-    pub address: vm_memory::GuestAddress,
+    pub address: utils::vm_memory::GuestAddress,
     /// Size of initrd in guest memory
     pub size: usize,
 }

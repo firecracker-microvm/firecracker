@@ -11,10 +11,10 @@ use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
-use vm_memory::GuestMemoryMmap;
 
 use super::*;
 use crate::virtio::block::device::FileEngineType;

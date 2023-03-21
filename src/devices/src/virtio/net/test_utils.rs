@@ -16,7 +16,7 @@ use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::RateLimiter;
 use utils::net::mac::MacAddr;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
@@ -337,7 +337,7 @@ pub mod test {
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
     use logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+    use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     use crate::check_metric_after_block;
     use crate::virtio::net::device::vnet_hdr_len;
@@ -365,7 +365,7 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+            let mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0), MAX_BUFFER_SIZE)],
                 false,
             )

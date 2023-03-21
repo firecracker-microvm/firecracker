@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{c_void, iovec, size_t};
-use vm_memory::{GuestMemory, GuestMemoryMmap};
+use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::DescriptorChain;
 
@@ -13,7 +13,7 @@ pub enum Error {
     WriteOnlyDescriptor,
     /// An error happened with guest memory handling
     #[error("Guest memory error: {0}")]
-    GuestMemory(#[from] vm_memory::GuestMemoryError),
+    GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -156,8 +156,8 @@ impl IoVecBuffer {
 #[cfg(test)]
 mod tests {
     use libc::{c_void, iovec};
-    use vm_memory::test_utils::create_anon_guest_memory;
-    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use utils::vm_memory::test_utils::create_anon_guest_memory;
+    use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::IoVecBuffer;
     use crate::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};

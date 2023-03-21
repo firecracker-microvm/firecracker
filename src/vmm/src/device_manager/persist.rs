@@ -23,10 +23,10 @@ use kvm_ioctls::VmFd;
 use logger::{error, warn};
 use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestMemoryMmap;
 
 use super::mmio::*;
 #[cfg(target_arch = "aarch64")]

@@ -17,10 +17,10 @@ use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
+use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use vm_memory::GuestMemoryError;
+        use utils::vm_memory::GuestMemoryError;
 
         use crate::persist::CreateSnapshotError::*;
 

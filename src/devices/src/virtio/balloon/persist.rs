@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
 use super::*;
 use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};
