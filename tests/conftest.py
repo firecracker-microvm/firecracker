@@ -192,7 +192,7 @@ def pytest_runtest_logreport(report):
             "test": report.nodeid,
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_linux_version": global_props.host_linux_version,
+            "host_kernel": "linux-" + global_props.host_linux_version,
         }
         METRICS.set_property("result", report.outcome)
         for prop_name, prop_val in report.user_properties:
