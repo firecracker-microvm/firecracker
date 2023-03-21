@@ -669,140 +669,21 @@ pub mod aarch64 {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_arch = "x86_64")]
-    use std::collections::BTreeMap;
-
-    #[cfg(target_arch = "x86_64")]
-    use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
     use serde_json::Value;
 
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::cpuid::KvmCpuidFlags;
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::cpuid::{Cpuid, IntelCpuid};
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::static_templates::t2::t2;
-    #[cfg(target_arch = "aarch64")]
-    use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::templates::x86_64::{
-        CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
-        RegisterValueFilter,
+    use super::guest_config_test::{
+        build_supported_cpu_config, build_test_template, build_unsupported_cpu_config,
     };
-    use crate::guest_config::templates::{
-        create_guest_cpu_config, CpuConfiguration, CpuTemplate, GuestConfigError,
+    use crate::guest_config::templates::guest_config_test::{
+        build_empty_config, TEST_TEMPLATE_JSON,
     };
-
-    #[cfg(target_arch = "x86_64")]
-    const X86_64_TEMPLATE_JSON: &str = r#"{
-        "cpuid_modifiers": [
-            {
-                "leaf": "0x80000001",
-                "subleaf": "0b000111",
-                "flags": 0,
-                "modifiers": [
-                    {
-                        "register": "eax",
-                        "bitmap": "0bx00100xxx1xxxxxxxxxxxxxxxxxxxxx1"
-                    }
-                ]
-            },
-            {
-                "leaf": "0x80000002",
-                "subleaf": "0x0004",
-                "flags": 0,
-                "modifiers": [
-                    {
-                        "register": "ebx",
-                        "bitmap": "0bxxx1xxxxxxxxxxxxxxxxxxxxx1"
-                    },
-                    {
-                        "register": "ecx",
-                        "bitmap": "0bx00100xxx1xxxxxxxxxxx0xxxxx0xxx1"
-                    }
-                ]
-            },
-            {
-                "leaf": "0x80000003",
-                "subleaf": "0x0004",
-                "flags": 1,
-                "modifiers": [
-                    {
-                        "register": "edx",
-                        "bitmap": "0bx00100xxx1xxxxxxxxxxx0xxxxx0xxx1"
-                    }
-                ]
-            },
-            {
-                "leaf": "0x80000004",
-                "subleaf": "0x0004",
-                "flags": 0,
-                "modifiers": [
-                    {
-                        "register": "edx",
-                        "bitmap": "0b00100xxx1xxxxxx1xxxxxxxxxxxxxx1"
-                    },
-                    {
-                        "register": "ecx",
-                        "bitmap": "0bx00100xxx1xxxxxxxxxxxxx111xxxxx1"
-                    }
-                ]
-            },
-            {
-                "leaf": "0x80000005",
-                "subleaf": "0x0004",
-                "flags": 0,
-                "modifiers": [
-                    {
-                        "register": "eax",
-                        "bitmap": "0bx00100xxx1xxxxx00xxxxxx000xxxxx1"
-                    },
-                    {
-                        "register": "edx",
-                        "bitmap": "0bx10100xxx1xxxxxxxxxxxxx000xxxxx1"
-                    }
-                ]
-            }
-        ],
-        "msr_modifiers":  [
-            {
-                "addr": "0x0",
-                "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
-            },
-            {
-                "addr": "0b1",
-                "bitmap": "0bx00111xxx1xxxx111xxxxx101xxxxxx1"
-            },
-            {
-                "addr": "2",
-                "bitmap": "0bx00100xxx1xxxxxx0000000xxxxxxxx1"
-            },
-            {
-                "addr": "0xbbca",
-                "bitmap": "0bx00100xxx1xxxxxxxxx1"
-            }
-        ]
-    }"#;
-
-    #[cfg(target_arch = "aarch64")]
-    const AARCH64_TEMPLATE_JSON: &str = r#"{
-        "reg_modifiers":  [
-            {
-                "addr": "0x0AAC",
-                "bitmap": "0b1xx1"
-            },
-            {
-                "addr": "0x0AAB",
-                "bitmap": "0b1x00"
-            }
-        ]
-    }"#;
+    use crate::guest_config::templates::{create_guest_cpu_config, CpuTemplate, GuestConfigError};
 
     #[test]
     fn test_malformed_json() {
         #[cfg(target_arch = "x86_64")]
         {
-            // Mispelled register
+            // Misspelled field name, register
             let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "cpuid_modifiers": [
@@ -975,97 +856,56 @@ mod tests {
 
     #[test]
     fn test_deserialization_lifecycle() {
+        let cpu_config: CpuTemplate = serde_json::from_str(TEST_TEMPLATE_JSON)
+            .expect("Failed to deserialize custom CPU template.");
         #[cfg(target_arch = "x86_64")]
         {
-            let cpu_config: CpuTemplate = serde_json::from_str(X86_64_TEMPLATE_JSON)
-                .expect("Failed to deserialize x86_64 CPU template.");
-
             assert_eq!(5, cpu_config.cpuid_modifiers.len());
             assert_eq!(4, cpu_config.msr_modifiers.len());
         }
 
         #[cfg(target_arch = "aarch64")]
         {
-            let cpu_config: CpuTemplate = serde_json::from_str(AARCH64_TEMPLATE_JSON)
-                .expect("Failed to deserialize aarch64 CPU template.");
-
             assert_eq!(2, cpu_config.reg_modifiers.len());
         }
     }
 
     #[test]
     fn test_empty_template() {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let host_configuration = supported_cpu_config();
-            let guest_config_result =
-                create_guest_cpu_config(&CpuTemplate::default(), &host_configuration);
-            assert!(
-                guest_config_result.is_ok(),
-                "{}",
-                guest_config_result.unwrap_err()
-            );
-            // CPUID will be comparable, but not MSRs.
-            // The configuration will be configuration required by the template,
-            // not a holistic view of all registers.
-            assert_eq!(guest_config_result.unwrap().cpuid, host_configuration.cpuid);
-        }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let host_configuration = supported_cpu_config();
-            let guest_config_result =
-                create_guest_cpu_config(&CpuTemplate::default(), &host_configuration);
-            assert!(
-                guest_config_result.is_ok(),
-                "{}",
-                guest_config_result.unwrap_err()
-            );
-        }
+        let host_configuration = build_empty_config();
+        let guest_config_result =
+            create_guest_cpu_config(&CpuTemplate::default(), &host_configuration);
+        assert!(
+            guest_config_result.is_ok(),
+            "{}",
+            guest_config_result.unwrap_err()
+        );
+        assert_eq!(guest_config_result.unwrap(), host_configuration);
     }
 
     #[test]
     fn test_apply_template() {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let host_configuration = supported_cpu_config();
-            let guest_config_result =
-                create_guest_cpu_config(&build_test_template(), &host_configuration);
-            assert!(
-                guest_config_result.is_ok(),
-                "{}",
-                guest_config_result.unwrap_err()
-            );
-            assert_ne!(guest_config_result.unwrap(), host_configuration);
-        }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let host_configuration = supported_cpu_config();
-            let guest_config_result =
-                create_guest_cpu_config(&build_test_template(), &host_configuration);
-            assert!(
-                guest_config_result.is_ok(),
-                "{}",
-                guest_config_result.unwrap_err()
-            );
-            assert_ne!(guest_config_result.unwrap(), host_configuration);
-        }
+        let host_configuration = build_supported_cpu_config();
+        let guest_config_result =
+            create_guest_cpu_config(&build_test_template(), &host_configuration);
+        assert!(
+            guest_config_result.is_ok(),
+            "{}",
+            guest_config_result.unwrap_err()
+        );
+        assert_ne!(guest_config_result.unwrap(), host_configuration);
     }
 
     #[test]
     fn test_serialization_lifecycle() {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let template = build_test_template();
-            let template_json_str_result = serde_json::to_string_pretty(&template);
-            assert!(&template_json_str_result.is_ok());
-            let template_json = template_json_str_result.unwrap();
+        let template = build_test_template();
+        let template_json_str_result = serde_json::to_string_pretty(&template);
+        assert!(&template_json_str_result.is_ok());
+        let template_json = template_json_str_result.unwrap();
 
-            let deserialization_result = serde_json::from_str::<CpuTemplate>(&template_json);
-            assert!(deserialization_result.is_ok());
-            assert_eq!(template, deserialization_result.unwrap());
-        }
+        let deserialization_result = serde_json::from_str::<CpuTemplate>(&template_json);
+        assert!(deserialization_result.is_ok());
+        assert_eq!(template, deserialization_result.unwrap());
     }
 
     /// Invalid test in this context is when the template
@@ -1075,7 +915,7 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             // Test CPUID validation
-            let host_configuration = build_empty_x86_config();
+            let host_configuration = build_empty_config();
             let guest_template = build_test_template();
             let guest_config_result = create_guest_cpu_config(&guest_template, &host_configuration);
             assert!(
@@ -1093,7 +933,7 @@ mod tests {
             );
 
             // Test MSR validation
-            let host_configuration = unsupported_cpu_config();
+            let host_configuration = build_unsupported_cpu_config();
             let guest_template = build_test_template();
             let guest_config_result = create_guest_cpu_config(&guest_template, &host_configuration);
             assert!(
@@ -1112,7 +952,7 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         {
-            let host_configuration = unsupported_cpu_config();
+            let host_configuration = build_unsupported_cpu_config();
             let guest_template = build_test_template();
             let guest_config_result = create_guest_cpu_config(&guest_template, &host_configuration);
             assert!(
@@ -1208,62 +1048,221 @@ mod tests {
             );
         }
     }
+}
 
-    fn build_test_template() -> CpuTemplate {
+/// Contains utility functions exclusively for testing purposes
+pub mod guest_config_test {
+    #[cfg(target_arch = "x86_64")]
+    use std::collections::BTreeMap;
+
+    #[cfg(target_arch = "x86_64")]
+    use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
+
+    #[cfg(target_arch = "x86_64")]
+    use crate::guest_config::cpuid::KvmCpuidFlags;
+    #[cfg(target_arch = "x86_64")]
+    use crate::guest_config::cpuid::{Cpuid, IntelCpuid};
+    #[cfg(target_arch = "x86_64")]
+    use crate::guest_config::static_templates::t2::t2;
+    #[cfg(target_arch = "aarch64")]
+    use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
+    #[cfg(target_arch = "x86_64")]
+    use crate::guest_config::templates::x86_64::{
+        CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
+        RegisterValueFilter,
+    };
+    use crate::guest_config::templates::{CpuConfiguration, CpuTemplate};
+
+    /// Test CPU template in JSON format
+    #[cfg(target_arch = "x86_64")]
+    pub const TEST_TEMPLATE_JSON: &str = r#"{
+        "cpuid_modifiers": [
+            {
+                "leaf": "0x80000001",
+                "subleaf": "0x0007",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "eax",
+                        "bitmap": "0bx00100xxx1xxxxxxxxxxxxxxxxxxxxx1"
+                    }
+                ]
+            },
+            {
+                "leaf": "0x80000002",
+                "subleaf": "0x0004",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "ebx",
+                        "bitmap": "0bxxx1xxxxxxxxxxxxxxxxxxxxx1"
+                    },
+                    {
+                        "register": "ecx",
+                        "bitmap": "0bx00100xxx1xxxxxxxxxxx0xxxxx0xxx1"
+                    }
+                ]
+            },
+            {
+                "leaf": "0x80000003",
+                "subleaf": "0x0004",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "edx",
+                        "bitmap": "0bx00100xxx1xxxxxxxxxxx0xxxxx0xxx1"
+                    }
+                ]
+            },
+            {
+                "leaf": "0x80000004",
+                "subleaf": "0x0004",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "edx",
+                        "bitmap": "0b00100xxx1xxxxxx1xxxxxxxxxxxxxx1"
+                    },
+                    {
+                        "register": "ecx",
+                        "bitmap": "0bx00100xxx1xxxxxxxxxxxxx111xxxxx1"
+                    }
+                ]
+            },
+            {
+                "leaf": "0x80000005",
+                "subleaf": "0x0004",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "eax",
+                        "bitmap": "0bx00100xxx1xxxxx00xxxxxx000xxxxx1"
+                    },
+                    {
+                        "register": "edx",
+                        "bitmap": "0bx10100xxx1xxxxxxxxxxxxx000xxxxx1"
+                    }
+                ]
+            }
+        ],
+        "msr_modifiers":  [
+            {
+                "addr": "0x0",
+                "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
+            },
+            {
+                "addr": "0x1",
+                "bitmap": "0bx00111xxx1xxxx111xxxxx101xxxxxx1"
+            },
+            {
+                "addr": "2",
+                "bitmap": "0bx00100xxx1xxxxxx0000000xxxxxxxx1"
+            },
+            {
+                "addr": "0xbbca",
+                "bitmap": "0bx00100xxx1xxxxxxxxx1"
+            }
+        ]
+    }"#;
+
+    /// Test CPU template in JSON format but has an invalid field for the architecture.
+    /// "reg_modifiers" is the field name for the registers for aarch64"
+    #[cfg(target_arch = "x86_64")]
+    pub const INVALID_TEMPLATE_JSON: &str = r#"{
+        "reg_modifiers":  [
+            {
+                "addr": "0x0AAC",
+                "bitmap": "0b1xx1"
+            }
+        ]
+    }"#;
+
+    /// Test CPU template in JSON format
+    #[cfg(target_arch = "aarch64")]
+    pub const TEST_TEMPLATE_JSON: &str = r#"{
+        "reg_modifiers":  [
+            {
+                "addr": "0x0AAC",
+                "bitmap": "0b1xx1"
+            },
+            {
+                "addr": "0x0AAB",
+                "bitmap": "0b1x00"
+            }
+        ]
+    }"#;
+
+    /// Test CPU template in JSON format but has an invalid field for the architecture.
+    /// "msr_modifiers" is the field name for the model specific registers for
+    /// defined by x86 CPUs.
+    #[cfg(target_arch = "aarch64")]
+    pub const INVALID_TEMPLATE_JSON: &str = r#"{
+        "msr_modifiers":  [
+            {
+                "addr": "0x0AAC",
+                "bitmap": "0b1xx1"
+            }
+        ]
+    }"#;
+
+    /// Builds a sample custom CPU template
+    pub fn build_test_template() -> CpuTemplate {
         #[cfg(target_arch = "x86_64")]
-        return CpuTemplate {
-            cpuid_modifiers: Vec::from([CpuidLeafModifier {
-                leaf: 0x3,
-                subleaf: 0x0,
-                flags: KvmCpuidFlags(KVM_CPUID_FLAG_STATEFUL_FUNC),
-                modifiers: Vec::from([
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Eax,
+        {
+            CpuTemplate {
+                cpuid_modifiers: Vec::from([CpuidLeafModifier {
+                    leaf: 0x3,
+                    subleaf: 0x0,
+                    flags: KvmCpuidFlags(KVM_CPUID_FLAG_STATEFUL_FUNC),
+                    modifiers: Vec::from([
+                        CpuidRegisterModifier {
+                            register: CpuidRegister::Eax,
+                            bitmap: RegisterValueFilter {
+                                filter: 0b0111,
+                                value: 0b0101,
+                            },
+                        },
+                        CpuidRegisterModifier {
+                            register: CpuidRegister::Ebx,
+                            bitmap: RegisterValueFilter {
+                                filter: 0b0111,
+                                value: 0b0100,
+                            },
+                        },
+                        CpuidRegisterModifier {
+                            register: CpuidRegister::Ecx,
+                            bitmap: RegisterValueFilter {
+                                filter: 0b0111,
+                                value: 0b0111,
+                            },
+                        },
+                        CpuidRegisterModifier {
+                            register: CpuidRegister::Edx,
+                            bitmap: RegisterValueFilter {
+                                filter: 0b0111,
+                                value: 0b0001,
+                            },
+                        },
+                    ]),
+                }]),
+                msr_modifiers: Vec::from([
+                    RegisterModifier {
+                        addr: 0x9999,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0111,
-                            value: 0b0101,
+                            filter: 0,
+                            value: 0,
                         },
                     },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ebx,
+                    RegisterModifier {
+                        addr: 0x8000,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0111,
-                            value: 0b0100,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ecx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0b0111,
-                            value: 0b0111,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Edx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0b0111,
-                            value: 0b0001,
+                            filter: 0b1110,
+                            value: 0b0110,
                         },
                     },
                 ]),
-            }]),
-            msr_modifiers: Vec::from([
-                RegisterModifier {
-                    addr: 0x9999,
-                    bitmap: RegisterValueFilter {
-                        filter: 0,
-                        value: 0,
-                    },
-                },
-                RegisterModifier {
-                    addr: 0x8000,
-                    bitmap: RegisterValueFilter {
-                        filter: 0,
-                        value: 0,
-                    },
-                },
-            ]),
-        };
+            }
+        }
 
         #[cfg(target_arch = "aarch64")]
         return CpuTemplate {
@@ -1271,8 +1270,8 @@ mod tests {
                 RegisterModifier {
                     addr: 0x9999,
                     bitmap: RegisterValueFilter {
-                        filter: 100010001,
-                        value: 10000001,
+                        filter: 0b100010001,
+                        value: 0b100000001,
                     },
                 },
                 RegisterModifier {
@@ -1286,37 +1285,58 @@ mod tests {
         };
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn build_empty_x86_config() -> CpuConfiguration {
-        CpuConfiguration {
-            cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
-            msrs: Default::default(),
+    /// Builds a sample CPU configuration
+    pub fn build_supported_cpu_config() -> CpuConfiguration {
+        #[cfg(target_arch = "x86_64")]
+        {
+            CpuConfiguration {
+                cpuid: t2(),
+                msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            CpuConfiguration {
+                regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
+            }
         }
     }
 
-    fn supported_cpu_config() -> CpuConfiguration {
+    /// Builds a CPU config that conflicts with the CPU template that is
+    /// applied to it in the unit tests.
+    pub fn build_unsupported_cpu_config() -> CpuConfiguration {
         #[cfg(target_arch = "x86_64")]
-        return CpuConfiguration {
-            cpuid: t2(),
-            msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-        };
+        {
+            CpuConfiguration {
+                cpuid: t2(),
+                msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
+            }
+        }
 
         #[cfg(target_arch = "aarch64")]
-        return CpuConfiguration {
-            regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-        };
+        {
+            CpuConfiguration {
+                regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
+            }
+        }
     }
 
-    fn unsupported_cpu_config() -> CpuConfiguration {
+    /// Empty CPU config
+    pub fn build_empty_config() -> CpuConfiguration {
         #[cfg(target_arch = "x86_64")]
-        return CpuConfiguration {
-            cpuid: t2(),
-            msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-        };
+        {
+            CpuConfiguration {
+                cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
+                msrs: Default::default(),
+            }
+        }
 
         #[cfg(target_arch = "aarch64")]
-        return CpuConfiguration {
-            regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-        };
+        {
+            CpuConfiguration {
+                regs: Default::default(),
+            }
+        }
     }
 }
