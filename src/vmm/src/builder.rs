@@ -3,6 +3,8 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
+//! TEST
+
 use std::collections::HashMap;
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
