@@ -9,9 +9,6 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::{fmt, result};
 
-use arch::x86_64::interrupts;
-use arch::x86_64::msr::SetMSRsError;
-use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
@@ -22,6 +19,9 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+use crate::arch::x86_64::interrupts;
+use crate::arch::x86_64::msr::SetMSRsError;
+use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
@@ -41,15 +41,15 @@ pub enum Error {
     /// A FamStructWrapper operation has failed.
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
-    FPUConfiguration(arch::x86_64::regs::Error),
+    FPUConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
-    LocalIntConfiguration(arch::x86_64::interrupts::Error),
+    LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
     /// Error configuring the MSR registers
-    MSRSConfiguration(arch::x86_64::msr::Error),
+    MSRSConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
-    REGSConfiguration(arch::x86_64::regs::Error),
+    REGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Error configuring the special registers
-    SREGSConfiguration(arch::x86_64::regs::Error),
+    SREGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot open the VCPU file descriptor.
     VcpuFd(kvm_ioctls::Error),
     /// Failed to get KVM vcpu debug regs.
@@ -288,7 +288,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
         // Initialize some architectural MSRs that will be set for boot.
-        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
+        let mut msr_boot_entries = crate::arch::x86_64::msr::create_boot_msr_entries();
 
         // By this point the Guest CPUID is established. Some CPU features require MSRs
         // to configure and interact with those features. If a MSR is writable from
@@ -325,11 +325,11 @@ impl KvmVcpu {
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
-        arch::x86_64::regs::setup_fpu(&self.fd)?;
-        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
-        arch::x86_64::interrupts::set_lint(&self.fd)?;
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
+        crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
+        crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
+        crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
         Ok(())
     }
 
@@ -629,10 +629,10 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
-    use arch::x86_64::cpu_model::CpuModel;
     use kvm_ioctls::Cap;
 
     use super::*;
+    use crate::arch::x86_64::cpu_model::CpuModel;
     use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
@@ -697,7 +697,7 @@ mod tests {
         vcpu_config.cpu_template = CpuFeaturesTemplate::T2;
         let t2_res = vcpu.configure(
             &vm_mem,
-            GuestAddress(arch::get_kernel_start()),
+            GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
             vm.supported_cpuid().clone(),
         );
@@ -783,6 +783,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
@@ -809,6 +810,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_set_tsc() {
         let (vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();

@@ -4,8 +4,8 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
-use crate::aarch64::gic::Result;
+use crate::arch::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
+use crate::arch::aarch64::gic::Result;
 
 // Relevant PPI redistributor registers that we want to save/restore.
 const GICR_CTLR: SimpleReg = SimpleReg::new(0x0000, 4);
@@ -60,6 +60,7 @@ impl VgicRegEngine for RedistRegEngine {
         KVM_DEV_ARM_VGIC_GRP_REDIST_REGS
     }
 
+    #[allow(clippy::cast_sign_loss)] // bit mask
     fn mpidr_mask() -> u64 {
         KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
     }
@@ -85,7 +86,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, GICVersion};
 
     #[test]
     fn test_access_redist_regs() {

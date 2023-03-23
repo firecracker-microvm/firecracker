@@ -20,7 +20,7 @@ INST_SET_TEMPLATES = ["T2A", "T2CL"]
 
 @pytest.fixture(
     name="inst_set_cpu_template",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES),
+    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES)),
 )
 def inst_set_cpu_template_fxt(request):
     """CPU template fixture for instruction set feature parity templates"""
@@ -46,30 +46,6 @@ def vm_fxt(
     return vm
 
 
-def check_cpuid_feat_flags(vm, must_be_set, must_be_unset):
-    """
-    Check that CPUID feature flag are set and unset as expected.
-    """
-    cpuid = cpuid_utils.get_guest_cpuid(vm)
-    allowed_regs = ["eax", "ebx", "ecx", "edx"]
-
-    for leaf, subleaf, reg, flags in must_be_set:
-        assert reg in allowed_regs
-        actual = cpuid[(leaf, subleaf, reg)] & flags
-        expected = flags
-        assert (
-            actual == expected
-        ), f"{leaf=:#x} {subleaf=:#x} {reg=} {actual=:#x}, {expected=:#x}"
-
-    for leaf, subleaf, reg, flags in must_be_unset:
-        assert reg in allowed_regs
-        actual = cpuid[(leaf, subleaf, reg)] & flags
-        expected = 0
-        assert (
-            actual == expected
-        ), f"{leaf=:#x} {subleaf=:#x} {reg=} {actual=:#x}, {expected=:#x}"
-
-
 def test_feat_parity_cpuid_mpx(vm):
     """
     Verify that MPX (Memory Protection Extensions) is not enabled in any of the supported CPU templates.
@@ -85,7 +61,7 @@ def test_feat_parity_cpuid_mpx(vm):
     ]
     # fmt: on
 
-    check_cpuid_feat_flags(
+    cpuid_utils.check_cpuid_feat_flags(
         vm,
         must_be_set,
         must_be_unset,
@@ -94,7 +70,7 @@ def test_feat_parity_cpuid_mpx(vm):
 
 @pytest.mark.parametrize(
     "inst_set_cpu_template",
-    set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"]),
+    sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"])),
     indirect=True,
 )
 def test_feat_parity_cpuid_inst_set(vm):
@@ -168,7 +144,7 @@ def test_feat_parity_cpuid_inst_set(vm):
     ]
     # fmt: on
 
-    check_cpuid_feat_flags(
+    cpuid_utils.check_cpuid_feat_flags(
         vm,
         must_be_set,
         must_be_unset,
@@ -250,7 +226,7 @@ def test_feat_parity_cpuid_sec(vm):
     else:
         raise Exception("Unsupported CPU vendor.")
 
-    check_cpuid_feat_flags(
+    cpuid_utils.check_cpuid_feat_flags(
         vm,
         must_be_set,
         must_be_unset,

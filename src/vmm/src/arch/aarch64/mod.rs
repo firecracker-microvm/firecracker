@@ -19,7 +19,7 @@ use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
-use crate::DeviceType;
+use crate::arch::DeviceType;
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, derive_more::From)]

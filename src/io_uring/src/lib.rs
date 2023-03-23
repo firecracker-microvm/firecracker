@@ -527,30 +527,36 @@ mod tests {
                     for mut operation in set {
                         // Perform the sync op.
                         let count = match operation.opcode {
-                            OpCode::Write => SyscallReturnCode(unsafe {
-                                libc::pwrite(
-                                    file_sync.as_raw_fd(),
-                                    write_mem_region.as_ptr().add(operation.addr.unwrap())
-                                        as *const libc::c_void,
-                                    operation.len.unwrap() as usize,
-                                    operation.offset.unwrap() as i64,
-                                ) as libc::c_int
-                            })
-                            .into_result()
-                            .unwrap() as u32,
-                            OpCode::Read => SyscallReturnCode(unsafe {
-                                libc::pread(
-                                    file_sync.as_raw_fd(),
-                                    sync_read_mem_region
-                                        .as_ptr()
-                                        .add(operation.addr.unwrap())
-                                        .cast::<libc::c_void>(),
-                                    operation.len.unwrap() as usize,
-                                    operation.offset.unwrap() as i64,
-                                ) as libc::c_int
-                            })
-                            .into_result()
-                            .unwrap() as u32,
+                            OpCode::Write => u32::try_from(
+                                SyscallReturnCode(unsafe {
+                                    libc::pwrite(
+                                        file_sync.as_raw_fd(),
+                                        write_mem_region.as_ptr().add(operation.addr.unwrap())
+                                            as *const libc::c_void,
+                                        operation.len.unwrap() as usize,
+                                        operation.offset.unwrap() as i64,
+                                    ) as libc::c_int
+                                })
+                                .into_result()
+                                .unwrap(),
+                            )
+                            .unwrap(),
+                            OpCode::Read => u32::try_from(
+                                SyscallReturnCode(unsafe {
+                                    libc::pread(
+                                        file_sync.as_raw_fd(),
+                                        sync_read_mem_region
+                                            .as_ptr()
+                                            .add(operation.addr.unwrap())
+                                            .cast::<libc::c_void>(),
+                                        operation.len.unwrap() as usize,
+                                        operation.offset.unwrap() as i64,
+                                    ) as libc::c_int
+                                })
+                                .into_result()
+                                .unwrap(),
+                            )
+                            .unwrap(),
                             _ => unreachable!(),
                         };
 

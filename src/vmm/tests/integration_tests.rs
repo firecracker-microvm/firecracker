@@ -419,7 +419,7 @@ fn test_snapshot_cpu_vendor() {
 #[cfg(target_arch = "aarch64")]
 #[test]
 fn test_snapshot_cpu_vendor_missing() {
-    use arch::regs::MIDR_EL1;
+    use vmm::arch::regs::MIDR_EL1;
     use vmm::persist::{validate_cpu_manufacturer_id, ValidateCpuManufacturerIdError};
 
     let mut microvm_state = get_microvm_state_from_snapshot();
@@ -445,7 +445,7 @@ fn test_snapshot_cpu_vendor_missing() {
 #[cfg(target_arch = "aarch64")]
 #[test]
 fn test_snapshot_cpu_vendor_mismatch() {
-    use arch::regs::MIDR_EL1;
+    use vmm::arch::regs::MIDR_EL1;
     use vmm::persist::validate_cpu_manufacturer_id;
 
     let mut microvm_state = get_microvm_state_from_snapshot();

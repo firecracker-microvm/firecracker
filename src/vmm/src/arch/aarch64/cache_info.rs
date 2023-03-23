@@ -328,7 +328,9 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::aarch64::cache_info::{read_cache_config, CacheEngine, CacheEntry, CacheStore};
+    use crate::arch::aarch64::cache_info::{
+        read_cache_config, CacheEngine, CacheEntry, CacheStore,
+    };
 
     #[derive(Debug)]
     struct MockCacheStore {

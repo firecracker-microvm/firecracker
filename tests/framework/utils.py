@@ -4,6 +4,7 @@
 import asyncio
 import functools
 import glob
+import json
 import logging
 import os
 import platform
@@ -21,6 +22,7 @@ from retry.api import retry_call
 
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
+FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
@@ -568,6 +570,14 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
     return cpu_percentages
 
 
+def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
+    """Runs a shell command at the remote accessible via SSH"""
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ""
+    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stdout == expected
+
+
 @retry(delay=0.5, tries=5)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
@@ -733,6 +743,20 @@ def configure_mmds(
     return response
 
 
+def populate_data_store(test_microvm, data_store):
+    """Populate the MMDS data store of the microvm with the provided data"""
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
     """Start binary process into a screen session."""
     start_cmd = "screen -L -Logfile {logfile} " "-dmS {session} {binary} {params}"
@@ -760,17 +784,22 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         delay=1,
     ).group(1)
 
-    binary_clone_pid = int(
-        open("/proc/{0}/task/{0}/children".format(screen_pid), encoding="utf-8")
-        .read()
-        .strip()
-    )
+    # Make sure the screen process launched successfully
+    # As the parent process for the binary.
+    screen_ps = psutil.Process(int(screen_pid))
+    wait_process_running(screen_ps)
 
     # Configure screen to flush stdout to file.
-    flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
-    run_cmd(flush_cmd.format(session=session_name))
+    run_cmd(FLUSH_CMD.format(session=session_name))
 
-    return screen_pid, binary_clone_pid
+    children_count = len(screen_ps.children())
+    if children_count != 1:
+        raise RuntimeError(
+            f"Failed to retrieve child process id for binary {binary_path}. "
+            f"screen session process had [{children_count}]"
+        )
+
+    return screen_pid, screen_ps.children()[0].pid
 
 
 def guest_run_fio_iteration(ssh_connection, iteration):
@@ -790,3 +819,13 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
     assert exit_code == 0, stderr.read()
+
+
+@retry(delay=0.5, tries=5)
+def wait_process_running(process):
+    """Wait for a process to run.
+
+    Will return successfully if the process is in
+    a running state and will otherwise raise an exception.
+    """
+    assert process.is_running()

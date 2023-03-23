@@ -1,9 +1,9 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::{kvm_cpuid_entry2, kvm_msr_entry, CpuId};
 
+use crate::arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use crate::cpuid::cpu_leaf::*;
 use crate::cpuid::template::intel::validate_vendor_id;
 use crate::cpuid::transformer::*;
@@ -18,6 +18,9 @@ impl CpuidTransformer for T2SCpuidTransformer {
             leaf_0x7::LEAF_NUM => Some(crate::cpuid::t2::update_structured_extended_entry),
             leaf_0xd::LEAF_NUM => Some(crate::cpuid::t2::update_xsave_features_entry),
             leaf_0x80000001::LEAF_NUM => Some(crate::cpuid::t2::update_extended_feature_info_entry),
+            leaf_0x80000008::LEAF_NUM => {
+                Some(crate::cpuid::t2::update_extended_feature_extensions_entry)
+            }
             _ => None,
         }
     }

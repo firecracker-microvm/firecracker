@@ -292,7 +292,9 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-    def firecrackers(self, keyword=None, min_version=None, max_version=None):
+    def firecrackers(
+        self, keyword=None, min_version=None, max_version=None, max_version_open=None
+    ):
         """Return fc/jailer artifacts for the current arch."""
         firecrackers = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_BINARIES,
@@ -314,6 +316,12 @@ class ArtifactCollection:
             if (
                 max_version is not None
                 and compare_versions(fc.version, max_version) > 0
+            ):
+                continue
+
+            if (
+                max_version_open is not None
+                and compare_versions(fc.version, max_version_open) >= 0
             ):
                 continue
             res.append(fc)

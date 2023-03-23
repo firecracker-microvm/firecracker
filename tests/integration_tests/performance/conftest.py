@@ -58,7 +58,8 @@ class JsonFileDumper(ResultsDumperInterface):
 def results_file_dumper(request):
     """Yield the custom --dump-results-to-file test flag."""
     if request.config.getoption("--dump-results-to-file"):
-        return JsonFileDumper(request.node.originalname)
+        # we want the test filename, like test_network_latency
+        return JsonFileDumper(request.node.parent.path.stem)
     return NopResultsDumper()
 
 
@@ -84,6 +85,7 @@ def send_metrics(metrics, stats: core.Core):
         # for example vmlinux-4.14.bin/ubuntu-18.04.ext4/2vcpu_1024mb.json/tcp-p1024K-ws16K-bd
         test = tag.split("/")[-1]
         dimensions["test"] = test
+        dimensions["performance_test"] = stats.name
         metrics.set_dimensions(dimensions)
         metrics.set_property("tag", tag)
 
@@ -98,9 +100,20 @@ def send_metrics(metrics, stats: core.Core):
 
 
 @pytest.fixture
-def st_core(metrics, results_file_dumper):
+def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
+    stats.iterations = 1
+    stats.custom = {
+        "instance": global_props.instance,
+        "cpu_model": global_props.cpu_model,
+        "host_kernel": "linux-" + global_props.host_linux_version,
+        "guest_kernel": guest_kernel.prop,
+        "rootfs": rootfs.name(),
+    }
     yield stats
-    results_file_dumper.dump(stats.statistics)
+    # If the test is skipped, there will be no results, so only dump if there
+    # is some.
+    if stats.statistics["results"]:
+        results_file_dumper.dump(stats.statistics)
     send_metrics(metrics, stats)

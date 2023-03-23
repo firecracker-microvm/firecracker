@@ -6,8 +6,7 @@
 
 import argparse
 
-from common import (DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group,
-                    pipeline_to_json)
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
 
 perf_test = {
     "block": {
@@ -20,7 +19,7 @@ perf_test = {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_restore_performance.py",
         "devtool_opts": "-c 1-12 -m 0",
-        "timeout_in_minutes": 45,
+        "timeout_in_minutes": 60,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
@@ -49,7 +48,7 @@ def build_group(test):
     test_path = test.pop("test_path")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test {devtool_opts} -- --nonci -s --dump-results-to-file --log-cli-level=INFO {test_path}",
+        command=f"./tools/devtool -y test {devtool_opts} -- --nonci --dump-results-to-file {test_path}",
         agent_tags=["ag=1"],
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
@@ -70,14 +69,14 @@ parser.add_argument(
 parser.add_argument(
     "--instances",
     required=False,
-    action="append",
-    default=[],
+    nargs="+",
+    default=DEFAULT_INSTANCES,
 )
 parser.add_argument(
     "--platforms",
+    metavar="OS-KV",
     required=False,
-    action="append",
-    nargs=2,
+    nargs="+",
     default=[],
 )
 parser.add_argument("--retries", type=int, default=0)
@@ -88,10 +87,12 @@ parser.add_argument(
     default=[],
 )
 args = parser.parse_args()
-if not args.instances:
-    args.instances = DEFAULT_INSTANCES
 if not args.platforms:
     args.platforms = DEFAULT_PLATFORMS
+else:
+    args.platforms = [
+        tuple(str(platform).split("-", maxsplit=1)) for platform in args.platforms
+    ]
 if args.extra:
     args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []

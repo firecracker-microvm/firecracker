@@ -4,8 +4,8 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
-use crate::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
+use crate::arch::aarch64::gic::{Error, Result};
 
 const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
@@ -83,6 +83,7 @@ impl VgicRegEngine for VgicSysRegEngine {
         KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS
     }
 
+    #[allow(clippy::cast_sign_loss)] // bit mask
     fn mpidr_mask() -> u64 {
         KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
     }
@@ -167,7 +168,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, GICVersion};
 
     #[test]
     fn test_access_icc_regs() {

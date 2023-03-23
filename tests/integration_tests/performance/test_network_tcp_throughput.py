@@ -323,15 +323,8 @@ def test_network_tcp_throughput(
 
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
     st_core.name = TEST_ID
-    st_core.iterations = 1
     # we will use this also as metrics dimensions
-    st_core.custom = {
-        "cpu_model": get_cpu_model_name(),
-        "host_linux": kernel_version,
-        "guest_linux": guest_kernel.name(),
-        "guest_config": microvm_cfg.removesuffix(".json"),
-        "performance_test": TEST_ID,
-    }
+    st_core.custom["guest_config"] = microvm_cfg.removesuffix(".json")
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.

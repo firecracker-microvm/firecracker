@@ -3,22 +3,18 @@
 
 mod dist_regs;
 mod icc_regs;
-mod redist_regs;
 
 use kvm_ioctls::DeviceFd;
 
-use crate::aarch64::gic::regs::{GicState, GicVcpuState};
-use crate::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
+use crate::arch::aarch64::gic::{Error, Result};
 
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
-    // Flush redistributors pending tables to guest RAM.
-    super::save_pending_tables(fd)?;
-
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
-            rdist: redist_regs::get_redist_regs(fd, *mpidr)?,
+            rdist: Vec::new(),
             icc: icc_regs::get_icc_regs(fd, *mpidr)?,
         })
     }
@@ -37,7 +33,6 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
         return Err(Error::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
-        redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;
         icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
     }
 
@@ -49,36 +44,39 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, GICVersion};
 
     #[test]
     fn test_vm_save_restore_state() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
-        let gic_fd = gic.device_fd();
+        let gic_fd = match create_gic(&vm, 1, Some(GICVersion::GICV2)) {
+            Ok(gic_fd) => gic_fd,
+            Err(Error::CreateGIC(_)) => return,
+            _ => panic!("Failed to open setup GICv2"),
+        };
 
-        let mpidr = vec![1];
-        let res = save_state(gic_fd, &mpidr);
+        let mpidr = vec![0];
+        let res = save_state(gic_fd.device_fd(), &mpidr);
         // We will receive an error if trying to call before creating vcpu.
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(22), false, 5)"
+            "DeviceAttribute(Error(22), false, 2)"
         );
 
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _vcpu = vm.create_vcpu(0).unwrap();
-        let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
+        let gic = create_gic(&vm, 1, Some(GICVersion::GICV2)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
 
         let vm_state = save_state(gic_fd, &mpidr).unwrap();
         let val: u32 = 0;
-        let gicd_statusr_off = 0x0010;
+        let gicd_statusr_off = 0x0010u64;
         let mut gic_dist_attr = kvm_bindings::kvm_device_attr {
             group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS,
-            attr: gicd_statusr_off as u64,
+            attr: gicd_statusr_off,
             addr: &val as *const u32 as u64,
             flags: 0,
         };
@@ -90,8 +88,7 @@ mod tests {
         let gicd_statusr = &vm_state.dist[1];
 
         assert_eq!(gicd_statusr.chunks[0], val);
-        assert_eq!(vm_state.dist.len(), 12);
+        assert_eq!(vm_state.dist.len(), 7);
         assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
-        assert!(restore_state(gic_fd, &[1, 2], &vm_state).is_err());
     }
 }

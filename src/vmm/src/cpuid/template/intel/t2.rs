@@ -43,15 +43,13 @@ pub(crate) fn update_feature_info_entry(
         .write_bit(ecx::SDBG_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::DCA_BITINDEX, false)
-        .write_bit(ecx::OSXSAVE_BITINDEX, false);
+        .write_bit(ecx::DCA_BITINDEX, false);
 
     entry
         .edx
         .write_bit(edx::MCE_BITINDEX, true)
         .write_bit(edx::MTRR_BITINDEX, true)
         .write_bit(edx::PSN_BITINDEX, false)
-        .write_bit(edx::SSE42_BITINDEX, false)
         .write_bit(edx::DS_BITINDEX, false)
         .write_bit(edx::ACPI_BITINDEX, false)
         .write_bit(edx::SS_BITINDEX, false)
@@ -78,8 +76,8 @@ pub(crate) fn update_structured_extended_entry(
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
             .write_bit(ebx::FPU_CS_DS_DEPRECATE_BITINDEX, false)
-            .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::MPX_BITINDEX, false)
+            .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::AVX512F_BITINDEX, false)
             .write_bit(ebx::AVX512DQ_BITINDEX, false)
             .write_bit(ebx::RDSEED_BITINDEX, false)

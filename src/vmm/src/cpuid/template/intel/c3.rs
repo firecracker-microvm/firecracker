@@ -39,8 +39,7 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bit(ecx::FMA_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::MOVBE_BITINDEX, false)
-        .write_bit(ecx::OSXSAVE_BITINDEX, false);
+        .write_bit(ecx::MOVBE_BITINDEX, false);
 
     entry
         .edx
@@ -74,8 +73,8 @@ fn update_structured_extended_entry(
             .write_bit(ebx::INVPCID_BITINDEX, false)
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
-            .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::MPX_BITINDEX, false)
+            .write_bit(ebx::RDT_A_BITINDEX, false)
             .write_bit(ebx::AVX512F_BITINDEX, false)
             .write_bit(ebx::AVX512DQ_BITINDEX, false)
             .write_bit(ebx::RDSEED_BITINDEX, false)
