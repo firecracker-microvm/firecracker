@@ -13,17 +13,14 @@ import host_tools.logging as log_tools
 from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.stats import consumer, criteria, function, producer, types
-from framework.utils import CpuMap, eager_map, get_kernel_version, is_io_uring_supported
+from framework.utils import CpuMap, eager_map, get_kernel_version
 from framework.utils_cpuid import get_instance_type
 
 # How many latencies do we sample per test.
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
 PLATFORM = platform.machine()
-ENGINES = ["Sync"]
 
-if is_io_uring_supported():
-    ENGINES.append("Async")
 
 # Latencies in milliseconds.
 # The latency for snapshot creation has high variance due to scheduler noise.
@@ -241,7 +238,6 @@ def snapshot_resume_producer(logger, vm_builder, snapshot, snapshot_type, use_ra
     return value
 
 
-@pytest.mark.parametrize("io_engine", ENGINES)
 def test_older_snapshot_resume_latency(
     microvm_factory,
     guest_kernel,
@@ -412,7 +408,6 @@ def test_snapshot_create_latency(
 
 @pytest.mark.parametrize("guest_mem_mib", [256, 512])
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.FULL, SnapshotType.DIFF])
-@pytest.mark.parametrize("io_engine", ENGINES)
 def test_snapshot_resume_latency(
     microvm_factory,
     guest_kernel,
