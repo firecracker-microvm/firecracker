@@ -12,15 +12,13 @@ import time
 import pytest
 
 import host_tools.logging as log_tools
-from framework.artifacts import ArtifactCollection, NetIfaceConfig
+from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.defs import _test_images_s3_bucket
 from framework.utils import (
     compare_versions,
     configure_mmds,
     generate_mmds_get_request,
     generate_mmds_session_token,
-    get_firecracker_version_from_toml,
     populate_data_store,
     run_guest_cmd,
 )
@@ -649,7 +647,7 @@ def test_mmds_limit_scenario(test_microvm_with_api, network_config, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_snapshot(bin_cloner_path, version):
+def test_mmds_snapshot(bin_cloner_path, version, firecracker_release):
     """
     Test MMDS behavior by restoring a snapshot on current and past FC versions.
 
@@ -658,48 +656,33 @@ def test_mmds_snapshot(bin_cloner_path, version):
 
     @type: functional
     """
+
+    # 1.2.0 and above snapshots are incompatible with any past release due to
+    # notification suppression.
+    if firecracker_release.version_tuple < (1, 2, 0):
+        pytest.skip("unsupported due to notification suppression")
+
     vm_builder = MicrovmBuilder(bin_cloner_path)
     iface_cfg = NetIfaceConfig()
     vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
+    target_version = firecracker_release.snapshot_version
 
     # Validate current version.
     _validate_mmds_snapshot(vm_instance, vm_builder, version, iface_cfg)
 
-    # Validate restoring in past versions.
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all firecracker binaries.
-    # Create a snapshot with current build and restore with each FC binary
-    # artifact.
-    firecracker_artifacts = artifacts.firecrackers(
-        # current snapshot (i.e a machine snapshotted with current build)
-        # is incompatible with any past release due to notification suppression.
-        min_version="1.2.0",
-        max_version=get_firecracker_version_from_toml(),
+    iface_cfg = NetIfaceConfig()
+    vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
+    jailer = firecracker_release.jailer()
+
+    _validate_mmds_snapshot(
+        vm_instance,
+        vm_builder,
+        version,
+        iface_cfg,
+        target_fc_version=target_version,
+        fc_path=firecracker_release.local_path(),
+        jailer_path=jailer.local_path(),
     )
-    for firecracker in firecracker_artifacts:
-        iface_cfg = NetIfaceConfig()
-        vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
-        firecracker.download()
-        jailer = firecracker.jailer()
-        jailer.download()
-
-        target_version = firecracker.base_name()[1:]
-        # If the version is smaller or equal to 1.0.0, we expect that
-        # MMDS will be initialised with V1 by default.
-        if compare_versions(target_version, "1.0.0") <= 0:
-            mmds_version = "V1"
-        else:
-            mmds_version = version
-
-        _validate_mmds_snapshot(
-            vm_instance,
-            vm_builder,
-            mmds_version,
-            iface_cfg,
-            target_fc_version=target_version,
-            fc_path=firecracker.local_path(),
-            jailer_path=jailer.local_path(),
-        )
 
 
 def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
@@ -711,8 +694,8 @@ def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
 
     @type: functional
     """
-    vm_builder = MicrovmBuilder(bin_cloner_path)
     net_iface = NetIfaceConfig()
+    vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano(
         net_ifaces=[net_iface],
         fc_binary=firecracker_release.local_path(),

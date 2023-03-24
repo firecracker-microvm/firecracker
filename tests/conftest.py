@@ -99,7 +99,7 @@ from framework.defs import _test_images_s3_bucket
 from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
-from framework.utils import get_firecracker_version_from_toml
+from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 from framework.with_filelock import with_filelock
 from host_tools.ip_generator import network_config, subnet_generator
@@ -548,3 +548,11 @@ for capability in MICROVM_S3_FETCHER.enum_capabilities():
     # pylint: disable=exec-used
     # This is the most straightforward way to achieve this result.
     exec(TEST_MICROVM_CAP_FIXTURE)
+
+
+@pytest.fixture(params=["Sync", "Async"])
+def io_engine(request):
+    """All supported io_engines"""
+    if request.param == "Async" and not is_io_uring_supported():
+        pytest.skip("io_uring not supported in this kernel")
+    return request.param

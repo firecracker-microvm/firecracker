@@ -19,7 +19,6 @@ from framework.utils import (
     DictQuery,
     get_cpu_percent,
     get_kernel_version,
-    is_io_uring_supported,
     run_cmd,
 )
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
@@ -257,7 +256,6 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
 @pytest.mark.nonci
 @pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
 @pytest.mark.parametrize("vcpus", [1, 2])
-@pytest.mark.parametrize("io_engine", ["Sync", "Async"])
 def test_block_performance(
     microvm_factory,
     network_config,
@@ -272,9 +270,6 @@ def test_block_performance(
 
     @type: performance
     """
-    if io_engine == "Async" and not is_io_uring_supported():
-        pytest.skip("io_uring is not supported")
-
     guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
