@@ -1284,9 +1284,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "versionize"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6e2495726cf917e7ba7ec8bf0f0fceab543dd38d0a4195ed6bef331e38a290f"
+checksum = "dca4b7062e7e6d685901e815c35f9671e059de97c1c0905eeff8592f3fff442f"
 dependencies = [
  "bincode",
  "crc64",
@@ -1301,9 +1301,9 @@ dependencies = [
 
 [[package]]
 name = "versionize_derive"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "140aa9fd298f667ea50fa1cb0d8530076924079285c623b18b8f8a1c28386b4a"
+checksum = "c9bbae9abf4538b8fac8f9f153ffe1af8c01ffa2c994fd91c1002890c3907d2a"
 dependencies = [
  "proc-macro2",
  "quote",
