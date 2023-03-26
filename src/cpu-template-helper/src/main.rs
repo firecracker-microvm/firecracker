@@ -3,6 +3,7 @@
 
 use std::fs::{read_to_string, write};
 use std::path::PathBuf;
+use std::process::{ExitCode, Termination};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
@@ -35,10 +36,16 @@ enum Error {
     TemplateVerify(#[from] template::verify::Error),
 }
 
+impl Termination for Error {
+    fn report(self) -> ExitCode {
+        ExitCode::from(EXIT_CODE_ERROR as u8)
+    }
+}
+
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Parser)]
-#[command(version = format!("v{}", crate::utils::CPU_TEMPLATE_HELPER_VERSION))]
+#[command(version = format ! ("v{}", crate::utils::CPU_TEMPLATE_HELPER_VERSION))]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -182,19 +189,17 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if let Err(e) = run(cli) {
-        eprintln!("Error: {}", e);
-        std::process::exit(EXIT_CODE_ERROR);
-    }
+    run(cli)
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
+    #[rustfmt::skip]
     use ::utils::tempfile::TempFile;
     use vmm::utilities::mock_resources::kernel_image_path;
 
