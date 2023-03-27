@@ -677,6 +677,15 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    # Test entropy device bw and ops rate-limiting.
+    response = test_microvm.entropy.put(
+        rate_limiter={
+            "bandwidth": {"size": 1000000, "refill_time": 100},
+            "ops": {"size": 1, "refill_time": 100},
+        },
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
 
 def test_api_patch_pre_boot(test_microvm_with_api):
     """
@@ -1055,6 +1064,31 @@ def _test_vsock(vm):
     # Updating an existing vsock should not be fine at this point.
     response = vm.vsock.put(guest_cid=17, uds_path="vsock.sock")
     assert vm.api_session.is_status_bad_request(response.status_code)
+
+
+def test_api_entropy(test_microvm_with_api):
+    """
+    Test entropy related API commands.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Create a new entropy device should be OK.
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Overwriting an existing should be OK.
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Start the microvm
+    test_microvm.start()
+
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 
 def test_api_balloon(test_microvm_with_api):
