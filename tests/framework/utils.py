@@ -826,6 +826,13 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     assert exit_code == 0, stderr.read()
 
 
+def check_entropy(ssh_connection):
+    """Check that we can get random numbers from /dev/hwrng"""
+    cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
+    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    assert exit_code == 0, stderr.read()
+
+
 @retry(delay=0.5, tries=5)
 def wait_process_running(process):
     """Wait for a process to run.
