@@ -18,8 +18,8 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
-from framework.artifacts import NetIfaceConfig
-from framework.defs import SUPPORTED_HOST_KERNELS
+from framework.artifacts import ArtifactCollection, NetIfaceConfig
+from framework.defs import SUPPORTED_HOST_KERNELS, _test_images_s3_bucket
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 PLATFORM = platform.machine()
@@ -263,7 +263,7 @@ def msr_cpu_template_fxt(request):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools):
+def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools, network_config):
     """
     Test MSRs that are available to the guest.
 
@@ -299,6 +299,7 @@ def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrto
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
+    vm.ssh_network_config(network_config, "1")
     vm.basic_config(
         vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
@@ -396,7 +397,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_wrmsr_snapshot(
-    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template
+    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template, network_config
 ):
     """
     This is the first part of the test verifying
@@ -421,10 +422,12 @@ def test_cpu_wrmsr_snapshot(
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
+    vm.ssh_network_config(network_config, "1")
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
         cpu_template=msr_cpu_template,
+        track_dirty_pages=True,
     )
     vm.start()
     root_disk = rootfs_msrtools.copy(file_name=shared_names["rootfs_fname"])
@@ -571,7 +574,7 @@ def test_cpu_wrmsr_restore(
     # Bring snapshot files from the 1st part of the test into the jail
     chroot_dir = vm.chroot()
     tmp_snapshot_artifacts_dir = Path() / chroot_dir / "tmp" / guest_kernel.base_name()
-    tmp_snapshot_artifacts_dir.mkdir()
+    tmp_snapshot_artifacts_dir.mkdir(parents=True)
 
     mem_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["mem_fname"]
     snapshot_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["snapshot_fname"]
@@ -627,7 +630,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_cpuid_snapshot(
-    vm_builder, guest_kernel, rootfs, msr_cpu_template, microvm_cfg
+    microvm_factory, guest_kernel, rootfs, msr_cpu_template, network_config
 ):
     """
     This is the first part of the test verifying
@@ -646,16 +649,17 @@ def test_cpu_cpuid_snapshot(
 
     root_disk = rootfs.copy(file_name=shared_names["rootfs_fname"])
 
-    vm_instance = vm_builder.build(
+    vm = microvm_factory.build(
         kernel=guest_kernel,
-        disks=[root_disk],
-        ssh_key=rootfs.ssh_key(),
-        config=microvm_cfg,
-        diff_snapshots=True,
-        cpu_template=msr_cpu_template,
+        rootfs=rootfs,
     )
-
-    vm = vm_instance.vm
+    vm.spawn()
+    vm.ssh_network_config(network_config, "1")
+    vm.basic_config(
+        vcpu_count=1,
+        mem_size_mib=1024,
+        track_dirty_pages=True,
+    )
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
