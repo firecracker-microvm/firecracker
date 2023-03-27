@@ -40,6 +40,7 @@ from framework.resources import (
     CpuConfigure,
     DescribeInstance,
     Drive,
+    Entropy,
     FullConfig,
     InstanceVersion,
     Logger,
@@ -142,6 +143,7 @@ class Microvm:
         self.vm = None
         self.vsock = None
         self.snapshot = None
+        self.entropy = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
@@ -421,6 +423,7 @@ class Microvm:
         self.drive = Drive(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
+        self.entropy = Entropy(self._api_socket, self._api_session)
 
         if create_logger:
             log_fifo_path = os.path.join(self.path, log_file)
