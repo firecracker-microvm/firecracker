@@ -726,3 +726,30 @@ class Vsock:
             datax["vsock_id"] = vsock_id
 
         return datax
+
+
+class Entropy:
+    """Facility for handling virtio-rng configuration for a microvm."""
+
+    ENTROPY_CFG_RESOURCE = "entropy"
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests"""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
+
+        self._entropy_cfg_url = api_url + self.ENTROPY_CFG_RESOURCE
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Attach a new rng device."""
+        datax = self.create_json(**args)
+
+        return self._api_session.put(self._entropy_cfg_url, json=datax)
+
+    @staticmethod
+    def create_json(rate_limiter=None):
+        """Create the json object for entropy specific API requests."""
+        datax = {"rate_limiter": rate_limiter}
+
+        return datax
