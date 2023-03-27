@@ -703,11 +703,11 @@ def test_mmds_snapshot(bin_cloner_path, version):
     for firecracker in firecracker_artifacts:
         iface_cfg = NetIfaceConfig()
         vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
-        firecracker.download()
+        firecracker.download(perms=0o555)
         jailer = firecracker.jailer()
-        jailer.download()
+        jailer.download(perms=0o555)
 
-        target_version = firecracker.base_name()[1:]
+        target_version = firecracker.snapshot_version
         # If the version is smaller or equal to 1.0.0, we expect that
         # MMDS will be initialised with V1 by default.
         if compare_versions(target_version, "1.0.0") <= 0:
