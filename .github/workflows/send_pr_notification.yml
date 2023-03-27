@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: notify
         run: |
-          if ${{ github.event.label.name == format('Status{0} Reviewer', ':') }}; then
+          if ${{ github.event.label.name == format('Status{0} Awaiting review', ':') }}; then
             curl -X POST ${{ secrets.SLACK_PR_NOTIFICATION_WEBHOOK }} \
                  -H 'Content-Type: application/json' \
                  -d '{ "GITHUB_PR_URL": "${{ github.event.pull_request.html_url }}",
