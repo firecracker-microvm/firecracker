@@ -263,7 +263,9 @@ def msr_cpu_template_fxt(request):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools):
+def test_cpu_rdmsr(
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools, network_config
+):
     """
     Test MSRs that are available to the guest.
 
@@ -299,6 +301,7 @@ def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrto
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
+    vm.ssh_network_config(network_config, "1")
     vm.basic_config(
         vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
@@ -357,7 +360,6 @@ def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrto
 SNAPSHOT_RESTORE_SHARED_NAMES = {
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
     "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
-    "rootfs_fname":                      "rootfs_rw",
     "msr_reader_host_fname":             "../resources/tests/msr/msr_reader.sh",
     "msr_reader_guest_fname":            "/bin/msr_reader.sh",
     "msrs_before_fname":                 "msrs_before.txt",
@@ -366,6 +368,7 @@ SNAPSHOT_RESTORE_SHARED_NAMES = {
     "cpuid_after_fname":                 "cpuid_after.txt",
     "snapshot_fname":                    "vmstate",
     "mem_fname":                         "mem",
+    "rootfs_fname":                      "bionic-msrtools.ext4",
     # Testing matrix:
     # * Rootfs: Ubuntu 18.04 with msr-tools package installed
     # * Microvm: 1vCPU with 1024 MB RAM
@@ -421,13 +424,14 @@ def test_cpu_wrmsr_snapshot(
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
+    vm.add_net_iface(NetIfaceConfig())
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
         cpu_template=msr_cpu_template,
+        track_dirty_pages=True,
     )
     vm.start()
-    root_disk = rootfs_msrtools.copy(file_name=shared_names["rootfs_fname"])
 
     # Make MSR modifications
     msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
@@ -478,7 +482,7 @@ def test_cpu_wrmsr_snapshot(
         snapshot_artifacts_dir / shared_names["snapshot_fname"],
     )
     shutil.copyfile(
-        Path(root_disk.local_path()),
+        chroot_dir / shared_names["rootfs_fname"],
         snapshot_artifacts_dir / shared_names["rootfs_fname"],
     )
 
@@ -538,7 +542,7 @@ def check_msr_values_are_equal(before_msrs_fname, after_msrs_fname):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_wrmsr_restore(
-    microvm_factory, msr_cpu_template, guest_kernel, network_config
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools
 ):
     """
     This is the second part of the test verifying
@@ -557,10 +561,6 @@ def test_cpu_wrmsr_restore(
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.ssh_network_config(network_config, "1")
-
     cpu_template_dir = msr_cpu_template if msr_cpu_template else "none"
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
@@ -568,33 +568,30 @@ def test_cpu_wrmsr_restore(
         / cpu_template_dir
     )
 
-    # Bring snapshot files from the 1st part of the test into the jail
-    chroot_dir = vm.chroot()
-    tmp_snapshot_artifacts_dir = Path() / chroot_dir / "tmp" / guest_kernel.base_name()
-    tmp_snapshot_artifacts_dir.mkdir()
+    skip_test_based_on_artifacts(snapshot_artifacts_dir)
 
-    mem_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["mem_fname"]
-    snapshot_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["snapshot_fname"]
-    rootfs_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["rootfs_fname"]
+    vm = microvm_factory.build()
+    vm.spawn()
+    # recreate eth0
+    iface = NetIfaceConfig()
+    vm.create_tap_and_ssh_config(
+        host_ip=iface.host_ip,
+        guest_ip=iface.guest_ip,
+        netmask_len=iface.netmask,
+        tapname=iface.tap_name,
+    )
+    # would be better to also capture the SSH key in the snapshot
+    ssh_key = rootfs_msrtools.ssh_key().local_path()
+    vm.ssh_config["ssh_key_path"] = ssh_key
 
-    shutil.copyfile(
-        snapshot_artifacts_dir / shared_names["mem_fname"],
-        mem_fname_in_jail,
-    )
-    shutil.copyfile(
-        snapshot_artifacts_dir / shared_names["snapshot_fname"],
-        snapshot_fname_in_jail,
-    )
-    shutil.copyfile(
-        snapshot_artifacts_dir / shared_names["rootfs_fname"],
-        rootfs_fname_in_jail,
-    )
-
+    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
+    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
+    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
     # Restore from the snapshot
     vm.restore_from_snapshot(
-        snapshot_mem=mem_fname_in_jail,
-        snapshot_vmstate=snapshot_fname_in_jail,
-        snapshot_disks=[rootfs_fname_in_jail],
+        snapshot_mem=mem,
+        snapshot_vmstate=vmstate,
+        snapshot_disks=[rootfs],
         snapshot_is_diff=True,
     )
 
@@ -627,7 +624,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_cpuid_snapshot(
-    vm_builder, guest_kernel, rootfs, msr_cpu_template, microvm_cfg
+    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template
 ):
     """
     This is the first part of the test verifying
@@ -644,18 +641,18 @@ def test_cpu_cpuid_snapshot(
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
-    root_disk = rootfs.copy(file_name=shared_names["rootfs_fname"])
-
-    vm_instance = vm_builder.build(
+    vm = microvm_factory.build(
         kernel=guest_kernel,
-        disks=[root_disk],
-        ssh_key=rootfs.ssh_key(),
-        config=microvm_cfg,
-        diff_snapshots=True,
-        cpu_template=msr_cpu_template,
+        rootfs=rootfs_msrtools,
     )
-
-    vm = vm_instance.vm
+    vm.spawn()
+    vm.add_net_iface(NetIfaceConfig())
+    vm.basic_config(
+        vcpu_count=1,
+        mem_size_mib=1024,
+        cpu_template=msr_cpu_template,
+        track_dirty_pages=True,
+    )
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
@@ -681,18 +678,18 @@ def test_cpu_cpuid_snapshot(
     )
 
     # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = vm.chroot()
+    chroot_dir = Path(vm.chroot())
     shutil.copyfile(
-        Path(chroot_dir) / shared_names["mem_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
+        chroot_dir / shared_names["mem_fname"],
+        snapshot_artifacts_dir / shared_names["mem_fname"],
     )
     shutil.copyfile(
-        Path(chroot_dir) / shared_names["snapshot_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
+        chroot_dir / shared_names["snapshot_fname"],
+        snapshot_artifacts_dir / shared_names["snapshot_fname"],
     )
     shutil.copyfile(
-        root_disk.local_path(),
-        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
+        chroot_dir / shared_names["rootfs_fname"],
+        snapshot_artifacts_dir / Path(rootfs_msrtools.local_path()).name,
     )
 
 
@@ -716,7 +713,9 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_nam
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, msr_cpu_template, guest_kernel, rootfs):
+def test_cpu_cpuid_restore(
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools
+):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -743,44 +742,25 @@ def test_cpu_cpuid_restore(microvm_factory, msr_cpu_template, guest_kernel, root
 
     vm = microvm_factory.build()
     vm.spawn()
+    # recreate eth0
     iface = NetIfaceConfig()
-    vm.add_net_iface(iface)
-    ssh_arti = rootfs.ssh_key()
-    ssh_arti.download(vm.path)
+    vm.create_tap_and_ssh_config(
+        host_ip=iface.host_ip,
+        guest_ip=iface.guest_ip,
+        netmask_len=iface.netmask,
+        tapname=iface.tap_name,
+    )
+    ssh_arti = rootfs_msrtools.ssh_key()
     vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
-    os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
-
-    # Bring snapshot files from the 1st part of the test into the jail
-    chroot_dir = vm.chroot()
-    tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / guest_kernel.base_name()
-    clean_and_mkdir(tmp_snapshot_artifacts_dir)
-
-    mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
-    snapshot_fname_in_jail = (
-        Path(tmp_snapshot_artifacts_dir) / shared_names["snapshot_fname"]
-    )
-    rootfs_fname_in_jail = (
-        Path(tmp_snapshot_artifacts_dir) / shared_names["rootfs_fname"]
-    )
-
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
-        mem_fname_in_jail,
-    )
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
-        snapshot_fname_in_jail,
-    )
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
-        rootfs_fname_in_jail,
-    )
 
     # Restore from the snapshot
+    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
+    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
+    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
     vm.restore_from_snapshot(
-        snapshot_mem=mem_fname_in_jail,
-        snapshot_vmstate=snapshot_fname_in_jail,
-        snapshot_disks=[rootfs_fname_in_jail],
+        snapshot_mem=mem,
+        snapshot_vmstate=vmstate,
+        snapshot_disks=[rootfs],
         snapshot_is_diff=True,
     )
 
