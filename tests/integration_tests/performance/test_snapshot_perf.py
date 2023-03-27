@@ -280,6 +280,7 @@ def _test_snapshot_create_latency(context):
 
     # Test snapshot creation for every supported target version.
     for target_version in firecracker_versions:
+        target_version = ".".join(target_version.split(".")[:2] + ["0"])
         logger.info(
             """Measuring snapshot create({}) latency for target
         version: {} and microvm: \"{}\", kernel {}, disk {} """.format(
