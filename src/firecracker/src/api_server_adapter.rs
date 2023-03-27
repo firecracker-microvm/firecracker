@@ -74,7 +74,9 @@ impl MutEventSubscriber for ApiServerAdapter {
         let source = event.fd();
         let event_set = event.event_set();
 
+        debug!("firecracker::api_server_adapter::ApiServerAdapter::process() IN");
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
+            debug!("firecracker::api_server_adapter::ApiServerAdapter::process() EventSet::IN");
             match self.from_api.try_recv() {
                 Ok(api_request) => {
                     debug!("Get API request.");
@@ -86,7 +88,9 @@ impl MutEventSubscriber for ApiServerAdapter {
                     // unpaused. The device emulation is implicitly paused since we do not
                     // relinquish control to the event manager because we're not returning from
                     // `process`.
+                    debug!("request_is_pause : {}", request_is_pause);
                     if request_is_pause {
+                        debug!("starting loop ");
                         // This loop only attempts to process API requests, so things like the
                         // metric flush timerfd handling are frozen as well.
                         loop {
@@ -97,19 +101,26 @@ impl MutEventSubscriber for ApiServerAdapter {
                                 break;
                             }
                         }
+                        debug!("out of loop ");
                     }
+                    debug!("request handled");
                 }
                 Err(TryRecvError::Empty) => {
+                    debug!("Got a spurious notification from api thread");
                     warn!("Got a spurious notification from api thread");
                 }
                 Err(TryRecvError::Disconnected) => {
+                    debug!("The channel's sending half was disconnected. Cannot receive data.");
                     panic!("The channel's sending half was disconnected. Cannot receive data.");
                 }
             };
+            debug!("firecracker::api_server_adapter::ApiServerAdapter::process() read");
             let _ = self.api_event_fd.read();
+            debug!("firecracker::api_server_adapter::ApiServerAdapter::process() read done");
         } else {
             error!("Spurious EventManager event for handler: ApiServerAdapter");
         }
+        debug!("firecracker::api_server_adapter::ApiServerAdapter::process() OUT");
     }
 
     fn init(&mut self, ops: &mut EventOps) {
