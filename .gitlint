@@ -14,5 +14,6 @@ regex=^\[.+\]: http.+
 regex=(.*)dependabot(.*)
 
 # Ignore certain rules, you can reference them by their id or by their full name
-# Use 'all' to ignore all rules
-ignore=all  # dependabot constructs commit bodies from changelogs
+# Use 'all' to ignore all rules. Dependabot constructs commit bodies from
+# changelogs, so disable all rules.
+ignore=all
