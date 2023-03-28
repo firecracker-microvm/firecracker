@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Compare gathered baselines interactively."""
 
-import sys
-import json
 import enum
-import questionary
+import json
+import sys
 
+import questionary
 from utils.comparator import BaseComparator
 from utils.defs import DEFAULT_BASELINE_DIRECTORY
 from utils.fetcher import BaselineDirectoryFetcher

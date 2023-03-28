@@ -13,8 +13,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from framework.utils_imdsv2 import imdsv2_get
 from framework.utils_cpuid import get_cpu_model_name, get_cpu_vendor
+from framework.utils_imdsv2 import imdsv2_get
 
 
 def run_cmd(cmd):

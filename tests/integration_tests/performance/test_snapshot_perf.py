@@ -6,34 +6,21 @@ import json
 import logging
 import os
 import platform
+
 import pytest
 
-from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
-from framework.matrix import TestMatrix, TestContext
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import (
-    eager_map,
-    CpuMap,
-    get_firecracker_version_from_toml,
-    get_kernel_version,
-    is_io_uring_supported,
-)
-from framework.utils_cpuid import get_instance_type
-from framework.stats import core, consumer, producer, types, criteria, function
-from integration_tests.performance.utils import handle_failure
-
 import host_tools.logging as log_tools
+from framework.artifacts import NetIfaceConfig
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.stats import consumer, criteria, function, producer, types
+from framework.utils import CpuMap, eager_map, get_kernel_version
+from framework.utils_cpuid import get_instance_type
 
 # How many latencies do we sample per test.
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
 PLATFORM = platform.machine()
-ENGINES = ["Sync"]
 
-if is_io_uring_supported():
-    ENGINES.append("Async")
 
 # Latencies in milliseconds.
 # The latency for snapshot creation has high variance due to scheduler noise.
@@ -142,7 +129,25 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 330},
                 },
             },
-        }
+        },
+        "c7g.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 320},
+                    "2vcpu_512mb.json": {"target": 360},
+                },
+            },
+        },
     },
 }
 
@@ -230,219 +235,17 @@ def snapshot_resume_producer(logger, vm_builder, snapshot, snapshot_type, use_ra
             break
 
     logger.info("Latency {} ms".format(value))
-
     return value
 
 
-def _test_snapshot_create_latency(context):
-    logger = context.custom["logger"]
-    vm_builder = context.custom["builder"]
-    snapshot_type = context.custom["snapshot_type"]
-    file_dumper = context.custom["results_file_dumper"]
-    diff_snapshots = snapshot_type == SnapshotType.DIFF
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-
-    logger.info(
-        "Fetching firecracker/jailer versions from {}.".format(
-            DEFAULT_TEST_IMAGES_S3_BUCKET
-        )
-    )
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    firecracker_versions = artifacts.firecracker_versions(
-        # v1.0.0 breaks snapshot compatibility with older versions.
-        min_version="1.0.0",
-        max_version=get_firecracker_version_from_toml(),
-    )
-    assert len(firecracker_versions) > 0
-
-    # Test snapshot creation for every supported target version.
-    for target_version in firecracker_versions:
-        logger.info(
-            """Measuring snapshot create({}) latency for target
-        version: {} and microvm: \"{}\", kernel {}, disk {} """.format(
-                snapshot_type,
-                target_version,
-                context.microvm.name(),
-                context.kernel.name(),
-                context.disk.name(),
-            )
-        )
-
-        # Create a fresh microVM from artifacts.
-        vm_instance = vm_builder.build(
-            kernel=context.kernel,
-            disks=[rw_disk],
-            ssh_key=ssh_key,
-            config=context.microvm,
-            diff_snapshots=diff_snapshots,
-            use_ramdisk=True,
-        )
-        vm = vm_instance.vm
-        # Configure metrics system.
-        metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-        metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-        response = vm.metrics.put(
-            metrics_path=vm.create_jailed_resource(metrics_fifo.path)
-        )
-        assert vm.api_session.is_status_no_content(response.status_code)
-
-        vm.start()
-
-        # Check if the needed CPU cores are available. We have the API
-        # thread, VMM thread and then one thread for each configured vCPU.
-        assert CpuMap.len() >= 2 + vm.vcpus_count
-
-        # Pin uVM threads to physical cores.
-        current_cpu_id = 0
-        assert vm.pin_vmm(current_cpu_id), "Failed to pin firecracker thread."
-        current_cpu_id += 1
-        assert vm.pin_api(current_cpu_id), "Failed to pin fc_api thread."
-        for idx_vcpu in range(vm.vcpus_count):
-            current_cpu_id += 1
-            assert vm.pin_vcpu(
-                idx_vcpu, current_cpu_id + idx_vcpu
-            ), f"Failed to pin fc_vcpu {idx_vcpu} thread."
-
-        st_core = core.Core(
-            name="snapshot_create_full_latency"
-            if snapshot_type == SnapshotType.FULL
-            else "snapshot_create_diff_latency",
-            iterations=SAMPLE_COUNT,
-        )
-
-        prod = producer.LambdaProducer(
-            func=snapshot_create_producer,
-            func_kwargs={
-                "logger": logger,
-                "vm": vm,
-                "disks": [rw_disk],
-                "ssh_key": ssh_key,
-                "target_version": target_version,
-                "metrics_fifo": metrics_fifo,
-                "snapshot_type": snapshot_type,
-            },
-        )
-
-        cons = consumer.LambdaConsumer(
-            func=lambda cons, result: cons.consume_stat(
-                st_name="max", ms_name="latency", value=result
-            ),
-            func_kwargs={},
-        )
-        eager_map(
-            cons.set_measurement_def,
-            snapshot_create_measurements(context.microvm.name(), snapshot_type),
-        )
-
-        st_core.add_pipe(producer=prod, consumer=cons, tag=context.microvm.name())
-
-    # Gather results and verify pass criteria.
-    try:
-        result = st_core.run_exercise()
-    except core.CoreException as err:
-        handle_failure(file_dumper, err)
-
-    file_dumper.dump(result)
-
-
-def _test_snapshot_resume_latency(context):
-    logger = context.custom["logger"]
-    vm_builder = context.custom["builder"]
-    snapshot_type = context.custom["snapshot_type"]
-    file_dumper = context.custom["results_file_dumper"]
-    io_engine = context.custom["io_engine"]
-    diff_snapshots = snapshot_type == SnapshotType.DIFF
-
-    logger.info(
-        """Measuring snapshot resume({}) latency for microvm: \"{}\",
-    kernel {}, disk {} """.format(
-            snapshot_type,
-            context.microvm.name(),
-            context.kernel.name(),
-            context.disk.name(),
-        )
-    )
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from artifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[rw_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        diff_snapshots=diff_snapshots,
-        use_ramdisk=True,
-        io_engine=io_engine,
-    )
-    basevm = vm_instance.vm
-    basevm.start()
-
-    # Check if guest works.
-    exit_code, _, _ = basevm.ssh.execute_command("ls")
-    assert exit_code == 0
-
-    logger.info("Create {}.".format(snapshot_type))
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
-    snapshot = snapshot_builder.create(
-        [rw_disk.local_path()], ssh_key, snapshot_type, use_ramdisk=True
-    )
-
-    basevm.kill()
-
-    st_core = core.Core(name="snapshot_resume_latency", iterations=SAMPLE_COUNT)
-
-    prod = producer.LambdaProducer(
-        func=snapshot_resume_producer,
-        func_kwargs={
-            "logger": logger,
-            "vm_builder": vm_builder,
-            "snapshot": snapshot,
-            "snapshot_type": snapshot_type,
-            "use_ramdisk": True,
-        },
-    )
-
-    cons = consumer.LambdaConsumer(
-        func=lambda cons, result: cons.consume_stat(
-            st_name="max", ms_name="latency", value=result
-        ),
-        func_kwargs={},
-    )
-    eager_map(
-        cons.set_measurement_def,
-        snapshot_resume_measurements(context.microvm.name(), io_engine.lower()),
-    )
-
-    st_core.add_pipe(producer=prod, consumer=cons, tag=context.microvm.name())
-
-    # Gather results and verify pass criteria.
-    try:
-        result = st_core.run_exercise()
-    except core.CoreException as err:
-        handle_failure(file_dumper, err)
-
-    file_dumper.dump(result)
-
-
-ARTIFACTS = ArtifactCollection(_test_images_s3_bucket())
-
-
-@pytest.mark.parametrize("io_engine", ENGINES)
-@pytest.mark.parametrize(
-    "microvm", ARTIFACTS.microvms(keyword="2vcpu_512mb"), ids=lambda uvm: uvm.name()
-)
 def test_older_snapshot_resume_latency(
-    bin_cloner_path, results_file_dumper, firecracker_release, io_engine, microvm
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    firecracker_release,
+    io_engine,
+    st_core,
+    bin_cloner_path,
 ):
     """
     Test scenario: Older snapshot load performance measurement.
@@ -453,45 +256,43 @@ def test_older_snapshot_resume_latency(
     @type: performance
     """
     logger = logging.getLogger("old_snapshot_load")
-
-    builder = MicrovmBuilder(bin_cloner_path)
     snapshot_type = SnapshotType.FULL
-    microvm.download()
     jailer = firecracker_release.jailer()
     fc_version = firecracker_release.base_name()[1:]
     logger.info("Firecracker version: %s", fc_version)
     logger.info("Source Firecracker: %s", firecracker_release.local_path())
     logger.info("Source Jailer: %s", jailer.local_path())
 
-    # Create a fresh microvm with the binary artifacts.
-    vm_instance = builder.build_vm_micro(
-        firecracker_release.local_path(), jailer.local_path()
-    )
-    basevm = vm_instance.vm
-    basevm.start()
+    vcpus, guest_mem_mib = 2, 512
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
+    iface = NetIfaceConfig()
+    vm.add_net_iface(iface)
+    vm.start()
 
     # Check if guest works.
-    exit_code, _, _ = basevm.ssh.execute_command("ls")
+    exit_code, _, _ = vm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # The snapshot builder expects disks as paths, not artifacts.
-    disks = []
-    for disk in vm_instance.disks:
-        disks.append(disk.local_path())
-
+    disks = [vm.rootfs_file]
     # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-    snapshot = snapshot_builder.create(disks, vm_instance.ssh_key, snapshot_type)
+    snapshot_builder = SnapshotBuilder(vm)
+    snapshot = snapshot_builder.create(
+        disks, rootfs.ssh_key(), snapshot_type, net_ifaces=[iface]
+    )
+    vm.kill()
 
-    basevm.kill()
-
-    st_core = core.Core(name="older_snapshot_resume_latency", iterations=SAMPLE_COUNT)
+    st_core.name = "older_snapshot_resume_latency"
+    st_core.iterations = SAMPLE_COUNT
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
         func_kwargs={
             "logger": logger,
-            "vm_builder": builder,
+            "vm_builder": MicrovmBuilder(bin_cloner_path),
             "snapshot": snapshot,
             "snapshot_type": snapshot_type,
             "use_ramdisk": False,
@@ -506,139 +307,182 @@ def test_older_snapshot_resume_latency(
     )
     eager_map(
         cons.set_measurement_def,
-        snapshot_resume_measurements(microvm.name(), io_engine.lower()),
+        snapshot_resume_measurements(microvm_cfg, io_engine.lower()),
     )
 
-    st_core.add_pipe(producer=prod, consumer=cons, tag=microvm.name())
-
+    st_core.add_pipe(producer=prod, consumer=cons, tag=microvm_cfg)
     # Gather results and verify pass criteria.
-    try:
-        result = st_core.run_exercise()
-    except core.CoreException as err:
-        handle_failure(results_file_dumper, err)
-
-    results_file_dumper.dump(result)
+    st_core.run_exercise()
 
 
-def test_snapshot_create_full_latency(
-    network_config, bin_cloner_path, results_file_dumper
+@pytest.mark.parametrize("guest_mem_mib", [256, 512])
+@pytest.mark.parametrize("snapshot_type", [SnapshotType.FULL, SnapshotType.DIFF])
+def test_snapshot_create_latency(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    guest_mem_mib,
+    snapshot_type,
+    firecracker_release,
+    st_core,
 ):
     """
-    Test scenario: Full snapshot create performance measurement.
+    Test scenario: Full/Diff snapshot create performance measurement.
+
+    Testing matrix:
+    - Guest kernel: all supported ones
+    - Rootfs: Ubuntu 18.04
+    - Microvm: 2vCPU with 256/512 MB RAM
+    TODO: Multiple microvm sizes must be tested in the async pipeline.
 
     @type: performance
     """
     logger = logging.getLogger("snapshot_sequence")
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: Linux 4.14
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 256/512 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.FULL,
-        "name": "create_full_latency",
-        "results_file_dumper": results_file_dumper,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
+    vcpus = 2
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(use_ramdisk=True)
+    vm.basic_config(
+        vcpu_count=vcpus,
+        mem_size_mib=guest_mem_mib,
+        use_initrd=True,
+        track_dirty_pages=diff_snapshots,
     )
 
-    test_matrix.run_test(_test_snapshot_create_latency)
+    # Configure metrics system.
+    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
+    assert vm.api_session.is_status_no_content(response.status_code)
 
+    vm.start()
 
-def test_snapshot_create_diff_latency(
-    network_config, bin_cloner_path, results_file_dumper
-):
-    """
-    Test scenario: Diff snapshot create performance measurement.
+    # Check if the needed CPU cores are available. We have the API
+    # thread, VMM thread and then one thread for each configured vCPU.
+    assert CpuMap.len() >= 2 + vm.vcpus_count
 
-    @type: performance
-    """
-    logger = logging.getLogger("snapshot_sequence")
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: All supported ones
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 256/512 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+    # Pin uVM threads to physical cores.
+    current_cpu_id = 0
+    assert vm.pin_vmm(current_cpu_id), "Failed to pin firecracker thread."
+    current_cpu_id += 1
+    assert vm.pin_api(current_cpu_id), "Failed to pin fc_api thread."
+    for idx_vcpu in range(vm.vcpus_count):
+        current_cpu_id += 1
+        assert vm.pin_vcpu(
+            idx_vcpu, current_cpu_id + idx_vcpu
+        ), f"Failed to pin fc_vcpu {idx_vcpu} thread."
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.DIFF,
-        "name": "create_diff_latency",
-        "results_file_dumper": results_file_dumper,
-    }
+    st_core.name = "snapshot_create_{snapshot_type}_latency"
+    st_core.iterations = SAMPLE_COUNT
 
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    prod = producer.LambdaProducer(
+        func=snapshot_create_producer,
+        func_kwargs={
+            "logger": logger,
+            "vm": vm,
+            "disks": [vm.rootfs_file],
+            "ssh_key": rootfs.ssh_key(),
+            "target_version": firecracker_release.snapshot_version,
+            "metrics_fifo": metrics_fifo,
+            "snapshot_type": snapshot_type,
+        },
     )
 
-    test_matrix.run_test(_test_snapshot_create_latency)
+    cons = consumer.LambdaConsumer(
+        func=lambda cons, result: cons.consume_stat(
+            st_name="max", ms_name="latency", value=result
+        ),
+        func_kwargs={},
+    )
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_create_measurements(microvm_cfg, snapshot_type),
+    )
+
+    st_core.add_pipe(producer=prod, consumer=cons, tag=microvm_cfg)
+    # Gather results and verify pass criteria.
+    st_core.run_exercise()
 
 
-@pytest.mark.parametrize("io_engine", ENGINES)
+@pytest.mark.parametrize("guest_mem_mib", [256, 512])
+@pytest.mark.parametrize("snapshot_type", [SnapshotType.FULL, SnapshotType.DIFF])
 def test_snapshot_resume_latency(
-    network_config, bin_cloner_path, results_file_dumper, io_engine
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    guest_mem_mib,
+    snapshot_type,
+    io_engine,
+    st_core,
+    bin_cloner_path,
 ):
     """
     Test scenario: Snapshot load performance measurement.
 
+    Testing matrix:
+    - Guest kernel: All supported ones
+    - Rootfs: Ubuntu 18.04
+    - Microvm: 2vCPU with 256/512 MB RAM
+    TODO: Multiple microvm sizes must be tested in the async pipeline.
+
     @type: performance
     """
     logger = logging.getLogger("snapshot_load")
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
+    vcpus = 2
+    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(use_ramdisk=True)
+    vm.basic_config(
+        vcpu_count=vcpus,
+        mem_size_mib=guest_mem_mib,
+        use_initrd=True,
+        track_dirty_pages=diff_snapshots,
+        rootfs_io_engine=io_engine,
+    )
+    iface = NetIfaceConfig()
+    vm.add_net_iface(iface)
+    vm.start()
+    # Check if guest works.
+    exit_code, _, _ = vm.ssh.execute_command("ls")
+    assert exit_code == 0
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: All supported ones
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 256/512 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_512mb"))
+    logger.info("Create %s", snapshot_type)
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(vm)
+    disks = [vm.rootfs_file]
+    snapshot = snapshot_builder.create(
+        disks, rootfs.ssh_key(), snapshot_type, use_ramdisk=True, net_ifaces=[iface]
+    )
+    vm.kill()
 
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+    st_core.name = "snapshot_resume_latency"
+    st_core.iterations = SAMPLE_COUNT
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.FULL,
-        "name": "resume_latency",
-        "results_file_dumper": results_file_dumper,
-        "io_engine": io_engine,
-    }
-
-    # Create the test matrix.
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    prod = producer.LambdaProducer(
+        func=snapshot_resume_producer,
+        func_kwargs={
+            "logger": logger,
+            "vm_builder": MicrovmBuilder(bin_cloner_path),
+            "snapshot": snapshot,
+            "snapshot_type": snapshot_type,
+            "use_ramdisk": True,
+        },
     )
 
-    test_matrix.run_test(_test_snapshot_resume_latency)
+    cons = consumer.LambdaConsumer(
+        func=lambda cons, result: cons.consume_stat(
+            st_name="max", ms_name="latency", value=result
+        ),
+        func_kwargs={},
+    )
+    eager_map(
+        cons.set_measurement_def,
+        snapshot_resume_measurements(microvm_cfg, io_engine.lower()),
+    )
+
+    st_core.add_pipe(producer=prod, consumer=cons, tag=microvm_cfg)
+    # Gather results and verify pass criteria.
+    st_core.run_exercise()

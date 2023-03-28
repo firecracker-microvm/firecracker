@@ -5,10 +5,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict
 
+from .baseline import Provider as BaselineProvider
 from .criteria import CriteriaFactory
 from .function import FunctionFactory
 from .types import MeasurementDef, StatisticDef
-from .baseline import Provider as BaselineProvider
 
 
 # pylint: disable=R0903
@@ -149,15 +149,19 @@ class DictProvider(Provider):
                 if name:
                     func = func_cls(name)
 
+                # When the statistic definition does not define a criteria, `criteria` is
+                # `None`. On the other hand, when the statistic definition defines a
+                # criteria but does not have the corresponding baseline, `criteria` is
+                # initialized with an empty baseline.
                 criteria = None
                 criteria_cls_name = st_def.get("criteria")
-                baseline = baseline_provider.get(ms_name, func.name)
-                if criteria_cls_name and baseline:
+                if criteria_cls_name:
                     criteria_cls = CriteriaFactory.get(criteria_cls_name)
                     assert criteria_cls, (
                         f"{criteria_cls_name} is not a " f"valid criteria."
                     )
-                    criteria = criteria_cls(baseline)
+                    baseline = baseline_provider.get(ms_name, func.name)
+                    criteria = criteria_cls(baseline if baseline else {})
 
                 st_list.append(StatisticDef(func, criteria))
 

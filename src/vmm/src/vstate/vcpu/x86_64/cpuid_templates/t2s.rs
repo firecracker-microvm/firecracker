@@ -1,9 +1,9 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use kvm_bindings::kvm_msr_entry;
 
+use crate::arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use crate::guest_config::cpuid::{
     Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
 };

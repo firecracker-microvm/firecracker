@@ -7,9 +7,6 @@
 
 use std::convert::TryFrom;
 
-use arch::x86_64::interrupts;
-use arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
-use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
@@ -20,6 +17,9 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+use crate::arch::x86_64::interrupts;
+use crate::arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
+use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -43,130 +43,104 @@ pub fn msr_entries_to_save() -> &'static [u32] {
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// A FamStructWrapper operation has failed.
+    #[error("Failed FamStructWrapper operation: {0:?}")]
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
-    FPUConfiguration(arch::x86_64::regs::Error),
+    #[error("Error configuring the floating point related registers: {0:?}")]
+    FPUConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
-    LocalIntConfiguration(arch::x86_64::interrupts::Error),
+    #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
+    LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
     /// Error configuring the MSR registers
-    MSRSConfiguration(arch::x86_64::msr::Error),
+    #[error("Error configuring the MSR registers: {0:?}")]
+    MSRSConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
-    REGSConfiguration(arch::x86_64::regs::Error),
+    #[error("Error configuring the general purpose registers: {0:?}")]
+    REGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Error configuring the special registers
-    SREGSConfiguration(arch::x86_64::regs::Error),
+    #[error("Error configuring the special registers: {0:?}")]
+    SREGSConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot open the VCPU file descriptor.
+    #[error("Cannot open the VCPU file descriptor: {0}")]
     VcpuFd(kvm_ioctls::Error),
     /// Failed to get KVM vcpu debug regs.
+    #[error("Failed to get KVM vcpu debug regs: {0}")]
     VcpuGetDebugRegs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu lapic.
+    #[error("Failed to get KVM vcpu lapic: {0}")]
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state.
+    #[error("Failed to get KVM vcpu mp state: {0}")]
     VcpuGetMpState(kvm_ioctls::Error),
     /// The number of MSRS returned by the kernel is unexpected.
+    #[error("Unexpected number of MSRS reported by the kernel")]
     VcpuGetMSRSIncomplete,
     /// Failed to get KVM vcpu msrs.
+    #[error("Failed to get KVM vcpu msrs: {0}")]
     VcpuGetMsrs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu regs.
+    #[error("Failed to get KVM vcpu regs: {0}")]
     VcpuGetRegs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu sregs.
+    #[error("Failed to get KVM vcpu sregs: {0}")]
     VcpuGetSregs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu event.
+    #[error("Failed to get KVM vcpu event: {0}")]
     VcpuGetVcpuEvents(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xcrs.
+    #[error("Failed to get KVM vcpu xcrs: {0}")]
     VcpuGetXcrs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xsave.
+    #[error("Failed to get KVM vcpu xsave: {0}")]
     VcpuGetXsave(kvm_ioctls::Error),
     /// Failed to get KVM vcpu cpuid.
+    #[error("Failed to get KVM vcpu cpuid: {0}")]
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC freq.
+    #[error("Failed to get KVM TSC frequency: {0}")]
     VcpuGetTSC(kvm_ioctls::Error),
     /// Failed to set KVM vcpu cpuid.
+    #[error("Failed to set KVM vcpu cpuid: {0}")]
     VcpuSetCpuid(kvm_ioctls::Error),
     /// Failed to set KVM vcpu debug regs.
+    #[error("Failed to set KVM vcpu debug regs: {0}")]
     VcpuSetDebugRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu lapic.
+    #[error("Failed to set KVM vcpu lapic: {0}")]
     VcpuSetLapic(kvm_ioctls::Error),
     /// Failed to set KVM vcpu mp state.
+    #[error("Failed to set KVM vcpu mp state: {0}")]
     VcpuSetMpState(kvm_ioctls::Error),
     /// Failed to set KVM vcpu msrs.
+    #[error("Failed to set KVM vcpu msrs: {0}")]
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
+    #[error("Failed to set all KVM MSRs for this vCPU. Only a partial write was done.")]
     VcpuSetMSRSIncomplete,
     /// Failed to set KVM vcpu regs.
+    #[error("Failed to set KVM vcpu regs: {0}")]
     VcpuSetRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu sregs.
+    #[error("Failed to set KVM vcpu sregs: {0}")]
     VcpuSetSregs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu event.
+    #[error("Failed to set KVM vcpu event: {0}")]
     VcpuSetVcpuEvents(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xcrs.
+    #[error("Failed to set KVM vcpu xcrs: {0}")]
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave.
+    #[error("Failed to set KVM vcpu xsave: {0}")]
     VcpuSetXsave(kvm_ioctls::Error),
     /// Failed to set KVM TSC freq.
+    #[error("Failed to set KVM TSC frequency: {0}")]
     VcpuSetTSC(kvm_ioctls::Error),
     /// Failed to apply CPU template.
+    #[error("Failed to apply CPU template")]
     VcpuTemplateError,
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match self {
-            LocalIntConfiguration(err) => write!(
-                f,
-                "Cannot set the local interruption due to bad configuration: {:?}",
-                err
-            ),
-            VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
-            MSRSConfiguration(err) => write!(f, "Error configuring the MSR registers: {:?}", err),
-            REGSConfiguration(err) => write!(
-                f,
-                "Error configuring the general purpose registers: {:?}",
-                err
-            ),
-            SREGSConfiguration(err) => {
-                write!(f, "Error configuring the special registers: {:?}", err)
-            }
-            Fam(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
-            FPUConfiguration(err) => write!(
-                f,
-                "Error configuring the floating point related registers: {:?}",
-                err
-            ),
-            VcpuGetDebugRegs(err) => write!(f, "Failed to get KVM vcpu debug regs: {}", err),
-            VcpuGetLapic(err) => write!(f, "Failed to get KVM vcpu lapic: {}", err),
-            VcpuGetMpState(err) => write!(f, "Failed to get KVM vcpu mp state: {}", err),
-            VcpuGetMsrs(err) => write!(f, "Failed to get KVM vcpu msrs: {}", err),
-            VcpuGetMSRSIncomplete => write!(f, "Unexpected number of MSRS reported by the kernel"),
-            VcpuGetRegs(err) => write!(f, "Failed to get KVM vcpu regs: {}", err),
-            VcpuGetSregs(err) => write!(f, "Failed to get KVM vcpu sregs: {}", err),
-            VcpuGetVcpuEvents(err) => write!(f, "Failed to get KVM vcpu event: {}", err),
-            VcpuGetXcrs(err) => write!(f, "Failed to get KVM vcpu xcrs: {}", err),
-            VcpuGetXsave(err) => write!(f, "Failed to get KVM vcpu xsave: {}", err),
-            VcpuGetCpuid(err) => write!(f, "Failed to get KVM vcpu cpuid: {}", err),
-            VcpuGetTSC(err) => write!(f, "Failed to get KVM TSC frequency: {}", err),
-            VcpuSetCpuid(err) => write!(f, "Failed to set KVM vcpu cpuid: {}", err),
-            VcpuSetDebugRegs(err) => write!(f, "Failed to set KVM vcpu debug regs: {}", err),
-            VcpuSetLapic(err) => write!(f, "Failed to set KVM vcpu lapic: {}", err),
-            VcpuSetMpState(err) => write!(f, "Failed to set KVM vcpu mp state: {}", err),
-            VcpuSetMsrs(err) => write!(f, "Failed to set KVM vcpu msrs: {}", err),
-            VcpuSetMSRSIncomplete => write!(
-                f,
-                "Failed to set all KVM MSRs for this vCPU. Only a partial write was done."
-            ),
-            VcpuSetRegs(err) => write!(f, "Failed to set KVM vcpu regs: {}", err),
-            VcpuSetSregs(err) => write!(f, "Failed to set KVM vcpu sregs: {}", err),
-            VcpuSetVcpuEvents(err) => write!(f, "Failed to set KVM vcpu event: {}", err),
-            VcpuSetXcrs(err) => write!(f, "Failed to set KVM vcpu xcrs: {}", err),
-            VcpuSetXsave(err) => write!(f, "Failed to set KVM vcpu xsave: {}", err),
-            VcpuSetTSC(err) => write!(f, "Failed to set KVM TSC frequency: {}", err),
-            VcpuTemplateError => write!(f, "Failed to apply CPU template"),
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -303,7 +277,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
         // Initialize some architectural MSRs that will be set for boot.
-        let mut msr_boot_entries = arch::x86_64::msr::create_boot_msr_entries();
+        let mut msr_boot_entries = crate::arch::x86_64::msr::create_boot_msr_entries();
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -341,12 +315,11 @@ impl KvmVcpu {
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
-        arch::x86_64::regs::setup_fpu(&self.fd)?;
-        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
-        arch::x86_64::interrupts::set_lint(&self.fd)?;
-
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
+        crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
+        crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
+        crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
         Ok(())
     }
 
@@ -649,6 +622,7 @@ mod tests {
     use kvm_ioctls::Cap;
 
     use super::*;
+    use crate::arch::x86_64::cpu_model::CpuModel;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -678,6 +652,17 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
+    fn is_at_least_cascade_lake() -> bool {
+        CpuModel::get_cpu_model()
+            >= (CpuModel {
+                extended_family: 0,
+                extended_model: 5,
+                family: 6,
+                model: 5,
+                stepping: 7,
+            })
+    }
+
     #[test]
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
@@ -703,7 +688,7 @@ mod tests {
         vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2;
         let t2_res = vcpu.configure(
             &vm_mem,
-            GuestAddress(arch::get_kernel_start()),
+            GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
             vm.supported_cpuid().clone(),
         );
@@ -726,14 +711,17 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        // Test configure while using the T2CL template.
-        vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2CL;
-        let t2cl_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let mut t2cl_res = Ok(());
+        if is_at_least_cascade_lake() {
+            // Test configure while using the T2CL template.
+            vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2CL;
+            t2cl_res = vcpu.configure(
+                &vm_mem,
+                GuestAddress(0),
+                &vcpu_config,
+                vm.supported_cpuid().clone(),
+            );
+        }
 
         // Test configure while using the T2S template.
         vcpu_config.static_cpu_template = CpuFeaturesTemplate::T2A;
@@ -784,6 +772,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
@@ -810,6 +799,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_set_tsc() {
         let (vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();

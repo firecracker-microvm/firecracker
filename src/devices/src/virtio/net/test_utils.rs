@@ -308,7 +308,7 @@ pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, Devi
             idx as u16,
         )));
     }
-    Ok(net.queue_evts[idx].as_raw_fd() as u64)
+    Ok(u64::try_from(net.queue_evts[idx].as_raw_fd()).unwrap())
 }
 
 pub fn default_guest_mac() -> MacAddr {

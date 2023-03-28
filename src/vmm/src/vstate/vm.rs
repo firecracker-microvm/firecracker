@@ -8,10 +8,6 @@
 use std::fmt::Formatter;
 use std::{fmt, result};
 
-#[cfg(target_arch = "aarch64")]
-use arch::aarch64::gic::GICDevice;
-#[cfg(target_arch = "aarch64")]
-use arch::aarch64::gic::GicState;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
     kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, CpuId, MsrList,
@@ -38,14 +34,14 @@ use crate::guest_config::x86_64::X86_64CpuConfiguration;
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
-    GuestMSRs(arch::x86_64::msr::Error),
+    GuestMSRs(crate::arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
     /// Cannot create the global interrupt controller..
-    VmCreateGIC(arch::aarch64::gic::Error),
+    VmCreateGIC(crate::arch::aarch64::gic::Error),
     /// Cannot open the VM file descriptor.
     VmFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
@@ -69,9 +65,9 @@ pub enum Error {
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    SaveGic(arch::aarch64::gic::Error),
+    SaveGic(crate::arch::aarch64::gic::Error),
     #[cfg(target_arch = "aarch64")]
-    RestoreGic(arch::aarch64::gic::Error),
+    RestoreGic(crate::arch::aarch64::gic::Error),
 }
 
 /// Error type for [`Vm::restore_state`]
@@ -93,7 +89,7 @@ pub enum RestoreStateError {
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
 #[derive(Debug, derive_more::From)]
-pub struct RestoreStateError(arch::aarch64::gic::Error);
+pub struct RestoreStateError(crate::arch::aarch64::gic::Error);
 #[cfg(target_arch = "aarch64")]
 impl fmt::Display for RestoreStateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -184,7 +180,7 @@ impl Vm {
         self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
+            .set_tss_address(crate::arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
             .map_err(Error::VmSetup)?;
 
         Ok(())
@@ -293,7 +289,7 @@ impl Vm {
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
         let supported_msrs =
-            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+            crate::arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
 
         Ok(Vm {
             fd: vm_fd,

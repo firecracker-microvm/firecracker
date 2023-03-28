@@ -21,36 +21,36 @@ import uuid
 import weakref
 from functools import cached_property
 from pathlib import Path
-
 from threading import Lock
+from typing import Optional
+
 from retry import retry
 
-import host_tools.logging as log_tools
 import host_tools.cargo_build as build_tools
 import host_tools.cpu_load as cpu_tools
+import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
-
 from framework import utils
 from framework.defs import FC_PID_FILE_NAME
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import (
+    MMDS,
     Actions,
     Balloon,
     BootSource,
-    Drive,
     DescribeInstance,
+    Drive,
     FullConfig,
     InstanceVersion,
     Logger,
-    MMDS,
     MachineConfigure,
     Metrics,
     Network,
+    SnapshotHelper,
     Vm,
     Vsock,
-    SnapshotHelper,
 )
 
 LOG = logging.getLogger("microvm")
@@ -81,6 +81,7 @@ class Microvm:
         bin_cloner_path=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
+        # pylint: disable=too-many-statements
         # Unique identifier for this machine.
         if microvm_id is None:
             microvm_id = str(uuid.uuid4())
@@ -158,6 +159,9 @@ class Microvm:
             "username": "root",
             "netns_file_path": self.jailer.netns_file_path(),
         }
+
+        # iface dictionary
+        self.iface = {}
 
         # Deal with memory monitoring.
         if monitor_memory:
@@ -540,6 +544,7 @@ class Microvm:
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
         rootfs_io_engine=None,
+        cpu_template: Optional[str] = None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -557,10 +562,12 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
+            cpu_template=cpu_template,
         )
         assert self._api_session.is_status_no_content(
             response.status_code
         ), response.text
+        self.vcpus_count = vcpu_count
 
         if self.memory_monitor:
             self.memory_monitor.guest_mem_mib = mem_size_mib
@@ -583,10 +590,13 @@ class Microvm:
         ), response.text
 
         if add_root_device and self.rootfs_file != "":
+            jail_fn = self.create_jailed_resource
+            if self.jailer.uses_ramfs:
+                jail_fn = self.copy_to_jail_ramfs
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id="rootfs",
-                path_on_host=self.create_jailed_resource(self.rootfs_file),
+                path_on_host=jail_fn(self.rootfs_file),
                 is_root_device=True,
                 is_read_only=False,
                 io_engine=rootfs_io_engine,
@@ -714,6 +724,25 @@ class Microvm:
     def config_ssh(self, guest_ip):
         """Configure ssh."""
         self.ssh_config["hostname"] = guest_ip
+
+    def add_net_iface(self, iface, tx_rate_limiter=None, rx_rate_limiter=None):
+        """Add a network interface"""
+        tap = net_tools.Tap(
+            iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
+        )
+        self.config_ssh(iface.guest_ip)
+        response = self.network.put(
+            iface_id=iface.dev_name,
+            host_dev_name=iface.tap_name,
+            guest_mac=iface.guest_mac,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter,
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+        self.iface[iface.dev_name] = {
+            "iface": iface,
+            "tap": tap,
+        }
 
     def start(self, check=True):
         """Start the microvm.

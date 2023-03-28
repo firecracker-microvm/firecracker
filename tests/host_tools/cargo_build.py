@@ -6,15 +6,14 @@ import os
 import platform
 from pathlib import Path
 
-from framework import utils
-from framework import defs
-from framework.with_filelock import with_filelock
+from framework import defs, utils
 from framework.defs import (
     FC_BINARY_NAME,
     FC_WORKSPACE_DIR,
     FC_WORKSPACE_TARGET_DIR,
     JAILER_BINARY_NAME,
 )
+from framework.with_filelock import with_filelock
 
 CARGO_BUILD_REL_PATH = "firecracker_binaries"
 """Keep a single build path across all build tests."""

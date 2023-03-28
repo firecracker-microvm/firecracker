@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
-import re
 import platform
-from framework.utils_cpuid import get_instance_type, get_cpu_model_name
+import re
 
 from framework.properties import global_props
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
@@ -31,18 +31,20 @@ INITRD_BOOT_TIME_US = {
     "aarch64": {
         "m6g.metal": {
             "ARM_NEOVERSE_N1": 205000,
-        }
+        },
+        "c7g.metal": {
+            "ARM_NEOVERSE_V1": 205000,
+        },
     },
 }
-# TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 
 DIMENSIONS = {
-    "cpu_arch": global_props.cpu_architecture,
+    "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
-    "host_linux": global_props.host_linux_version,
+    "host_kernel": "linux-" + global_props.host_linux_version,
 }
 
 

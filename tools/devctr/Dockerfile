@@ -50,6 +50,10 @@ RUN apt-get update \
         tini \
         # for mdl
         ruby \
+        # for building kernel
+        flex \
+        bison \
+        bc \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl

@@ -3,10 +3,10 @@
 """Utility classes to fetch baseline data"""
 
 
+import glob
+import json
 import os
 import re
-import json
-import glob
 
 from utils.defs import BASELINE_FILENAME_PATTERN
 

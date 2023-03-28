@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Define data types and abstractions for parsers."""
 
-from abc import abstractmethod, ABC
-from collections.abc import Iterator
+from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterator
 from typing import List
-
 
 # pylint: disable=R0903
 
@@ -69,7 +68,7 @@ class DataParser(ABC):
         """Parse the rows and return baselines."""
         for row in self._data_provider:
             measurements = row["results"]
-            cpu_model = row["custom"]["cpu_model_name"]
+            cpu_model = row["custom"]["cpu_model"]
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
                 for key in self._baselines_defs:

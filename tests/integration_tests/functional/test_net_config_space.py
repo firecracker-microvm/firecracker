@@ -3,12 +3,12 @@
 """Tests on devices config space."""
 
 import os
+import platform
 import random
 import re
 import string
-from threading import Thread
 import subprocess
-import platform
+from threading import Thread
 
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error

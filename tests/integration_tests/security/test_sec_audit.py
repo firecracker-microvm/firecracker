@@ -5,9 +5,8 @@
 
 import pytest
 
+from framework import defs, utils
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
-from framework import utils
-from framework import defs
 
 
 @pytest.mark.skipif(

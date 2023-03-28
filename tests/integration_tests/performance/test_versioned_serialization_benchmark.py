@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test that ensures that all unit tests pass at integration time."""
 
-import os
-import logging
 import json
-import shutil
+import logging
+import os
 import platform
+import shutil
 from pathlib import Path
 
 import pytest
@@ -49,8 +49,8 @@ BASELINES = {
             "crc": {"target": 0.050, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.057, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.063, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.031, "delta": 0.02},  # milliseconds  # milliseconds
+            "crc": {"target": 0.038, "delta": 0.02},  # milliseconds  # milliseconds
         },
     },
 }

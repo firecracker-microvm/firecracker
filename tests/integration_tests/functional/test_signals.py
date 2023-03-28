@@ -4,9 +4,10 @@
 
 import json
 import os
-from signal import SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS
-from time import sleep
 import resource as res
+from signal import SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ
+from time import sleep
+
 import pytest
 
 from framework import utils

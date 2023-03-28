@@ -6,7 +6,6 @@ import os
 import platform
 import re
 from pathlib import Path
-
 from shutil import copyfile
 from typing import List
 

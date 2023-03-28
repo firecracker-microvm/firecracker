@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Compare gathered baselines"""
 
-import os
 import argparse
+import os
 import subprocess
 
-from utils.comparator import DirectoryComparator, CpuComparator
+from utils.comparator import CpuComparator, DirectoryComparator
 from utils.defs import (
+    CODENAME2DICT,
     DEFAULT_BASELINE_DIRECTORY,
     DEFAULT_RESULT_FILEPATH,
-    CODENAME2DICT,
-    TESTS,
     KERNELS,
+    TESTS,
 )
 
 

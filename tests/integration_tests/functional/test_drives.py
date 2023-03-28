@@ -5,10 +5,9 @@
 import os
 import platform
 
-from framework import utils
-
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
+from framework import utils
 
 PARTUUID = {"x86_64": "f647d602-01", "aarch64": "69d7c052-01"}
 MB = 1024 * 1024
@@ -155,7 +154,7 @@ def test_rescan_dev(test_microvm_with_api, network_config):
             drive_id="scratch",
             path_on_host=test_microvm.create_jailed_resource(loopback_device),
         )
-        assert session.is_status_no_content(response.status_code)
+        assert session.is_status_no_content(response.status_code), response.content
 
         _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
     finally:
