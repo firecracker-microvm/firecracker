@@ -3,6 +3,7 @@
 """Tests ensuring desired style for commit messages."""
 
 import os
+
 from framework import utils
 
 

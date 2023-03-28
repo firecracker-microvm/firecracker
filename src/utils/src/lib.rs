@@ -27,6 +27,6 @@ pub fn get_page_size() -> Result<usize, errno::Error> {
     // SAFETY: Safe because the parameters are valid.
     match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
         -1 => Err(errno::Error::last()),
-        ps => Ok(ps as usize),
+        ps => Ok(usize::try_from(ps).unwrap()),
     }
 }

@@ -15,13 +15,9 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-
-from framework.utils import is_io_uring_supported
-from framework.artifacts import (
-    NetIfaceConfig,
-    SnapshotType,
-)
+from framework.artifacts import NetIfaceConfig, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
+from framework.utils import is_io_uring_supported
 
 MEM_LIMIT = 1000000000
 
@@ -872,33 +868,36 @@ def _drive_patch(test_microvm):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "at least one property to patch: path_on_host, rate_limiter" in response.text
 
+    drive_path = "foo.bar"
+
     # Cannot patch drive permissions post boot.
     response = test_microvm.drive.patch(
-        drive_id="scratch", path_on_host="foo.bar", is_read_only=True
+        drive_id="scratch", path_on_host=drive_path, is_read_only=True
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "unknown field `is_read_only`" in response.text
 
     # Cannot patch io_engine post boot.
     response = test_microvm.drive.patch(
-        drive_id="scratch", path_on_host="foo.bar", io_engine="Sync"
+        drive_id="scratch", path_on_host=drive_path, io_engine="Sync"
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "unknown field `io_engine`" in response.text
 
     # Updates to `is_root_device` with a valid value are not allowed.
     response = test_microvm.drive.patch(
-        drive_id="scratch", path_on_host="foo.bar", is_root_device=False
+        drive_id="scratch", path_on_host=drive_path, is_root_device=False
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "unknown field `is_root_device`" in response.text
 
     # Updates to `path_on_host` with an invalid path are not allowed.
-    response = test_microvm.drive.patch(drive_id="scratch", path_on_host="foo.bar")
+    response = test_microvm.drive.patch(drive_id="scratch", path_on_host=drive_path)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert (
         "Unable to patch the block device: BackingFile(Os { code: 2, "
-        'kind: NotFound, message: \\"No such file or directory\\" })' in response.text
+        f'kind: NotFound, message: \\"No such file or directory\\" }}, \\"{drive_path}\\")'
+        in response.text
     )
 
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch_new"))
@@ -1374,7 +1373,7 @@ def test_get_full_config(test_microvm_with_api):
     assert response.json() == expected_cfg
 
 
-def test_map_private_seccomp_regression(test_microvm_with_ssh):
+def test_map_private_seccomp_regression(test_microvm_with_api):
     """
     Seccomp mmap MAP_PRIVATE regression test.
 
@@ -1384,7 +1383,7 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
     @type: regression
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update(
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )

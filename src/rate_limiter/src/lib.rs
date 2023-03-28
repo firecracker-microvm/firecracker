@@ -419,6 +419,7 @@ impl RateLimiter {
                     // order to enforce the bandwidth limit we need to prevent
                     // further calls to the rate limiter for
                     // `ratio * refill_time` milliseconds.
+                    #[allow(clippy::cast_sign_loss)] // ratio is always positive
                     self.activate_timer(TimerState::Oneshot(Duration::from_millis(
                         (ratio * refill_time as f64) as u64,
                     )));
@@ -658,7 +659,7 @@ pub(crate) mod tests {
         // allowing rate of 1 token/ms.
         let capacity = 1000;
         let refill_ms = 1000;
-        let mut tb = TokenBucket::new(capacity, 0, refill_ms as u64).unwrap();
+        let mut tb = TokenBucket::new(capacity, 0, refill_ms).unwrap();
 
         assert_eq!(tb.reduce(123), BucketReduction::Success);
         assert_eq!(tb.budget(), capacity - 123);

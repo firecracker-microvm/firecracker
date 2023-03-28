@@ -45,7 +45,7 @@ pub enum Error {
     // Error coming from the IO engine.
     FileEngine(io::Error),
     // Error manipulating the backing file.
-    BackingFile(std::io::Error),
+    BackingFile(std::io::Error, String),
     // Error opening eventfd.
     EventFd(std::io::Error),
     // Error creating an irqfd.

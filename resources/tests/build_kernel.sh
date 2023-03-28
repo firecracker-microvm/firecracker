@@ -72,9 +72,6 @@ build_kernel() {
     cp "$KERNEL_CONFIG" "$KERNEL_DEST_DIR/.config"
     pushd "$KERNEL_DEST_DIR" >/dev/null
 
-    apt-get update
-    apt-get install -y flex bison bc
-
     local arch=$(uname -m)
     case $arch in
         "x86_64")

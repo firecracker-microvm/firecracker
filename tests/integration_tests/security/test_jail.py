@@ -1,25 +1,23 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
+import functools
 import http.client as http_client
 import os
 import resource
 import stat
 import subprocess
 import time
-import functools
-
-import pytest
 
 import psutil
+import pytest
 import requests
 import urllib3
 
+import host_tools.cargo_build as build_tools
 from framework.builder import SnapshotBuilder
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
-import host_tools.cargo_build as build_tools
-
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (
@@ -220,11 +218,10 @@ def test_arbitrary_usocket_location(test_microvm_with_initrd):
 
 
 @functools.lru_cache(maxsize=None)
-def cgroup_v1_available():
-    """Check if cgroup-v1 is disabled on the system."""
-    with open("/proc/cmdline", encoding="utf-8") as cmdline_file:
-        cmdline = cmdline_file.readline()
-        return bool("cgroup_no_v1=all" not in cmdline)
+def cgroup_v2_available():
+    """Check if cgroup-v2 is enabled on the system."""
+    # https://rootlesscontaine.rs/getting-started/common/cgroup2/#checking-whether-cgroup-v2-is-already-enabled
+    return os.path.isfile("/sys/fs/cgroup/cgroup.controllers")
 
 
 @pytest.fixture
@@ -236,7 +233,7 @@ def sys_setup_cgroups():
     This set-up is important to do when running from inside a Docker
     container while the system is using cgroup-v2.
     """
-    cgroup_version = 1 if cgroup_v1_available() else 2
+    cgroup_version = 2 if cgroup_v2_available() else 1
     if cgroup_version == 2:
         # Cgroup-v2 adds a no internal process constraint which means that
         # non-root cgroups can distribute domain resources to their children
@@ -512,7 +509,7 @@ def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):
 
 
 @pytest.mark.skipif(
-    cgroup_v1_available() is False, reason="Requires system with cgroup-v1 enabled."
+    cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
 )
 @pytest.mark.usefixtures("sys_setup_cgroups")
 def test_v1_default_cgroups(test_microvm_with_initrd):
@@ -582,13 +579,13 @@ def test_args_resource_limits(test_microvm_with_initrd):
     check_limits(pid, NOFILE, FSIZE)
 
 
-def test_negative_file_size_limit(test_microvm_with_ssh):
+def test_negative_file_size_limit(test_microvm_with_api):
     """
     Test creating snapshot file fails when size exceeds `fsize` limit.
 
     @type: negative
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["fsize=1024"]
 
     test_microvm.spawn()
@@ -626,13 +623,13 @@ def test_negative_file_size_limit(test_microvm_with_ssh):
         assert False, "Negative test failed"
 
 
-def test_negative_no_file_limit(test_microvm_with_ssh):
+def test_negative_no_file_limit(test_microvm_with_api):
     """
     Test microVM is killed when exceeding `no-file` limit.
 
     @type: negative
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["no-file=3"]
 
     # pylint: disable=W0703
@@ -645,13 +642,13 @@ def test_negative_no_file_limit(test_microvm_with_ssh):
         assert False, "Negative test failed"
 
 
-def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
+def test_new_pid_ns_resource_limits(test_microvm_with_api):
     """
     Test that Firecracker process inherits jailer resource limits.
 
     @type: security
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS

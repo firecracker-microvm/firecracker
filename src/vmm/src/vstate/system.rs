@@ -5,48 +5,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::{Display, Formatter};
 use std::result;
 
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum Error {
     /// The host kernel reports an invalid KVM API version.
+    #[error("The host kernel reports an invalid KVM API version: {0}")]
     ApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
+    #[error("Missing KVM capabilities: {0:?}")]
     Capabilities(kvm_ioctls::Cap),
     /// Cannot initialize the KVM context.
-    Initialization(KvmIoctlsError),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match self {
-            ApiVersion(v) => write!(
-                f,
-                "The host kernel reports an invalid KVM API version: {}",
-                v
-            ),
-            Capabilities(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
-            Initialization(err) => {
-                if err.errno() == libc::EACCES {
-                    write!(
-                        f,
-                        "Error creating KVM object. [{}]\nMake sure the user launching the \
-                         firecracker process is configured on the /dev/kvm file's ACL.",
-                        err
-                    )
-                } else {
-                    write!(f, "Error creating KVM object. [{}]", err)
-                }
-            }
+    #[error("{}", ({
+        if .0.errno() == libc::EACCES {
+            format!(
+                "Error creating KVM object. [{}]\nMake sure the user \
+                launching the firecracker process is configured on the /dev/kvm file's ACL.",
+                .0
+            )
+        } else {
+            format!("Error creating KVM object. [{}]", .0)
         }
-    }
+    }))]
+    Initialization(KvmIoctlsError),
 }
 
 type Result<T> = result::Result<T, Error>;

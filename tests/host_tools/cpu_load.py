@@ -3,6 +3,7 @@
 """Utilities for measuring cpu utilisation for a process."""
 import time
 from threading import Thread
+
 from framework import utils
 
 # /proc/<pid>/stat output taken from

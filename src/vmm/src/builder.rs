@@ -11,7 +11,6 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-use arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
 use devices::legacy::{
@@ -38,6 +37,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
+use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
@@ -73,7 +73,7 @@ pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
-    ConfigureSystem(arch::Error),
+    ConfigureSystem(crate::arch::Error),
     /// Internal errors are due to resource exhaustion.
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
@@ -271,9 +271,9 @@ fn create_vmm_and_vcpus(
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
     let mmio_device_manager = MMIODeviceManager::new(
-        arch::MMIO_MEM_START,
-        arch::MMIO_MEM_SIZE,
-        (arch::IRQ_BASE, arch::IRQ_MAX),
+        crate::arch::MMIO_MEM_START,
+        crate::arch::MMIO_MEM_SIZE,
+        (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
     )
     .map_err(StartMicrovmError::RegisterMmioDevice)?;
 
@@ -662,7 +662,7 @@ pub fn create_guest_memory(
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
-    let arch_mem_regions = arch::arch_memory_regions(mem_size);
+    let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
 
     vm_memory::create_guest_memory(
         &arch_mem_regions
@@ -688,14 +688,14 @@ fn load_kernel(
         guest_memory,
         None,
         &mut kernel_file,
-        Some(GuestAddress(arch::get_kernel_start())),
+        Some(GuestAddress(crate::arch::get_kernel_start())),
     )
     .map_err(StartMicrovmError::KernelLoader)?;
 
     #[cfg(target_arch = "aarch64")]
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
-        Some(GuestAddress(arch::get_kernel_start())),
+        Some(GuestAddress(crate::arch::get_kernel_start())),
         &mut kernel_file,
         None,
     )
@@ -750,7 +750,7 @@ where
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
 
     // Get the target address
-    let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
+    let address = crate::arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
 
     // Load the image into memory
     vm_memory
@@ -927,13 +927,13 @@ pub fn configure_system_for_boot(
 
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
             vmm.guest_memory(),
-            GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
         )
         .map_err(LoadCommandline)?;
-        arch::x86_64::configure_system(
+        crate::arch::x86_64::configure_system(
             &vmm.guest_memory,
-            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            vm_memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
             initrd,
             vcpus.len() as u8,
@@ -954,7 +954,7 @@ pub fn configure_system_for_boot(
             .map(|cpu| cpu.kvm_vcpu.get_mpidr())
             .collect();
         let cmdline = boot_cmdline.as_cstring()?;
-        arch::aarch64::configure_system(
+        crate::arch::aarch64::configure_system(
             &vmm.guest_memory,
             cmdline,
             vcpu_mpidr,
@@ -1084,7 +1084,6 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
-    use arch::DeviceType;
     use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
@@ -1094,6 +1093,7 @@ pub mod tests {
     use vm_memory::GuestMemory;
 
     use super::*;
+    use crate::arch::DeviceType;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
@@ -1129,9 +1129,9 @@ pub mod tests {
 
     fn default_mmio_device_manager() -> MMIODeviceManager {
         MMIODeviceManager::new(
-            arch::MMIO_MEM_START,
-            arch::MMIO_MEM_SIZE,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
+            crate::arch::MMIO_MEM_START,
+            crate::arch::MMIO_MEM_SIZE,
+            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap()
     }
@@ -1175,8 +1175,11 @@ pub mod tests {
     }
 
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, arch::CMDLINE_MAX_SIZE)
-            .unwrap()
+        linux_loader::cmdline::Cmdline::try_from(
+            DEFAULT_KERNEL_CMDLINE,
+            crate::arch::CMDLINE_MAX_SIZE,
+        )
+        .unwrap()
     }
 
     pub(crate) fn default_vmm() -> Vmm {
@@ -1343,13 +1346,13 @@ pub mod tests {
         use vm_memory::GuestMemory;
         let image = make_test_bin();
 
-        let mem_size: usize = image.len() * 2 + arch::PAGE_SIZE;
+        let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;
 
         #[cfg(target_arch = "x86_64")]
         let gm = create_guest_mem_with_size(mem_size);
 
         #[cfg(target_arch = "aarch64")]
-        let gm = create_guest_mem_with_size(mem_size + arch::aarch64::layout::FDT_MAX_SIZE);
+        let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
         let res = load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_ok());
@@ -1373,7 +1376,10 @@ pub mod tests {
     #[test]
     fn test_load_initrd_unaligned() {
         let image = vec![1, 2, 3, 4];
-        let gm = create_guest_mem_at(GuestAddress(arch::PAGE_SIZE as u64 + 1), image.len() * 2);
+        let gm = create_guest_mem_at(
+            GuestAddress(crate::arch::PAGE_SIZE as u64 + 1),
+            image.len() * 2,
+        );
 
         let res = load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_err());

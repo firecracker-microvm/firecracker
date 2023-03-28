@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ensuring correctness of CPU and cache topology in the guest."""
 
+import json
 import os
 import platform
-import json
 from ast import literal_eval
 
 import pytest
+
 import framework.utils_cpuid as utils
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}

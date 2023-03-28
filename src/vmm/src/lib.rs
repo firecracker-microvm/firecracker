@@ -12,6 +12,10 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::blanket_clippy_restriction_lints)]
 
+/// Implements platform specific functionality.
+/// Supported platforms: x86_64 and aarch64.
+pub mod arch;
+
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 pub(crate) mod device_manager;
@@ -43,7 +47,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::{fmt, io};
 
-use arch::DeviceType;
 use devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use devices::virtio::balloon::Error as BalloonError;
 use devices::virtio::{
@@ -62,14 +65,16 @@ use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
+use crate::arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, VcpuState};
-use crate::vstate::vm::Vm;
+use crate::vstate::vcpu::VcpuState;
+pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
+pub use crate::vstate::vm::Vm;
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;

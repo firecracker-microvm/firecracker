@@ -8,12 +8,9 @@ import time
 
 from retry import retry
 
-from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet
+from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.matrix import TestMatrix, TestContext
 from framework.utils import get_free_mem_ssh, run_cmd
-
 
 MB_TO_PAGES = 256
 STATS_POLLING_INTERVAL_S = 1
@@ -67,35 +64,6 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount=8192):
         assert exit_code == 0, stderr.read()
         stdout_txt = stdout.read()
         assert "Memory filling was successful" in stdout_txt, stdout_txt
-
-
-def build_test_matrix(network_config, bin_cloner_path, logger):
-    """Build a test matrix using the kernel with the balloon driver."""
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: Linux 4.14
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 256 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
-
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "logger": logger,
-        "snapshot_type": SnapshotType.FULL,
-        "seq_len": 5,
-    }
-
-    # Create the test matrix.
-    return TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
 
 
 def _test_rss_memory_lower(test_microvm):
@@ -523,73 +491,49 @@ def test_stats_update(test_microvm_with_api, network_config):
     assert next_stats["available_memory"] != final_stats["available_memory"]
 
 
-def test_balloon_snapshot(network_config, bin_cloner_path):
+def test_balloon_snapshot(bin_cloner_path, microvm_factory, guest_kernel, rootfs):
     """
     Test that the balloon works after pause/resume.
 
     @type: functional
     """
     logger = logging.getLogger("snapshot_sequence")
-
-    # Create the test matrix.
-    test_matrix = build_test_matrix(network_config, bin_cloner_path, logger)
-
-    test_matrix.run_test(_test_balloon_snapshot)
-
-
-def _test_balloon_snapshot(context):
-    logger = context.custom["logger"]
-    vm_builder = context.custom["builder"]
-    snapshot_type = context.custom["snapshot_type"]
+    snapshot_type = SnapshotType.FULL
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info(
-        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
-            snapshot_type,
-            context.microvm.name(),
-            context.kernel.name(),
-            context.disk.name(),
-        )
+    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm.spawn()
+    vm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=256,
+        track_dirty_pages=diff_snapshots,
     )
-
-    # Create a rw copy artifact.
-    root_disk = context.disk.copy()
-
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[root_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        diff_snapshots=diff_snapshots,
-    )
-    basevm = vm_instance.vm
+    iface = NetIfaceConfig()
+    vm.add_net_iface(iface)
 
     # Add a memory balloon with stats enabled.
-    response = basevm.balloon.put(
+    response = vm.balloon.put(
         amount_mib=0,
         deflate_on_oom=True,
         stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
-    assert basevm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
 
-    basevm.start()
+    vm.start()
 
     # Dirty 60MB of pages.
-    make_guest_dirty_memory(basevm.ssh, amount=60 * MB_TO_PAGES)
+    make_guest_dirty_memory(vm.ssh, amount=60 * MB_TO_PAGES)
     time.sleep(1)
 
     # Get the firecracker pid, and open an ssh connection.
-    firecracker_pid = basevm.jailer_clone_pid
+    firecracker_pid = vm.jailer_clone_pid
 
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Now inflate the balloon with 20MB of pages.
-    response = basevm.balloon.patch(amount_mib=20)
-    assert basevm.api_session.is_status_no_content(response.status_code)
+    response = vm.balloon.patch(amount_mib=20)
+    assert vm.api_session.is_status_no_content(response.status_code)
 
     # Check memory usage again.
     second_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -598,21 +542,23 @@ def _test_balloon_snapshot(context):
     # We only test that the reduction happens.
     assert first_reading > second_reading
 
-    logger.info("Create {} #0.".format(snapshot_type))
+    logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
+    snapshot_builder = SnapshotBuilder(vm)
+    disks = [vm.rootfs_file]
     # Create base snapshot.
-    snapshot = snapshot_builder.create([root_disk.local_path()], ssh_key, snapshot_type)
+    snapshot = snapshot_builder.create(
+        disks, rootfs.ssh_key(), snapshot_type, net_ifaces=[iface]
+    )
+    vm.kill()
 
-    basevm.kill()
-
-    logger.info("Load snapshot #{}, mem {}".format(1, snapshot.mem))
+    logger.info("Load snapshot #%d, mem %s", 1, snapshot.mem)
+    vm_builder = MicrovmBuilder(bin_cloner_path)
     microvm, _ = vm_builder.build_from_snapshot(
         snapshot, resume=True, diff_snapshots=diff_snapshots
     )
     # Attempt to connect to resumed microvm.
-    ssh_connection = microvm.ssh
+    microvm.ssh.run("true")
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.jailer_clone_pid
@@ -625,7 +571,7 @@ def _test_balloon_snapshot(context):
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=60 * MB_TO_PAGES)
+    make_guest_dirty_memory(microvm.ssh, amount=60 * MB_TO_PAGES)
 
     # Check memory usage.
     fourth_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -650,117 +596,70 @@ def _test_balloon_snapshot(context):
     # that the balloon inflated.
     assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
 
-    microvm.kill()
 
-
-def test_snapshot_compatibility(network_config, bin_cloner_path):
+def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
     """
     Test that the balloon serializes correctly.
 
     @type: functional
     """
-    logger = logging.getLogger("snapshot_sequence")
-
-    # Create the test matrix.
-    test_matrix = build_test_matrix(network_config, bin_cloner_path, logger)
-
-    test_matrix.run_test(_test_snapshot_compatibility)
-
-
-def _test_snapshot_compatibility(context):
-    logger = context.custom["logger"]
-    vm_builder = context.custom["builder"]
-    snapshot_type = context.custom["snapshot_type"]
+    logger = logging.getLogger("snapshot_compatibility")
+    snapshot_type = SnapshotType.FULL
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info(
-        'Testing {} with microvm: "{}", kernel {}, disk {} '.format(
-            snapshot_type,
-            context.microvm.name(),
-            context.kernel.name(),
-            context.disk.name(),
-        )
+    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm.spawn()
+    vm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=256,
+        track_dirty_pages=diff_snapshots,
     )
 
-    # Create a rw copy artifact.
-    root_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[root_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-        diff_snapshots=diff_snapshots,
-    )
-    microvm = vm_instance.vm
     # Add a memory balloon with stats enabled.
-    response = microvm.balloon.put(
+    response = vm.balloon.put(
         amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
     )
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
 
-    microvm.start()
+    vm.start()
 
-    logger.info("Create {} #0.".format(snapshot_type))
+    logger.info("Create %s #0.", snapshot_type)
 
     # Pause the microVM in order to allow snapshots
-    response = microvm.vm.patch(state="Paused")
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    response = vm.vm.patch(state="Paused")
+    assert vm.api_session.is_status_no_content(response.status_code)
 
-    # Try to create a snapshot with a balloon on version 0.23.0.
+    # Try to create a snapshot with a balloon for version 0.23.0.
     # This is skipped for aarch64, since the snapshotting feature
     # was introduced in v0.24.0.
     if platform.machine() == "x86_64":
-        response = microvm.snapshot.create(
+        response = vm.snapshot.create(
             mem_file_path="memfile", snapshot_path="dummy", diff=False, version="0.23.0"
         )
 
         # This should fail as the balloon was introduced in 0.24.0.
-        assert microvm.api_session.is_status_bad_request(response.status_code)
+        assert vm.api_session.is_status_bad_request(response.status_code)
         assert (
             "Target version does not implement the " "virtio-balloon device"
         ) in response.json()["fault_message"]
 
     # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(microvm)
+    snapshot_builder = SnapshotBuilder(vm)
 
     # Check we can create a snapshot with a balloon on current version.
-    snapshot_builder.create([root_disk.local_path()], ssh_key, snapshot_type)
-
-    microvm.kill()
+    snapshot_builder.create([rootfs.local_path()], rootfs.ssh_key(), snapshot_type)
 
 
-def test_memory_scrub(network_config, bin_cloner_path):
+def test_memory_scrub(microvm_factory, guest_kernel, rootfs, network_config):
     """
     Test that the memory is zeroed after deflate.
 
     @type: functional
     """
-    logger = logging.getLogger()
-
-    # Create the test matrix.
-    test_matrix = build_test_matrix(network_config, bin_cloner_path, logger)
-
-    test_matrix.run_test(_test_memory_scrub)
-
-
-def _test_memory_scrub(context):
-    vm_builder = context.custom["builder"]
-
-    # Create a rw copy artifact.
-    root_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[root_disk],
-        ssh_key=ssh_key,
-        config=context.microvm,
-    )
-    microvm = vm_instance.vm
+    microvm = microvm_factory.build(guest_kernel, rootfs)
+    microvm.spawn()
+    microvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    microvm.ssh_network_config(network_config, "1")
 
     # Add a memory balloon with stats enabled.
     response = microvm.balloon.put(
@@ -792,5 +691,3 @@ def _test_memory_scrub(context):
 
     exit_code, _, _ = microvm.ssh.execute_command("/sbin/readmem {} {}".format(60, 1))
     assert exit_code == 0
-
-    microvm.kill()

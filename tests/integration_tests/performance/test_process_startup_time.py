@@ -4,8 +4,8 @@
 
 import json
 import os
-import time
 import platform
+import time
 
 import host_tools.logging as log_tools
 from host_tools.cargo_build import run_seccompiler_bin

@@ -5,16 +5,15 @@
 import logging
 import os
 import socket
-from subprocess import TimeoutExpired
-
 import stat
+from subprocess import TimeoutExpired
 
 import requests
 import urllib3
 
 from framework.artifacts import SnapshotMemBackendType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.utils import run_cmd, UffdHandler
+from framework.utils import UffdHandler, run_cmd
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 

@@ -9,12 +9,12 @@ import subprocess
 import termios
 import time
 
+import host_tools.logging as log_tools
+from framework import utils
+from framework.artifacts import SnapshotType
+from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.microvm import Serial
 from framework.state_machine import TestState
-from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.artifacts import SnapshotType
-from framework import utils
-import host_tools.logging as log_tools
 
 PLATFORM = platform.machine()
 

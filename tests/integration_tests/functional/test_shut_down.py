@@ -1,14 +1,13 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
-import os
-import time
 import json
+import os
 import platform
-
-from framework import utils
+import time
 
 import host_tools.logging as log_tools
+from framework import utils
 
 
 def test_reboot(test_microvm_with_api, network_config):

@@ -4,10 +4,10 @@
 
 import os
 import platform
+
 import pytest
 
 import host_tools.cargo_build as host
-
 
 MACHINE = platform.machine()
 """ Platform definition used to select the correct size target"""

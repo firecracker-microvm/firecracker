@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed feature flags in T2S CPU template on Intel Ice Lake.
+
+## [1.3.0]
+
 ### Added
 
 - Introduced T2CL (Intel) and T2A (AMD) CPU templates to provide

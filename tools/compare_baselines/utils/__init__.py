@@ -2,6 +2,4 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for comparing performance baselines"""
 
-from . import comparator
-from . import defs
-from . import fetcher
+from . import comparator, defs, fetcher

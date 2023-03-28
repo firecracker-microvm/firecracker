@@ -19,6 +19,10 @@ def get_supported_cpu_templates():
     """
     vendor = cpuid_utils.get_cpu_vendor()
     if vendor == cpuid_utils.CpuVendor.INTEL:
+        # T2CL template is only supported on Cascade Lake and newer CPUs.
+        skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
+        if cpuid_utils.get_cpu_model_name() == skylake_model:
+            return set(INTEL_TEMPLATES) - set(["T2CL"])
         return INTEL_TEMPLATES
     if vendor == cpuid_utils.CpuVendor.AMD:
         return AMD_TEMPLATES
