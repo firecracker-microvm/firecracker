@@ -18,13 +18,14 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
-from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
-from framework.builder import MicrovmBuilder
-from framework.defs import SUPPORTED_KERNELS, _test_images_s3_bucket
-from framework.matrix import TestContext, TestMatrix
+from framework.artifacts import NetIfaceConfig
+from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 PLATFORM = platform.machine()
+UNSUPPORTED_HOST_KERNEL = (
+    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
+)
 
 
 def clean_and_mkdir(dir_path):
@@ -257,12 +258,12 @@ def msr_cpu_template_fxt(request):
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_rdmsr(bin_cloner_path, network_config, msr_cpu_template):
+def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools):
     """
     Test MSRs that are available to the guest.
 
@@ -288,51 +289,22 @@ def test_cpu_rdmsr(bin_cloner_path, network_config, msr_cpu_template):
     * add an exceptions for different template types when checking values
     * deprecate T2 and C3 since they are somewhat broken
 
+    Testing matrix:
+    - All supported guest kernels and rootfs
+    - Microvm: 1vCPU with 1024 MB RAM
+
     @type: functional
     """
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # * Guest kernel: Linux 4.14 & Linux 5.10
-    # * Rootfs: Ubuntu 18.04 with msr-tools package installed
-    # * Microvm: 1vCPU with 1024 MB RAM
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="bionic-msrtools"))
-    assert len(disk_artifacts) == 1
-
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "network_config": network_config,
-        "cpu_template": msr_cpu_template,
-    }
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    vcpus, guest_mem_mib = 1, 1024
+    vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
-    test_matrix.run_test(_test_cpu_rdmsr)
-
-
-def _test_cpu_rdmsr(context):
-    vm_builder = context.custom["builder"]
-    cpu_template = context.custom["cpu_template"]
-    root_disk = context.disk.copy()
-
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[root_disk],
-        ssh_key=context.disk.ssh_key(),
-        config=context.microvm,
-        cpu_template=cpu_template,
-    )
-    test_microvm = vm_instance.vm
-    test_microvm.start()
-
-    test_microvm.ssh.scp_file(
-        "../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh"
-    )
-    _, stdout, stderr = test_microvm.ssh.execute_command("/bin/msr_reader.sh")
+    vm.start()
+    vm.ssh.scp_file("../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh")
+    _, stdout, stderr = vm.ssh.run("/bin/msr_reader.sh")
     assert stderr.read() == ""
 
     # Load results read from the microvm
@@ -345,8 +317,10 @@ def _test_cpu_rdmsr(context):
     # * host running kernel 5.10 and guest 4.14 with the `bionic-msrtools` rootfs
     # * host running kernel 5.10 and guest 5.10 with the `bionic-msrtools` rootfs
     host_kv = utils.get_kernel_version(level=1)
-    guest_kv = re.search("vmlinux-(.*).bin", context.kernel.name()).group(1)
-    baseline_file_name = f"msr_list_{cpu_template}_{host_kv}host_{guest_kv}guest.csv"
+    guest_kv = re.search("vmlinux-(.*).bin", guest_kernel.name()).group(1)
+    baseline_file_name = (
+        f"msr_list_{msr_cpu_template}_{host_kv}host_{guest_kv}guest.csv"
+    )
     baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
     baseline_df = pd.read_csv(baseline_file_path)
 
@@ -415,85 +389,15 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
         file.write(stdout.read())
 
 
-def _test_cpu_wrmsr_snapshot(context):
-    shared_names = context.custom["shared_names"]
-    root_disk = context.disk.copy(file_name=shared_names["rootfs_fname"])
-    vm_builder = context.custom["builder"]
-    cpu_template = context.custom["cpu_template"]
-
-    vm_instance = vm_builder.build(
-        kernel=context.kernel,
-        disks=[root_disk],
-        ssh_key=context.disk.ssh_key(),
-        config=context.microvm,
-        diff_snapshots=True,
-        cpu_template=cpu_template,
-    )
-
-    vm = vm_instance.vm
-    vm.start()
-
-    # Make MSR modifications
-    msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
-    msr_writer_guest_fname = "/bin/msr_writer.sh"
-    vm.ssh.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
-
-    wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
-    wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
-    vm.ssh.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
-
-    _, _, stderr = vm.ssh.execute_command(
-        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
-    )
-    assert stderr.read() == ""
-
-    # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
-    snapshot_artifacts_dir = (
-        Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / context.kernel.base_name()
-        / get_cpu_template_dir(cpu_template)
-    )
-    clean_and_mkdir(snapshot_artifacts_dir)
-
-    msrs_before_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
-
-    dump_msr_state_to_file(msrs_before_fname, vm.ssh, shared_names)
-    # On T2A, the restore test fails with error "cannot allocate memory" so,
-    # adding delay below as a workaround to unblock the tests for now.
-    # TODO: Debug the issue and remove this delay. Create below issue to track this:
-    # https://github.com/firecracker-microvm/firecracker/issues/3453
-    time.sleep(0.25)
-
-    # Take a snapshot
-    vm.pause_to_snapshot(
-        mem_file_path=shared_names["mem_fname"],
-        snapshot_path=shared_names["snapshot_fname"],
-        diff=True,
-    )
-
-    # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = vm.chroot()
-    shutil.copyfile(
-        Path(chroot_dir) / shared_names["mem_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
-    )
-    shutil.copyfile(
-        Path(chroot_dir) / shared_names["snapshot_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
-    )
-    shutil.copyfile(
-        root_disk.local_path(),
-        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
-    )
-
-
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(bin_cloner_path, msr_cpu_template):
+def test_cpu_wrmsr_snapshot(
+    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template
+):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -514,26 +418,69 @@ def test_cpu_wrmsr_snapshot(bin_cloner_path, msr_cpu_template):
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(
-        artifacts.microvms(keyword=shared_names["microvm_keyword"])
+    vcpus, guest_mem_mib = 1, 1024
+    vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(
+        vcpu_count=vcpus,
+        mem_size_mib=guest_mem_mib,
+        cpu_template=msr_cpu_template,
     )
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
-    assert len(disk_artifacts) == 1
+    vm.start()
+    root_disk = rootfs_msrtools.copy(file_name=shared_names["rootfs_fname"])
 
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "cpu_template": msr_cpu_template,
-        "shared_names": shared_names,
-    }
+    # Make MSR modifications
+    msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
+    msr_writer_guest_fname = "/bin/msr_writer.sh"
+    vm.ssh.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
 
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
+    wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
+    wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
+    vm.ssh.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
+
+    _, _, stderr = vm.ssh.execute_command(
+        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
     )
-    test_matrix.run_test(_test_cpu_wrmsr_snapshot)
+    assert stderr.read() == ""
+
+    # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
+    snapshot_artifacts_dir = (
+        Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
+        / guest_kernel.base_name()
+        / (msr_cpu_template if msr_cpu_template else "none")
+    )
+    clean_and_mkdir(snapshot_artifacts_dir)
+
+    msrs_before_fname = snapshot_artifacts_dir / shared_names["msrs_before_fname"]
+
+    dump_msr_state_to_file(msrs_before_fname, vm.ssh, shared_names)
+    # On T2A, the restore test fails with error "cannot allocate memory" so,
+    # adding delay below as a workaround to unblock the tests for now.
+    # TODO: Debug the issue and remove this delay. Create below issue to track this:
+    # https://github.com/firecracker-microvm/firecracker/issues/3453
+    time.sleep(0.25)
+
+    # Take a snapshot
+    vm.pause_to_snapshot(
+        mem_file_path=shared_names["mem_fname"],
+        snapshot_path=shared_names["snapshot_fname"],
+        diff=True,
+    )
+
+    # Copy snapshot files to be published to S3 for the 2nd part of the test
+    chroot_dir = Path(vm.chroot())
+    shutil.copyfile(
+        chroot_dir / shared_names["mem_fname"],
+        snapshot_artifacts_dir / shared_names["mem_fname"],
+    )
+    shutil.copyfile(
+        chroot_dir / shared_names["snapshot_fname"],
+        snapshot_artifacts_dir / shared_names["snapshot_fname"],
+    )
+    shutil.copyfile(
+        Path(root_disk.local_path()),
+        snapshot_artifacts_dir / shared_names["rootfs_fname"],
+    )
 
 
 def diff_msrs(before, after, column_to_drop):
@@ -561,7 +508,7 @@ def diff_msrs(before, after, column_to_drop):
     return diff if not all_equal else ""
 
 
-def check_msr_values_are_equal(before_msrs_fname, after_msrs_fname, guest_kernel_name):
+def check_msr_values_are_equal(before_msrs_fname, after_msrs_fname):
     """
     Checks that MSR statuses and values in the files are equal.
     """
@@ -580,104 +527,19 @@ def check_msr_values_are_equal(before_msrs_fname, after_msrs_fname, guest_kernel
 
     status_diff = diff_msrs(before, after, column_to_drop="VALUE")
     value_diff = diff_msrs(impl_before, impl_after, column_to_drop="STATUS")
-
-    assert_expr = not status_diff and not value_diff
-    diag_output = (
-        f"\n\n{guest_kernel_name} (status mismatch):\n"
-        + status_diff
-        + f"\n\n{guest_kernel_name} (value mismatch):\n"
-        + value_diff
-    )
-
-    assert assert_expr, diag_output
-
-
-def _test_cpu_wrmsr_restore(context):
-    shared_names = context.custom["shared_names"]
-    microvm_factory = context.custom["microvm_factory"]
-    cpu_template = context.custom["cpu_template"]
-
-    cpu_template_dir = get_cpu_template_dir(cpu_template)
-    snapshot_artifacts_dir = (
-        Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / context.kernel.base_name()
-        / cpu_template_dir
-    )
-
-    skip_test_based_on_artifacts(snapshot_artifacts_dir)
-
-    vm = microvm_factory.build()
-    vm.spawn()
-
-    iface = NetIfaceConfig()
-
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-
-    ssh_arti = context.disk.ssh_key()
-    ssh_arti.download(vm.path)
-    vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
-    os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
-
-    # Bring snapshot files from the 1st part of the test into the jail
-    chroot_dir = vm.chroot()
-    tmp_snapshot_artifacts_dir = (
-        Path() / chroot_dir / "tmp" / context.kernel.base_name()
-    )
-    clean_and_mkdir(tmp_snapshot_artifacts_dir)
-
-    mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
-    snapshot_fname_in_jail = (
-        Path(tmp_snapshot_artifacts_dir) / shared_names["snapshot_fname"]
-    )
-    rootfs_fname_in_jail = (
-        Path(tmp_snapshot_artifacts_dir) / shared_names["rootfs_fname"]
-    )
-
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["mem_fname"],
-        mem_fname_in_jail,
-    )
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["snapshot_fname"],
-        snapshot_fname_in_jail,
-    )
-    shutil.copyfile(
-        Path(snapshot_artifacts_dir) / shared_names["rootfs_fname"],
-        rootfs_fname_in_jail,
-    )
-
-    # Restore from the snapshot
-    vm.restore_from_snapshot(
-        snapshot_mem=mem_fname_in_jail,
-        snapshot_vmstate=snapshot_fname_in_jail,
-        snapshot_disks=[rootfs_fname_in_jail],
-        snapshot_is_diff=True,
-    )
-
-    # Dump MSR state to a file for further comparison
-    msrs_after_fname = Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"]
-    dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
-
-    # Compare the two lists of MSR values and assert they are equal
-    check_msr_values_are_equal(
-        Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"],
-        context.kernel.base_name(),  # this is to annotate the assertion output
-    )
+    assert not status_diff
+    assert not value_diff
 
 
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template):
+def test_cpu_wrmsr_restore(
+    microvm_factory, msr_cpu_template, guest_kernel, network_config
+):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -695,23 +557,56 @@ def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template):
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.ssh_network_config(network_config, "1")
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
-
-    test_context = TestContext()
-    test_context.custom = {
-        "microvm_factory": microvm_factory,
-        "cpu_template": msr_cpu_template,
-        "shared_names": shared_names,
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[kernel_artifacts, disk_artifacts],
+    cpu_template_dir = msr_cpu_template if msr_cpu_template else "none"
+    snapshot_artifacts_dir = (
+        Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
+        / guest_kernel.base_name()
+        / cpu_template_dir
     )
-    test_matrix.run_test(_test_cpu_wrmsr_restore)
+
+    # Bring snapshot files from the 1st part of the test into the jail
+    chroot_dir = vm.chroot()
+    tmp_snapshot_artifacts_dir = Path() / chroot_dir / "tmp" / guest_kernel.base_name()
+    tmp_snapshot_artifacts_dir.mkdir()
+
+    mem_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["mem_fname"]
+    snapshot_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["snapshot_fname"]
+    rootfs_fname_in_jail = tmp_snapshot_artifacts_dir / shared_names["rootfs_fname"]
+
+    shutil.copyfile(
+        snapshot_artifacts_dir / shared_names["mem_fname"],
+        mem_fname_in_jail,
+    )
+    shutil.copyfile(
+        snapshot_artifacts_dir / shared_names["snapshot_fname"],
+        snapshot_fname_in_jail,
+    )
+    shutil.copyfile(
+        snapshot_artifacts_dir / shared_names["rootfs_fname"],
+        rootfs_fname_in_jail,
+    )
+
+    # Restore from the snapshot
+    vm.restore_from_snapshot(
+        snapshot_mem=mem_fname_in_jail,
+        snapshot_vmstate=snapshot_fname_in_jail,
+        snapshot_disks=[rootfs_fname_in_jail],
+        snapshot_is_diff=True,
+    )
+
+    # Dump MSR state to a file for further comparison
+    msrs_after_fname = snapshot_artifacts_dir / shared_names["msrs_after_fname"]
+    dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
+
+    # Compare the two lists of MSR values and assert they are equal
+    check_msr_values_are_equal(
+        Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"],
+        Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"],
+    )
 
 
 def dump_cpuid_to_file(dump_fname, ssh_conn):
@@ -725,29 +620,49 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
         file.write(stdout.read())
 
 
-def _test_cpu_cpuid_snapshot(context):
-    shared_names = context.custom["shared_names"]
-    root_disk = context.disk.copy(file_name=shared_names["rootfs_fname"])
-    vm_builder = context.custom["builder"]
-    cpu_template = context.custom["cpu_template"]
+@pytest.mark.skipif(
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
+)
+@pytest.mark.timeout(900)
+@pytest.mark.nonci
+def test_cpu_cpuid_snapshot(
+    vm_builder, guest_kernel, rootfs, msr_cpu_template, microvm_cfg
+):
+    """
+    This is the first part of the test verifying
+    that CPUID remains the same after restoring from a snapshot.
+
+    Before taking a snapshot, CPUID is dumped into a text file.
+    After restoring from the snapshot on another instance, the CPUID is
+    dumped again and its content is compared to previous.
+
+    This part of the test is responsible for taking a snapshot and publishing
+    its files along with the `before` CPUID dump.
+
+    @type: functional
+    """
+    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
+
+    root_disk = rootfs.copy(file_name=shared_names["rootfs_fname"])
 
     vm_instance = vm_builder.build(
-        kernel=context.kernel,
+        kernel=guest_kernel,
         disks=[root_disk],
-        ssh_key=context.disk.ssh_key(),
-        config=context.microvm,
+        ssh_key=rootfs.ssh_key(),
+        config=microvm_cfg,
         diff_snapshots=True,
-        cpu_template=cpu_template,
+        cpu_template=msr_cpu_template,
     )
 
     vm = vm_instance.vm
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
-    cpu_template_dir = get_cpu_template_dir(cpu_template)
+    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / context.kernel.base_name()
+        / guest_kernel.base_name()
         / cpu_template_dir
     )
     clean_and_mkdir(snapshot_artifacts_dir)
@@ -781,50 +696,6 @@ def _test_cpu_cpuid_snapshot(context):
     )
 
 
-@pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
-)
-@pytest.mark.timeout(900)
-@pytest.mark.nonci
-def test_cpu_cpuid_snapshot(bin_cloner_path, msr_cpu_template):
-    """
-    This is the first part of the test verifying
-    that CPUID remains the same after restoring from a snapshot.
-
-    Before taking a snapshot, CPUID is dumped into a text file.
-    After restoring from the snapshot on another instance, the CPUID is
-    dumped again and its content is compared to previous.
-
-    This part of the test is responsible for taking a snapshot and publishing
-    its files along with the `before` CPUID dump.
-
-    @type: functional
-    """
-    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(
-        artifacts.microvms(keyword=shared_names["microvm_keyword"])
-    )
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
-    assert len(disk_artifacts) == 1
-
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "cpu_template": msr_cpu_template,
-        "shared_names": shared_names,
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(_test_cpu_cpuid_snapshot)
-
-
 def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_name):
     """
     Checks that CPUID dumps in the files are equal.
@@ -839,15 +710,32 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_nam
     assert not diff, f"\n{guest_kernel_name}:\n\n{diff}"
 
 
-def _test_cpu_cpuid_restore(context):
-    shared_names = context.custom["shared_names"]
-    microvm_factory = context.custom["microvm_factory"]
-    cpu_template = context.custom["cpu_template"]
+@pytest.mark.skipif(
+    UNSUPPORTED_HOST_KERNEL,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
+)
+@pytest.mark.timeout(900)
+@pytest.mark.nonci
+def test_cpu_cpuid_restore(microvm_factory, msr_cpu_template, guest_kernel, rootfs):
+    """
+    This is the second part of the test verifying
+    that CPUID remains the same after restoring from a snapshot.
 
-    cpu_template_dir = get_cpu_template_dir(cpu_template)
+    Before taking a snapshot, CPUID is dumped into a text file.
+    After restoring from the snapshot on another instance, the CPUID is
+    dumped again and compared to previous.
+
+    This part of the test is responsible for restoring from a snapshot and
+    comparing two CPUIDs.
+
+    @type: functional
+    """
+
+    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
+    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / context.kernel.base_name()
+        / guest_kernel.base_name()
         / cpu_template_dir
     )
 
@@ -855,24 +743,16 @@ def _test_cpu_cpuid_restore(context):
 
     vm = microvm_factory.build()
     vm.spawn()
-
     iface = NetIfaceConfig()
-
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-
-    ssh_arti = context.disk.ssh_key()
+    vm.add_net_iface(iface)
+    ssh_arti = rootfs.ssh_key()
     ssh_arti.download(vm.path)
     vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
     os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
 
     # Bring snapshot files from the 1st part of the test into the jail
     chroot_dir = vm.chroot()
-    tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / context.kernel.base_name()
+    tmp_snapshot_artifacts_dir = Path(chroot_dir) / "tmp" / guest_kernel.base_name()
     clean_and_mkdir(tmp_snapshot_artifacts_dir)
 
     mem_fname_in_jail = Path(tmp_snapshot_artifacts_dir) / shared_names["mem_fname"]
@@ -912,49 +792,8 @@ def _test_cpu_cpuid_restore(context):
     check_cpuid_is_equal(
         Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"],
         Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"],
-        context.kernel.base_name(),  # this is to annotate the assertion output
+        guest_kernel.base_name(),  # this is to annotate the assertion output
     )
-
-
-@pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_KERNELS}",
-)
-@pytest.mark.timeout(900)
-@pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, msr_cpu_template):
-    """
-    This is the second part of the test verifying
-    that CPUID remains the same after restoring from a snapshot.
-
-    Before taking a snapshot, CPUID is dumped into a text file.
-    After restoring from the snapshot on another instance, the CPUID is
-    dumped again and compared to previous.
-
-    This part of the test is responsible for restoring from a snapshot and
-    comparing two CPUIDs.
-
-    @type: functional
-    """
-
-    shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword=shared_names["disk_keyword"]))
-
-    test_context = TestContext()
-    test_context.custom = {
-        "microvm_factory": microvm_factory,
-        "cpu_template": msr_cpu_template,
-        "shared_names": shared_names,
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(_test_cpu_cpuid_restore)
 
 
 @pytest.mark.skipif(
@@ -973,15 +812,12 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
-
-    test_microvm.basic_config(vcpu_count=1)
     # Set template as specified in the `cpu_template` parameter.
-    response = test_microvm.machine_cfg.put(
+    test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=256,
         cpu_template=cpu_template,
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
     _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
 
     response = test_microvm.actions.put(action_type="InstanceStart")

@@ -7,13 +7,7 @@
 import subprocess
 from pathlib import Path
 
-from common import (
-    DEFAULT_INSTANCES,
-    DEFAULT_PLATFORMS,
-    DEFAULT_QUEUE,
-    group,
-    pipeline_to_json,
-)
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -82,7 +76,10 @@ performance_grp = group(
 
 steps = [step_style]
 changed_files = get_changed_files("main")
-if any(x.suffix != ".md" for x in changed_files):
+# run the whole test suite if either of:
+# - any file changed that is not documentation
+# - no files changed
+if not changed_files or any(x.suffix != ".md" for x in changed_files):
     steps += [
         build_grp,
         functional_1_grp,
@@ -91,9 +88,5 @@ if any(x.suffix != ".md" for x in changed_files):
         performance_grp,
     ]
 
-pipeline = {
-    "env": {},
-    "agents": {"queue": DEFAULT_QUEUE},
-    "steps": steps,
-}
+pipeline = {"steps": steps}
 print(pipeline_to_json(pipeline))

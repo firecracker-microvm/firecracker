@@ -63,16 +63,20 @@ def cross_steps():
         "m6i.metal": ["m5d.metal"],
     }
 
-    kvs = ["linux_4.14", "linux_5.10"]
     instances_x86_64 = ["m5d.metal", "m6i.metal", "m6a.metal"]
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
     # We currently have nothing for aarch64
     perms_aarch64 = []
-    perms_x86_64 = itertools.product(instances_x86_64, kvs, instances_x86_64, kvs)
+    perms_x86_64 = itertools.product(
+        instances_x86_64, DEFAULT_PLATFORMS, instances_x86_64, DEFAULT_PLATFORMS
+    )
     steps = []
-    for src_instance, src_kv, dst_instance, dst_kv in itertools.chain(
-        perms_x86_64, perms_aarch64
-    ):
+    for (
+        src_instance,
+        (_, src_kv),
+        dst_instance,
+        (dst_os, dst_kv),
+    ) in itertools.chain(perms_x86_64, perms_aarch64):
         # the integration tests already test src == dst, so we skip it
         if src_instance == dst_instance and src_kv == dst_kv:
             continue
@@ -89,7 +93,7 @@ def cross_steps():
             src_instance,
             src_kv,
             dst_instance,
-            "al2",
+            dst_os,
             dst_kv,
         )
         steps.append(step)

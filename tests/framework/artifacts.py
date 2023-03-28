@@ -29,9 +29,9 @@ ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
 
 
 def select_supported_kernels():
-    """Select kernels supported by the current combination of kernel and instance type."""
+    """Select guest kernels supported by the current combination of kernel and instance type."""
     supported_kernels = SUPPORTED_KERNELS
-    kernel_version = get_kernel_version(level=1)
+    host_kernel_version = get_kernel_version(level=1)
     try:
         instance_type = get_instance_type()
     # in case we are not in EC2, return the default
@@ -39,7 +39,7 @@ def select_supported_kernels():
     except Exception:
         return supported_kernels
 
-    if instance_type == "c7g.metal" and kernel_version == "4.14":
+    if instance_type == "c7g.metal" and host_kernel_version == "4.14":
         supported_kernels = SUPPORTED_KERNELS_NO_SVE
 
     return supported_kernels
@@ -338,7 +338,7 @@ class ArtifactCollection:
         ]
 
     def kernels(self, keyword=None):
-        """Return kernel artifacts for the current arch."""
+        """Return guest kernel artifacts for the current arch."""
         kernels = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_KERNELS,
             ArtifactCollection.MICROVM_KERNEL_EXTENSION,
@@ -363,33 +363,6 @@ class ArtifactCollection:
             DiskArtifact,
             keyword=keyword,
         )
-
-
-class ArtifactSet:
-    """Manages a set of artifacts with the same type."""
-
-    def __init__(self, artifacts):
-        """Initialize type and artifact array."""
-        self._type = None
-        self._artifacts = []
-        self.insert(artifacts)
-
-    def insert(self, artifacts):
-        """Add artifacts to set."""
-        if artifacts is not None and len(artifacts) > 0:
-            self._type = self._type or artifacts[0].type
-        for artifact in artifacts:
-            assert artifact.type == self._type
-            self._artifacts.append(artifact)
-
-    @property
-    def artifacts(self):
-        """Return the artifacts array."""
-        return self._artifacts
-
-    def __len__(self):
-        """Return the artifacts array len."""
-        return len(self._artifacts)
 
 
 class SnapshotType(Enum):

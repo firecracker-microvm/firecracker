@@ -118,9 +118,9 @@ class Consumer(ABC):
                             "measurement."
                         )
                         continue
-                    self._statistics[ms_name][st_def.name] = self._statistics[ms_name][
-                        st_def.name
-                    ] = {"value": st_def.func(self._results[ms_name][self.DATA_KEY])}
+                    self._statistics[ms_name][st_def.name] = {
+                        "value": st_def.func(self._results[ms_name][self.DATA_KEY])
+                    }
                 else:
                     self._statistics[ms_name][st_def.name] = {
                         "value": self._results[ms_name][st_def.name]
@@ -128,6 +128,14 @@ class Consumer(ABC):
 
                 pass_criteria = st_def.pass_criteria
                 if pass_criteria:
+                    # if the statistic definition contains a criteria but the
+                    # corresponding baseline is not defined, the test should fail.
+                    if pass_criteria.baseline == {}:
+                        self._failure_aggregator.add_row(
+                            f"Baseline data is not defined for '{ms_name}/{st_def.name}"
+                            f"/{pass_criteria.name}'."
+                        )
+                        continue
                     self._statistics[ms_name][st_def.name]["pass_criteria"] = {
                         pass_criteria.name: pass_criteria.baseline
                     }
