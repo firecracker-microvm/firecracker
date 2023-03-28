@@ -680,6 +680,9 @@ cmd_test() {
     # Log CPU information
     say "$(lscpu)"
 
+    # do not leave behind env.list file
+    rm env.list
+
     return $ret
 }
 
