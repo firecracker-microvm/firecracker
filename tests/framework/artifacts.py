@@ -5,16 +5,16 @@
 import os
 import platform
 import tempfile
-from shutil import copyfile
 from enum import Enum
-from stat import S_IREAD, S_IWRITE
 from pathlib import Path
+from shutil import copyfile
+from stat import S_IREAD, S_IWRITE
+
 import boto3
 import botocore.client
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, SUPPORTED_KERNELS
 from framework.utils import compare_versions
 from host_tools.snapshot_helper import merge_memory_bitmaps
-
 
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
 
@@ -395,25 +395,24 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        # Filter out binaries with versions older than the `min_version` arg.
-        if min_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, min_version) >= 0,
-                    firecrackers,
-                )
-            )
+        res = []
+        for fc in firecrackers:
+            # Filter out binaries with versions older than `min_version`
+            if (
+                min_version is not None
+                and compare_versions(fc.version, min_version) < 0
+            ):
+                continue
+            # Filter out binaries with versions newer than `max_version`
+            if (
+                max_version is not None
+                and compare_versions(fc.version, max_version) > 0
+            ):
+                continue
 
-        # Filter out binaries with versions newer than the `max_version` arg.
-        if max_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, max_version) <= 0,
-                    firecrackers,
-                )
-            )
+            res.append(fc)
 
-        return firecrackers
+        return res
 
     def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
