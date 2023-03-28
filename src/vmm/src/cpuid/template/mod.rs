@@ -8,9 +8,9 @@ pub mod amd;
 
 use std::collections::HashSet;
 
-use arch_gen::x86::msr_index::*;
 use kvm_bindings::CpuId;
 
+use crate::arch_gen::x86::msr_index::*;
 use crate::cpuid::common::{get_vendor_id_from_cpuid, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::cpuid::transformer::Error;
 
