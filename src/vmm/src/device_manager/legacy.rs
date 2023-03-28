@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 #![cfg(target_arch = "x86_64")]
 
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
@@ -17,23 +16,14 @@ use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
 /// Errors corresponding to the `PortIODeviceManager`.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum Error {
     /// Cannot add legacy device to Bus.
+    #[error("Failed to add legacy device to Bus: {0}")]
     BusError(devices::BusError),
     /// Cannot create EventFd.
+    #[error("Failed to create EventFd: {0}")]
     EventFd(std::io::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            BusError(ref err) => write!(f, "Failed to add legacy device to Bus: {}", err),
-            EventFd(ref err) => write!(f, "Failed to create EventFd: {}", err),
-        }
-    }
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
