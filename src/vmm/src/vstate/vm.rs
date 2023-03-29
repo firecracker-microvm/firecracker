@@ -153,6 +153,8 @@ pub struct Vm {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
+    supported_msrs: MsrList,
+    #[cfg(target_arch = "x86_64")]
     msrs_to_save: MsrList,
     #[cfg(target_arch = "x86_64")]
     pub(crate) guest_cpu_template: Option<X86_64CpuTemplate>,
@@ -292,11 +294,13 @@ impl Vm {
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
-        let msrs_to_save = arch::x86_64::msr::get_msrs_to_save(kvm).map_err(Error::GetMsrs)?;
+        let supported_msrs = arch::x86_64::msr::get_supported_msrs(kvm).map_err(Error::GetMsrs)?;
+        let msrs_to_save = arch::x86_64::msr::get_msrs_to_save(&supported_msrs);
 
         Ok(Vm {
             fd: vm_fd,
             supported_cpuid,
+            supported_msrs,
             msrs_to_save,
             guest_cpu_template,
             guest_cpu_config: None,
@@ -309,6 +313,11 @@ impl Vm {
     }
 
     /// Returns a ref to the supported `MsrList` for this Vm.
+    pub fn supported_msrs(&self) -> &MsrList {
+        &self.supported_msrs
+    }
+
+    /// Returns a ref to the `MsrList` to be saved in snapshot for this Vm.
     pub fn msrs_to_save(&self) -> &MsrList {
         &self.msrs_to_save
     }

@@ -316,19 +316,33 @@ pub fn set_msrs(
         })
 }
 
-/// Returns the list of supported and serializable MSRs.
+/// Returns the list of supported MSR indices.
 ///
 /// # Arguments
 ///
 /// * `kvm_fd` - Structure that holds the KVM's fd.
-pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
-    let mut msr_list = kvm_fd
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::ioctls::system::Kvm::get_msr_index_list()`] errors.
+pub fn get_supported_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
+    let supported_msrs = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetSupportedModelSpecificRegisters)?;
 
-    msr_list.retain(|msr_index| msr_should_serialize(*msr_index));
+    Ok(supported_msrs)
+}
 
-    Ok(msr_list)
+/// Returns the list of serializable MSR indices.
+///
+/// # Arguments
+///
+/// * `supported_msrs` - List of supported MSR indices.
+pub fn get_msrs_to_save(supported_msrs: &MsrList) -> MsrList {
+    let mut msrs_to_save = supported_msrs.clone();
+    msrs_to_save.retain(|msr_index| msr_should_serialize(*msr_index));
+    msrs_to_save
 }
 
 #[cfg(test)]

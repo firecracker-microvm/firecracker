@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use arch::x86_64::interrupts;
@@ -204,6 +205,8 @@ pub enum KvmVcpuConfigureError {
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
+// TODO: Remove `#[allow(dead_code)]` when `supported_msrs` is used in the next commit.
+#[allow(dead_code)]
 pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
@@ -211,7 +214,10 @@ pub struct KvmVcpu {
     pub pio_bus: Option<devices::Bus>,
     pub mmio_bus: Option<devices::Bus>,
 
-    msrs_to_save: std::collections::HashSet<u32>,
+    // List of MSR indices supported by KVM.
+    supported_msrs: HashSet<u32>,
+    // List of MSR indices that are serialized into snapshot.
+    msrs_to_save: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -229,6 +235,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             pio_bus: None,
             mmio_bus: None,
+            supported_msrs: vm.supported_msrs().as_slice().iter().copied().collect(),
             msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
         })
     }
@@ -383,11 +390,11 @@ impl KvmVcpu {
         // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
         // to allow an unlimited number.
         let mut all_msrs: Vec<Msrs> = Vec::new();
-        let msr_list: Vec<&u32> = self.msrs_to_save.iter().collect();
+        let msr_index_list: Vec<&u32> = self.msrs_to_save.iter().collect();
 
         // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
         // them up into `Msrs` so it's easy to pass to the ioctl.
-        for chunk in msr_list.chunks(KVM_MAX_MSR_ENTRIES) {
+        for chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
             let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
             let msr_entries = msrs.as_mut_slice();
             assert_eq!(chunk.len(), msr_entries.len());
