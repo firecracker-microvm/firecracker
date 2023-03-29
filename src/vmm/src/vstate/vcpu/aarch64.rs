@@ -5,16 +5,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::result;
 
 use arch::aarch64::regs::Aarch64Register;
+use kvm_bindings::RegList;
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+use crate::guest_config::CpuConfiguration;
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -26,6 +29,8 @@ pub enum Error {
     ConfigureRegisters(arch::aarch64::regs::Error),
     /// Cannot open the kvm related file descriptor.
     CreateFd(kvm_ioctls::Error),
+    /// A FamStructWrapper operation has failed.
+    Fam(utils::fam::Error),
     /// Error getting the Vcpu preferred target on Arm.
     GetPreferredTarget(kvm_ioctls::Error),
     /// Error doing Vcpu Init on Arm.
@@ -34,6 +39,10 @@ pub enum Error {
     RestoreState(arch::aarch64::regs::Error),
     /// Failed to fetch value for some arm specific register.
     SaveState(arch::aarch64::regs::Error),
+    /// Failed to get register list.
+    VcpuGetRegList(kvm_ioctls::Error),
+    /// Failed to get one register.
+    VcpuGetOneReg(kvm_ioctls::Error),
 }
 
 impl Display for Error {
@@ -49,6 +58,7 @@ impl Display for Error {
                 )
             }
             CreateFd(err) => write!(f, "Error in opening the VCPU file descriptor: {}", err),
+            Fam(err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
             GetPreferredTarget(err) => {
                 write!(f, "Error retrieving the vcpu preferred target: {}", err)
             }
@@ -165,6 +175,33 @@ impl KvmVcpu {
         arch::regs::set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
 
         Ok(())
+    }
+
+    /// Dumps CPU configuration.
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
+        // The max size of RegList is 500. See the following link.
+        // https://github.com/rust-vmm/kvm-bindings/blob/main/src/arm64/fam_wrappers.rs
+        let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
+        self.fd
+            .get_reg_list(&mut reg_list)
+            .map_err(Error::VcpuGetRegList)?;
+
+        let regs: HashMap<u64, u128> = reg_list
+            .as_slice()
+            .iter()
+            // Iterate by the number of registers obtained by `KVM_GET_REG_LIST`.
+            .enumerate()
+            .map_while(|(n, reg_id)| {
+                if n < reg_list.as_fam_struct_ref().n as usize {
+                    let value = self.fd.get_one_reg(*reg_id).map_err(Error::VcpuGetOneReg);
+                    Some((*reg_id, value))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(CpuConfiguration { regs })
     }
 
     /// Runs the vCPU in KVM context and handles the kvm exit reason.

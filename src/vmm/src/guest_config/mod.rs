@@ -14,3 +14,11 @@ pub mod templates;
 /// Module containing type implementations needed for x86 CPU configuration
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
+
+/// Wrapper of arch-specific CPU configuration
+#[cfg(target_arch = "x86_64")]
+pub type CpuConfiguration = x86_64::X86_64CpuConfiguration;
+
+/// Wrapper of arch-specific CPU configuration
+#[cfg(target_arch = "aarch64")]
+pub type CpuConfiguration = aarch64::Aarch64CpuConfiguration;

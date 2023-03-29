@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use arch::x86_64::interrupts;
@@ -13,7 +13,7 @@ use arch::x86_64::msr::SetMsrsError;
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
@@ -37,6 +37,8 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to convert CPUID type.
+    CpuidTypeConversion(cpuid::CpuidTryFromRawCpuid),
     /// A FamStructWrapper operation has failed.
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
@@ -108,6 +110,7 @@ impl std::fmt::Display for Error {
         use self::Error::*;
 
         match self {
+            CpuidTypeConversion(err) => write!(f, "Cannot convert CPUID type: {:?}", err),
             LocalIntConfiguration(err) => write!(
                 f,
                 "Cannot set the local interruption due to bad configuration: {:?}",
@@ -378,7 +381,7 @@ impl KvmVcpu {
                 msr_entries[pos].index = **index;
             }
 
-            let expected_nmsrs = msrs.as_slice().len();
+            let expected_nmsrs = msr_index_list.as_slice().len();
             let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
             if nmsrs != expected_nmsrs {
                 return Err(Error::VcpuGetMsrsIncomplete);
@@ -448,6 +451,32 @@ impl KvmVcpu {
             xsave,
             tsc_khz,
         })
+    }
+
+    /// Dumps CPU configuration (CPUID and MSRs).
+    ///
+    /// Opposed to `save_state()`, this dumps all the supported MSRs not
+    /// limited to serializable ones.
+    pub fn dump_cpu_config(&self) -> Result<crate::guest_config::x86_64::X86_64CpuConfiguration> {
+        // CPUID handling
+        let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(
+            self.fd
+                .get_cpuid2(KVM_MAX_CPUID_ENTRIES)
+                .map_err(Error::VcpuGetCpuid)?,
+        ))
+        .map_err(Error::CpuidTypeConversion)?;
+
+        // MSR handling
+        let mut msrs: HashMap<u32, u64> = HashMap::new();
+        self.get_all_msrs(&self.supported_msrs)?
+            .iter()
+            .for_each(|msrs_chunk| {
+                msrs_chunk.as_slice().iter().for_each(|msr| {
+                    msrs.insert(msr.index, msr.data);
+                });
+            });
+
+        Ok(crate::guest_config::x86_64::X86_64CpuConfiguration { cpuid, msrs })
     }
 
     /// Checks whether the TSC needs scaling when restoring a snapshot.
@@ -791,6 +820,40 @@ mod tests {
 
         // Case 2: KVM_GET_MSRS against supported_msrs
         vcpu.get_all_msrs(&vcpu.supported_msrs).unwrap();
+    }
+
+    #[test]
+    fn test_cpu_config_dump() {
+        // Case 1: Before vcpu configuration.
+        //
+        // `KVM_GET_CPUID2` returns the result of `KVM_SET_CPUID2`. See
+        // https://docs.kernel.org/virt/kvm/api.html#kvm-set-cpuid
+        // Since `KVM_SET_CPUID2` has not been called before vcpu
+        // configuration, all leaves should be filled with zero. Therefore,
+        // `KvmVcpu::dump_cpu_config()` should fail with CPUID type conversion
+        // error due to the lack of brand string info in leaf 0x0.
+        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        match vcpu.dump_cpu_config() {
+            Err(Error::CpuidTypeConversion(_)) => (),
+            _ => panic!("Dumping CPU configuration should fail before vcpu configuration."),
+        }
+
+        // Case 2: After vcpu configuration.
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            static_cpu_template: CpuFeaturesTemplate::None,
+            custom_cpu_config: None,
+        };
+        vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        )
+        .unwrap();
+
+        vcpu.dump_cpu_config().unwrap();
     }
 
     #[test]
