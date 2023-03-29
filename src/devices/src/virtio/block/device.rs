@@ -33,21 +33,16 @@ use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT,
 use crate::virtio::{IrqTrigger, IrqType};
 
 /// Configuration options for disk caching.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CacheType {
     /// Flushing mechanic will be advertised to the guest driver, but
     /// the operation will be a noop.
+    #[default]
     Unsafe,
     /// Flushing mechanic will be advertised to the guest driver and
     /// flush requests coming from the guest will be performed using
     /// `fsync`.
     Writeback,
-}
-
-impl Default for CacheType {
-    fn default() -> CacheType {
-        CacheType::Unsafe
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
