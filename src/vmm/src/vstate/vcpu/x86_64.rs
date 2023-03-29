@@ -18,7 +18,7 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{create_boot_msr_entries, SetMsrsError};
+use crate::arch::x86_64::msr::{create_boot_msr_entries, Error as MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::guest_config::cpuid;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
@@ -35,16 +35,13 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 pub enum Error {
     /// A FamStructWrapper operation has failed.
     #[error("Failed FamStructWrapper operation: {0:?}")]
-    Fam(utils::fam::Error),
+    Fam(#[from] utils::fam::Error),
     /// Error configuring the floating point related registers
     #[error("Error configuring the floating point related registers: {0:?}")]
     FpuConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
     #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
     LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
-    /// Error configuring the MSR registers
-    #[error("Error configuring the MSR registers: {0:?}")]
-    MsrsConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
     #[error("Error configuring the general purpose registers: {0:?}")]
     RegsConfiguration(crate::arch::x86_64::regs::Error),
@@ -154,7 +151,7 @@ pub enum KvmVcpuConfigureError {
     #[error("Failed to get MSRs to save from CPUID: {0}")]
     MsrsToSaveByCpuid(#[from] cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
-    SetMsrs(#[from] SetMsrsError),
+    SetMsrs(#[from] MsrError),
     #[error("Failed to setup registers: {0}")]
     SetupRegisters(#[from] SetupRegistersError),
     #[error("Failed to setup FPU: {0}")]
@@ -309,7 +306,7 @@ impl KvmVcpu {
         let mut msr_chunks: Vec<Msrs> = Vec::new();
 
         for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
-            let mut msrs = Msrs::new(msr_index_chunk.len()).map_err(Error::Fam)?;
+            let mut msrs = Msrs::new(msr_index_chunk.len())?;
             let msr_entries = msrs.as_mut_slice();
             assert_eq!(msr_index_chunk.len(), msr_entries.len());
             for (pos, index) in msr_index_chunk.iter().enumerate() {
@@ -395,7 +392,7 @@ impl KvmVcpu {
                 .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
                 .map_err(Error::VcpuGetCpuid)?,
             saved_msrs,
-            msrs: Msrs::new(0).map_err(Error::Fam)?,
+            msrs: Msrs::new(0)?,
             debug_regs,
             lapic,
             mp_state,

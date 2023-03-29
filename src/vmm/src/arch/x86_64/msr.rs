@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Model Specific Registers (MSRs) related functionality.
-use std::result;
-
 use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
@@ -13,15 +11,21 @@ use crate::arch_gen::x86::msr_index::*;
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
 pub enum Error {
-    /// A FamStructWrapper operation has failed.
-    #[error("A FamStructWrapper operation has failed: {0}")]
-    Fam(utils::fam::Error),
-    /// Getting supported MSRs failed.
-    #[error("Getting supported MSRs failed: {0}")]
-    GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
+    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
+    #[error("Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
+    Fam(#[from] utils::fam::Error),
+    /// Failed to get MSR index list.
+    #[error("Failed to get MSR index list: {0}")]
+    GetMsrIndexList(kvm_ioctls::Error),
+    /// Failed to set MSRs.
+    #[error("Failed to set MSRs: {0}")]
+    SetMsrs(kvm_ioctls::Error),
+    /// Not all given MSRs were set.
+    #[error("Not all given MSRs were set.")]
+    SetMsrsIncomplete,
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// MSR range
 struct MsrRange {
@@ -247,6 +251,24 @@ pub fn msr_should_serialize(index: u32) -> bool {
         .any(|range| range.contains(index))
 }
 
+/// Returns the list of serializable MSR indices.
+///
+/// # Arguments
+///
+/// * `kvm_fd` - Ref to `kvm_ioctls::Kvm`.
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
+    let mut msr_index_list = kvm_fd
+        .get_msr_index_list()
+        .map_err(Error::GetMsrIndexList)?;
+    msr_index_list.retain(|msr_index| msr_should_serialize(*msr_index));
+    Ok(msr_index_list)
+}
+
 /// Creates and populates required MSR entries for booting Linux on X86_64.
 pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     let msr_entry_default = |msr| kvm_msr_entry {
@@ -275,20 +297,6 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     ]
 }
 
-/// Error type for [`set_msrs`].
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum SetMsrsError {
-    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
-    #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
-    Create(utils::fam::Error),
-    /// Settings MSRs resulted in an error.
-    #[error("Setting MSRs resulted in an error: {0}")]
-    Set(#[from] kvm_ioctls::Error),
-    /// Not all given MSRs were set.
-    #[error("Not all given MSRs were set.")]
-    Incomplete,
-}
-
 /// Configure Model Specific Registers (MSRs) required to boot Linux for a given x86_64 vCPU.
 ///
 /// # Arguments
@@ -301,35 +309,17 @@ pub enum SetMsrsError {
 /// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
-pub fn set_msrs(
-    vcpu: &VcpuFd,
-    msr_entries: &[kvm_msr_entry],
-) -> std::result::Result<(), SetMsrsError> {
-    let msrs = Msrs::from_entries(msr_entries).map_err(SetMsrsError::Create)?;
+pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
+    let msrs = Msrs::from_entries(msr_entries)?;
     vcpu.set_msrs(&msrs)
-        .map_err(SetMsrsError::Set)
+        .map_err(Error::SetMsrs)
         .and_then(|msrs_written| {
             if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
             } else {
-                Err(SetMsrsError::Incomplete)
+                Err(Error::SetMsrsIncomplete)
             }
         })
-}
-
-/// Returns the list of supported and serializable MSR indices.
-///
-/// # Arguments
-///
-/// * `kvm_fd` - Structure that holds the KVM's fd.
-pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
-    let mut msr_list = kvm_fd
-        .get_msr_index_list()
-        .map_err(Error::GetSupportedModelSpecificRegisters)?;
-
-    msr_list.retain(|msr_index| msr_should_serialize(*msr_index));
-
-    Ok(msr_list)
 }
 
 #[cfg(test)]
@@ -407,7 +397,7 @@ mod tests {
         }];
         assert_eq!(
             set_msrs(&vcpu, &msr_entries).unwrap_err(),
-            SetMsrsError::Incomplete
+            Error::SetMsrsIncomplete
         );
     }
 }
