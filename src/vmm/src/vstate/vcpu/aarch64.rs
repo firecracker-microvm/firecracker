@@ -7,17 +7,19 @@
 
 use std::result;
 
+use kvm_bindings::{RegList, KVM_REG_ARM_COPROC_MASK, KVM_REG_ARM_CORE};
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
-use crate::arch::aarch64::regs::Aarch64Register;
+use crate::arch::aarch64::regs::{Aarch64Register, KVM_REG_ARM_TIMER_CNT};
 use crate::arch::regs::{
     get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
     save_system_registers, set_mpstate, Error as ArchError,
 };
+use crate::guest_config::templates::CpuConfiguration;
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -29,6 +31,8 @@ pub enum Error {
     ConfigureRegisters(ArchError),
     #[error("Error creating vcpu: {0}")]
     CreateVcpu(kvm_ioctls::Error),
+    #[error("Failed to dump CPU configuration: {0}")]
+    DumpCpuConfig(ArchError),
     #[error("Error getting the vcpu preferred target: {0}")]
     GetPreferredTarget(kvm_ioctls::Error),
     #[error("Error initializing the vcpu: {0}")]
@@ -168,8 +172,32 @@ impl KvmVcpu {
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
-        // TODO: Add code to retrieve CPU config.
-        Ok(CpuConfiguration::default())
+        let mut reg_list = self.get_reg_list().map_err(Error::DumpCpuConfig)?;
+
+        // KVM_REG_ARM_TIMER_CNT should be removed, because it depends on the elapsed time and
+        // the dumped CPU config is used to create custom CPU templates to modify CPU features
+        // exposed to guests or ot detect CPU configuration changes caused by firecracker/KVM/
+        // BIOS.
+        //
+        // Core registers need to be removed here, because kernel 4.14 has a bug in
+        // KVM_GET_REG_LIST as described in the following link.
+        // https://github.com/torvalds/linux/commit/df205b5c63281e4f32caac22adda18fd68795e80
+        // TODO: Remove this core register removal after the following backport patch comes to
+        // downstream.
+        // https://lore.kernel.org/all/20230404103050.27202-1-itazur@amazon.com/
+        // https://github.com/firecracker-microvm/firecracker/issues/3606
+        reg_list.retain(|&reg_id| {
+            reg_id != KVM_REG_ARM_TIMER_CNT
+                && (reg_id & u64::from(KVM_REG_ARM_COPROC_MASK)) != u64::from(KVM_REG_ARM_CORE)
+        });
+
+        let mut regs = self.get_regs(&reg_list).map_err(Error::DumpCpuConfig)?;
+
+        // Add valid core registers for the above temporal mitigation of KVM_GET_REG_LIST bug.
+        // TODO: Remove this core register addition along with the above TODO removal.
+        save_core_registers(&self.fd, &mut regs).map_err(Error::DumpCpuConfig)?;
+
+        Ok(CpuConfiguration { regs })
     }
 
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
@@ -181,6 +209,17 @@ impl KvmVcpu {
         // receiving a vm exit that is not necessarily an error?
         error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(super::Error::UnhandledKvmExit(format!("{:?}", exit)))
+    }
+
+    /// Get the list of registers supported in KVM_GET_ONE_REG/KVM_SET_ONE_REG.
+    pub fn get_reg_list(&self) -> std::result::Result<Vec<u64>, ArchError> {
+        // The max size of `kvm_bindings::RegList` is 500. See the following link.
+        // https://github.com/rust-vmm/kvm-bindings/blob/main/src/arm64/fam_wrappers.rs
+        let mut reg_list = RegList::new(500).map_err(ArchError::Fam)?;
+        self.fd
+            .get_reg_list(&mut reg_list)
+            .map_err(ArchError::GetRegList)?;
+        Ok(reg_list.as_slice().to_vec())
     }
 
     /// Get registers for the given register IDs.
@@ -357,6 +396,30 @@ mod tests {
             id: 0x6030_0000_0010_003E,
             value
         }));
+    }
+
+    #[test]
+    fn test_dump_cpu_config_before_init() {
+        // Test `dump_cpu_config()` before `KVM_VCPU_INIT`.
+        //
+        // This should fail with ENOEXEC.
+        // https://elixir.bootlin.com/linux/v5.10.176/source/arch/arm64/kvm/arm.c#L1165
+        let (mut vm, _vm_mem) = setup_vm(0x1000);
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
+
+        assert!(vcpu.dump_cpu_config().is_err());
+    }
+
+    #[test]
+    fn test_dump_cpu_config_after_init() {
+        // Test `dump_cpu_config()` after `KVM_VCPU_INIT`.
+        let (mut vm, _vm_mem) = setup_vm(0x1000);
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
+        vcpu.init(vm.fd()).unwrap();
+
+        assert!(vcpu.dump_cpu_config().is_ok());
     }
 
     #[test]
