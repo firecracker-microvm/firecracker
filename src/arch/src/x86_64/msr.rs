@@ -276,7 +276,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 
 /// Error type for [`set_msrs`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum SetMSRsError {
+pub enum SetMsrsError {
     /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
     #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
     Create(utils::fam::Error),
@@ -303,25 +303,25 @@ pub enum SetMSRsError {
 pub fn set_msrs(
     vcpu: &VcpuFd,
     msr_entries: &[kvm_msr_entry],
-) -> std::result::Result<(), SetMSRsError> {
-    let msrs = Msrs::from_entries(msr_entries).map_err(SetMSRsError::Create)?;
+) -> std::result::Result<(), SetMsrsError> {
+    let msrs = Msrs::from_entries(msr_entries).map_err(SetMsrsError::Create)?;
     vcpu.set_msrs(&msrs)
-        .map_err(SetMSRsError::Set)
+        .map_err(SetMsrsError::Set)
         .and_then(|msrs_written| {
             if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
             } else {
-                Err(SetMSRsError::Incomplete)
+                Err(SetMsrsError::Incomplete)
             }
         })
 }
 
-/// Returns the list of supported, serializable MSRs.
+/// Returns the list of supported and serializable MSRs.
 ///
 /// # Arguments
 ///
 /// * `kvm_fd` - Structure that holds the KVM's fd.
-pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
     let mut msr_list = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetSupportedModelSpecificRegisters)?;

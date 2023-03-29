@@ -38,7 +38,7 @@ use crate::guest_config::x86_64::X86_64CpuConfiguration;
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
-    GuestMSRs(arch::x86_64::msr::Error),
+    GetMsrs(arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
@@ -109,7 +109,7 @@ impl fmt::Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            GuestMSRs(err) => write!(f, "Retrieving supported guest MSRs fails: {:?}", err),
+            GetMsrs(err) => write!(f, "Retrieving supported MSRs fails: {:?}", err),
             #[cfg(target_arch = "aarch64")]
             VmCreateGIC(err) => write!(
                 f,
@@ -153,7 +153,7 @@ pub struct Vm {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
-    supported_msrs: MsrList,
+    msrs_to_save: MsrList,
     #[cfg(target_arch = "x86_64")]
     pub(crate) guest_cpu_template: Option<X86_64CpuTemplate>,
     #[cfg(target_arch = "x86_64")]
@@ -292,13 +292,12 @@ impl Vm {
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
-        let supported_msrs =
-            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+        let msrs_to_save = arch::x86_64::msr::get_msrs_to_save(kvm).map_err(Error::GetMsrs)?;
 
         Ok(Vm {
             fd: vm_fd,
             supported_cpuid,
-            supported_msrs,
+            msrs_to_save,
             guest_cpu_template,
             guest_cpu_config: None,
         })
@@ -310,8 +309,8 @@ impl Vm {
     }
 
     /// Returns a ref to the supported `MsrList` for this Vm.
-    pub fn supported_msrs(&self) -> &MsrList {
-        &self.supported_msrs
+    pub fn msrs_to_save(&self) -> &MsrList {
+        &self.msrs_to_save
     }
 
     /// Restores the KVM VM state.

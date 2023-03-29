@@ -8,6 +8,16 @@ use crate::guest_config::cpuid::{
     Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
 };
 
+#[allow(clippy::missing_docs_in_private_items)]
+static EXTRA_MSRS: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
+
+/// Return a list of MSR indices specific to this T2S template.
+#[inline]
+#[must_use]
+pub fn msrs_to_save() -> &'static [u32] {
+    EXTRA_MSRS
+}
+
 /// Add the MSR entries specific to this T2S template.
 #[inline]
 pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
