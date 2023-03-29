@@ -71,6 +71,7 @@ impl MutEventSubscriber for ApiServerAdapter {
         let event_set = event.event_set();
 
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
+            let _ = self.api_event_fd.read();
             match self.from_api.try_recv() {
                 Ok(api_request) => {
                     let request_is_pause = *api_request == VmmAction::Pause;
@@ -101,7 +102,6 @@ impl MutEventSubscriber for ApiServerAdapter {
                     panic!("The channel's sending half was disconnected. Cannot receive data.");
                 }
             };
-            let _ = self.api_event_fd.read();
         } else {
             error!("Spurious EventManager event for handler: ApiServerAdapter");
         }
@@ -129,7 +129,7 @@ pub(crate) fn run_with_api(
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
-    let api_event_fd = EventFd::new(0).expect("Cannot create API Eventfd.");
+    let api_event_fd = EventFd::new(libc::EFD_SEMAPHORE).expect("Cannot create API Eventfd.");
 
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
