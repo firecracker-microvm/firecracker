@@ -173,6 +173,9 @@ arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
 arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
 arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
+// EL0 Virtual Timer Registers
+arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
+
 /// Extract the Manufacturer ID from a VCPU state's registers.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 ///
