@@ -28,9 +28,9 @@ use crate::arch::aarch64::gic::GicState;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
-    /// Retrieving supported guest MSRs fails.
-    #[error("Retrieving supported guest MSRs fails: {0:?}")]
-    GuestMsrs(crate::arch::x86_64::msr::Error),
+    /// Failed to get MSR index list to save into snapshots.
+    #[error("Failed to get MSR index list to save into snapshots: {0}")]
+    GetMsrsToSave(#[from] crate::arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     #[error("The number of configured slots is bigger than the maximum reported by KVM")]
     NotEnoughMemorySlots,
@@ -246,8 +246,7 @@ impl Vm {
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
-        let msrs_to_save =
-            crate::arch::x86_64::msr::get_msrs_to_save(kvm).map_err(Error::GuestMsrs)?;
+        let msrs_to_save = crate::arch::x86_64::msr::get_msrs_to_save(kvm)?;
 
         Ok(Vm {
             fd: vm_fd,
