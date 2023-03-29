@@ -234,7 +234,7 @@ MSR_EXCEPTION_LIST = [
     "0xc0011029",  # MSR_F10H_DECFG also referred to as MSR_AMD64_DE_CFG
     "0x830"     ,  # IA32_X2APIC_ICR is interrupt command register and,
                    # bit 0-7 represent interrupt vector that varies.
-    "0x83F"     ,  # IA32_X2APIC_SELF_IPI
+    "0x83f"     ,  # IA32_X2APIC_SELF_IPI
                    # A self IPI is semantically identical to an
                    # inter-processor interrupt sent via the ICR,
                    # with a Destination Shorthand of Self,
