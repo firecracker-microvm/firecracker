@@ -59,7 +59,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
-    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff);
+    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true);
 
     // Be sure that the microVM is running.
     thread::sleep(Duration::from_millis(200));
