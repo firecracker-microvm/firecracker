@@ -16,8 +16,6 @@ MB = 1024 * 1024
 def test_rescan_file(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a file-backed virtio device.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -69,8 +67,6 @@ def test_device_ordering(test_microvm_with_api, network_config):
 
     The root device should correspond to /dev/vda in the guest and
     the order of the other devices should match their configuration order.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -118,8 +114,6 @@ def test_device_ordering(test_microvm_with_api, network_config):
 def test_rescan_dev(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a device-backed virtio device.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -165,8 +159,6 @@ def test_rescan_dev(test_microvm_with_api, network_config):
 def test_non_partuuid_boot(test_microvm_with_api, network_config):
     """
     Test the output reported by blockdev when booting from /dev/vda.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -201,8 +193,6 @@ def test_non_partuuid_boot(test_microvm_with_api, network_config):
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """
     Test the output reported by blockdev when booting with PARTUUID.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_partuuid
     test_microvm.spawn()
@@ -236,8 +226,6 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
 def test_partuuid_update(test_microvm_with_api, network_config):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -274,8 +262,6 @@ def test_partuuid_update(test_microvm_with_api, network_config):
 def test_patch_drive(test_microvm_with_api, network_config):
     """
     Test replacing the backing filesystem after guest boot works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -313,8 +299,6 @@ def test_patch_drive(test_microvm_with_api, network_config):
 def test_no_flush(test_microvm_with_api, network_config):
     """
     Verify default block ignores flush.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -358,8 +342,6 @@ def test_no_flush(test_microvm_with_api, network_config):
 def test_flush(test_microvm_with_api, network_config):
     """
     Verify block with flush actually flushes.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -400,8 +382,6 @@ def test_flush(test_microvm_with_api, network_config):
 def test_block_default_cache_old_version(test_microvm_with_api):
     """
     Verify that saving a snapshot for old versions works correctly.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -469,8 +449,6 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 def test_patch_drive_limiter(test_microvm_with_api, network_config):
     """
     Test replacing the drive rate-limiter after guest boot works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False

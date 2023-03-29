@@ -89,8 +89,6 @@ def _validate_license(filename):
 def test_for_valid_licenses():
     """
     Test that all *.py, *.rs and *.sh files contain a valid license.
-
-    @type: style
     """
     python_files = utils.get_files_from(
         find_path="..", pattern="*.py", exclude_names=EXCLUDE

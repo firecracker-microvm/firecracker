@@ -12,8 +12,6 @@ import yaml
 def test_repo_no_spaces_in_paths():
     """
     Ensure there are no spaces in paths.
-
-    @type: style
     """
     # pylint: disable-next=subprocess-run-check
     res = subprocess.run(
@@ -29,8 +27,6 @@ def test_repo_no_spaces_in_paths():
 def test_repo_validate_yaml():
     """
     Ensure all YAML files are valid
-
-    @type: style
     """
 
     repo_root = Path("..")

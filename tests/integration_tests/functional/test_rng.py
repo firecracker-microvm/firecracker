@@ -70,8 +70,6 @@ def test_rng_present(test_microvm_with_rng):
     """
     Test a guest microVM with an entropy defined configured and ensure
     that we can access `/dev/hwrng`
-
-    @type: functional
     """
 
     vm = test_microvm_with_rng
@@ -88,8 +86,6 @@ def test_rng_snapshot(test_microvm_with_rng, microvm_factory):
     """
     Test that a virtio-rng device is functional after resuming from
     a snapshot
-
-    @type: functional
     """
 
     vm = test_microvm_with_rng
@@ -231,8 +227,6 @@ def _rate_limiter_id(rate_limiter):
 def test_rng_bw_rate_limiter(test_microvm_with_rng, rate_limiter):
     """
     Test that rate limiter without initial burst budget works
-
-    @type: functional
     """
     vm = test_microvm_with_rng
     _start_vm_with_rng(vm, rate_limiter)

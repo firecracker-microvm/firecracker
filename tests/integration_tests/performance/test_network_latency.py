@@ -131,8 +131,6 @@ def test_network_latency(
     Test network latency for multiple vm configurations.
 
     Send a ping from the guest to the host.
-
-    @type: performance
     """
     requests = 1000
     interval = 0.2  # Seconds

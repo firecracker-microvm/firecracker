@@ -37,8 +37,6 @@ BINARY_SIZE_TOLERANCE = 0.05
 def test_firecracker_binary_size(record_property, metrics):
     """
     Test if the size of the firecracker binary is within expected ranges.
-
-    @type: build
     """
     fc_binary, _ = host.get_firecracker_binaries()
 
@@ -61,8 +59,6 @@ def test_firecracker_binary_size(record_property, metrics):
 def test_jailer_binary_size(record_property, metrics):
     """
     Test if the size of the jailer binary is within expected ranges.
-
-    @type: build
     """
     _, jailer_binary = host.get_firecracker_binaries()
 

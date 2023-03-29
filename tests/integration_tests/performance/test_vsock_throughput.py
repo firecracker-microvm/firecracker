@@ -269,8 +269,6 @@ def test_vsock_throughput(
 ):
     """
     Test vsock throughput for multiple vm configurations.
-
-    @type: performance
     """
 
     mem_size_mib = 1024

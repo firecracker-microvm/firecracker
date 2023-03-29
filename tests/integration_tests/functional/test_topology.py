@@ -129,8 +129,6 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -154,8 +152,6 @@ def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
 def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
-
-    @type: functional
     """
     if htt and PLATFORM == "aarch64":
         pytest.skip("SMT is configurable only on x86.")

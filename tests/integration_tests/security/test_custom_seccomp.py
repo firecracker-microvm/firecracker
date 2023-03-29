@@ -49,8 +49,6 @@ def _config_file_setup(test_microvm, vm_config_file):
 def test_allow_all(test_microvm_with_api):
     """
     Test --seccomp-filter, allowing all syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -89,8 +87,6 @@ def test_allow_all(test_microvm_with_api):
 def test_working_filter(test_microvm_with_api):
     """
     Test --seccomp-filter, rejecting some dangerous syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -152,8 +148,6 @@ def test_working_filter(test_microvm_with_api):
 def test_failing_filter(test_microvm_with_api):
     """
     Test --seccomp-filter, denying some needed syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -229,8 +223,6 @@ def test_failing_filter(test_microvm_with_api):
 def test_invalid_bpf(test_microvm_with_api, vm_config_file):
     """
     Test that FC does not start, given an invalid binary filter.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 

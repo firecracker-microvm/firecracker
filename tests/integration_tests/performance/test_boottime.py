@@ -51,8 +51,6 @@ DIMENSIONS = {
 def test_no_boottime(test_microvm_with_api):
     """
     Check that boot timer device is not present by default.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     _ = _configure_and_run_vm(vm)
@@ -65,8 +63,6 @@ def test_no_boottime(test_microvm_with_api):
 def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     """
     Check boot time of microVM without a network device.
-
-    @type: performance
     """
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
@@ -83,8 +79,6 @@ def test_boottime_with_network(
 ):
     """
     Check boot time of microVM with a network device.
-
-    @type: performance
     """
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
@@ -101,8 +95,6 @@ def test_boottime_with_network(
 def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
     """
     Check boot time of microVM when using an initrd.
-
-    @type: performance
     """
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
