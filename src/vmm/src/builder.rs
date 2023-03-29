@@ -386,19 +386,17 @@ fn get_reg_values(_vcpu: &Vcpu, _template: &Aarch64CpuTemplate) -> HashMap<u64, 
     Default::default()
 }
 
-/// Builds and starts a microVM based on the current Firecracker VmResources configuration.
+/// Builds a microVM based on the given configuration.
 ///
-/// This is the default build recipe, one could build other microVM flavors by using the
-/// independent functions in this module instead of calling this recipe.
-///
-/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
-/// is returned.
+/// The built microVM and all the created vCPUs start off in the paused state.
+/// To boot the microVM and run those vCPUs, `Vmm::resume_vm()` needs to be
+/// called.
 pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+) -> std::result::Result<Vmm, StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Timestamp for measuring microVM boot duration.
@@ -475,7 +473,7 @@ pub fn build_microvm_for_boot(
             .clone(),
     )
     .map_err(Error::VcpuStart)
-    .map_err(StartMicrovmError::Internal)?;
+    .map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
@@ -487,10 +485,29 @@ pub fn build_microvm_for_boot(
             .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
     )
     .map_err(Error::SeccompFilters)
-    .map_err(StartMicrovmError::Internal)?;
+    .map_err(Internal)?;
+
+    Ok(vmm)
+}
+
+/// Builds and boots a microVM based on the current Firecracker VmResources configuration.
+///
+/// This is the default build recipe, one could build other microVM flavors by using the
+/// independent functions in this module instead of calling this recipe.
+///
+/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
+/// is returned.
+pub fn build_and_boot_microvm(
+    instance_info: &InstanceInfo,
+    vm_resources: &super::resources::VmResources,
+    event_manager: &mut EventManager,
+    seccomp_filters: &BpfThreadMap,
+) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+    let mut vmm =
+        build_microvm_for_boot(instance_info, vm_resources, event_manager, seccomp_filters)?;
 
     // The vcpus start off in the `Paused` state, let them run.
-    vmm.resume_vm().map_err(Internal)?;
+    vmm.resume_vm().map_err(StartMicrovmError::Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());

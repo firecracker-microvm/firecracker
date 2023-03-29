@@ -11,14 +11,14 @@ use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
 use tests::{
-    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    build_and_boot_microvm, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
 
 use super::Error as VmmError;
 #[cfg(not(test))]
 use super::{
-    builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
+    builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
@@ -515,7 +515,7 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> ActionResult {
-        build_microvm_for_boot(
+        build_and_boot_microvm(
             &self.instance_info,
             self.vm_resources,
             self.event_manager,
@@ -1145,7 +1145,7 @@ mod tests {
 
     // Need to redefine this since the non-test one uses real VmResources
     // and real Vmm instead of our mocks.
-    pub fn build_microvm_for_boot(
+    pub fn build_and_boot_microvm(
         _: &InstanceInfo,
         _: &VmResources,
         _: &mut EventManager,
