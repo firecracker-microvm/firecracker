@@ -286,7 +286,7 @@ impl Queue {
     }
 
     /// Pop the first available descriptor chain from the avail ring.
-    pub fn pop<'a, 'b>(&'a mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
+    pub fn pop<'b>(&mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
         let len = self.len(mem);
         // The number of descriptor chain heads to process should always
         // be smaller or equal to the queue size, as the driver should
@@ -310,8 +310,8 @@ impl Queue {
 
     /// Try to pop the first available descriptor chain from the avail ring.
     /// If no descriptor is available, enable notifications.
-    pub fn pop_or_enable_notification<'a, 'b>(
-        &'a mut self,
+    pub fn pop_or_enable_notification<'b>(
+        &mut self,
         mem: &'b GuestMemoryMmap,
     ) -> Option<DescriptorChain<'b>> {
         if !self.uses_notif_suppression {
@@ -330,10 +330,7 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'a, 'b>(
-        &'a mut self,
-        mem: &'b GuestMemoryMmap,
-    ) -> Option<DescriptorChain<'b>> {
+    fn do_pop_unchecked<'b>(&mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
