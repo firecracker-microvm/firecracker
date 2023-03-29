@@ -16,8 +16,6 @@ TARGET = "{}-unknown-linux-musl".format(MACHINE)
 def test_unittests(test_fc_session_root_path):
     """
     Run unit and doc tests for all supported targets.
-
-    @type: build
     """
     extra_args = "--release --target {} ".format(TARGET)
 

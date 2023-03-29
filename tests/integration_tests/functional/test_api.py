@@ -25,8 +25,6 @@ MEM_LIMIT = 1000000000
 def test_api_happy_start(test_microvm_with_api):
     """
     Test that a regular microvm API config and boot sequence works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -44,8 +42,6 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
 
     Test that the io_engine can be configured via the API on kernels that
     support the given type and that FC returns an error otherwise.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -97,8 +93,6 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     Test that PUT updates are allowed before the microvm boots.
 
     Tests updates on drives, boot source and machine config.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -214,8 +208,6 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
     """
     Test PUT updates on network configurations before the microvm boots.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -272,8 +264,6 @@ def test_api_mmds_config(test_microvm_with_api):
     Test /mmds/config PUT scenarios that unit tests can't cover.
 
     Tests updates on MMDS config before and after attaching a network device.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -360,8 +350,6 @@ def test_api_mmds_config(test_microvm_with_api):
 def test_api_machine_config(test_microvm_with_api):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -489,8 +477,6 @@ def test_api_machine_config(test_microvm_with_api):
 def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -505,8 +491,6 @@ def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
 def test_api_put_update_post_boot(test_microvm_with_api):
     """
     Test that PUT updates are rejected after the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -576,8 +560,6 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 def test_rate_limiters_api_config(test_microvm_with_api):
     """
     Test the IO rate limiter API config.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -690,8 +672,6 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 def test_api_patch_pre_boot(test_microvm_with_api):
     """
     Test that PATCH updates are not allowed before the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -754,8 +734,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 def test_negative_api_patch_post_boot(test_microvm_with_api):
     """
     Test PATCH updates that are not allowed after the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -805,8 +783,6 @@ def test_negative_api_patch_post_boot(test_microvm_with_api):
 def test_drive_patch(test_microvm_with_api):
     """
     Extensively test drive PATCH scenarios before and after boot.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -845,8 +821,6 @@ def test_drive_patch(test_microvm_with_api):
 def test_send_ctrl_alt_del(test_microvm_with_api):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
-
-    @type: functional
     """
     # This relies on the i8042 device and AT Keyboard support being present in
     # the guest kernel.
@@ -993,8 +967,6 @@ def _drive_patch(test_microvm):
 def test_api_version(test_microvm_with_api):
     """
     Test the permanent VM version endpoint.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -1029,8 +1001,6 @@ def test_api_version(test_microvm_with_api):
 def test_api_vsock(bin_cloner_path):
     """
     Test vsock related API commands.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     # Test with the current build.
@@ -1094,8 +1064,6 @@ def test_api_entropy(test_microvm_with_api):
 def test_api_balloon(test_microvm_with_api):
     """
     Test balloon related API commands.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -1180,8 +1148,6 @@ def test_api_balloon(test_microvm_with_api):
 def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     """
     Test the configuration of a microVM after restoring from a snapshot.
-
-    @type: functional
     """
     microvm_builder = MicrovmBuilder(bin_cloner_path)
     net_iface = NetIfaceConfig()
@@ -1313,8 +1279,6 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 def test_get_full_config(test_microvm_with_api):
     """
     Test the reported configuration of a microVM configured with all resources.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -1428,8 +1392,6 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
     When sending large buffer to an api endpoint there will be an attempt to
     call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
     killed by the seccomp filter before this PR.
-
-    @type: regression
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update(
@@ -1452,8 +1414,6 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
 def test_negative_snapshot_load_api(microvm_factory):
     """
     Test snapshot load API.
-
-    @type: negative
     """
     vm = microvm_factory.build()
     vm.spawn()

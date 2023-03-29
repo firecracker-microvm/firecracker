@@ -203,8 +203,6 @@ def test_older_snapshot_resume_latency(
 
     With each previous firecracker version, create a snapshot and try to
     restore in current version.
-
-    @type: performance
     """
     logger = logging.getLogger("old_snapshot_load")
     snapshot_type = SnapshotType.FULL
@@ -290,8 +288,6 @@ def test_snapshot_create_latency(
     - Rootfs: Ubuntu 18.04
     - Microvm: 2vCPU with 256/512 MB RAM
     TODO: Multiple microvm sizes must be tested in the async pipeline.
-
-    @type: performance
     """
     logger = logging.getLogger("snapshot_sequence")
 
@@ -386,8 +382,6 @@ def test_snapshot_resume_latency(
     - Rootfs: Ubuntu 18.04
     - Microvm: 2vCPU with 256/512 MB RAM
     TODO: Multiple microvm sizes must be tested in the async pipeline.
-
-    @type: performance
     """
     logger = logging.getLogger("snapshot_load")
     diff_snapshots = snapshot_type == SnapshotType.DIFF

@@ -64,8 +64,6 @@ def _check_statistics(directory, mean):
 def test_cpu_template_benchmark(monkeypatch, record_property):
     """
     Benchmark test for CpuTemplate deserialization.
-
-    @type: performance
     """
     logger = logging.getLogger("cpu_template_benchmark")
 

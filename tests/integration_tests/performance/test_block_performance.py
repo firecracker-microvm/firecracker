@@ -267,8 +267,6 @@ def test_block_performance(
 ):
     """
     Execute block device emulation benchmarking scenarios.
-
-    @type: performance
     """
     guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)

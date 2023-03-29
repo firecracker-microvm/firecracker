@@ -310,8 +310,6 @@ def test_network_tcp_throughput(
 ):
     """
     Iperf between guest and host in both directions for TCP workload.
-
-    @type: performance
     """
 
     guest_mem_mib = 1024
