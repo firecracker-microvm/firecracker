@@ -820,7 +820,7 @@ class Microvm:
             diff=snapshot_is_diff,
             resume=True,
         )
-        assert response.ok
+        assert response.ok, response.content
         return True
 
     @cached_property

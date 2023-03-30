@@ -4,10 +4,11 @@
 /// Model Specific Registers (MSRs) related functionality.
 use std::result;
 
-use arch_gen::x86::msr_index::*;
 use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
+
+use crate::arch_gen::x86::msr_index::*;
 
 #[derive(Debug)]
 /// MSR related errors.
