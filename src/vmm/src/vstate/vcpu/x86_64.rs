@@ -693,17 +693,14 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        let mut t2cl_res = Ok(());
-        if is_at_least_cascade_lake() {
-            // Test configure while using the T2CL template.
-            vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
-            t2cl_res = vcpu.configure(
-                &vm_mem,
-                GuestAddress(0),
-                &vcpu_config,
-                vm.supported_cpuid().clone(),
-            );
-        }
+        // Test configure while using the T2CL template.
+        vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
+        let t2cl_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
 
         // Test configure while using the T2S template.
         vcpu_config.cpu_template = CpuFeaturesTemplate::T2A;
@@ -719,8 +716,13 @@ mod tests {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
                 assert!(t2s_res.is_ok());
-                assert!(t2cl_res.is_ok());
                 assert!(t2a_res.is_err());
+
+                if is_at_least_cascade_lake() {
+                    assert!(t2cl_res.is_ok());
+                } else {
+                    assert!(t2cl_res.is_err());
+                }
             }
             VENDOR_ID_AMD => {
                 assert!(t2_res.is_err());
