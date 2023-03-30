@@ -16,7 +16,11 @@ DEFAULT_INSTANCES = [
     "c7g.metal",
 ]
 
-DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
+DEFAULT_PLATFORMS = [
+    ("al2", "linux_4.14"),
+    ("al2", "linux_5.10"),
+    ("al2023", "linux_6.1"),
+]
 
 
 def field_fmt(field, args):
