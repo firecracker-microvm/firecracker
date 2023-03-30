@@ -130,11 +130,9 @@ class HostEchoWorker(Thread):
 
     def _run(self):
         with open(self.blob_path, "rb") as blob_file:
-
             hash_obj = hashlib.md5()
 
             while True:
-
                 buf = blob_file.read(BUF_SIZE)
                 if not buf:
                     break

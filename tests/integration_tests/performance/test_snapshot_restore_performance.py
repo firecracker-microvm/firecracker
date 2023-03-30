@@ -142,7 +142,7 @@ def get_snap_restore_latency(
 
     extra_disk_paths = []
     if blocks > 1:
-        for (name, diskfile) in scratch_drives[: (blocks - 1)]:
+        for name, diskfile in scratch_drives[: (blocks - 1)]:
             basevm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0
