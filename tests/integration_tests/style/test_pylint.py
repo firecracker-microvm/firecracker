@@ -22,7 +22,7 @@ def test_python_pylint():
         "fixme,too-many-instance-attributes,import-error,"
         "too-many-locals,too-many-arguments,consider-using-f-string,"
         "consider-using-with,implicit-str-concat,line-too-long,"
-        "broad-except,duplicate-code tests tools .buildkite/*.py"
+        "broad-exception-raised,duplicate-code tests tools .buildkite/*.py"
     )
     run(
         linter_cmd,
