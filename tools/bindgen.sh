@@ -98,7 +98,7 @@ git clone --branch linux-5.10.y --depth 1 https://github.com/amazonlinux/linux a
 
 info "BINDGEN mpspec_def.h"
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/mpspec_def.h \
-           >src/arch_gen/src/x86/mpspec.rs
+           >src/vmm/src/arch_gen/x86/mpspec.rs
 # https://github.com/rust-lang/rust-bindgen/issues/1274
 
 info "BINDGEN msr-index.h"
@@ -110,8 +110,8 @@ fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
     -Iamazonlinux-v5.10.y/include/ \
     -Iamazonlinux-v5.10.y/arch/x86/include/ \
     -Wno-macro-redefined \
-    >src/arch_gen/src/x86/msr_index.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/arch_gen/src/x86/msr_index.rs
+    >src/vmm/src/arch_gen/x86/msr_index.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/msr_index.rs
 
 info "BINDGEN io_uring.h"
 fc-bindgen \

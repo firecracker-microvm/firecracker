@@ -33,7 +33,6 @@ snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
-arch_gen = { path = "../arch_gen" }
 
 [dev-dependencies]
 criterion = "0.4.0"
