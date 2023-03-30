@@ -4,6 +4,7 @@
 
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from host_tools import proc
 
@@ -11,15 +12,30 @@ from host_tools import proc
 # caused by io_uring, which is only supported by FC for kernels newer
 # than 5.10.
 
+
+def is_on_skylake():
+    """Test is executed on a Skylake host."""
+    return "8175M CPU" in cpuid_utils.get_cpu_model_name()
+
+
 # AMD has a slightly different coverage due to
 # the appearance of the brand string. On Intel,
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 81.99, "AMD": 84.68, "ARM": 82.44}
+    COVERAGE_DICT = {
+        "Intel": 81.99 if is_on_skylake() else 84.43,
+        "AMD": 84.68,
+        "ARM": 82.44,
+    }
 else:
-    COVERAGE_DICT = {"Intel": 79.51, "AMD": 82.19, "ARM": 79.37}
+    COVERAGE_DICT = {
+        "Intel": 79.51 if is_on_skylake() else 81.94,
+        "AMD": 82.19,
+        "ARM": 79.37,
+    }
+
 
 PROC_MODEL = proc.proc_type()
 
