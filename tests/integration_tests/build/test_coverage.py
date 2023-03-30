@@ -3,7 +3,6 @@
 """Tests enforcing code coverage for production code."""
 
 import pytest
-
 from framework import utils
 from host_tools import proc
 
@@ -17,7 +16,7 @@ from host_tools import proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 83.09, "AMD": 81.52, "ARM": 82.49}
+    COVERAGE_DICT = {"Intel": 83.11, "AMD": 81.52, "ARM": 82.49}
 else:
     COVERAGE_DICT = {"Intel": 80.24, "AMD": 78.68, "ARM": 79.45}
 
