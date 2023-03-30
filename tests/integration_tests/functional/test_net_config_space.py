@@ -266,7 +266,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
         # Device start addresses lack the hex prefix and are not interpreted
         # accordingly when parsed inside `change_config_space.c`.
         hex_prefix = "0x"
-        for (idx, dev) in enumerate(virtio_devs):
+        for idx, dev in enumerate(virtio_devs):
             _, guest_if_name, _ = ssh_connection.execute_command(
                 cmd.format(sys_virtio_mmio_cmdline, dev, idx)
             )

@@ -44,6 +44,7 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
 
 ARTIFACTS = ArtifactCollection(_test_images_s3_bucket())
 
+
 # Testing matrix:
 # - Guest kernel: All supported ones
 # - Rootfs: Ubuntu 18.04

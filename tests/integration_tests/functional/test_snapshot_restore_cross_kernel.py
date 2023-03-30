@@ -44,7 +44,7 @@ def _test_balloon(microvm, ssh_connection):
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     # Dirty 300MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(300 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=300 * MB_TO_PAGES)
     # Check memory usage again.
     second_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     assert second_reading > first_reading
