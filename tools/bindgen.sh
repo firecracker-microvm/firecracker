@@ -113,6 +113,15 @@ fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
     >src/arch_gen/src/x86/msr_index.rs
 perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/arch_gen/src/x86/msr_index.rs
 
+info "BINDGEN perf_event.h"
+grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
+    > amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h
+fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h \
+    --allowlist-var "^MSR_ARCH_PERFMON_.*$" \
+    -- \
+    >src/arch_gen/src/x86/perf_event.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/arch_gen/src/x86/perf_event.rs
+
 info "BINDGEN io_uring.h"
 fc-bindgen \
     --allowlist-var "IORING_.+" \

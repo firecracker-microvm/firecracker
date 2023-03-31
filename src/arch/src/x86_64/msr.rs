@@ -5,6 +5,7 @@
 use std::result;
 
 use arch_gen::x86::msr_index::*;
+use arch_gen::x86::perf_event::*;
 use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
@@ -136,8 +137,8 @@ macro_rules! MSR_RANGE {
     };
 }
 
-// List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
-static ALLOWED_MSR_RANGES: &[MsrRange] = &[
+// List of MSRs that should be serialized. List is sorted in ascending order of MSRs addresses.
+static SERIALIZE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_IA32_P5_MC_ADDR),
     MSR_RANGE!(MSR_IA32_P5_MC_TYPE),
     MSR_RANGE!(MSR_IA32_TSC),
@@ -243,7 +244,75 @@ pub fn msr_should_serialize(index: u32) -> bool {
     if index == MSR_IA32_MCG_CTL {
         return false;
     };
-    ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
+    SERIALIZE_MSR_RANGES
+        .iter()
+        .any(|range| range.contains(index))
+}
+
+// List of MSRs that should not be included.
+//
+// MSR index list gotten via KVM_GET_MSR_INDEX_LIST can include invalid PMU-related MSRs, because
+// the availability of PMU-related MSRs are based on CPUID leaf 0xa and can change after calling
+// KVM_GET_MSR_INDEX_LIST. Since firecracker disables PMU by default, it is safe to remove
+// PMU-related MSRs from the supported MSR list. Otherwise, KVM_GET_MSRS fails. The PMU-related
+// availability update based on CPUID leaf 0xa can be found in the following link.
+// https://elixir.bootlin.com/linux/v5.10.176/source/arch/x86/kvm/vmx/pmu_intel.c#L325
+//
+// For VMX-related MSRs, the above situation can happen. As we don't test firecarcker in nested
+// virtualization environment, we exclude these MSRs. You can see that VMX-related MSRs depend on
+// whether nested virtualization is allowed in the following link.
+// https://elixir.bootlin.com/linux/v6.1.8/source/arch/x86/kvm/vmx/vmx.c#L1936
+//
+// The list of MSRs that is potentially supported by KVM can be found here:
+// https://elixir.bootlin.com/linux/v5.10.176/source/arch/x86/kvm/x86.c#L1211
+static DENY_MSR_RANGES: &[MsrRange] = &[
+    // MSR_ARCH_PERFMON_PERFCTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_PERFCTR0, 18),
+    // MSR_ARCH_PERFMON_EVENTSELn
+    MSR_RANGE!(MSR_ARCH_PERFMON_EVENTSEL0, 18),
+    // MSR_ARCH_PERFMON_FIXED_CTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_FIXED_CTR0, 3),
+    // MSR_CORE_PERF_FIXED_CTR_CTRL
+    // MSR_CORE_PERF_GLOBAL_STATUS
+    // MSR_CORE_PERF_GLOBAL_CTRL
+    // MSR_CORE_PERF_GLOBAL_OVF_CTRL
+    MSR_RANGE!(MSR_CORE_PERF_FIXED_CTR_CTRL, 4),
+    // MSR_K7_EVNTSELn
+    MSR_RANGE!(MSR_K7_EVNTSEL0, 4),
+    // MSR_K7_PERFCTRn
+    MSR_RANGE!(MSR_K7_PERFCTR0, 4),
+    // MSR_F15H_PERF_CTLn
+    MSR_RANGE!(MSR_F15H_PERF_CTL0, 6),
+    // MSR_F15H_PERF_CTRn
+    MSR_RANGE!(MSR_F15H_PERF_CTR0, 6),
+    // MSR_IA32_VMX_BASIC
+    // MSR_IA32_VMX_PINBASED_CTLS
+    // MSR_IA32_VMX_PROCBASED_CTLS
+    // MSR_IA32_VMX_EXIT_CTLS
+    // MSR_IA32_VMX_ENTRY_CTLS
+    // MSR_IA32_VMX_MISC
+    // MSR_IA32_VMX_CR0_FIXED0
+    // MSR_IA32_VMX_CR0_FIXED1
+    // MSR_IA32_VMX_CR4_FIXED0
+    // MSR_IA32_VMX_CR4_FIXED1
+    // MSR_IA32_VMX_VMCS_ENUM
+    // MSR_IA32_VMX_PROCBASED_CTLS2
+    // MSR_IA32_VMX_EPT_VPID_CAP
+    // MSR_IA32_VMX_TRUE_PINBASED_CTLS
+    // MSR_IA32_VMX_TRUE_PROCBASED_CTLS
+    // MSR_IA32_VMX_TRUE_EXIT_CTLS
+    // MSR_IA32_VMX_TRUE_ENTRY_CTLS
+    // MSR_IA32_VMX_VMFUNC
+    MSR_RANGE!(MSR_IA32_VMX_BASIC, 18),
+];
+
+/// Specifies whether a particular MSR should be removed from supported MSRs.
+///
+/// # Arguments
+///
+/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+pub fn msr_should_deny(index: u32) -> bool {
+    DENY_MSR_RANGES.iter().any(|range| range.contains(index))
 }
 
 /// Creates and populates required MSR entries for booting Linux on X86_64.
@@ -327,10 +396,11 @@ pub fn set_msrs(
 /// When:
 /// - [`kvm_ioctls::ioctls::system::Kvm::get_msr_index_list()`] errors.
 pub fn get_supported_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
-    let supported_msrs = kvm_fd
+    let mut supported_msrs = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetSupportedModelSpecificRegisters)?;
 
+    supported_msrs.retain(|msr_index| !msr_should_deny(*msr_index));
     Ok(supported_msrs)
 }
 
@@ -352,11 +422,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_msr_allowlist() {
-        for range in ALLOWED_MSR_RANGES.iter() {
+    fn test_msr_list_to_serialize() {
+        for range in SERIALIZE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 let should = !matches!(msr, MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
+            }
+        }
+    }
+
+    #[test]
+    fn test_msr_list_to_deny() {
+        for range in DENY_MSR_RANGES.iter() {
+            for msr in range.base..(range.base + range.nmsrs) {
+                assert!(msr_should_deny(msr));
             }
         }
     }

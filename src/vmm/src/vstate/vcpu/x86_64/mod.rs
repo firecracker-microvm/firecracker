@@ -205,8 +205,6 @@ pub enum KvmVcpuConfigureError {
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
-// TODO: Remove `#[allow(dead_code)]` when `supported_msrs` is used in the next commit.
-#[allow(dead_code)]
 pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
@@ -363,6 +361,35 @@ impl KvmVcpu {
         Ok(res)
     }
 
+    /// Get MSRs for the given MSR index list.
+    ///
+    /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
+    /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
+    /// chunk, and collect into a Vec<Msrs>.
+    fn get_all_msrs(&self, msr_index_list: &HashSet<u32>) -> Result<Vec<Msrs>> {
+        let mut all_msrs: Vec<Msrs> = Vec::new();
+        let msr_index_list: Vec<&u32> = msr_index_list.iter().collect();
+
+        for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
+            let mut msrs = Msrs::new(msr_index_chunk.len()).map_err(Error::Fam)?;
+            let msr_entries = msrs.as_mut_slice();
+            assert_eq!(msr_index_chunk.len(), msr_entries.len());
+            for (pos, index) in msr_index_chunk.iter().enumerate() {
+                msr_entries[pos].index = **index;
+            }
+
+            let expected_nmsrs = msrs.as_slice().len();
+            let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
+            if nmsrs != expected_nmsrs {
+                return Err(Error::VcpuGetMsrsIncomplete);
+            }
+
+            all_msrs.push(msrs);
+        }
+
+        Ok(all_msrs)
+    }
+
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
         // Ordering requirements:
@@ -382,27 +409,6 @@ impl KvmVcpu {
         //
         // SREGS saves/restores a pending interrupt, similar to what
         // VCPU_EVENTS also does.
-        //
-        // GET_MSRS requires a pre-populated data structure to do something
-        // meaningful. For SET_MSRS it will then contain good data.
-
-        // Build the list of MSRs we want to save. Sometimes we need to save
-        // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
-        // to allow an unlimited number.
-        let mut all_msrs: Vec<Msrs> = Vec::new();
-        let msr_index_list: Vec<&u32> = self.msrs_to_save.iter().collect();
-
-        // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
-        // them up into `Msrs` so it's easy to pass to the ioctl.
-        for chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
-            let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
-            let msr_entries = msrs.as_mut_slice();
-            assert_eq!(chunk.len(), msr_entries.len());
-            for (pos, index) in chunk.iter().enumerate() {
-                msr_entries[pos].index = **index;
-            }
-            all_msrs.push(msrs);
-        }
 
         let mp_state = self.fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
         let regs = self.fd.get_regs().map_err(Error::VcpuGetRegs)?;
@@ -418,24 +424,19 @@ impl KvmVcpu {
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
-        for msrs in all_msrs.iter_mut() {
-            let expected_nmsrs = msrs.as_slice().len();
-            let nmsrs = self.fd.get_msrs(msrs).map_err(Error::VcpuGetMsrs)?;
-            if nmsrs != expected_nmsrs {
-                return Err(Error::VcpuGetMsrsIncomplete);
-            }
-        }
+        let cpuid = self
+            .fd
+            .get_cpuid2(KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::VcpuGetCpuid)?;
+        let saved_msrs = self.get_all_msrs(&self.msrs_to_save)?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
             .map_err(Error::VcpuGetVcpuEvents)?;
 
         Ok(VcpuState {
-            cpuid: self
-                .fd
-                .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
-                .map_err(Error::VcpuGetCpuid)?,
-            saved_msrs: all_msrs,
+            cpuid,
+            saved_msrs,
             msrs: Msrs::new(0).map_err(Error::Fam)?,
             debug_regs,
             lapic,
@@ -779,6 +780,17 @@ mod tests {
 
         // Validate the mutated cpuid is saved.
         assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_get_all_msrs() {
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+
+        // Case 1: KVM_GET_MSRS against msrs_to_save
+        vcpu.get_all_msrs(&vcpu.msrs_to_save).unwrap();
+
+        // Case 2: KVM_GET_MSRS against supported_msrs
+        vcpu.get_all_msrs(&vcpu.supported_msrs).unwrap();
     }
 
     #[test]
