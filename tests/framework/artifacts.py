@@ -444,11 +444,6 @@ DEFAULT_DEV_NAME = "eth0"
 DEFAULT_NETMASK = 30
 
 
-def create_net_devices_configuration(num):
-    """Define configuration for the requested number of net devices."""
-    return [NetIfaceConfig.with_id(i) for i in range(num)]
-
-
 @dataclass(frozen=True, repr=True)
 class NetIfaceConfig:
     """Defines a network interface configuration."""

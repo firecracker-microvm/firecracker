@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import check_filesystem, wait_process_termination
 from framework.utils_vsock import (
@@ -29,9 +28,9 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # "SIZE" and the size of the device, in bytes.
     blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
     _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
-    assert stderr.read() == ""
-    stdout.readline()  # skip "SIZE"
-    return stdout.readline().strip()
+    assert stderr == ""
+    lines = stdout.split("\n")
+    return lines[1].strip()
 
 
 # Testing matrix:
@@ -48,7 +47,6 @@ def test_5_snapshots(
     guest_kernel,
     rootfs,
     snapshot_type,
-    network_config,
 ):
     """
     Create and load 5 snapshots.
@@ -65,7 +63,7 @@ def test_5_snapshots(
         mem_size_mib=512,
         track_dirty_pages=diff_snapshots,
     )
-    tap, host_ip, guest_ip = vm.ssh_network_config(network_config, "1")
+    iface = vm.add_net_iface()
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
     # Verify if guest can run commands.
@@ -81,7 +79,6 @@ def test_5_snapshots(
     logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
-    iface = NetIfaceConfig(host_ip, guest_ip, tap.name, "eth1", 30)
 
     # Create base snapshot.
     ssh_key = rootfs.ssh_key()
@@ -224,7 +221,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
 
 
 def test_cmp_full_and_first_diff_mem(
-    microvm_factory, guest_kernel, rootfs, network_config
+    microvm_factory, guest_kernel, rootfs
 ):
     """
     Compare memory of 2 consecutive full and diff snapshots.
@@ -243,7 +240,7 @@ def test_cmp_full_and_first_diff_mem(
         mem_size_mib=512,
         track_dirty_pages=True,
     )
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
 
     # Verify if guest can run commands.

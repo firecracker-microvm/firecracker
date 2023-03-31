@@ -13,8 +13,8 @@ import pytest
 from framework.artifacts import (
     Artifact,
     ArtifactType,
+    NetIfaceConfig,
     Snapshot,
-    create_net_devices_configuration,
 )
 from framework.builder import MicrovmBuilder
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, FC_WORKSPACE_DIR
@@ -33,7 +33,7 @@ from integration_tests.functional.test_balloon import (
 )
 
 # Define 4 net device configurations.
-net_ifaces = create_net_devices_configuration(4)
+net_ifaces = [NetIfaceConfig.with_id(i) for i in range(4)]
 
 
 def _test_balloon(microvm):
@@ -98,7 +98,7 @@ def _test_mmds(vm, mmds_net_iface):
     populate_data_store(vm, data_store)
 
     mmds_ipv4_address = "169.254.169.254"
-    vm.ssh_config["hostname"] = mmds_net_iface.guest_ip
+    vm.guest_ip = mmds_net_iface.guest_ip
 
     # Insert new rule into the routing table of the guest.
     cmd = "ip route add {} dev {}".format(
@@ -165,14 +165,13 @@ def test_snap_restore_from_artifacts(
         assert vm.state == "Running"
 
         # Test that net devices have connectivity after restore.
-        for iface in snapshot.net_ifaces:
+        for idx, iface in enumerate(vm.iface.values()["iface"]):
             logger.info("Testing net device %s...", iface.dev_name)
-            vm.ssh_config["hostname"] = iface.guest_ip
-            exit_code, _, _ = vm.ssh.execute_command("sync")
+            exit_code, _, _ = vm.ssh_iface(idx).execute_command("sync")
             assert exit_code == 0
 
         logger.info("Testing data store behavior...")
-        _test_mmds(vm, snapshot.net_ifaces[3])
+        _test_mmds(vm, vm.iface["eth3"]["iface"])
 
         logger.info("Testing balloon device...")
         _test_balloon(vm)

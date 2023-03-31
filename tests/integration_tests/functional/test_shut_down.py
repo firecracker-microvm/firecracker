@@ -10,7 +10,7 @@ import host_tools.logging as log_tools
 from framework import utils
 
 
-def test_reboot(test_microvm_with_api, network_config):
+def test_reboot(test_microvm_with_api):
     """
     Test reboot from guest.
     """
@@ -26,7 +26,7 @@ def test_reboot(test_microvm_with_api, network_config):
     # a root file system with the rw permission. The network interfaces is
     # added after we get a unique MAC and IP.
     vm.basic_config(vcpu_count=4)
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
 
     # Configure metrics system.
     metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")

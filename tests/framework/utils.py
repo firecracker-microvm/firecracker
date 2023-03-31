@@ -396,10 +396,10 @@ def get_free_mem_ssh(ssh_connection):
     _, stdout, stderr = ssh_connection.execute_command(
         "cat /proc/meminfo | grep MemAvailable"
     )
-    assert stderr.read() == ""
+    assert stderr == ""
 
     # Split "MemAvailable:   123456 kB" and validate it
-    meminfo_data = stdout.read().split()
+    meminfo_data = stdout.split()
     if len(meminfo_data) == 3:
         # Return the middle element in the array
         return int(meminfo_data[1])
@@ -540,8 +540,8 @@ def summarize_cpu_percent(cpu_percentages: dict):
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read() == ""
-    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stderr == ""
+    stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
 
 
@@ -664,7 +664,7 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
     cmd += " http://{}/latest/api/token".format(ipv4_address)
     _, stdout, _ = ssh_connection.execute_command(cmd)
-    token = stdout.read()
+    token = stdout
 
     return token
 
@@ -776,21 +776,21 @@ def guest_run_fio_iteration(ssh_connection, iteration):
         iteration
     )
     exit_code, _, stderr = ssh_connection.execute_command(fio)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 @retry(delay=0.5, tries=5)

@@ -18,7 +18,7 @@ import time
 import uuid
 import weakref
 from collections import namedtuple
-from functools import cached_property
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -30,6 +30,7 @@ import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
+from framework.artifacts import NetIfaceConfig
 from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
@@ -156,15 +157,6 @@ class Microvm:
 
         # Initalize memory monitor
         self.memory_monitor = None
-
-        # The ssh config dictionary is populated with information about how
-        # to connect to a microVM that has ssh capability. The path of the
-        # private key is populated by microvms with ssh capabilities and the
-        # hostname is set from the MAC address used to configure the microVM.
-        self._ssh_config = {
-            "username": "root",
-            "netns_file_path": self.jailer.netns_file_path(),
-        }
 
         # iface dictionary
         self.iface = {}
@@ -318,11 +310,6 @@ class Microvm:
         with data_lock:
             log_data = self.__log_data
         return log_data
-
-    @property
-    def ssh_config(self):
-        """Get the ssh configuration used to ssh into some microVMs."""
-        return self._ssh_config
 
     @property
     def state(self):
@@ -714,81 +701,30 @@ class Microvm:
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
-    def ssh_network_config(
-        self,
-        network_config,
-        iface_id,
-        tx_rate_limiter=None,
-        rx_rate_limiter=None,
-        tapname=None,
-    ):
-        """Create a host tap device and a guest network interface.
-
-        'network_config' is used to generate 2 IPs: one for the tap device
-        and one for the microvm. Adds the hostname of the microvm to the
-        ssh_config dictionary.
-        :param network_config: UniqueIPv4Generator instance
-        :param iface_id: the interface id for the API request
-        the guest on this interface towards the MMDS address are
-        intercepted and processed by the device model.
-        :param tx_rate_limiter: limit the tx rate
-        :param rx_rate_limiter: limit the rx rate
-        :return: an instance of the tap which needs to be kept around until
-        cleanup is desired, the configured guest and host ips, respectively.
-        """
-        # Create tap before configuring interface.
-        tapname = tapname or (self.id[:8] + "tap" + iface_id)
-        # The guest is hardcoded to expect an IP in a /30 network,
-        # so we request the IPs to be aligned on a /30 network
-        # See https://github.com/firecracker-microvm/firecracker/blob/main/resources/tests/fcnet-setup.sh#L21
-        # file:../../resources/tests/fcnet-setup.sh#L21
-        netmask_len = 30
-        (host_ip, guest_ip) = network_config.get_next_available_ips(2, netmask_len)
-        tap = self.create_tap_and_ssh_config(host_ip, guest_ip, netmask_len, tapname)
-        guest_mac = net_tools.mac_from_ip(guest_ip)
-
-        response = self.network.put(
-            iface_id=iface_id,
-            host_dev_name=tapname,
-            guest_mac=guest_mac,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter,
-        )
-        assert self._api_session.is_status_no_content(response.status_code)
-
-        return tap, host_ip, guest_ip
-
-    def create_tap_and_ssh_config(self, host_ip, guest_ip, netmask_len, tapname=None):
-        """Create tap device and configure ssh."""
-        assert tapname is not None
-        tap = net_tools.Tap(
-            tapname, self.jailer.netns, ip="{}/{}".format(host_ip, netmask_len)
-        )
-        self.config_ssh(guest_ip)
-        return tap
-
-    def config_ssh(self, guest_ip):
-        """Configure ssh."""
-        self.ssh_config["hostname"] = guest_ip
-
-    def add_net_iface(self, iface, tx_rate_limiter=None, rx_rate_limiter=None):
+    def add_net_iface(self, iface=None, api=True, **kwargs):
         """Add a network interface"""
+        if iface is None:
+            iface = NetIfaceConfig.with_id(len(self.iface))
         tap = net_tools.Tap(
             iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
         )
-        self.config_ssh(iface.guest_ip)
-        response = self.network.put(
-            iface_id=iface.dev_name,
-            host_dev_name=iface.tap_name,
-            guest_mac=iface.guest_mac,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter,
-        )
-        assert self.api_session.is_status_no_content(response.status_code)
         self.iface[iface.dev_name] = {
             "iface": iface,
             "tap": tap,
         }
+
+        # If api, call it... there may be cases when we don't want it, for
+        # example during restore
+        if api:
+            response = self.network.put(
+                iface_id=iface.dev_name,
+                host_dev_name=iface.tap_name,
+                guest_mac=iface.guest_mac,
+                **kwargs,
+            )
+            assert self.api_session.is_status_no_content(response.status_code)
+
+        return iface
 
     def start(self, check=True):
         """Start the microvm.
@@ -868,10 +804,22 @@ class Microvm:
         assert response.ok, response.content
         return True
 
-    @cached_property
+    @lru_cache
+    def ssh_iface(self, iface_idx=0):
+        """Return a cached SSH connection on a given interface id."""
+        guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
+        self.ssh_key = Path(self.ssh_key)
+        return net_tools.SSHConnection(
+            netns_path=self.jailer.netns_file_path(),
+            ssh_key=self.ssh_key,
+            user="root",
+            host=guest_ip,
+        )
+
+    @property
     def ssh(self):
-        """Return a cached SSH connection"""
-        return net_tools.SSHConnection(self.ssh_config)
+        """Return a cached SSH connection on the 1st interface"""
+        return self.ssh_iface(0)
 
     def start_console_logger(self, log_fifo):
         """

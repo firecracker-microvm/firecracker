@@ -385,7 +385,7 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
                 # TBD only iff ext4 / rw
                 shutil.copyfile(rootfs_path, rootfs_path2)
                 vm.rootfs_file = rootfs_path2
-                vm.ssh_config["ssh_key_path"] = rootfs.ssh_key().local_path()
+                vm.ssh_key = rootfs.ssh_key().local_path()
             return vm
 
         def kill(self):

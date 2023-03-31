@@ -18,7 +18,7 @@ FC_V0_23_MAX_DEVICES_ATTACHED = 11
 
 
 def _create_and_start_microvm_with_net_devices(
-    test_microvm, network_config=None, devices_no=0
+    test_microvm, devices_no=0
 ):
     test_microvm.spawn()
     # Set up a basic microVM: configure the boot source and
@@ -29,12 +29,11 @@ def _create_and_start_microvm_with_net_devices(
     # total of (`devices_no` + 1) devices.
     for i in range(devices_no):
         # Create tap before configuring interface.
-        _tap, _host_ip, _guest_ip = test_microvm.ssh_network_config(
-            network_config, str(i)
-        )
+        test_microvm.add_net_iface()
+
     test_microvm.start()
 
-    if network_config is not None:
+    if devices_no > 0:
         # Verify if guest can run commands.
         exit_code, _, _ = test_microvm.ssh.execute_command("sync")
         assert exit_code == 0
@@ -43,7 +42,7 @@ def _create_and_start_microvm_with_net_devices(
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Exercises specific x86_64 functionality."
 )
-def test_create_with_too_many_devices(test_microvm_with_api, network_config):
+def test_create_with_too_many_devices(test_microvm_with_api):
     """
     Create snapshot with unexpected device count for previous versions.
     """
@@ -52,7 +51,7 @@ def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     # Create and start a microVM with `FC_V0_23_MAX_DEVICES_ATTACHED`
     # network devices.
     devices_no = FC_V0_23_MAX_DEVICES_ATTACHED
-    _create_and_start_microvm_with_net_devices(test_microvm, network_config, devices_no)
+    _create_and_start_microvm_with_net_devices(test_microvm, devices_no)
 
     snapshot_builder = SnapshotBuilder(test_microvm)
     # Create directory and files for saving snapshot state and memory.
@@ -162,8 +161,6 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
 
     # Init a ssh connection in order to wait for the VM to boot. This way
     # we can be sure that the block device was activated.
-    iface = NetIfaceConfig()
-    test_microvm.ssh_config["hostname"] = iface.guest_ip
     test_microvm.ssh.run("true")
 
     # Create directory and files for saving snapshot state and memory.

@@ -10,11 +10,11 @@ import pytest
 from test_balloon import _test_rss_memory_lower
 
 import host_tools.drive as drive_tools
-from framework.artifacts import create_net_devices_configuration
+from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 
 # Define 4 net device configurations.
-net_ifaces = create_net_devices_configuration(4)
+net_ifaces = [NetIfaceConfig.with_id(i) for i in range(4)]
 # Define 4 scratch drives.
 scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
 
@@ -127,7 +127,7 @@ def validate_all_devices(logger, microvm, ifaces, drives, balloon):
     # Test that net devices have connectivity after restore.
     for iface in ifaces:
         logger.info("Testing net device %s", iface.dev_name)
-        microvm.ssh_config["hostname"] = iface.guest_ip
+        microvm.guest_ip = iface.guest_ip
         exit_code, _, _ = microvm.ssh.execute_command("sync")
 
     # Drop page cache.
@@ -150,8 +150,8 @@ def validate_all_devices(logger, microvm, ifaces, drives, balloon):
         cmd = "md5sum /mnt/{}/test | cut -d ' ' -f 1".format(drive)
         exit_code, stdout, _ = microvm.ssh.execute_command(cmd)
         assert exit_code == 0
-        assert stdout.read().strip() == "ab893875d697a3145af5eed5309bee26"
-        logger.info("* checksum OK.")
+        assert stdout.strip() == "ab893875d697a3145af5eed5309bee26"
+        print("* checksum OK.")
 
     if balloon is True:
         logger.info("Testing balloon memory reclaim.")
@@ -210,7 +210,7 @@ def create_snapshot_helper(
 
     # Iterate and validate connectivity on all ifaces after boot.
     for iface in ifaces:
-        vm.ssh_config["hostname"] = iface.guest_ip
+        vm.guest_ip = iface.guest_ip
         exit_code, _, _ = vm.ssh.execute_command("sync")
         assert exit_code == 0
 

@@ -95,9 +95,9 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
     _, stdout, stderr = test_microvm.ssh.execute_command(
         "/usr/local/bin/get_cache_info.sh"
     )
-    assert stderr.read() == ""
+    assert stderr == ""
 
-    guest_dict = json.loads(literal_eval(stdout.read().strip()))
+    guest_dict = json.loads(literal_eval(stdout.strip()))
     host_dict = {}
     for i in range(no_cpus):
         cpu_path = os.path.join(os.path.join(path, "cpu{}".format(i)), "cache")
@@ -118,22 +118,16 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 @pytest.mark.skipif(
     PLATFORM != "x86_64", reason="Firecracker supports CPU topology only on x86_64."
 )
-@pytest.mark.parametrize(
-    "num_vcpus",
-    [1, 2, 16],
-)
-@pytest.mark.parametrize(
-    "htt",
-    [True, False],
-)
-def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
+@pytest.mark.parametrize("num_vcpus", [1, 2, 16])
+@pytest.mark.parametrize("htt", [True, False])
+def test_cpu_topology(test_microvm_with_api, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
 
     _check_cpu_topology(
@@ -141,15 +135,9 @@ def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     )
 
 
-@pytest.mark.parametrize(
-    "num_vcpus",
-    [1, 2, 16],
-)
-@pytest.mark.parametrize(
-    "htt",
-    [True, False],
-)
-def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
+@pytest.mark.parametrize("num_vcpus", [1, 2, 16])
+@pytest.mark.parametrize("htt", [True, False])
+def test_cache_topology(test_microvm_with_api, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
     """
@@ -158,7 +146,7 @@ def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     if PLATFORM == "x86_64":
         _check_cache_topology_x86(vm, 1 if htt and num_vcpus > 1 else 0, num_vcpus - 1)

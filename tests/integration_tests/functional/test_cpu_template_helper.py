@@ -223,8 +223,8 @@ def get_guest_msrs(microvm, msr_index_list):
             continue
         rdmsr_cmd = f"rdmsr -0 {index}"
         code, stdout, stderr = microvm.ssh.execute_command(rdmsr_cmd)
-        assert stderr.read() == "", f"Failed to get MSR for {index=:#x}: {code=}"
-        msrs_dict[index] = int(stdout.read(), 16)
+        assert stderr == "", f"Failed to get MSR for {index=:#x}: {code=}"
+        msrs_dict[index] = int(stdout, 16)
 
     return msrs_dict
 
@@ -239,7 +239,6 @@ def get_guest_msrs(microvm, msr_index_list):
 def test_cpu_config_dump_vs_actual(
     test_microvm_with_api_and_msrtools,
     cpu_template_helper,
-    network_config,
     tmp_path,
 ):
     """
@@ -249,7 +248,7 @@ def test_cpu_config_dump_vs_actual(
     microvm = test_microvm_with_api_and_msrtools
     microvm.spawn()
     microvm.basic_config()
-    microvm.ssh_network_config(network_config, "1")
+    microvm.add_net_iface()
     vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump CPU config with the helper tool.
