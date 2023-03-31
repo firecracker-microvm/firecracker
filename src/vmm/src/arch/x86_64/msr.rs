@@ -6,7 +6,10 @@ use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
 
+use crate::arch_gen::x86::hyperv::*;
+use crate::arch_gen::x86::hyperv_tlfs::*;
 use crate::arch_gen::x86::msr_index::*;
+use crate::arch_gen::x86::perf_event::*;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
@@ -269,6 +272,146 @@ pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
     Ok(msr_index_list)
 }
 
+// List of MSRs that should not be included in the dump of CPU configuration.
+//
+// KVM_GET_MSR_INDEX_LIST returns some MSR indices that KVM_GET_MSRS fails to get (e.g., PMU,
+// VMX, MCE and Hyper-V related MSRs).
+//
+// Firecracker disables PMU by default in CPUID normalization for leaf 0xa. Due to this, PMU-
+// related MSRs cannot be gotten via KVM_GET_MSRS. The dependency on CPUID leaf 0xa can be found
+// in the following link.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/pmu_intel.c?h=v5.10.176#n325
+//
+// We don't test if firecarcker works with nested virtualization environment. To avoid undefined
+// behavior, we exclude these VMX-related MSRs. You can see that VMX-related MSRs depend on whether
+// nested virtualization is allowed in the following link.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/vmx.c?h=v5.10.176#n1950
+//
+// In kernel 4.14, IA32_MCG_CTL MSR can be gotten only if IA32_MCG_CAP.CTL_P[8] = 1 for vcpu.
+// IA32_MCG_CAP can be set up via KVM_X86_SETUP_MCE, but firecracker does not support this. To
+// avoid KVM_GET_MSRS failure on kernel 4.14, MCE-related MSRs are removed from the list.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/x86.c?h=v4.14.311#n2553
+//
+// As firecracker does not work with Hyper-V, it is safe to ignore Hyper-V related MSRs.
+//
+// IA32_TSC MSR is for time stamp counter and can change as time goes on. KVM_GET_MSRS can get this
+// MSR safely, but should not be included in the dumped CPU configuration because it is used to
+// check diff between CPU models and detect changes of CPU configuration caused by firecracker/KVM/
+// BIOS changes.
+//
+// The list of MSRs that is potentially returned by KVM_GET_MSR_INDEX_LIST can be found in the
+// following link (`msrs_to_save_all` + `num_emulated_msrs`):
+// https://elixir.bootlin.com/linux/v5.10.176/source/arch/x86/kvm/x86.c#L1211
+static UNDUMPABLE_MSR_RANGES: &[MsrRange] = &[
+    // MSR_IA32_TSC
+    MSR_RANGE!(MSR_IA32_TSC),
+    // MSR_ARCH_PERFMON_PERFCTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_PERFCTR0, 18),
+    // MSR_ARCH_PERFMON_EVENTSELn
+    MSR_RANGE!(MSR_ARCH_PERFMON_EVENTSEL0, 18),
+    // MSR_ARCH_PERFMON_FIXED_CTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_FIXED_CTR0, 3),
+    // MSR_CORE_PERF_FIXED_CTR_CTRL
+    // MSR_CORE_PERF_GLOBAL_STATUS
+    // MSR_CORE_PERF_GLOBAL_CTRL
+    // MSR_CORE_PERF_GLOBAL_OVF_CTRL
+    MSR_RANGE!(MSR_CORE_PERF_FIXED_CTR_CTRL, 4),
+    // MSR_K7_EVNTSELn
+    MSR_RANGE!(MSR_K7_EVNTSEL0, 4),
+    // MSR_K7_PERFCTRn
+    MSR_RANGE!(MSR_K7_PERFCTR0, 4),
+    // MSR_F15H_PERF_CTLn
+    MSR_RANGE!(MSR_F15H_PERF_CTL0, 12),
+    // MSR_F15H_PERF_CTRn
+    MSR_RANGE!(MSR_F15H_PERF_CTR0, 12),
+    // MSR_IA32_VMX_BASIC
+    // MSR_IA32_VMX_PINBASED_CTLS
+    // MSR_IA32_VMX_PROCBASED_CTLS
+    // MSR_IA32_VMX_EXIT_CTLS
+    // MSR_IA32_VMX_ENTRY_CTLS
+    // MSR_IA32_VMX_MISC
+    // MSR_IA32_VMX_CR0_FIXED0
+    // MSR_IA32_VMX_CR0_FIXED1
+    // MSR_IA32_VMX_CR4_FIXED0
+    // MSR_IA32_VMX_CR4_FIXED1
+    // MSR_IA32_VMX_VMCS_ENUM
+    // MSR_IA32_VMX_PROCBASED_CTLS2
+    // MSR_IA32_VMX_EPT_VPID_CAP
+    // MSR_IA32_VMX_TRUE_PINBASED_CTLS
+    // MSR_IA32_VMX_TRUE_PROCBASED_CTLS
+    // MSR_IA32_VMX_TRUE_EXIT_CTLS
+    // MSR_IA32_VMX_TRUE_ENTRY_CTLS
+    // MSR_IA32_VMX_VMFUNC
+    MSR_RANGE!(MSR_IA32_VMX_BASIC, 18),
+    // MSR_IA32_MCG_STATUS
+    // MSR_IA32_MCG_CTL
+    MSR_RANGE!(MSR_IA32_MCG_STATUS, 2),
+    // MSR_IA32_MCG_EXT_CTL
+    MSR_RANGE!(MSR_IA32_MCG_EXT_CTL),
+    // HV_X64_MSR_GUEST_OS_ID
+    // HV_X64_MSR_HYPERCALL
+    // HV_X64_MSR_VP_INDEX
+    // HV_X64_MSR_RESET
+    MSR_RANGE!(HV_X64_MSR_CRASH_P0, 6),
+    // HV_X64_MSR_VP_RUNTIME
+    MSR_RANGE!(HV_X64_MSR_GUEST_OS_ID, 4),
+    // HV_X64_MSR_TIME_REF_COUNT
+    // HV_X64_MSR_REFERENCE_TSC
+    // HV_X64_MSR_TSC_FREQUENCY
+    // HV_X64_MSR_APIC_FREQUENCY
+    MSR_RANGE!(HV_X64_MSR_TIME_REF_COUNT, 4),
+    // HV_X64_MSR_CRASH_Pn
+    // HV_X64_MSR_CRASH_CTL
+    MSR_RANGE!(HV_X64_MSR_VP_RUNTIME),
+    // HV_X64_MSR_SCONTROL
+    MSR_RANGE!(HV_X64_MSR_SCONTROL),
+    // HV_X64_MSR_STIMER0_CONFIG
+    MSR_RANGE!(HV_X64_MSR_STIMER0_CONFIG),
+    // HV_X64_MSR_VP_ASSIST_PAGE
+    MSR_RANGE!(HV_X64_MSR_VP_ASSIST_PAGE),
+    // HV_X64_MSR_REENLIGHTENMENT_CONTROL
+    // HV_X64_MSR_TSC_EMULATION_CONTROL
+    // HV_X64_MSR_TSC_EMULATION_STATUS
+    MSR_RANGE!(HV_X64_MSR_REENLIGHTENMENT_CONTROL, 3),
+    // HV_X64_MSR_SYNDBG_CONTROL
+    // HV_X64_MSR_SYNDBG_STATUS
+    // HV_X64_MSR_SYNDBG_SEND_BUFFER
+    // HV_X64_MSR_SYNDBG_RECV_BUFFER
+    // HV_X64_MSR_SYNDBG_PENDING_BUFFER
+    MSR_RANGE!(HV_X64_MSR_SYNDBG_CONTROL, 5),
+    // HV_X64_MSR_SYNDBG_OPTIONS
+    MSR_RANGE!(HV_X64_MSR_SYNDBG_OPTIONS),
+];
+
+/// Specifies whether a particular MSR should be dumped.
+///
+/// # Arguments
+///
+/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+pub fn msr_should_dump(index: u32) -> bool {
+    !UNDUMPABLE_MSR_RANGES
+        .iter()
+        .any(|range| range.contains(index))
+}
+
+/// Returns the list of dumpable MSR indices.
+///
+/// # Arguments
+///
+/// * `kvm_fd` - Ref to `Kvm`
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList> {
+    let mut msr_index_list = kvm_fd
+        .get_msr_index_list()
+        .map_err(Error::GetMsrIndexList)?;
+    msr_index_list.retain(|msr_index| msr_should_dump(*msr_index));
+    Ok(msr_index_list)
+}
+
 /// Creates and populates required MSR entries for booting Linux on X86_64.
 pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     let msr_entry_default = |msr| kvm_msr_entry {
@@ -335,11 +478,20 @@ mod tests {
     }
 
     #[test]
-    fn test_msr_allowlist() {
+    fn test_msr_list_to_serialize() {
         for range in SERIALIZABLE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 let should = !matches!(msr, MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
+            }
+        }
+    }
+
+    #[test]
+    fn test_msr_list_to_dump() {
+        for range in UNDUMPABLE_MSR_RANGES.iter() {
+            for msr in range.base..(range.base + range.nmsrs) {
+                assert!(!msr_should_dump(msr));
             }
         }
     }
