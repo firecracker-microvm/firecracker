@@ -18,7 +18,7 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # The test infra assumes it is running from the `tests` directory.
 os.chdir("tests")
 from conftest import ARTIFACTS_COLLECTION as ARTIFACTS
-from framework.artifacts import create_net_devices_configuration
+from framework.artifacts import NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.microvm import Microvm
@@ -38,7 +38,7 @@ DEST_KERNEL_NAME = "vmlinux.bin"
 ROOTFS_KEY = "ubuntu-18.04"
 
 # Define 4 net device configurations.
-net_ifaces = create_net_devices_configuration(4)
+net_ifaces = [NetIfaceConfig.with_id(i) for i in range(4)]
 
 # Allow routing requests to MMDS through eth3.
 net_iface_for_mmds = net_ifaces[3]
@@ -110,9 +110,7 @@ def configure_network_interfaces(microvm):
     run_cmd(f"ip netns add {microvm.jailer.netns}")
 
     for net_iface in net_ifaces:
-        _tap = microvm.create_tap_and_ssh_config(
-            net_iface.host_ip, net_iface.guest_ip, net_iface.netmask, net_iface.tap_name
-        )
+        microvm.add_net_iface(net_iface)
 
 
 def validate_mmds(ssh_connection, data_store):
@@ -120,7 +118,7 @@ def validate_mmds(ssh_connection, data_store):
     # Configure interface to route MMDS requests
     cmd = "ip route add {} dev {}".format(IPV4_ADDRESS, net_iface_for_mmds.dev_name)
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stdout.read() == stderr.read() == ""
+    assert stdout == stderr == ""
 
     # Fetch metadata to ensure MMDS is accessible.
     token = generate_mmds_session_token(ssh_connection, IPV4_ADDRESS, token_ttl=60)
@@ -225,8 +223,8 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     # Get ssh key from read-only artifact.
     ssh_key = rootfs.ssh_key()
     ssh_key.download(vm.path)
-    vm.ssh_config["ssh_key_path"] = ssh_key.local_path()
-    os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
+    vm.ssh_key = ssh_key.local_path()
+    os.chmod(vm.ssh_key, 0o400)
 
     fn = partial(add_cpu_template, cpu_template)
     _configure_vm_from_json(vm, VM_CONFIG_FILE, json_xform=fn)
@@ -252,9 +250,8 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     populate_mmds(vm, data_store)
 
     # Iterate and validate connectivity on all ifaces after boot.
-    for iface in net_ifaces:
-        vm.ssh_config["hostname"] = iface.guest_ip
-        exit_code, _, _ = vm.ssh.execute_command("sync")
+    for i in range(4):
+        exit_code, _, _ = vm.ssh_iface(i).run("sync")
         assert exit_code == 0
 
     # Validate MMDS.

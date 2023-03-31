@@ -10,7 +10,6 @@ import pytest
 
 import framework.stats as st
 import host_tools.drive as drive_tools
-from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -30,9 +29,6 @@ USEC_IN_MSEC = 1000
 
 # Measurements tags.
 RESTORE_LATENCY = "latency"
-
-# Define 4 net device configurations.
-net_ifaces = create_net_devices_configuration(4)
 
 
 # pylint: disable=R0903
@@ -96,7 +92,6 @@ def get_snap_restore_latency(
 ):
     """Restore snapshots with various configs to measure latency."""
     scratch_drives = get_scratch_drives()
-    ifaces = net_ifaces[:nets]
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(use_ramdisk=True, log_level="Info")
@@ -107,19 +102,8 @@ def get_snap_restore_latency(
         use_initrd=True,
     )
 
-    for iface in ifaces:
-        vm.create_tap_and_ssh_config(
-            host_ip=iface.host_ip,
-            guest_ip=iface.guest_ip,
-            netmask_len=iface.netmask,
-            tapname=iface.tap_name,
-        )
-        response = vm.network.put(
-            iface_id=iface.dev_name,
-            host_dev_name=iface.tap_name,
-            guest_mac=iface.guest_mac,
-        )
-        assert vm.api_session.is_status_no_content(response.status_code)
+    for i in range(nets):
+        vm.add_net_iface()
 
     extra_disk_paths = []
     if blocks > 1:

@@ -35,19 +35,18 @@ NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
 
 
-def test_vsock(
-    test_microvm_with_api, network_config, bin_vsock_path, test_fc_session_root_path
-):
+def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
     """
     Test guest and host vsock initiated connections.
 
     Check the module docstring for details on the setup.
     """
+
     vm = test_microvm_with_api
     vm.spawn()
 
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
 
     vm.start()
@@ -86,17 +85,14 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     check_host_connections(vm, uds_path, blob_path, blob_hash)
 
 
-def test_vsock_epipe(
-    test_microvm_with_api, network_config, bin_vsock_path, test_fc_session_root_path
-):
+def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
     """
     vm = test_microvm_with_api
     vm.spawn()
-
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
 
     # Configure metrics to assert against `sigpipe` count.

@@ -128,7 +128,6 @@ def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
     microvm_factory,
-    network_config,
     guest_kernel,
     rootfs,
     vcpus,
@@ -150,7 +149,7 @@ def test_vsock_throughput(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     # Create a vsock device
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()

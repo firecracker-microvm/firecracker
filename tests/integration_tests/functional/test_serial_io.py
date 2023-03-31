@@ -177,7 +177,7 @@ def test_serial_dos(test_microvm_with_api):
     )
 
 
-def test_serial_block(test_microvm_with_api, network_config):
+def test_serial_block(test_microvm_with_api):
     """
     Test that writing to stdout never blocks the vCPU thread.
     """
@@ -191,8 +191,7 @@ def test_serial_block(test_microvm_with_api, network_config):
         mem_size_mib=512,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
-
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     # Configure the metrics.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")

@@ -12,7 +12,6 @@ import pytest
 import requests
 
 from framework import utils
-from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
 from framework.utils_cpu_templates import skip_on_arm
 
@@ -40,14 +39,13 @@ def run_microvm(microvm, network_config, cpu_template=None, custom_cpu_template=
     microvm.basic_config(cpu_template=cpu_template)
     if custom_cpu_template:
         microvm.cpu_config(custom_cpu_template)
-
-    tap, host_ip, guest_ip = microvm.ssh_network_config(network_config, "1")
+    microvm.add_net_iface()
     microvm.start()
 
-    return microvm, tap, host_ip, guest_ip
+    return microvm
 
 
-def take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip):
+def take_snapshot_and_restore(microvm_factory, src_vm):
     """
     Take a snapshot from the source microVM, restore a destination microVM from the snapshot
     and return the destination VM.
@@ -66,13 +64,7 @@ def take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip):
     # Create a destination VM
     dst_vm = microvm_factory.build()
     dst_vm.spawn()
-    dst_vm.create_tap_and_ssh_config(
-        host_ip=host_ip,
-        guest_ip=guest_ip,
-        netmask_len=DEFAULT_NETMASK,
-        tapname=tap.name,
-    )
-    dst_vm.ssh_config["ssh_key_path"] = src_vm.ssh_config["ssh_key_path"]
+    dst_vm.add_net_iface(api=False)
 
     # Restore the destination VM from the snapshot
     dst_vm.restore_from_snapshot(
@@ -90,9 +82,9 @@ def run_spectre_meltdown_checker_on_guest(
 ):
     """Run the spectre / meltdown checker on guest"""
     remote_path = f"/bin/{CHECKER_FILENAME}"
-    microvm.ssh.scp_file(spectre_meltdown_checker, remote_path)
+    microvm.ssh.scp_put(spectre_meltdown_checker, remote_path)
     ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
-    assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
+    assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
 
 @pytest.mark.no_block_pr
@@ -120,7 +112,7 @@ def test_spectre_meltdown_checker_on_guest(
     """
     Test with the spectre / meltdown checker on guest.
     """
-    microvm, _, _, _ = run_microvm(test_microvm_with_spectre_meltdown, network_config)
+    microvm = run_microvm(test_microvm_with_spectre_meltdown, network_config)
 
     run_spectre_meltdown_checker_on_guest(
         microvm,
@@ -136,17 +128,14 @@ def test_spectre_meltdown_checker_on_guest(
 def test_spectre_meltdown_checker_on_restored_guest(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
-    network_config,
     microvm_factory,
 ):
     """
     Test with the spectre / meltdown checker on a restored guest.
     """
-    src_vm, tap, host_ip, guest_ip = run_microvm(
-        test_microvm_with_spectre_meltdown, network_config
-    )
+    src_vm = run_microvm(test_microvm_with_spectre_meltdown)
 
-    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm)
 
     run_spectre_meltdown_checker_on_guest(
         dst_vm,
@@ -169,7 +158,7 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     """
     Test with the spectre / meltdown checker on guest with CPU template.
     """
-    microvm, _, _, _ = run_microvm(
+    microvm = run_microvm(
         test_microvm_with_spectre_meltdown, network_config, cpu_template
     )
 
@@ -215,18 +204,15 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
-    network_config,
     cpu_template,
     microvm_factory,
 ):
     """
     Test with the spectre / meltdown checker on a restored guest with a CPU template.
     """
-    src_vm, tap, host_ip, guest_ip = run_microvm(
-        test_microvm_with_spectre_meltdown, network_config, cpu_template
-    )
+    src_vm = run_microvm(test_microvm_with_spectre_meltdown, cpu_template)
 
-    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm)
 
     run_spectre_meltdown_checker_on_guest(
         dst_vm,
@@ -275,18 +261,17 @@ def check_vulnerabilities_files_on_guest(microvm):
     ecode, stdout, stderr = microvm.ssh.execute_command(
         f"grep -r Vulnerable {vuln_dir}"
     )
-    assert ecode == 1, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
+    assert ecode == 1, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
 
 @pytest.mark.no_block_pr
 def test_vulnerabilities_files_on_guest(
     test_microvm_with_api,
-    network_config,
 ):
     """
     Test vulnerabilities files on guest.
     """
-    microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config)
+    microvm = run_microvm(test_microvm_with_api)
 
     check_vulnerabilities_files_on_guest(microvm)
 
@@ -294,15 +279,14 @@ def test_vulnerabilities_files_on_guest(
 @pytest.mark.no_block_pr
 def test_vulnerabilities_files_on_restored_guest(
     test_microvm_with_api,
-    network_config,
     microvm_factory,
 ):
     """
     Test vulnerabilities files on a restored guest.
     """
-    src_vm, tap, host_ip, guest_ip = run_microvm(test_microvm_with_api, network_config)
+    src_vm = run_microvm(test_microvm_with_api)
 
-    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm)
 
     check_vulnerabilities_files_on_guest(dst_vm)
 
@@ -311,13 +295,12 @@ def test_vulnerabilities_files_on_restored_guest(
 @skip_on_arm
 def test_vulnerabilities_files_on_guest_with_template(
     test_microvm_with_api,
-    network_config,
     cpu_template,
 ):
     """
     Test vulnerabilities files on guest with CPU template.
     """
-    microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config, cpu_template)
+    microvm = run_microvm(test_microvm_with_api, cpu_template)
 
     check_vulnerabilities_files_on_guest(microvm)
 
@@ -345,18 +328,15 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
 @skip_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_template(
     test_microvm_with_api,
-    network_config,
     cpu_template,
     microvm_factory,
 ):
     """
     Test vulnerabilities files on a restored guest with a CPU template.
     """
-    src_vm, tap, host_ip, guest_ip = run_microvm(
-        test_microvm_with_api, network_config, cpu_template
-    )
+    src_vm = run_microvm(test_microvm_with_api, cpu_template)
 
-    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm)
 
     check_vulnerabilities_files_on_guest(dst_vm)
 

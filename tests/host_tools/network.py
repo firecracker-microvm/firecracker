@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for test host microVM network setup."""
 
-import os
+import contextlib
 import random
 import string
-from io import StringIO
+from pathlib import Path
 
 from nsenter import Namespace
 from retry import retry
@@ -14,75 +14,72 @@ from framework import utils
 
 
 class SSHConnection:
-    """SSHConnection encapsulates functionality for microVM SSH interaction.
+    """
+    SSHConnection encapsulates functionality for microVM SSH interaction.
 
     This class should be instantiated as part of the ssh fixture with the
     the hostname obtained from the MAC address, the username for logging into
     the image and the path of the ssh key.
 
-    The ssh config dictionary contains the following fields:
-    * hostname
-    * username
-    * ssh_key_path
-
     This translates into an SSH connection as follows:
     ssh -i ssh_key_path username@hostname
     """
 
-    def __init__(self, ssh_config):
+    def __init__(self, netns_path, ssh_key: Path, host, user):
         """Instantiate a SSH client and connect to a microVM."""
-        self.netns_file_path = ssh_config["netns_file_path"]
-        self.ssh_config = ssh_config
-        assert os.path.exists(ssh_config["ssh_key_path"])
+        self.netns_file_path = netns_path
+        self.ssh_key = ssh_key
+        # check that the key exists and the permissions are 0o400
+        # This saves a lot of debugging time.
+        assert ssh_key.exists()
+        ssh_key.chmod(0o400)
+        assert (ssh_key.stat().st_mode & 0o777) == 0o400
+        self.host = host
+        self.user = user
+
+        self.options = [
+            "-q",
+            "-o",
+            "ConnectTimeout=1",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "PreferredAuthentications=publickey",
+            "-i",
+            str(self.ssh_key),
+        ]
 
         self._init_connection()
 
-    def execute_command(self, cmd_string):
-        """Execute the command passed as a string in the ssh context."""
-        exit_code, stdout, stderr = self._exec(cmd_string)
-        return exit_code, StringIO(stdout), StringIO(stderr)
+    def remote_path(self, path):
+        """Convert a path to remote"""
+        return f"{self.user}@{self.host}:{path}"
 
-    run = execute_command
-
-    def scp_file(self, local_path, remote_path):
-        """Copy a files to the VM using scp."""
-        cmd = (
-            "scp -o StrictHostKeyChecking=no"
-            " -o UserKnownHostsFile=/dev/null"
-            " -i {} {} {}@{}:{}"
-        ).format(
-            self.ssh_config["ssh_key_path"],
+    def scp_put(self, local_path, remote_path):
+        """Copy files to the VM using scp."""
+        cmd = [
+            "scp",
+            *self.options,
             local_path,
-            self.ssh_config["username"],
-            self.ssh_config["hostname"],
-            remote_path,
-        )
-        if self.netns_file_path:
-            with Namespace(self.netns_file_path, "net"):
-                utils.run_cmd(cmd)
-        else:
-            utils.run_cmd(cmd)
+            self.remote_path(remote_path),
+        ]
+        ecode, _, stderr = self._exec(cmd)
+        assert ecode == 0, stderr
 
-    def scp_get_file(self, remote_path, local_path):
+    def scp_get(self, remote_path, local_path):
         """Copy files from the VM using scp."""
-        cmd = (
-            "scp -o StrictHostKeyChecking=no"
-            " -o UserKnownHostsFile=/dev/null"
-            " -i {} {}@{}:{} {}"
-        ).format(
-            self.ssh_config["ssh_key_path"],
-            self.ssh_config["username"],
-            self.ssh_config["hostname"],
-            remote_path,
+        cmd = [
+            "scp",
+            *self.options,
+            self.remote_path(remote_path),
             local_path,
-        )
-        if self.netns_file_path:
-            with Namespace(self.netns_file_path, "net"):
-                utils.run_cmd(cmd)
-        else:
-            utils.run_cmd(cmd)
+        ]
+        ecode, _, stderr = self._exec(cmd)
+        assert ecode == 0, stderr
 
-    @retry(ConnectionError, delay=0.1, tries=20)
+    @retry(ConnectionError, delay=0.15, tries=20)
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
 
@@ -91,48 +88,35 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        ecode, _, _ = self._exec("true")
+        ecode, _, _ = self.execute_command("true")
         if ecode != 0:
             raise ConnectionError
 
+    def execute_command(self, cmd_string):
+        """Execute the command passed as a string in the ssh context."""
+        return self._exec(
+            [
+                "ssh",
+                *self.options,
+                f"{self.user}@{self.host}",
+                cmd_string,
+            ]
+        )
+
+    run = execute_command
+
     def _exec(self, cmd):
         """Private function that handles the ssh client invocation."""
-
-        def _exec_raw(_cmd):
-            # pylint: disable=subprocess-run-check
-            cp = utils.run_cmd(
-                [
-                    "ssh",
-                    "-q",
-                    "-o",
-                    "ConnectTimeout=1",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                    "-i",
-                    self.ssh_config["ssh_key_path"],
-                    "{}@{}".format(
-                        self.ssh_config["username"], self.ssh_config["hostname"]
-                    ),
-                    _cmd,
-                ],
-                ignore_return_code=True,
-            )
-
-            _res = (cp.returncode, cp.stdout, cp.stderr)
-            return _res
 
         # TODO: If a microvm runs in a particular network namespace, we have to
         # temporarily switch to that namespace when doing something that routes
         # packets over the network, otherwise the destination will not be
         # reachable. Use a better setup/solution at some point!
-        if self.netns_file_path:
-            with Namespace(self.netns_file_path, "net"):
-                res = _exec_raw(cmd)
-        else:
-            res = _exec_raw(cmd)
-        return res
+        ctx = contextlib.nullcontext()
+        if self.netns_file_path is not None:
+            ctx = Namespace(self.netns_file_path, "net")
+        with ctx:
+            return utils.run_cmd(cmd, ignore_return_code=True)
 
 
 def mac_from_ip(ip_address):
@@ -149,18 +133,15 @@ def mac_from_ip(ip_address):
     :return: MAC address from IP
     """
     mac_as_list = ["06", "00"]
-    mac_as_list.extend(
-        list(map(lambda val: "{0:02x}".format(int(val)), ip_address.split(".")))
-    )
-
-    return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
+    mac_as_list.extend(f"{int(octet):02x}" for octet in ip_address.split("."))
+    return ":".join(mac_as_list)
 
 
 def get_guest_net_if_name(ssh_connection, guest_ip):
     """Get network interface name based on its IPv4 address."""
     cmd = "ip a s | grep '{}' | tr -s ' ' | cut -d' ' -f6".format(guest_ip)
     _, guest_if_name, _ = ssh_connection.execute_command(cmd)
-    if_name = guest_if_name.read().strip()
+    if_name = guest_if_name.strip()
     return if_name if if_name != "" else None
 
 
@@ -176,11 +157,8 @@ class Tap:
     def __init__(self, name, netns, ip=None):
         """Set up the name and network namespace for this tap interface.
 
-        It also creates a new tap device, and brings it up. The tap will
-        stay on the host as long as the object obtained by instantiating this
-        class will be in scope. Once it goes out of scope, its destructor will
-        get called and the tap interface will get removed.
-        The function also moves the interface to the specified namespace.
+        It also creates a new tap device, brings it up and moves the interface
+        to the specified namespace.
         """
         # Avoid a conflict if two tests want to create the same tap device tap0
         # in the host before moving it into its own netns

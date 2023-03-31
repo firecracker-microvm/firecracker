@@ -174,14 +174,13 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
-    ecode, stdout, stderr = vm.ssh.run(cmd)
+    ecode, _, stderr = vm.ssh.run(cmd)
     echo_server.terminate()
     rc = echo_server.wait()
     # socat exits with 128 + 15 (SIGTERM)
     assert rc == 143
 
-    print(stdout.read())
-    assert ecode == 0, stderr.read()
+    assert ecode == 0, stderr
 
 
 def make_host_port_path(uds_path, port):
@@ -210,8 +209,8 @@ def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_hel
     ecode, _, _ = ssh_connection.execute_command(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
-    ssh_connection.scp_file(vsock_helper, "/bin/vsock_helper")
-    ssh_connection.scp_file(blob_path, vm_blob_path)
+    ssh_connection.scp_put(vsock_helper, "/bin/vsock_helper")
+    ssh_connection.scp_put(blob_path, vm_blob_path)
 
 
 def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connection):

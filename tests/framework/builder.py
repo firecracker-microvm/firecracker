@@ -124,8 +124,8 @@ class MicrovmBuilder:
 
         # Download ssh key into the microvm root.
         ssh_key.download(vm.path)
-        vm.ssh_config["ssh_key_path"] = ssh_key.local_path()
-        os.chmod(vm.ssh_config["ssh_key_path"], 0o400)
+        vm.ssh_key = ssh_key.local_path()
+        os.chmod(vm.ssh_key, 0o400)
 
         # Provide a default network configuration.
         if net_ifaces is None or len(net_ifaces) == 0:
@@ -135,18 +135,7 @@ class MicrovmBuilder:
 
         # Configure network interfaces using artifacts.
         for iface in ifaces:
-            vm.create_tap_and_ssh_config(
-                host_ip=iface.host_ip,
-                guest_ip=iface.guest_ip,
-                netmask_len=iface.netmask,
-                tapname=iface.tap_name,
-            )
-            response = vm.network.put(
-                iface_id=iface.dev_name,
-                host_dev_name=iface.tap_name,
-                guest_mac=iface.guest_mac,
-            )
-            assert vm.api_session.is_status_no_content(response.status_code)
+            vm.add_net_iface(iface)
 
         with open(config.local_path(), encoding="utf-8") as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
@@ -244,16 +233,11 @@ class MicrovmBuilder:
                 else vm.create_jailed_resource(disk)
             )
 
-        vm.ssh_config["ssh_key_path"] = snapshot.ssh_key.local_path()
+        vm.ssh_key = snapshot.ssh_key.local_path()
 
         # Create network interfaces.
         for iface in snapshot.net_ifaces:
-            vm.create_tap_and_ssh_config(
-                host_ip=iface.host_ip,
-                guest_ip=iface.guest_ip,
-                netmask_len=iface.netmask,
-                tapname=iface.tap_name,
-            )
+            vm.add_net_iface(iface, api=False)
 
         full_fc_version = vm.version.get_from_api().json()["firecracker_version"]
         if utils.compare_dirty_versions(full_fc_version, "1.0.0") > 0:
@@ -277,12 +261,6 @@ class MicrovmBuilder:
                 timeout=timeout,
             )
         status_ok = vm.api_session.is_status_no_content(response.status_code)
-
-        # Verify response status and cleanup if needed before assert.
-        if not status_ok:
-            # Destroy VM here before we assert.
-            vm.kill()
-            del vm
 
         assert status_ok, response.text
 

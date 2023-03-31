@@ -142,7 +142,7 @@ class MicrovmImageS3Fetcher:
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
                 # Add the key path to the config dictionary and set
                 # permissions.
-                microvm.ssh_config["ssh_key_path"] = microvm_dest_path
+                microvm.ssh_key = microvm_dest_path
                 os.chmod(microvm_dest_path, 0o400)
 
     def list_microvm_images(self, capability_filter: List[str] = None):

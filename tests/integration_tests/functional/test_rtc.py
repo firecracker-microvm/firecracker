@@ -14,7 +14,7 @@ DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 @pytest.mark.skipif(
     platform.machine() != "aarch64", reason="RTC exists only on aarch64."
 )
-def test_rtc(test_microvm_with_api, network_config):
+def test_rtc(test_microvm_with_api):
     """
     Test RTC functionality on aarch64.
     """
@@ -22,17 +22,16 @@ def test_rtc(test_microvm_with_api, network_config):
     vm.spawn()
     vm.memory_monitor = None
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
-
+    vm.add_net_iface()
     vm.start()
     # check that the kernel creates an rtcpl031 base device.
     _, stdout, _ = vm.ssh.execute_command("dmesg")
-    rtc_log = re.findall(DMESG_LOG_REGEX, stdout.read())
+    rtc_log = re.findall(DMESG_LOG_REGEX, stdout)
     assert rtc_log is not None
 
     _, stdout, _ = vm.ssh.execute_command("stat /dev/rtc0")
-    assert "character special file" in stdout.read()
+    assert "character special file" in stdout
 
     _, host_stdout, _ = utils.run_cmd("date +%s")
     _, guest_stdout, _ = vm.ssh.execute_command("date +%s")
-    assert abs(int(guest_stdout.read()) - int(host_stdout)) < 5
+    assert abs(int(guest_stdout) - int(host_stdout)) < 5
