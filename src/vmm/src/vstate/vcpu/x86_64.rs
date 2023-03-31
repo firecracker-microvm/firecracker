@@ -813,6 +813,19 @@ mod tests {
     }
 
     #[test]
+    fn test_get_msrs_with_msrs_to_dump() {
+        // Test `get_msrs()` with the MSR indices that should be dumped.
+        // All the MSR indices should be valid and the call should succeed.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+
+        let kvm = kvm_ioctls::Kvm::new().unwrap();
+        let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
+        assert!(vcpu
+            .get_msrs(msrs_to_dump.as_slice().iter().copied().collect())
+            .is_ok());
+    }
+
+    #[test]
     fn test_get_msrs_with_invalid_msr_index() {
         // Test `get_msrs()` with unsupported MSR indices. This should return
         // `VcpuGetMsrsIncomplete` error that happens when `KVM_GET_MSRS` fails to populdate
