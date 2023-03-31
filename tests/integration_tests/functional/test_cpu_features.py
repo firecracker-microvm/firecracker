@@ -18,7 +18,6 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
-from framework.artifacts import NetIfaceConfig
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
@@ -106,14 +105,14 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
     "htt",
     [True, False],
 )
-def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
+def test_cpuid(test_microvm_with_api, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
@@ -123,14 +122,14 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
 )
-def test_extended_cache_features(test_microvm_with_api, network_config):
+def test_extended_cache_features(test_microvm_with_api):
     """
     Check extended cache features (leaf 0x80000006).
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     _check_extended_cache_features(vm)
 
@@ -138,7 +137,7 @@ def test_extended_cache_features(test_microvm_with_api, network_config):
 @pytest.mark.skipif(
     PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
 )
-def test_brand_string(test_microvm_with_api, network_config):
+def test_brand_string(test_microvm_with_api):
     """
     Ensure good formatting for the guest brand string.
 
@@ -155,13 +154,18 @@ def test_brand_string(test_microvm_with_api, network_config):
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
     test_microvm.start()
 
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
     _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
-    assert stderr.read() == ""
-    stdout = stdout.read()
+    assert stderr == ""
+
+    line = stdout.rstrip()
+    mo = re.search("^model name\\s+:\\s+(.+)$", line)
+    assert mo
+    guest_brand_string = mo.group(1)
+    assert guest_brand_string
 
     cpu_vendor = cpuid_utils.get_cpu_vendor()
     if cpu_vendor == cpuid_utils.CpuVendor.AMD:
@@ -256,7 +260,7 @@ def msr_cpu_template_fxt(request):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools, network_config
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools
 ):
     """
     Test MSRs that are available to the guest.
@@ -293,14 +297,14 @@ def test_cpu_rdmsr(
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
     vm.start()
-    vm.ssh.scp_file("../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh")
+    vm.ssh.scp_put("../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh")
     _, stdout, stderr = vm.ssh.run("/bin/msr_reader.sh")
-    assert stderr.read() == ""
+    assert stderr == ""
 
     # Load results read from the microvm
     microvm_df = pd.read_csv(stdout)
@@ -348,14 +352,14 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     """
     Read MSR state via SSH and dump it into a file.
     """
-    ssh_conn.scp_file(
+    ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
     _, stdout, stderr = ssh_conn.execute_command(shared_names["msr_reader_guest_fname"])
-    assert stderr.read() == ""
+    assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
-        file.write(stdout.read())
+        file.write(stdout)
 
 
 @pytest.mark.skipif(
@@ -388,7 +392,7 @@ def test_cpu_wrmsr_snapshot(
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
     vm.spawn()
-    vm.add_net_iface(NetIfaceConfig())
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
@@ -400,16 +404,16 @@ def test_cpu_wrmsr_snapshot(
     # Make MSR modifications
     msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
     msr_writer_guest_fname = "/bin/msr_writer.sh"
-    vm.ssh.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
+    vm.ssh.scp_put(msr_writer_host_fname, msr_writer_guest_fname)
 
     wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
-    vm.ssh.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
+    vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
     _, _, stderr = vm.ssh.execute_command(
         f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
     )
-    assert stderr.read() == ""
+    assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
     snapshot_artifacts_dir = (
@@ -511,16 +515,9 @@ def test_cpu_wrmsr_restore(
     vm = microvm_factory.build()
     vm.spawn()
     # recreate eth0
-    iface = NetIfaceConfig()
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
+    vm.add_net_iface(api=False)
     # would be better to also capture the SSH key in the snapshot
-    ssh_key = rootfs_msrtools.ssh_key().local_path()
-    vm.ssh_config["ssh_key_path"] = ssh_key
+    vm.ssh_key = rootfs_msrtools.ssh_key().local_path()
 
     mem = snapshot_artifacts_dir / shared_names["mem_fname"]
     vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
@@ -548,10 +545,8 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
     Read CPUID via SSH and dump it into a file.
     """
     _, stdout, stderr = ssh_conn.execute_command("cpuid --one-cpu")
-    assert stderr.read() == ""
-
-    with open(dump_fname, "w", encoding="UTF-8") as file:
-        file.write(stdout.read())
+    assert stderr == ""
+    dump_fname.write_text(stdout, encoding="UTF-8")
 
 
 @pytest.mark.skipif(
@@ -581,7 +576,7 @@ def test_cpu_cpuid_snapshot(
         rootfs=rootfs_msrtools,
     )
     vm.spawn()
-    vm.add_net_iface(NetIfaceConfig())
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=1,
         mem_size_mib=1024,
@@ -674,15 +669,9 @@ def test_cpu_cpuid_restore(
     vm = microvm_factory.build()
     vm.spawn()
     # recreate eth0
-    iface = NetIfaceConfig()
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
+    vm.add_net_iface(api=False)
     ssh_arti = rootfs_msrtools.ssh_key()
-    vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
+    vm.ssh_key = ssh_arti.local_path()
 
     # Restore from the snapshot
     mem = snapshot_artifacts_dir / shared_names["mem_fname"]
@@ -711,7 +700,7 @@ def test_cpu_cpuid_restore(
     PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
-def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
+def test_cpu_template(test_microvm_with_api, cpu_template):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -727,7 +716,7 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
         mem_size_mib=256,
         cpu_template=cpu_template,
     )
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     response = test_microvm.actions.put(action_type="InstanceStart")
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:

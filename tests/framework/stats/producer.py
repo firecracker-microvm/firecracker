@@ -30,9 +30,8 @@ class SSHCommand(Producer):
         """Return the output of the executed ssh command."""
         rc, stdout, stderr = self._ssh_connection.execute_command(self._cmd)
         assert rc == 0
-        assert stderr.read() == ""
-
-        return stdout.read()
+        assert stderr == ""
+        return stdout
 
 
 class HostCommand(Producer):

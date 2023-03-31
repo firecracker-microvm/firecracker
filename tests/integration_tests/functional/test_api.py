@@ -15,7 +15,7 @@ import pytest
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
-from framework.artifacts import NetIfaceConfig, SnapshotType
+from framework.artifacts import SnapshotType, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import skip_on_arm
@@ -37,7 +37,7 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm.start()
 
 
-def test_drive_io_engine(test_microvm_with_api, network_config):
+def test_drive_io_engine(test_microvm_with_api):
     """
     Test io_engine configuration.
 
@@ -48,7 +48,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.spawn()
 
     test_microvm.basic_config(add_root_device=False)
-    test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     supports_io_uring = is_io_uring_supported()
 
@@ -82,9 +82,9 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = test_microvm.ssh.execute_command("sync")
+    rc, _, stderr = test_microvm.ssh.execute_command("true")
     assert rc == 0
-    assert stderr.read() == ""
+    assert stderr == ""
 
     assert test_microvm.full_cfg.get().json()["drives"][0]["io_engine"] == "Sync"
 

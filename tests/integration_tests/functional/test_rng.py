@@ -91,14 +91,6 @@ def test_rng_snapshot(test_microvm_with_rng, microvm_factory):
 
     new_vm = microvm_factory.build()
     new_vm.spawn()
-    iface = NetIfaceConfig()
-    new_vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-    new_vm.ssh_config["ssh_key_path"] = vm.ssh_config["ssh_key_path"]
     new_vm.restore_from_snapshot(
         snapshot_vmstate=snapshot_path,
         snapshot_mem=mem_path,
@@ -168,10 +160,10 @@ def _get_throughput(ssh, random_bytes):
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
     exit_code, _, stderr = ssh.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
     # dd gives its output on stderr
-    return _process_dd_output(stderr.read())
+    return _process_dd_output(stderr)
 
 
 def _check_entropy_rate_limited(ssh, random_bytes, expected_kbps):

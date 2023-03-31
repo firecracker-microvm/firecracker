@@ -85,9 +85,8 @@ def check_guest_cpuid_output(
     """Parse cpuid output inside guest and match with expected one."""
     _, stdout, stderr = vm.ssh.execute_command(guest_cmd)
 
-    assert stderr.read() == ""
-    while True:
-        line = stdout.readline()
+    assert stderr == ""
+    for line in stdout.split("\n"):
         if line != "":
             # All the keys have been matched. Stop.
             if not expected_key_value_store:
@@ -134,7 +133,7 @@ def build_cpuid_dict(raw_cpuid_output):
     """Build CPUID dict based on raw cpuid output"""
     cpuid_dict = {}
     ptrn = re.compile("^ *(.*) (.*): eax=(.*) ebx=(.*) ecx=(.*) edx=(.*)$")
-    for line in raw_cpuid_output:
+    for line in raw_cpuid_output.strip().split("\n"):
         match = re.match(ptrn, line)
         assert match, f"`{line}` does not match the regex pattern."
         leaf, subleaf, eax, ebx, ecx, edx = [int(x, 16) for x in match.groups()]
@@ -159,7 +158,7 @@ def get_guest_cpuid(vm, leaf=None, subleaf=None):
     else:
         read_cpuid_cmd = "cpuid -r | sed '/CPU 1/q' | grep -v CPU"
     _, stdout, stderr = vm.ssh.execute_command(read_cpuid_cmd)
-    assert stderr.read() == ""
+    assert stderr == ""
 
     return build_cpuid_dict(stdout)
 

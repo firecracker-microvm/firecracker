@@ -111,9 +111,9 @@ class IPerf3Test:
         )
         rc, stdout, stderr = self._microvm.ssh.execute_command(pinned_cmd)
 
-        assert rc == 0, stderr.read()
+        assert rc == 0, stderr
 
-        return stdout.read()
+        return stdout
 
     def guest_command(self, port_offset):
         """Builds the command used for spawning an iperf3 client in the guest"""
