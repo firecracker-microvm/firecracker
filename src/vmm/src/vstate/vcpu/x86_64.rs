@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
@@ -286,6 +286,30 @@ impl KvmVcpu {
         Ok(res)
     }
 
+    /// Get CPUID for this vCPU.
+    ///
+    /// Opposed to KVM_GET_SUPPORTED_CPUID, KVM_GET_CPUID2 does not update "nent" with valid number
+    /// of entries on success. Thus, when it passes "num_entries" greater than required, zeroed
+    /// entries follow after valid entries. This function removes such zeroed empty entries.
+    ///
+    /// # Errors
+    ///
+    /// * When [`kvm_ioctls::VcpuFd::get_cpuid2`] returns errors.
+    fn get_cpuid(&self) -> Result<kvm_bindings::CpuId> {
+        let mut cpuid = self
+            .fd
+            .get_cpuid2(KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::VcpuGetCpuid)?;
+
+        // As CPUID.0h:EAX should have the largest CPUID standard function, we don't need to check
+        // EBX, ECX and EDX to confirm whether it is a valid entry.
+        cpuid.retain(|entry| {
+            !(entry.function == 0 && entry.index == 0 && entry.flags == 0 && entry.eax == 0)
+        });
+
+        Ok(cpuid)
+    }
+
     /// Get MSR chunks for the given MSR index list.
     ///
     /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
@@ -380,6 +404,7 @@ impl KvmVcpu {
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
+        let cpuid = self.get_cpuid()?;
         let saved_msrs = self.get_msr_chunks(self.msrs_to_save.iter().copied().collect())?;
         let vcpu_events = self
             .fd
@@ -387,10 +412,7 @@ impl KvmVcpu {
             .map_err(Error::VcpuGetVcpuEvents)?;
 
         Ok(VcpuState {
-            cpuid: self
-                .fd
-                .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
-                .map_err(Error::VcpuGetCpuid)?,
+            cpuid,
             saved_msrs,
             msrs: Msrs::new(0)?,
             debug_regs,
@@ -604,7 +626,7 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::guest_config::cpuid::{Cpuid, RawCpuid};
+    use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey, RawCpuid};
     use crate::guest_config::templates::{
         CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
         StaticCpuTemplate,
@@ -744,8 +766,18 @@ mod tests {
     fn test_vcpu_cpuid_restore() {
         let (_vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();
-        // Mutate the cpuid.
-        state.cpuid.as_mut_slice()[0].eax = 0x1234_5678;
+        // Mutate the CPUID.
+        //
+        // The CPUID obtained with KVM_GET_CPUID2 is empty here, as vcpu configuration (including
+        // KVM_SET_CPUID2 call) has not been done yet.
+        state.cpuid = CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+            function: 0,
+            index: 0,
+            flags: 0,
+            eax: 0x1234_5678,
+            ..Default::default()
+        }])
+        .unwrap();
         assert!(vcpu.restore_state(&state).is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
@@ -754,6 +786,51 @@ mod tests {
 
         // Validate the mutated cpuid is saved.
         assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_empty_cpuid_entries_removed() {
+        // Test that `get_cpuid()` removes zeroed empty entries from the `KVM_GET_CPUID2` result.
+        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config: CpuConfiguration {
+                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
+                msrs: HashMap::new(),
+            },
+        };
+        vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
+            .unwrap();
+
+        // Invalid entries filled with 0 should not exist.
+        let cpuid = vcpu.get_cpuid().unwrap();
+        cpuid.as_slice().iter().for_each(|entry| {
+            assert!(
+                !(entry.function == 0
+                    && entry.index == 0
+                    && entry.flags == 0
+                    && entry.eax == 0
+                    && entry.ebx == 0
+                    && entry.ecx == 0
+                    && entry.edx == 0)
+            );
+        });
+
+        // Leaf 0 should have non-zero entry in `Cpuid`.
+        let cpuid = Cpuid::try_from(RawCpuid::from(cpuid)).unwrap();
+        assert_ne!(
+            cpuid
+                .inner()
+                .get(&CpuidKey {
+                    leaf: 0,
+                    subleaf: 0,
+                })
+                .unwrap(),
+            &CpuidEntry {
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
