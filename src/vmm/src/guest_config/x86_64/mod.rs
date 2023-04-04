@@ -7,7 +7,7 @@ use crate::guest_config::cpuid::Cpuid;
 
 /// CPU configuration for x86_64 CPUs
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct X86_64CpuConfiguration {
+pub struct CpuConfiguration {
     /// CPUID configuration
     pub cpuid: Cpuid,
     /// Register values as a key pair for model specific registers
