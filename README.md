@@ -109,6 +109,7 @@ The **API endpoint** can be used to:
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
 - Add a [vsock socket](docs/vsock.md) to the microVM.
+- Add a [entropy device](docs/entropy.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - [x86_64 only] Stop the microVM.
