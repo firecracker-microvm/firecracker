@@ -6,6 +6,8 @@ use serde::{de, Deserialize, Serialize};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
+use crate::guest_config::templates::{CpuTemplate, GuestConfigError};
+
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 /// Firecracker aims to support small scale workloads only, so limit the maximum
@@ -13,43 +15,34 @@ pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 
 /// Errors associated with configuring the microVM.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum VmConfigError {
     /// The memory size is smaller than the target size set in the balloon device configuration.
+    #[error(
+        "The memory size (MiB) is smaller than the previously set balloon device target size."
+    )]
     IncompatibleBalloonSize,
     /// The memory size is invalid. The memory can only be an unsigned integer.
+    #[error("The memory size (MiB) is invalid.")]
     InvalidMemorySize,
     /// The vcpu count is invalid. When SMT is enabled, the `cpu_count` must be either
     /// 1 or an even number.
+    #[error(
+        "The vCPU number is invalid! The vCPU number can only be 1 or an even number when SMT is \
+         enabled."
+    )]
     InvalidVcpuCount,
     /// Could not get the config of the balloon device from the VM resources, even though a
     /// balloon device was previously installed.
+    #[error(
+        "Could not get the configuration of the previously installed balloon device to validate \
+         the memory size."
+    )]
     InvalidVmState,
-}
-impl std::error::Error for VmConfigError {}
-
-impl fmt::Display for VmConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::VmConfigError::*;
-        match *self {
-            IncompatibleBalloonSize => write!(
-                f,
-                "The memory size (MiB) is smaller than the previously set balloon device target \
-                 size.",
-            ),
-            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
-            InvalidVcpuCount => write!(
-                f,
-                "The vCPU number is invalid! The vCPU number can only be 1 or an even number when \
-                 SMT is enabled.",
-            ),
-            InvalidVmState => write!(
-                f,
-                "Could not get the configuration of the previously installed balloon device to \
-                 validate the memory size.",
-            ),
-        }
-    }
+    /// Error applying template to host-supported config to create
+    /// vCPU configuration for the guest machine.
+    #[error("Error applying CPU template to create guest configuration: {0}")]
+    InvalidCpuTemplateConfig(GuestConfigError),
 }
 
 /// Strongly typed structure that represents the configuration of the
@@ -163,6 +156,54 @@ impl From<VmConfig> for VmUpdateConfig {
             smt: Some(cfg.smt),
             cpu_template: Some(cfg.cpu_template),
             track_dirty_pages: Some(cfg.track_dirty_pages),
+        }
+    }
+}
+
+/// Builder to generate VmConfig while also storing custom templates.
+/// When a custom template is not defined the VmConfig can permit
+/// a static template as defined by the variants in `CpuFeaturesTemplate`.
+/// If a custom template is defined, the `VmConfig.cpu_template` field
+/// will return CpuFeatureTemplate::None.
+#[derive(Clone, Default)]
+pub struct VmConfigBuilder {
+    /// Custom CPU template, if populated, will force a default value
+    /// for the VmConfig.cpu_feature field.
+    pub custom_cpu_template: Option<CpuTemplate>,
+    /// VmConfig structure with default values.
+    pub config: VmConfig,
+}
+
+impl VmConfigBuilder {
+    /// Gives data for initializing VmConfig that
+    /// takes custom CPU templates into consideration.
+    pub fn new(
+        config: VmConfig,
+        custom_cpu_template: Option<CpuTemplate>,
+    ) -> Result<VmConfigBuilder, VmConfigError> {
+        if config.cpu_template != CpuFeaturesTemplate::None && custom_cpu_template.is_some() {
+            Err(VmConfigError::InvalidCpuTemplateConfig(
+                GuestConfigError::ConflictingCpuTemplateConfigured,
+            ))
+        } else {
+            Ok(VmConfigBuilder {
+                custom_cpu_template,
+                config,
+            })
+        }
+    }
+
+    pub(crate) fn build(&self) -> VmConfig {
+        VmConfig {
+            vcpu_count: self.config.vcpu_count,
+            mem_size_mib: self.config.mem_size_mib,
+            smt: self.config.smt,
+            cpu_template: if self.custom_cpu_template.is_some() {
+                CpuFeaturesTemplate::None
+            } else {
+                self.config.cpu_template
+            },
+            track_dirty_pages: self.config.track_dirty_pages,
         }
     }
 }

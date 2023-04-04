@@ -44,17 +44,11 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::cpuid::{Cpuid, RawCpuid};
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::templates::aarch64::{create_guest_cpu_config, Aarch64CpuTemplate};
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::templates::x86_64::{create_guest_cpu_config, X86_64CpuTemplate};
-use crate::guest_config::templates::Error as GuestConfigError;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::x86_64::X86_64CpuConfiguration;
+use crate::guest_config::templates::{
+    create_guest_cpu_config, CpuConfiguration, CpuConfigurationType, CpuTemplate, GuestConfigError,
+};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -285,27 +279,6 @@ fn create_vmm_and_vcpus(
         setup_interrupt_controller(&mut vm)?;
         vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
-        // Apply CPU template to create vCPU custom config if available
-        if let Some(template) = &vm.guest_cpu_template {
-            if let Some(vcpu) = vcpus.get(0) {
-                vm.guest_cpu_config = Some(
-                    create_guest_cpu_config(
-                        template,
-                        &X86_64CpuConfiguration {
-                            cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone()))
-                                .unwrap(),
-                            msrs: get_msr_values(vcpu, template),
-                        },
-                    )
-                    .map_err(ApplyCpuTemplate)?,
-                );
-            } else {
-                return Err(ApplyCpuTemplate(GuestConfigError::Internal(
-                    "Unable to access a vCPU".to_string(),
-                )));
-            }
-        }
-
         // Make stdout non blocking.
         set_stdout_nonblocking();
 
@@ -332,26 +305,6 @@ fn create_vmm_and_vcpus(
     #[cfg(target_arch = "aarch64")]
     {
         vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-
-        // Apply CPU template to create vCPU custom config if available
-        if let Some(template) = &vm.guest_cpu_template {
-            if let Some(vcpu) = vcpus.get(0) {
-                vm.guest_cpu_config = Some(
-                    create_guest_cpu_config(
-                        template,
-                        &Aarch64CpuConfiguration {
-                            regs: get_reg_values(vcpu, template),
-                        },
-                    )
-                    .map_err(ApplyCpuTemplate)?,
-                );
-            } else {
-                return Err(ApplyCpuTemplate(GuestConfigError::Internal(
-                    "Unable to access a vCPU".to_string(),
-                )));
-            }
-        }
-
         setup_interrupt_controller(&mut vm, vcpu_count)?;
     }
 
@@ -374,14 +327,14 @@ fn create_vmm_and_vcpus(
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unused)]
-fn get_msr_values(_vcpu: &Vcpu, _template: &X86_64CpuTemplate) -> HashMap<u32, u64> {
+fn get_msr_values(_vcpu: &Vcpu, _template: &CpuTemplate) -> HashMap<u32, u64> {
     // TODO - Use a created vCPU to retrieve MSR values
     Default::default()
 }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unused)]
-fn get_reg_values(_vcpu: &Vcpu, _template: &Aarch64CpuTemplate) -> HashMap<u64, u128> {
+fn get_reg_values(_vcpu: &Vcpu, _template: &CpuTemplate) -> HashMap<u64, u128> {
     // TODO - Use a created vCPU to retrieve register values
     Default::default()
 }
@@ -425,7 +378,16 @@ pub fn build_microvm_for_boot(
         track_dirty_pages,
         vm_resources.vm_config().vcpu_count,
     )?;
-    let vcpu_config = vm_resources.custom_vcpu_config(vmm.vm.guest_cpu_config.clone());
+
+    let vcpu_config = if let Some(vcpu) = vcpus.get(0) {
+        vm_resources.vcpu_config(
+            build_guest_cpu_config(vm_resources, &vmm.vm, vcpu).map_err(ApplyCpuTemplate)?,
+        )
+    } else {
+        return Err(ApplyCpuTemplate(GuestConfigError::Internal(
+            "Unable to access a vCPU".to_string(),
+        )));
+    };
 
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
@@ -496,6 +458,37 @@ pub fn build_microvm_for_boot(
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
+}
+
+#[allow(unused_variables)]
+fn build_guest_cpu_config(
+    vm_resources: &VmResources,
+    vm: &Vm,
+    vcpu: &Vcpu,
+) -> Result<CpuConfigurationType, GuestConfigError> {
+    let mut cpu_config: Option<CpuConfiguration> = None;
+    if let Some(custom_template) = &vm_resources.vm_config.custom_cpu_template {
+        #[cfg(target_arch = "x86_64")]
+        let cpu_config_result = create_guest_cpu_config(
+            custom_template,
+            &CpuConfiguration {
+                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
+                msrs: get_msr_values(vcpu, custom_template),
+            },
+        );
+
+        #[cfg(target_arch = "aarch64")]
+        let cpu_config_result = create_guest_cpu_config(
+            custom_template,
+            &CpuConfiguration {
+                regs: get_reg_values(vcpu, custom_template),
+            },
+        );
+
+        cpu_config = Some(cpu_config_result?);
+    }
+
+    CpuConfigurationType::from(Some(vm_resources.vm_config.config.cpu_template), cpu_config)
 }
 
 /// Error type for [`build_microvm_from_snapshot`].
@@ -771,9 +764,7 @@ pub(crate) fn setup_kvm_vm(
     let kvm = KvmContext::new()
         .map_err(Error::KvmContext)
         .map_err(Internal)?;
-    let mut vm = Vm::new(kvm.fd(), None)
-        .map_err(Error::Vm)
-        .map_err(Internal)?;
+    let mut vm = Vm::new(kvm.fd()).map_err(Error::Vm).map_err(Internal)?;
     vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
         .map_err(Error::Vm)
         .map_err(Internal)?;

@@ -1,8 +1,87 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+
+/// Type alias agnostic of CPU architecture for custom CPU templates.
+#[cfg(target_arch = "x86_64")]
+pub type CpuTemplate = x86_64::CpuTemplate;
+/// Type alias agnostic of CPU architecture for custom CPU templates.
+#[cfg(target_arch = "aarch64")]
+pub type CpuTemplate = aarch64::CpuTemplate;
+
+/// Type alias agnostic of CPU architecture for CPU configuration.
+#[cfg(target_arch = "x86_64")]
+pub type CpuConfiguration = crate::guest_config::x86_64::CpuConfiguration;
+/// Type alias agnostic of CPU architecture for CPU configuration.
+#[cfg(target_arch = "aarch64")]
+pub type CpuConfiguration = crate::guest_config::aarch64::CpuConfiguration;
+
+/// Configuration errors for with variants specific for x86.
+#[cfg(target_arch = "x86_64")]
+pub type GuestConfigError = x86_64::Error;
+/// Configuration errors for with variants specific for aarch64.
+#[cfg(target_arch = "aarch64")]
+pub type GuestConfigError = aarch64::Error;
+
 // TODO: Refactor code to merge deserialize_* functions for modules x86_64 and aarch64
 /// Templates module to contain sub-modules for aarch64 and x86_64 templates
+
+/// Function that proxies the function call to the target architecture.
+pub fn create_guest_cpu_config(
+    template: &CpuTemplate,
+    host_config: &CpuConfiguration,
+) -> Result<CpuConfiguration, GuestConfigError> {
+    #[cfg(target_arch = "x86_64")]
+    return x86_64::create_guest_cpu_config(template, host_config);
+    #[cfg(target_arch = "aarch64")]
+    return aarch64::create_guest_cpu_config(template, host_config);
+}
+
+/// CPU configuration wrapper that wraps all
+/// possible configuration options
+/// Default - Static(CpuFeaturesTemplate::None)
+/// Hard-coded - Static(CpuFeaturesTemplate::<any non-none variant>)
+/// User-defined - Custom(<provided by user>)
+#[derive(Debug, PartialEq, Eq)]
+pub enum CpuConfigurationType {
+    /// Enum for all hard-coded (static) templates
+    Static(CpuFeaturesTemplate),
+    /// CPU configuration to be created by applying
+    /// a template (modifiers) on top of the host's (and KVM's)
+    /// supported vCPU configuration.
+    Custom(CpuConfiguration),
+}
+
+impl Default for CpuConfigurationType {
+    /// Returns a "none" type for CPU configuration.
+    /// Firecracker and KVM defaults will be used to configure vCPUs.
+    fn default() -> Self {
+        CpuConfigurationType::Static(CpuFeaturesTemplate::None)
+    }
+}
+
+impl CpuConfigurationType {
+    /// Will work out what type of CPU configuration is based on
+    /// configuration provided by user.
+    pub fn from(
+        static_config: Option<CpuFeaturesTemplate>,
+        custom_config: Option<CpuConfiguration>,
+    ) -> Result<Self, GuestConfigError> {
+        if static_config.is_some()
+            && static_config.unwrap() != CpuFeaturesTemplate::None
+            && custom_config.is_some()
+        {
+            return Err(GuestConfigError::ConflictingCpuTemplateConfigured);
+        } else if let Some(custom_config) = custom_config {
+            return Ok(CpuConfigurationType::Custom(custom_config));
+        } else if let Some(static_template) = static_config {
+            return Ok(CpuConfigurationType::Static(static_template));
+        }
+
+        Ok(CpuConfigurationType::Static(CpuFeaturesTemplate::None))
+    }
+}
 
 /// Guest config sub-module specifically useful for
 /// config templates.
@@ -18,12 +97,11 @@ pub mod x86_64 {
     use crate::guest_config::cpuid::{
         AmdCpuid, Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid,
     };
-    use crate::guest_config::templates::Error;
-    use crate::guest_config::x86_64::X86_64CpuConfiguration;
+    use crate::guest_config::templates::{CpuConfiguration, GuestConfigError};
 
     /// CPUID register enumeration
     #[allow(missing_docs)]
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub enum CpuidRegister {
         Eax,
         Ebx,
@@ -32,7 +110,7 @@ pub mod x86_64 {
     }
 
     /// Target register to be modified by a bitmap.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidRegisterModifier {
         /// CPUID register to be modified by the bitmap.
         #[serde(
@@ -52,7 +130,7 @@ pub mod x86_64 {
     /// Composite type that holistically provides
     /// the location of a specific register being used
     /// in the context of a CPUID tree.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct CpuidLeafModifier {
         /// Leaf value.
         #[serde(
@@ -68,14 +146,14 @@ pub mod x86_64 {
         pub subleaf: u32,
         /// KVM feature flags for this leaf-subleaf.
         #[serde(deserialize_with = "deserialize_kvm_cpuid_flags")]
-        pub flags: crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags,
+        pub flags: KvmCpuidFlags,
         /// All registers to be modified under the sub-leaf.
         pub modifiers: Vec<CpuidRegisterModifier>,
     }
 
     /// Wrapper type to containing x86_64 CPU config modifiers.
-    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-    pub struct X86_64CpuTemplate {
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    pub struct CpuTemplate {
         /// Modifiers for CPUID configuration.
         #[serde(default)]
         pub cpuid_modifiers: Vec<CpuidLeafModifier>,
@@ -85,7 +163,7 @@ pub mod x86_64 {
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         pub filter: u64,
@@ -95,7 +173,7 @@ pub mod x86_64 {
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
         #[serde(
@@ -116,9 +194,9 @@ pub mod x86_64 {
     /// top of an existing configuration to generate
     /// the guest configuration to be used.
     pub fn create_guest_cpu_config(
-        template: &X86_64CpuTemplate,
-        host_config: &X86_64CpuConfiguration,
-    ) -> Result<X86_64CpuConfiguration, Error> {
+        template: &CpuTemplate,
+        host_config: &CpuConfiguration,
+    ) -> Result<CpuConfiguration, GuestConfigError> {
         let mut guest_msrs_map: HashMap<u32, u64> = HashMap::new();
         let mut guest_cpuid_map: BTreeMap<CpuidKey, CpuidEntry>;
 
@@ -189,7 +267,7 @@ pub mod x86_64 {
             guest_msrs_map.insert(modifier.addr, apply_mask(Some(msr_value), &modifier.bitmap));
         }
 
-        Ok(X86_64CpuConfiguration {
+        Ok(CpuConfiguration {
             cpuid: match host_config.cpuid {
                 Cpuid::Amd(_) => Cpuid::Amd(AmdCpuid(guest_cpuid_map)),
                 Cpuid::Intel(_) => Cpuid::Intel(IntelCpuid(guest_cpuid_map)),
@@ -375,21 +453,23 @@ pub mod x86_64 {
 
         serializer.serialize_str(bitmap_str.as_str())
     }
-}
 
-/// Errors thrown while configuring templates.
-#[cfg(target_arch = "x86_64")]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    /// Failure in processing the CPUID in template for x86_64 CPU configuration.
-    #[error("Template changes a CPUID entry not supported by the host - [{0}]")]
-    CpuidFeatureNotSupported(String),
-    /// Failure in processing the MSRs in template for x86_64 CPU configuration.
-    #[error("Template changes an MSR entry not supported by the host - [{0}]")]
-    MsrNotSupported(String),
-    /// Internal and unexpected error occurred while using custom templates.
-    #[error("Internal error occurred while using templates - [{0}]")]
-    Internal(String),
+    /// Errors thrown while configuring templates.
+    #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+    pub enum Error {
+        /// Static and custom CPU template configured at the same time.
+        #[error("Static and custom CPU templates may not be configured at the same time.")]
+        ConflictingCpuTemplateConfigured,
+        /// Failure in processing the CPUID in template for x86_64 CPU configuration.
+        #[error("Template changes a CPUID entry not supported by the host - [{0}]")]
+        CpuidFeatureNotSupported(String),
+        /// Failure in processing the MSRs in template for x86_64 CPU configuration.
+        #[error("Template changes an MSR entry not supported by the host - [{0}]")]
+        MsrNotSupported(String),
+        /// Internal and unexpected error occurred while using custom templates.
+        #[error("Internal error occurred while using templates - [{0}]")]
+        Internal(String),
+    }
 }
 
 /// Guest config sub-module specifically for
@@ -402,19 +482,18 @@ pub mod aarch64 {
     use serde::de::Error as SerdeError;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    use crate::guest_config::aarch64::Aarch64CpuConfiguration;
-    use crate::guest_config::templates::Error;
+    use crate::guest_config::templates::{CpuConfiguration, GuestConfigError};
 
     /// Wrapper type to containing aarch64 CPU config modifiers.
-    #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-    pub struct Aarch64CpuTemplate {
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    pub struct CpuTemplate {
         /// Modifiers for registers on Aarch64 CPUs.
         pub reg_modifiers: Vec<RegisterModifier>,
     }
 
     /// Wrapper of a mask defined as a bitmap to apply
     /// changes to a given register's value.
-    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct RegisterModifier {
         /// Pointer of the location to be bit mapped.
         #[serde(
@@ -432,7 +511,7 @@ pub mod aarch64 {
     }
 
     /// Bit-mapped value to adjust targeted bits of a register.
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct RegisterValueFilter {
         /// Filter to be used when writing the value bits.
         pub filter: u128,
@@ -444,9 +523,9 @@ pub mod aarch64 {
     /// top of an existing configuration to generate
     /// the guest configuration to be used.
     pub fn create_guest_cpu_config(
-        template: &Aarch64CpuTemplate,
-        host_config: &Aarch64CpuConfiguration,
-    ) -> Result<Aarch64CpuConfiguration, Error> {
+        template: &CpuTemplate,
+        host_config: &CpuConfiguration,
+    ) -> Result<CpuConfiguration, GuestConfigError> {
         let mut guest_config_map: HashMap<u64, u128> = HashMap::new();
         // Apply MSR modifiers
         for mod_reg in &template.reg_modifiers {
@@ -462,7 +541,7 @@ pub mod aarch64 {
             guest_config_map.insert(mod_reg.addr, apply_mask(Some(reg_value), &mod_reg.bitmap));
         }
 
-        Ok(Aarch64CpuConfiguration {
+        Ok(CpuConfiguration {
             regs: guest_config_map,
         })
     }
@@ -572,18 +651,20 @@ pub mod aarch64 {
         };
         Ok(deserialized_number)
     }
-}
 
-/// Errors thrown while configuring templates.
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    /// Failure in processing the aarch64 CPU template.
-    #[error("Template changes a register not supported by the host - [{0}]")]
-    Aarch64RegNotSupported(String),
-    /// Internal and unexpected error occurred while using custom templates.
-    #[error("Internal error occurred while using templates - [{0}]")]
-    Internal(String),
+    /// Errors thrown while configuring templates.
+    #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+    pub enum Error {
+        /// Static and custom CPU template configured at the same time.
+        #[error("Static and custom CPU templates may not be configured at the same time.")]
+        ConflictingCpuTemplateConfigured,
+        /// Failure in processing the aarch64 CPU template.
+        #[error("Template changes a register not supported by the host - [{0}]")]
+        Aarch64RegNotSupported(String),
+        /// Internal and unexpected error occurred while using custom templates.
+        #[error("Internal error occurred while using templates - [{0}]")]
+        Internal(String),
+    }
 }
 
 #[cfg(test)]
@@ -595,8 +676,6 @@ mod tests {
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
     use serde_json::Value;
 
-    #[cfg(target_arch = "aarch64")]
-    use crate::guest_config::aarch64::Aarch64CpuConfiguration;
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::cpuid::KvmCpuidFlags;
     #[cfg(target_arch = "x86_64")]
@@ -604,17 +683,15 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::static_templates::t2::t2;
     #[cfg(target_arch = "aarch64")]
-    use crate::guest_config::templates::aarch64::{
-        create_guest_cpu_config, Aarch64CpuTemplate, RegisterModifier, RegisterValueFilter,
-    };
+    use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
     #[cfg(target_arch = "x86_64")]
     use crate::guest_config::templates::x86_64::{
-        create_guest_cpu_config, CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier,
-        RegisterModifier, RegisterValueFilter, X86_64CpuTemplate,
+        CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
+        RegisterValueFilter,
     };
-    use crate::guest_config::templates::Error;
-    #[cfg(target_arch = "x86_64")]
-    use crate::guest_config::x86_64::X86_64CpuConfiguration;
+    use crate::guest_config::templates::{
+        create_guest_cpu_config, CpuConfiguration, CpuTemplate, GuestConfigError,
+    };
 
     #[cfg(target_arch = "x86_64")]
     const X86_64_TEMPLATE_JSON: &str = r#"{
@@ -726,7 +803,7 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             // Mispelled register
-            let cpu_config_result = serde_json::from_str::<X86_64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "cpuid_modifiers": [
                         {
@@ -750,7 +827,7 @@ mod tests {
                 .contains("Invalid CPUID register. Must be one of [eax, ebx, ecx, edx]"));
 
             // Malformed MSR register address
-            let cpu_config_result = serde_json::from_str::<X86_64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "msr_modifiers":  [
                         {
@@ -767,7 +844,7 @@ mod tests {
                 .contains("Failed to parse string [0jj0] as a number for CPU template -"));
 
             // Malformed CPUID leaf address
-            let cpu_config_result = serde_json::from_str::<X86_64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "cpuid_modifiers": [
                         {
@@ -791,7 +868,7 @@ mod tests {
                 .contains("Failed to parse string [k] as a decimal number for CPU template"));
 
             // Malformed 64-bit bitmap - filter failed
-            let cpu_config_result = serde_json::from_str::<X86_64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "msr_modifiers":  [
                         {
@@ -807,7 +884,7 @@ mod tests {
                 .to_string()
                 .contains("Failed to parse string [x0?100x?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"));
             // Malformed 64-bit bitmap - value failed
-            let cpu_config_result = serde_json::from_str::<X86_64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "msr_modifiers":  [
                         {
@@ -827,7 +904,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         {
             // Malformed register address
-            let cpu_config_result = serde_json::from_str::<Aarch64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "reg_modifiers":  [
                         {
@@ -844,7 +921,7 @@ mod tests {
                 .contains("Failed to parse string [j] as a decimal number for CPU template"));
 
             // Malformed address as binary
-            let cpu_config_result = serde_json::from_str::<Aarch64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "reg_modifiers":  [
                         {
@@ -861,7 +938,7 @@ mod tests {
                 .contains("Failed to parse string [0bK] as a number for CPU template"));
 
             // Malformed 64-bit bitmap - filter failed
-            let cpu_config_result = serde_json::from_str::<Aarch64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "reg_modifiers":  [
                         {
@@ -878,7 +955,7 @@ mod tests {
                 .contains("Failed to parse string [x0?100x?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"));
 
             // Malformed 64-bit bitmap - value failed
-            let cpu_config_result = serde_json::from_str::<Aarch64CpuTemplate>(
+            let cpu_config_result = serde_json::from_str::<CpuTemplate>(
                 r#"{
                     "reg_modifiers":  [
                         {
@@ -900,7 +977,7 @@ mod tests {
     fn test_deserialization_lifecycle() {
         #[cfg(target_arch = "x86_64")]
         {
-            let cpu_config: X86_64CpuTemplate = serde_json::from_str(X86_64_TEMPLATE_JSON)
+            let cpu_config: CpuTemplate = serde_json::from_str(X86_64_TEMPLATE_JSON)
                 .expect("Failed to deserialize x86_64 CPU template.");
 
             assert_eq!(5, cpu_config.cpuid_modifiers.len());
@@ -909,7 +986,7 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         {
-            let cpu_config: Aarch64CpuTemplate = serde_json::from_str(AARCH64_TEMPLATE_JSON)
+            let cpu_config: CpuTemplate = serde_json::from_str(AARCH64_TEMPLATE_JSON)
                 .expect("Failed to deserialize aarch64 CPU template.");
 
             assert_eq!(2, cpu_config.reg_modifiers.len());
@@ -922,7 +999,7 @@ mod tests {
         {
             let host_configuration = supported_cpu_config();
             let guest_config_result =
-                create_guest_cpu_config(&X86_64CpuTemplate::default(), &host_configuration);
+                create_guest_cpu_config(&CpuTemplate::default(), &host_configuration);
             assert!(
                 guest_config_result.is_ok(),
                 "{}",
@@ -938,7 +1015,7 @@ mod tests {
         {
             let host_configuration = supported_cpu_config();
             let guest_config_result =
-                create_guest_cpu_config(&Aarch64CpuTemplate::default(), &host_configuration);
+                create_guest_cpu_config(&CpuTemplate::default(), &host_configuration);
             assert!(
                 guest_config_result.is_ok(),
                 "{}",
@@ -985,7 +1062,7 @@ mod tests {
             assert!(&template_json_str_result.is_ok());
             let template_json = template_json_str_result.unwrap();
 
-            let deserialization_result = serde_json::from_str::<X86_64CpuTemplate>(&template_json);
+            let deserialization_result = serde_json::from_str::<CpuTemplate>(&template_json);
             assert!(deserialization_result.is_ok());
             assert_eq!(template, deserialization_result.unwrap());
         }
@@ -1008,7 +1085,7 @@ mod tests {
             );
             assert_eq!(
                 guest_config_result.unwrap_err(),
-                Error::CpuidFeatureNotSupported(format!(
+                GuestConfigError::CpuidFeatureNotSupported(format!(
                     "Leaf: {:0x}, Subleaf: {:0x}",
                     guest_template.cpuid_modifiers[0].leaf,
                     guest_template.cpuid_modifiers[0].subleaf
@@ -1026,7 +1103,7 @@ mod tests {
             );
             assert_eq!(
                 guest_config_result.unwrap_err(),
-                Error::MsrNotSupported(format!(
+                GuestConfigError::MsrNotSupported(format!(
                     "Register Address: {:0x}",
                     &guest_template.msr_modifiers[0].addr,
                 ))
@@ -1045,7 +1122,7 @@ mod tests {
             );
             assert_eq!(
                 guest_config_result.unwrap_err(),
-                Error::Aarch64RegNotSupported(format!(
+                GuestConfigError::Aarch64RegNotSupported(format!(
                     "Register Address: {:0x}",
                     &guest_template.reg_modifiers[0].addr,
                 ))
@@ -1132,9 +1209,9 @@ mod tests {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn build_test_template() -> X86_64CpuTemplate {
-        X86_64CpuTemplate {
+    fn build_test_template() -> CpuTemplate {
+        #[cfg(target_arch = "x86_64")]
+        return CpuTemplate {
             cpuid_modifiers: Vec::from([CpuidLeafModifier {
                 leaf: 0x3,
                 subleaf: 0x0,
@@ -1186,20 +1263,10 @@ mod tests {
                     },
                 },
             ]),
-        }
-    }
+        };
 
-    #[cfg(target_arch = "x86_64")]
-    fn build_empty_x86_config() -> X86_64CpuConfiguration {
-        X86_64CpuConfiguration {
-            cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
-            msrs: Default::default(),
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn build_test_template() -> Aarch64CpuTemplate {
-        Aarch64CpuTemplate {
+        #[cfg(target_arch = "aarch64")]
+        return CpuTemplate {
             reg_modifiers: Vec::from([
                 RegisterModifier {
                     addr: 0x9999,
@@ -1216,36 +1283,40 @@ mod tests {
                     },
                 },
             ]),
-        }
+        };
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn supported_cpu_config() -> X86_64CpuConfiguration {
-        X86_64CpuConfiguration {
+    fn build_empty_x86_config() -> CpuConfiguration {
+        CpuConfiguration {
+            cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
+            msrs: Default::default(),
+        }
+    }
+
+    fn supported_cpu_config() -> CpuConfiguration {
+        #[cfg(target_arch = "x86_64")]
+        return CpuConfiguration {
             cpuid: t2(),
             msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-        }
+        };
+
+        #[cfg(target_arch = "aarch64")]
+        return CpuConfiguration {
+            regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
+        };
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn unsupported_cpu_config() -> X86_64CpuConfiguration {
-        X86_64CpuConfiguration {
+    fn unsupported_cpu_config() -> CpuConfiguration {
+        #[cfg(target_arch = "x86_64")]
+        return CpuConfiguration {
             cpuid: t2(),
             msrs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-        }
-    }
+        };
 
-    #[cfg(target_arch = "aarch64")]
-    fn supported_cpu_config() -> Aarch64CpuConfiguration {
-        Aarch64CpuConfiguration {
-            regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn unsupported_cpu_config() -> Aarch64CpuConfiguration {
-        Aarch64CpuConfiguration {
+        #[cfg(target_arch = "aarch64")]
+        return CpuConfiguration {
             regs: std::collections::HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-        }
+        };
     }
 }

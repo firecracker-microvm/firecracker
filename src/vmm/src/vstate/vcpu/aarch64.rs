@@ -241,8 +241,7 @@ mod tests {
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            static_cpu_template: Default::default(),
-            custom_cpu_config: None,
+            cpu_config: Default::default(),
         };
         assert!(vcpu
             .configure(
