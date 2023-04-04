@@ -23,7 +23,7 @@ use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::guest_config::templates::CpuConfigurationType;
 use crate::vstate::vm::Vm;
 use crate::FcExitCode;
 
@@ -36,11 +36,6 @@ pub(crate) mod x86_64;
 pub(crate) use aarch64::{Error as VcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
-
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::x86_64::X86_64CpuConfiguration;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -80,14 +75,8 @@ pub struct VcpuConfig {
     pub vcpu_count: u8,
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
-    /// Hard-coded template to use.
-    pub static_cpu_template: CpuFeaturesTemplate,
-    /// Custom configuration for vCPU.
-    #[cfg(target_arch = "x86_64")]
-    pub custom_cpu_config: Option<X86_64CpuConfiguration>,
-    /// Custom configuration for vCPU.
-    #[cfg(target_arch = "aarch64")]
-    pub custom_cpu_config: Option<Aarch64CpuConfiguration>,
+    /// Configuration to be applied to all guest vCPUs.
+    pub cpu_config: CpuConfigurationType,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -943,8 +932,7 @@ mod tests {
                 &VcpuConfig {
                     vcpu_count: 1,
                     smt: false,
-                    static_cpu_template: CpuFeaturesTemplate::None,
-                    custom_cpu_config: None,
+                    cpu_config: CpuConfigurationType::default(),
                 },
             )
             .expect("failed to configure vcpu");
@@ -957,8 +945,7 @@ mod tests {
                     &VcpuConfig {
                         vcpu_count: 1,
                         smt: false,
-                        static_cpu_template: CpuFeaturesTemplate::None,
-                        custom_cpu_config: None,
+                        cpu_config: CpuConfigurationType::default(),
                     },
                     _vm.supported_cpuid().clone(),
                 )

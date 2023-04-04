@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 /// CPU configuration for aarch64 CPUs
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
-pub struct Aarch64CpuConfiguration {
+pub struct CpuConfiguration {
     /// Register values as a key pair
     /// Key: Register pointer
     /// Value: Register value
