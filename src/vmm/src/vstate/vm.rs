@@ -24,14 +24,6 @@ use vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GicState;
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::aarch64::Aarch64CpuConfiguration;
-#[cfg(target_arch = "aarch64")]
-use crate::guest_config::templates::aarch64::Aarch64CpuTemplate;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::templates::x86_64::X86_64CpuTemplate;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::x86_64::X86_64CpuConfiguration;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -154,19 +146,11 @@ pub struct Vm {
     supported_cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
     supported_msrs: MsrList,
-    #[cfg(target_arch = "x86_64")]
-    pub(crate) guest_cpu_template: Option<X86_64CpuTemplate>,
-    #[cfg(target_arch = "x86_64")]
-    pub(crate) guest_cpu_config: Option<X86_64CpuConfiguration>,
 
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
     irqchip_handle: Option<Box<dyn GICDevice>>,
-    #[cfg(target_arch = "aarch64")]
-    pub(crate) guest_cpu_template: Option<Aarch64CpuTemplate>,
-    #[cfg(target_arch = "aarch64")]
-    pub(crate) guest_cpu_config: Option<Aarch64CpuConfiguration>,
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -228,14 +212,12 @@ impl Vm {
 #[cfg(target_arch = "aarch64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm, guest_cpu_template: Option<Aarch64CpuTemplate>) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
 
         Ok(Vm {
             fd: vm_fd,
-            guest_cpu_template,
-            guest_cpu_config: None,
             irqchip_handle: None,
         })
     }
@@ -286,7 +268,7 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm, guest_cpu_template: Option<X86_64CpuTemplate>) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
 
@@ -300,8 +282,6 @@ impl Vm {
             fd: vm_fd,
             supported_cpuid,
             supported_msrs,
-            guest_cpu_template,
-            guest_cpu_config: None,
         })
     }
 
@@ -436,7 +416,7 @@ pub(crate) mod tests {
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
                 .unwrap();
 
-        let mut vm = Vm::new(kvm.fd(), None).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         (vm, gm)
@@ -448,22 +428,20 @@ pub(crate) mod tests {
 
         use utils::tempfile::TempFile;
         // Testing an error case.
-        let vm = Vm::new(
-            &unsafe { Kvm::from_raw_fd(TempFile::new().unwrap().as_file().as_raw_fd()) },
-            None,
-        );
+        let vm =
+            Vm::new(&unsafe { Kvm::from_raw_fd(TempFile::new().unwrap().as_file().as_raw_fd()) });
         assert!(vm.is_err());
 
         // Testing with a valid /dev/kvm descriptor.
         let kvm = KvmContext::new().unwrap();
-        assert!(Vm::new(kvm.fd(), None).is_ok());
+        assert!(Vm::new(kvm.fd()).is_ok());
     }
 
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm.fd(), None).expect("Cannot create new vm");
+        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let cpuid = kvm
             .fd()
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -474,7 +452,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vm_memory_init() {
         let kvm_context = KvmContext::new().unwrap();
-        let mut vm = Vm::new(kvm_context.fd(), None).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
         let gm =
@@ -489,7 +467,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vm_save_restore_state() {
         let kvm_fd = Kvm::new().unwrap();
-        let vm = Vm::new(&kvm_fd, None).expect("new vm failed");
+        let vm = Vm::new(&kvm_fd).expect("new vm failed");
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         assert!(vm.save_state().is_err());
 
@@ -544,7 +522,7 @@ pub(crate) mod tests {
     #[test]
     fn test_set_kvm_memory_regions() {
         let kvm_context = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm_context.fd(), None).expect("Cannot create new vm");
+        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         let gm =
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
