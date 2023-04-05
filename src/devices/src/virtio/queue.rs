@@ -92,8 +92,7 @@ impl<'a> DescriptorChain<'a> {
         let desc = match mem.read_obj::<Descriptor>(desc_head) {
             Ok(ret) => ret,
             Err(err) => {
-                // TODO log address
-                error!("Failed to read virtio descriptor from memory: {}", err);
+                error!("Failed to read virtio descriptor from memory at address {:#x}: {}", desc_head.0, err);
                 return None;
             }
         };
