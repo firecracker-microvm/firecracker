@@ -19,16 +19,11 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MmdsVersion {
+    #[default]
     V1,
     V2,
-}
-
-impl Default for MmdsVersion {
-    fn default() -> Self {
-        MmdsVersion::V1
-    }
 }
 
 impl Display for MmdsVersion {
