@@ -13,7 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from framework.utils_cpuid import get_cpu_model_name, get_cpu_vendor
+from framework.utils_cpuid import get_cpu_codename, get_cpu_model_name, get_cpu_vendor
 from framework.utils_imdsv2 import imdsv2_get
 
 
@@ -49,6 +49,7 @@ class GlobalProps:
     def __init__(self):
         self.cpu_architecture: str = platform.machine()
         self.cpu_model = get_cpu_model_name()
+        self.cpu_codename = get_cpu_codename()
         self.cpu_vendor = get_cpu_vendor().name.lower()
         self.cpu_microcode = run_cmd(
             "grep microcode /proc/cpuinfo |head -1 |awk '{print $3}'"

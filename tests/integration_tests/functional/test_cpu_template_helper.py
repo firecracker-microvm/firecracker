@@ -9,10 +9,14 @@ from pathlib import Path
 import pytest
 
 from framework import defs, utils
+from framework.properties import global_props
 from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
 
 PLATFORM = platform.machine()
+TEST_RESOURCES_DIR = Path(
+    f"{defs.FC_WORKSPACE_DIR}/resources/tests/cpu_template_helper/"
+)
 
 
 # pylint: disable=too-few-public-methods
@@ -274,3 +278,27 @@ def test_cpu_config_dump_vs_actual(
         assert (
             actual == dump
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
+
+
+def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
+    """
+    Verify that CPU config has not changed since the baseline was gathered.
+    """
+    # Generate VM config from test_microvm_with_api
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+    vm_config_path = tmp_path / "vm_config.json"
+    save_vm_config(microvm, vm_config_path)
+
+    # Dump CPU config with the generated VM config.
+    cpu_config_path = tmp_path / "cpu_config.json"
+    cpu_template_helper.dump(vm_config_path, cpu_config_path)
+
+    # Baseline CPU config.
+    baseline_path = f"{TEST_RESOURCES_DIR}/cpu_config_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+    # Use this code to generate baseline CPU config.
+    # cpu_template_helper.dump(vm_config_path, baseline_path)
+
+    # Compare with baseline
+    utils.run_cmd(f"diff {cpu_config_path} {baseline_path} -C 10")
