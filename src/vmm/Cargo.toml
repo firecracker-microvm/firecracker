@@ -40,5 +40,9 @@ criterion = { version = "0.4.0", default-features = false }
 device_tree = "1.1.0"
 
 [[bench]]
-name = "main"
+name = "cpu_templates"
+harness = false
+
+[[bench]]
+name = "snapshots"
 harness = false

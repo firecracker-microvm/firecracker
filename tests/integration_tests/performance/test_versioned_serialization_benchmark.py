@@ -91,13 +91,13 @@ def test_serialization_benchmark(monkeypatch, record_property):
     monkeypatch.chdir(BENCHMARK_DIRECTORY)
 
     # Run benchmark test
-    cmd = "cargo bench --target {}".format(DEFAULT_BUILD_TARGET)
+    cmd = "cargo bench --bench snapshots --target {}".format(DEFAULT_BUILD_TARGET)
     result = utils.run_cmd_sync(cmd)
     assert result.returncode == 0
 
     # Parse each Criterion benchmark from the result folder and
     # check the results against a baseline
-    results_dir = Path(FC_WORKSPACE_DIR) / "build/vmm_benchmark"
+    results_dir = Path(FC_WORKSPACE_DIR) / "build/vmm_benchmark/snapshots"
     for directory in os.listdir(results_dir):
         # Ignore the 'report' directory as it is of no use to us
         if directory == "report":
