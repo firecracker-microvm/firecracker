@@ -110,7 +110,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
     microvm_state
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
+pub fn snapshot_benchmark(c: &mut Criterion) {
     let version_map = VERSION_MAP.clone();
 
     // Create the microvm state
@@ -178,11 +178,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 }
 
 criterion_group! {
-    name = benches;
-    config = Criterion::default().sample_size(200).output_directory(Path::new("../../build/vmm_benchmark"));
-    targets = criterion_benchmark
+    name = snapshot_benches;
+    config = Criterion::default().sample_size(200).output_directory(Path::new("../../build/vmm_benchmark/snapshots"));
+    targets = snapshot_benchmark
 }
 
 criterion_main! {
-    benches
+    snapshot_benches
 }
