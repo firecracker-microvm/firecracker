@@ -12,9 +12,6 @@ use crate::guest_config::cpuid::{
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
-    /// Provided `cpu_bits` is >=8.
-    #[error("Provided `cpu_bits` is >=8: {0}.")]
-    CpuBits(u8),
     /// Failed to passthrough cache topology.
     #[error("Failed to passthrough cache topology: {0}")]
     PassthroughCacheTopology(#[from] PassthroughCacheTopologyError),
@@ -115,13 +112,9 @@ impl super::AmdCpuid {
         cpu_index: u8,
         // The total number of logical CPUs.
         cpu_count: u8,
-        // The number of bits needed to enumerate logical CPUs per core.
-        cpu_bits: u8,
+        // The number of logical CPUs per core.
+        cpus_per_core: u8,
     ) -> Result<(), NormalizeCpuidError> {
-        let cpus_per_core = 1u8
-            .checked_shl(u32::from(cpu_bits))
-            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
-
         self.passthrough_cache_topology()?;
         self.update_largest_extended_fn_entry()?;
         self.update_extended_feature_fn_entry()?;
@@ -146,10 +139,6 @@ impl super::AmdCpuid {
         {
             return Err(PassthroughCacheTopologyError::BadVendorId);
         }
-
-        // Some versions of kernel may return the 0xB leaf for AMD even if this is an
-        // Intel-specific leaf. Remove it.
-        self.0.remove(&CpuidKey::leaf(0xB));
 
         // Pass-through host CPUID for leaves 0x8000001e and 0x8000001d.
         {

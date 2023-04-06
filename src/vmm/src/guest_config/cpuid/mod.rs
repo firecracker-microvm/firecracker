@@ -385,6 +385,16 @@ impl Cpuid {
             _ => Err(CpuidJoinError),
         }
     }
+
+    /// Returns mutable reference to inner BTreeMap<CpuidKey, CpuidEntry>.
+    #[inline]
+    #[must_use]
+    pub fn inner_mut(&mut self) -> &mut std::collections::BTreeMap<CpuidKey, CpuidEntry> {
+        match self {
+            Self::Intel(intel_cpuid) => &mut intel_cpuid.0,
+            Self::Amd(amd_cpuid) => &mut amd_cpuid.0,
+        }
+    }
 }
 
 impl CpuidTrait for Cpuid {

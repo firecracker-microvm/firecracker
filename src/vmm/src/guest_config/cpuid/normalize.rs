@@ -1,12 +1,15 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::cpuid::{CpuidKey, CpuidTrait};
+use crate::guest_config::cpuid::{CpuidEntry, CpuidKey, CpuidTrait, KvmCpuidFlags};
 
 /// Error type for [`Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
+    /// Provided `cpu_bits` is >=8.
+    #[error("Provided `cpu_bits` is >=8: {0}.")]
+    CpuBits(u8),
     /// Failed to apply modifications to Intel CPUID.
     #[error("Failed to apply modifications to Intel CPUID: {0}")]
     Intel(#[from] crate::guest_config::cpuid::intel::NormalizeCpuidError),
@@ -16,6 +19,9 @@ pub enum NormalizeCpuidError {
     /// Failed to set feature information leaf.
     #[error("Failed to set feature information leaf: {0}")]
     FeatureInformation(#[from] FeatureInformationError),
+    /// Failed to set extended topology leaf.
+    #[error("Failed to set extended topology leaf: {0}")]
+    ExtendedTopology(#[from] ExtendedTopologyError),
 }
 
 /// Error type for setting leaf 1 section of `IntelCpuid::normalize`.
@@ -47,6 +53,30 @@ pub enum GetMaxCpusPerPackageError {
     /// Failed to get max CPUs per package as `cpu_count > 128`.
     #[error("Failed to get max CPUs per package as `cpu_count > 128`")]
     Overflow,
+}
+
+/// Error type for setting leaf b section of `IntelCpuid::normalize`.
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum ExtendedTopologyError {
+    /// Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of
+    /// the next level type`.
+    #[error(
+        "Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of \
+         the next level type`: {0}"
+    )]
+    ApicId(CheckedAssignError),
+    /// Failed to set `Number of logical processors at this level type`.
+    #[error("Failed to set `Number of logical processors at this level type`: {0}")]
+    LogicalProcessors(CheckedAssignError),
+    /// Failed to set `Level Type`.
+    #[error("Failed to set `Level Type`: {0}")]
+    LevelType(CheckedAssignError),
+    /// Failed to set `Level Number`.
+    #[error("Failed to set `Level Number`: {0}")]
+    LevelNumber(CheckedAssignError),
+    /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present.
+    #[error("Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}")]
+    Overflow(<u32 as TryFrom<u32>>::Error),
 }
 
 /// Error type for setting a bit range.
@@ -141,85 +171,234 @@ impl super::Cpuid {
         // The number of bits needed to enumerate logical CPUs per core.
         cpu_bits: u8,
     ) -> Result<(), NormalizeCpuidError> {
-        // Update feature information entry
-        {
-            /// Flush a cache line size.
-            const EBX_CLFLUSH_CACHELINE: u32 = 8;
-
-            /// CPU is running on a hypervisor.
-            pub const HYPERVISOR_BITINDEX: u8 = 31;
-
-            let leaf_1 = self
-                .get_mut(&CpuidKey::leaf(0x1))
-                .ok_or(FeatureInformationError::MissingLeaf1)?;
-
-            // A value of 1 indicates that the processor’s local APIC timer supports one-shot
-            // operation using a TSC deadline value.
-            //
-            // tsc_deadline: 24,
-
-            // X86 hypervisor feature
-            set_bit(&mut leaf_1.result.ecx, 24, true);
-
-            // Hypervisor bit
-            set_bit(&mut leaf_1.result.ecx, HYPERVISOR_BITINDEX, true);
-
-            // Initial APIC ID.
-            //
-            // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
-            // available in Leaf 0BH and Leaf 1FH.
-            //
-            // initial_apic_id: 24..32,
-            set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
-                .map_err(FeatureInformationError::InitialApicId)?;
-
-            // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
-            //
-            // clflush: 8..16,
-            set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
-                .map_err(FeatureInformationError::Clflush)?;
-
-            let max_cpus_per_package = u32::from(
-                get_max_cpus_per_package(cpu_count)
-                    .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
-            );
-
-            // Maximum number of addressable IDs for logical processors in this physical package.
-            //
-            // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
-            // unique initial APIC IDs reserved for addressing different logical
-            // processors in a physical package. This field is only valid if
-            // CPUID.1.EDX.HTT[bit 28]= 1.
-            //
-            // max_addressable_logical_processor_ids: 16..24,
-            set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
-                .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
-
-            // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
-            // single logical processor in the package and software should assume only a
-            // single APIC ID is reserved. A value of 1 for HTT indicates the value in
-            // CPUID.1.EBX[23:16] (the Maximum number of addressable IDs for logical
-            // processors in this package) is valid for the package.
-            //
-            // htt: 28,
-
-            // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
-            // (the Maximum number of addressable IDs for logical processors in this package)
-            // is valid for the package
-            set_bit(&mut leaf_1.result.edx, 28, cpu_count > 1);
-        }
+        let cpus_per_core = 1u8
+            .checked_shl(u32::from(cpu_bits))
+            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
+        self.update_feature_info_entry(cpu_index, cpu_count)
+            .map_err(NormalizeCpuidError::FeatureInformation)?;
+        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
+            .map_err(NormalizeCpuidError::ExtendedTopology)?;
 
         // Apply manufacturer specific modifications.
         match self {
             // Apply Intel specific modifications.
             Self::Intel(intel_cpuid) => intel_cpuid
-                .normalize(cpu_index, cpu_count, cpu_bits)
+                .normalize(cpu_index, cpu_count, cpus_per_core)
                 .map_err(NormalizeCpuidError::Intel),
             // Apply AMD specific modifications.
             Self::Amd(amd_cpuid) => amd_cpuid
-                .normalize(cpu_index, cpu_count, cpu_bits)
+                .normalize(cpu_index, cpu_count, cpus_per_core)
                 .map_err(NormalizeCpuidError::Amd),
         }
+    }
+
+    // Update feature information entry
+    fn update_feature_info_entry(
+        &mut self,
+        cpu_index: u8,
+        cpu_count: u8,
+    ) -> Result<(), FeatureInformationError> {
+        /// Flush a cache line size.
+        const EBX_CLFLUSH_CACHELINE: u32 = 8;
+
+        /// CPU is running on a hypervisor.
+        pub const HYPERVISOR_BITINDEX: u8 = 31;
+
+        let leaf_1 = self
+            .get_mut(&CpuidKey::leaf(0x1))
+            .ok_or(FeatureInformationError::MissingLeaf1)?;
+
+        // A value of 1 indicates that the processor’s local APIC timer supports one-shot
+        // operation using a TSC deadline value.
+        //
+        // tsc_deadline: 24,
+
+        // X86 hypervisor feature
+        set_bit(&mut leaf_1.result.ecx, 24, true);
+
+        // Hypervisor bit
+        set_bit(&mut leaf_1.result.ecx, HYPERVISOR_BITINDEX, true);
+
+        // Initial APIC ID.
+        //
+        // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
+        // available in Leaf 0BH and Leaf 1FH.
+        //
+        // initial_apic_id: 24..32,
+        set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
+            .map_err(FeatureInformationError::InitialApicId)?;
+
+        // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
+        //
+        // clflush: 8..16,
+        set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
+            .map_err(FeatureInformationError::Clflush)?;
+
+        let max_cpus_per_package = u32::from(
+            get_max_cpus_per_package(cpu_count)
+                .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
+        );
+
+        // Maximum number of addressable IDs for logical processors in this physical package.
+        //
+        // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
+        // unique initial APIC IDs reserved for addressing different logical
+        // processors in a physical package. This field is only valid if
+        // CPUID.1.EDX.HTT[bit 28]= 1.
+        //
+        // max_addressable_logical_processor_ids: 16..24,
+        set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
+            .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
+
+        // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
+        // single logical processor in the package and software should assume only a
+        // single APIC ID is reserved. A value of 1 for HTT indicates the value in
+        // CPUID.1.EBX[23:16] (the Maximum number of addressable IDs for logical
+        // processors in this package) is valid for the package.
+        //
+        // htt: 28,
+
+        // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
+        // (the Maximum number of addressable IDs for logical processors in this package)
+        // is valid for the package
+        set_bit(&mut leaf_1.result.edx, 28, cpu_count > 1);
+
+        Ok(())
+    }
+
+    // Update extended topology entry (leaf 0xB)
+    fn update_extended_topology_entry(
+        &mut self,
+        cpu_index: u8,
+        cpu_count: u8,
+        cpu_bits: u8,
+        cpus_per_core: u8,
+    ) -> Result<(), ExtendedTopologyError> {
+        /// Level type used for setting thread level processor topology.
+        const LEVEL_TYPE_THREAD: u32 = 1;
+        /// Level type used for setting core level processor topology.
+        const LEVEL_TYPE_CORE: u32 = 2;
+        /// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to
+        /// get a unique topology of the next level. This allows 128 logical
+        /// processors/package.
+        const LEAFBH_INDEX1_APICID: u32 = 7;
+
+        // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
+        // include leaf 0xB / sub-leaf 1.
+        // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
+        self.inner_mut()
+            .entry(CpuidKey::subleaf(0xB, 0x1))
+            .or_insert(CpuidEntry {
+                ..Default::default()
+            });
+
+        for index in 0.. {
+            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0xB, index)) {
+                // reset eax, ebx, ecx
+                subleaf.result.eax = 0;
+                subleaf.result.ebx = 0;
+                subleaf.result.ecx = 0;
+                // EDX bits 31..0 contain x2APIC ID of current logical processor
+                // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
+                subleaf.result.edx = u32::from(cpu_index);
+                subleaf.flags = KvmCpuidFlags::SIGNIFICANT_INDEX;
+
+                // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
+                // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and
+                // level type = 1. Number of logical processors at the core level is
+                // reported at level type = 2." (Intel® 64 Architecture x2APIC
+                // Specification, Ch. 2.8)
+                match index {
+                    // Number of bits to shift right on x2APIC ID to get a unique topology ID of the
+                    // next level type*. All logical processors with the same
+                    // next level ID share current level.
+                    //
+                    // *Software should use this field (EAX[4:0]) to enumerate processor topology of
+                    // the system.
+                    //
+                    // bit_shifts_right_2x_apic_id_unique_topology_id: 0..5
+
+                    // Number of logical processors at this level type. The number reflects
+                    // configuration as shipped by Intel**.
+                    //
+                    // **Software must not use EBX[15:0] to enumerate processor topology of the
+                    // system. This value in this field (EBX[15:0]) is only
+                    // intended for display/diagnostic purposes. The actual
+                    // number of  logical processors available to BIOS/OS/Applications may be
+                    // different from the value of  EBX[15:0], depending on
+                    // software and platform hardware configurations.
+                    //
+                    // logical_processors: 0..16
+
+                    // Level number. Same value in ECX input.
+                    //
+                    // level_number: 0..8,
+
+                    // Level type***
+                    //
+                    // If an input value n in ECX returns the invalid level-type of 0 in ECX[15:8],
+                    // other input values with ECX>n also return 0 in ECX[15:8].
+                    //
+                    // ***The value of the “level type” field is not related to level numbers in any
+                    // way, higher “level type” values do not mean higher
+                    // levels. Level type field has the following encoding:
+                    // - 0: Invalid.
+                    // - 1: SMT.
+                    // - 2: Core.
+                    // - 3-255: Reserved.
+                    //
+                    // level_type: 8..16
+
+                    // Thread Level Topology; index = 0
+                    0 => {
+                        // To get the next level APIC ID, shift right with at most 1 because we have
+                        // maximum 2 hyperthreads per core that can be represented by 1 bit.
+                        set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
+                            .map_err(ExtendedTopologyError::ApicId)?;
+
+                        // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
+                        // level Otherwise there are 2
+                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
+                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+
+                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_THREAD)
+                            .map_err(ExtendedTopologyError::LevelType)?;
+                    }
+                    // Core Level Processor Topology; index = 1
+                    1 => {
+                        set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
+                            .map_err(ExtendedTopologyError::ApicId)?;
+
+                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
+                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+
+                        // We expect here as this is an extremely rare case that is unlikely to ever
+                        // occur. It would require manual editing of the CPUID structure to push
+                        // more than 2^32 subleaves.
+                        let sub = index;
+                        set_range(&mut subleaf.result.ecx, 0..8, sub)
+                            .map_err(ExtendedTopologyError::LevelNumber)?;
+
+                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_CORE)
+                            .map_err(ExtendedTopologyError::LevelType)?;
+                    }
+                    // Core Level Processor Topology; index >=2
+                    // No other levels available; This should already be set correctly,
+                    // and it is added here as a "re-enforcement" in case we run on
+                    // different hardware
+                    _ => {
+                        // We expect here as this is an extremely rare case that is unlikely to ever
+                        // occur. It would require manual editing of the CPUID structure to push
+                        // more than 2^32 subleaves.
+                        subleaf.result.ecx = index;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 

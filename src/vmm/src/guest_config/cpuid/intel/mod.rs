@@ -10,7 +10,7 @@
 /// CPUID normalize implementation.
 mod normalize;
 
-pub use normalize::{DeterministicCacheError, ExtendedTopologyError, NormalizeCpuidError};
+pub use normalize::{DeterministicCacheError, NormalizeCpuidError};
 
 use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
 

@@ -3,16 +3,13 @@
 
 use crate::guest_config::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
 use crate::guest_config::cpuid::{
-    host_brand_string, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
-    MissingBrandStringLeaves, BRAND_STRING_LENGTH,
+    host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
+    BRAND_STRING_LENGTH,
 };
 
 /// Error type for [`IntelCpuid::normalize`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
-    /// Provided `cpu_bits` is >=8.
-    #[error("Provided `cpu_bits` is >=8: {0}.")]
-    CpuBits(u8),
     /// Failed to set deterministic cache leaf.
     #[error("Failed to set deterministic cache leaf: {0}")]
     DeterministicCache(#[from] DeterministicCacheError),
@@ -22,9 +19,6 @@ pub enum NormalizeCpuidError {
     /// Leaf 0xA is missing from CPUID.
     #[error("Leaf 0xA is missing from CPUID.")]
     MissingLeafA,
-    /// Failed to set extended topology leaf.
-    #[error("Failed to set extended topology leaf: {0}")]
-    ExtendedTopology(#[from] ExtendedTopologyError),
     /// Failed to get brand string.
     #[error("Failed to get brand string: {0}")]
     GetBrandString(DefaultBrandStringError),
@@ -67,30 +61,6 @@ pub enum DeterministicCacheError {
     MaxCorePerPackage(CheckedAssignError),
 }
 
-/// Error type for setting leaf b section of `IntelCpuid::normalize`.
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum ExtendedTopologyError {
-    /// Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of
-    /// the next level type`.
-    #[error(
-        "Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of \
-         the next level type`: {0}"
-    )]
-    ApicId(CheckedAssignError),
-    /// Failed to set `Number of logical processors at this level type`.
-    #[error("Failed to set `Number of logical processors at this level type`: {0}")]
-    LogicalProcessors(CheckedAssignError),
-    /// Failed to set `Level Type`.
-    #[error("Failed to set `Level Type`: {0}")]
-    LevelType(CheckedAssignError),
-    /// Failed to set `Level Number`.
-    #[error("Failed to set `Level Number`: {0}")]
-    LevelNumber(CheckedAssignError),
-    /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present.
-    #[error("Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}")]
-    Overflow(<u32 as TryFrom<u32>>::Error),
-}
-
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.
 #[allow(clippy::multiple_inherent_impl)]
@@ -105,20 +75,15 @@ impl super::IntelCpuid {
     pub fn normalize(
         &mut self,
         // The index of the current logical CPU in the range [0..cpu_count].
-        cpu_index: u8,
+        _cpu_index: u8,
         // The total number of logical CPUs.
         cpu_count: u8,
-        // The number of bits needed to enumerate logical CPUs per core.
-        cpu_bits: u8,
+        // The number of logical CPUs per core.
+        cpus_per_core: u8,
     ) -> Result<(), NormalizeCpuidError> {
-        let cpus_per_core = 1u8
-            .checked_shl(u32::from(cpu_bits))
-            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
-
         self.update_deterministic_cache_entry(cpu_count, cpus_per_core)?;
         self.update_power_management_entry()?;
         self.update_performance_monitoring_entry()?;
-        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)?;
         self.update_brand_string_entry()?;
 
         Ok(())
@@ -236,145 +201,6 @@ impl super::IntelCpuid {
             ecx: 0,
             edx: 0,
         };
-        Ok(())
-    }
-
-    /// Update extended topology entry
-    fn update_extended_topology_entry(
-        &mut self,
-        cpu_index: u8,
-        cpu_count: u8,
-        cpu_bits: u8,
-        cpus_per_core: u8,
-    ) -> Result<(), ExtendedTopologyError> {
-        /// Level type used for setting thread level processor topology.
-        const LEVEL_TYPE_THREAD: u32 = 1;
-        /// Level type used for setting core level processor topology.
-        const LEVEL_TYPE_CORE: u32 = 2;
-        /// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to
-        /// get a unique topology of the next level. This allows 128 logical
-        /// processors/package.
-        const LEAFBH_INDEX1_APICID: u32 = 7;
-
-        // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
-        // include leaf 0xB / sub-leaf 1.
-        // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
-        self.0
-            .entry(CpuidKey::subleaf(0xB, 0x1))
-            .or_insert(CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                result: CpuidRegisters {
-                    eax: 0x0,
-                    ebx: 0x0,
-                    ecx: 0x0,
-                    edx: 0x0,
-                },
-            });
-
-        for index in 0.. {
-            if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0xB, index)) {
-                // reset eax, ebx, ecx
-                subleaf.result.eax = 0;
-                subleaf.result.ebx = 0;
-                subleaf.result.ecx = 0;
-                // EDX bits 31..0 contain x2APIC ID of current logical processor
-                // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
-                subleaf.result.edx = u32::from(cpu_index);
-
-                // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
-                // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and
-                // level type = 1. Number of logical processors at the core level is
-                // reported at level type = 2." (Intel® 64 Architecture x2APIC
-                // Specification, Ch. 2.8)
-                match index {
-                    // Number of bits to shift right on x2APIC ID to get a unique topology ID of the
-                    // next level type*. All logical processors with the same
-                    // next level ID share current level.
-                    //
-                    // *Software should use this field (EAX[4:0]) to enumerate processor topology of
-                    // the system.
-                    //
-                    // bit_shifts_right_2x_apic_id_unique_topology_id: 0..5
-
-                    // Number of logical processors at this level type. The number reflects
-                    // configuration as shipped by Intel**.
-                    //
-                    // **Software must not use EBX[15:0] to enumerate processor topology of the
-                    // system. This value in this field (EBX[15:0]) is only
-                    // intended for display/diagnostic purposes. The actual
-                    // number of  logical processors available to BIOS/OS/Applications may be
-                    // different from the value of  EBX[15:0], depending on
-                    // software and platform hardware configurations.
-                    //
-                    // logical_processors: 0..16
-
-                    // Level number. Same value in ECX input.
-                    //
-                    // level_number: 0..8,
-
-                    // Level type***
-                    //
-                    // If an input value n in ECX returns the invalid level-type of 0 in ECX[15:8],
-                    // other input values with ECX>n also return 0 in ECX[15:8].
-                    //
-                    // ***The value of the “level type” field is not related to level numbers in any
-                    // way, higher “level type” values do not mean higher
-                    // levels. Level type field has the following encoding:
-                    // - 0: Invalid.
-                    // - 1: SMT.
-                    // - 2: Core.
-                    // - 3-255: Reserved.
-                    //
-                    // level_type: 8..16
-
-                    // Thread Level Topology; index = 0
-                    0 => {
-                        // To get the next level APIC ID, shift right with at most 1 because we have
-                        // maximum 2 hyperthreads per core that can be represented by 1 bit.
-                        set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
-                            .map_err(ExtendedTopologyError::ApicId)?;
-
-                        // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
-                        // level Otherwise there are 2
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
-
-                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_THREAD)
-                            .map_err(ExtendedTopologyError::LevelType)?;
-                    }
-                    // Core Level Processor Topology; index = 1
-                    1 => {
-                        set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
-                            .map_err(ExtendedTopologyError::ApicId)?;
-
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
-
-                        // We expect here as this is an extremely rare case that is unlikely to ever
-                        // occur. It would require manual editing of the CPUID structure to push
-                        // more than 2^32 subleaves.
-                        let sub = index;
-                        set_range(&mut subleaf.result.ecx, 0..8, sub)
-                            .map_err(ExtendedTopologyError::LevelNumber)?;
-
-                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_CORE)
-                            .map_err(ExtendedTopologyError::LevelType)?;
-                    }
-                    // Core Level Processor Topology; index >=2
-                    // No other levels available; This should already be set correctly,
-                    // and it is added here as a "re-enforcement" in case we run on
-                    // different hardware
-                    _ => {
-                        // We expect here as this is an extremely rare case that is unlikely to ever
-                        // occur. It would require manual editing of the CPUID structure to push
-                        // more than 2^32 subleaves.
-                        subleaf.result.ecx = index;
-                    }
-                }
-            } else {
-                break;
-            }
-        }
         Ok(())
     }
 
