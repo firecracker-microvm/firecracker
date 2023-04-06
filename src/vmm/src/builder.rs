@@ -326,10 +326,51 @@ fn create_vmm_and_vcpus(
 }
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unused)]
-fn get_msr_values(_vcpu: &Vcpu, _template: &CpuTemplate) -> HashMap<u32, u64> {
-    // TODO - Use a created vCPU to retrieve MSR values
-    Default::default()
+fn get_msr_values(
+    vcpu: &Vcpu,
+    template: &CpuTemplate,
+) -> Result<HashMap<u32, u64>, GuestConfigError> {
+    use kvm_bindings::{kvm_msr_entry, Msrs, KVM_MAX_MSR_ENTRIES};
+
+    let mut msrs = HashMap::new();
+
+    // Extract MSR addresses from the template to a vector
+    let entries: Vec<kvm_msr_entry> = template
+        .msr_modifiers
+        .iter()
+        .map(|m| kvm_msr_entry {
+            index: m.addr,
+            ..Default::default()
+        })
+        .collect();
+
+    // We have to read MSRs in chunks, because KVM only allows to read KVM_MAX_MSR_ENTRIES
+    // MSRs at a time and the custom CPU template may contain more.
+    for chunk in entries.chunks(KVM_MAX_MSR_ENTRIES) {
+        // Safe to unwrap as we are using chunks of KVM_MAX_MSR_ENTRIES MSR entries
+        let mut kvm_msrs = Msrs::from_entries(&chunk).unwrap();
+
+        // Read MSRs from KVM
+        let num_msrs = vcpu
+            .kvm_vcpu
+            .fd
+            .get_msrs(&mut kvm_msrs)
+            .map_err(GuestConfigError::VcpuGetMsrs)?;
+        if num_msrs != chunk.len() {
+            return Err(GuestConfigError::VcpuGetMSRSIncomplete);
+        }
+
+        // Convert to a hashmap
+        let hashmap_chunk: HashMap<u32, u64> = kvm_msrs
+            .as_slice()
+            .iter()
+            .map(|ent| (ent.index, ent.data))
+            .collect();
+
+        msrs.extend(hashmap_chunk);
+    }
+
+    Ok(msrs)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -473,7 +514,7 @@ fn build_guest_cpu_config(
             cpu_template,
             &CpuConfiguration {
                 cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: get_msr_values(vcpu, cpu_template),
+                msrs: get_msr_values(vcpu, cpu_template)?,
             },
         );
 

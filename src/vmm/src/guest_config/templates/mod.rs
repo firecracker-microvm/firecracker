@@ -467,6 +467,12 @@ pub mod x86_64 {
         /// Failure in processing the MSRs in template for x86_64 CPU configuration.
         #[error("Template changes an MSR entry not supported by the host - [{0}]")]
         MsrNotSupported(String),
+        /// Failed to get KVM vCPU MSRs.
+        #[error("Failed to get KVM vCPU MSRs: {0}")]
+        VcpuGetMsrs(kvm_ioctls::Error),
+        /// The number of MSRs returned by the kernel is unexpected.
+        #[error("Unexpected number of MSRs reported by the kernel")]
+        VcpuGetMSRSIncomplete,
         /// Internal and unexpected error occurred while using custom templates.
         #[error("Internal error occurred while using templates - [{0}]")]
         Internal(String),

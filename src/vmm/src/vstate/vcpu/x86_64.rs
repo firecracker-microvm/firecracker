@@ -10,8 +10,8 @@ use std::convert::TryFrom;
 use std::result;
 
 use kvm_bindings::{
-    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_msr_entry, kvm_regs, kvm_sregs,
+    kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
@@ -310,6 +310,23 @@ impl KvmVcpu {
             }
             _ => (),
         }
+
+        // If a custom CPU template is configured, append MSRs from its CPU configuration
+        // for setting them to KVM.
+        if let CpuConfigurationType::Custom(cpu_template) = &vcpu_config.cpu_config {
+            let entries: Vec<kvm_msr_entry> = cpu_template
+                .msrs
+                .iter()
+                .map(|(&addr, &value)| kvm_msr_entry {
+                    index: addr,
+                    data: value,
+                    ..Default::default()
+                })
+                .collect();
+
+            msr_boot_entries.extend(entries);
+        }
+
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
