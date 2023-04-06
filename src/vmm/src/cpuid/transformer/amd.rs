@@ -129,9 +129,13 @@ pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
-        // Some versions of kernel may return the 0xB leaf for AMD even if this is an
-        // Intel-specific leaf. Remove it.
-        cpuid.retain(|entry| entry.function != leaf_0xb::LEAF_NUM);
+        // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
+        // include leaf 0xb / subleaf 1.
+        // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
+        // We call `use_host_cpuid_function()` to add the leaf 0xb / subleaf 1. As the registers
+        // within subleaves are filled by `update_extended_topology_entry()`, these values set here
+        // don't matter at this point.
+        use_host_cpuid_function(cpuid, leaf_0xb::LEAF_NUM, true)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
         self.process_entries(cpuid, vm_spec)
@@ -141,6 +145,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
         match entry.function {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
+            leaf_0xb::LEAF_NUM => Some(common::update_extended_topology_entry),
             leaf_0x80000000::LEAF_NUM => Some(amd::update_largest_extended_fn_entry),
             leaf_0x80000001::LEAF_NUM => Some(amd::update_extended_feature_info_entry),
             leaf_0x80000008::LEAF_NUM => Some(amd::update_amd_features_entry),
@@ -160,22 +165,17 @@ mod tests {
     fn test_process_cpuid() {
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut cpuid = CpuId::new(0).unwrap();
-        let entry = kvm_cpuid_entry2 {
-            function: leaf_0xb::LEAF_NUM,
-            index: 0,
-            flags: 0,
-            eax: 0,
-            ebx: 0,
-            ecx: 0,
-            edx: 0,
-            padding: [0, 0, 0],
-        };
-        cpuid.push(entry).unwrap();
 
         assert!(AmdCpuidTransformer {}
             .process_cpuid(&mut cpuid, &vm_spec)
             .is_ok());
-        assert!(!cpuid.as_slice().contains(&entry));
+
+        // Assert that leaf 0xb / subleaf 1 is generated correctly if it does not exist in the given
+        // cpuid.
+        assert!(cpuid
+            .as_slice()
+            .iter()
+            .any(|entry| entry.function == leaf_0xb::LEAF_NUM && entry.index == 1));
     }
 
     #[test]

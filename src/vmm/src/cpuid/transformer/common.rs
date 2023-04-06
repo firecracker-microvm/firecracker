@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use kvm_bindings::{kvm_cpuid_entry2, CpuId};
+use kvm_bindings::{kvm_cpuid_entry2, CpuId, KVM_CPUID_FLAG_SIGNIFCANT_INDEX};
 
 use super::*;
 use crate::cpuid::bit_helper::BitHelper;
@@ -10,6 +10,10 @@ use crate::cpuid::common::get_cpuid;
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
 const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
+
+// The APIC ID shift in leaf 0xb specifies the number of bits to shift the x2APIC ID to get a
+// unique topology of the next level. This allows 128 logical processors/package.
+const LEAFBH_INDEX1_APICID: u32 = 7;
 
 /// The maximum number of logical processors per package is computed as the closest power of 2
 /// higher or equal to the CPU count configured by the user.
@@ -104,13 +108,23 @@ pub fn use_host_cpuid_function(
     function: u32,
     use_count: bool,
 ) -> Result<(), Error> {
+    use crate::cpuid::cpu_leaf::leaf_0xb::ecx::LEVEL_TYPE_BITRANGE;
+    let flags = match use_count {
+        true => KVM_CPUID_FLAG_SIGNIFCANT_INDEX,
+        false => 0,
+    };
+
     // copy all the CpuId entries, except for the ones with the provided function
     cpuid.retain(|entry| entry.function != function);
 
     // add all the host leaves with the provided function
     let mut count: u32 = 0;
     while let Ok(entry) = get_cpuid(function, count) {
-        if count > 0 && !use_count {
+        // For leaf 0xb, exits when the level type indicates invalid (0) like `cpuid` command.
+        // http://www.etallen.com/cpuid.html
+        if (count > 0 && !use_count)
+            || (function == 0xb && entry.ecx.read_bits_in_range(&LEVEL_TYPE_BITRANGE) == 0)
+        {
             break;
         }
 
@@ -118,7 +132,7 @@ pub fn use_host_cpuid_function(
             .push(kvm_cpuid_entry2 {
                 function,
                 index: count,
-                flags: 0,
+                flags,
                 eax: entry.eax,
                 ebx: entry.ebx,
                 ecx: entry.ecx,
@@ -133,12 +147,79 @@ pub fn use_host_cpuid_function(
     Ok(())
 }
 
+pub fn update_extended_topology_entry(
+    entry: &mut kvm_cpuid_entry2,
+    vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use crate::cpuid::cpu_leaf::leaf_0xb::*;
+
+    // reset eax, ebx, ecx
+    entry.eax = 0_u32;
+    entry.ebx = 0_u32;
+    entry.ecx = 0_u32;
+    // EDX bits 31..0 contain x2APIC ID of current logical processor
+    // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
+    entry.edx = u32::from(vm_spec.cpu_index);
+    entry.flags = KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
+
+    // "If SMT is not present in a processor implementation but CPUID leaf 0BH is supported,
+    // CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and level type = 1.
+    // Number of logical processors at the core level is reported at level type = 2."
+    // (Intel® 64 Architecture x2APIC Specification, Ch. 2.8)
+    match entry.index {
+        // Thread Level Topology; index = 0
+        0 => {
+            // To get the next level APIC ID, shift right with at most 1 because we have
+            // maximum 2 hyperthreads per core that can be represented by 1 bit.
+            entry
+                .eax
+                .write_bits_in_range(&eax::APICID_BITRANGE, u32::from(vm_spec.cpu_bits));
+            // When cpu_count == 1 or HT is disabled, there is 1 logical core at this level
+            // Otherwise there are 2
+            entry.ebx.write_bits_in_range(
+                &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
+                u32::from(vm_spec.cpus_per_core()),
+            );
+
+            entry
+                .ecx
+                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_THREAD);
+        }
+        // Core Level Processor Topology; index = 1
+        1 => {
+            entry
+                .eax
+                .write_bits_in_range(&eax::APICID_BITRANGE, LEAFBH_INDEX1_APICID);
+            entry.ebx.write_bits_in_range(
+                &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
+                u32::from(vm_spec.cpu_count),
+            );
+            entry
+                .ecx
+                .write_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE, entry.index);
+            entry
+                .ecx
+                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_CORE);
+        }
+        // Core Level Processor Topology; index >=2
+        // No other levels available; This should already be set correctly,
+        // and it is added here as a "re-enforcement" in case we run on
+        // different hardware
+        level => {
+            entry.ecx = level;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use kvm_bindings::kvm_cpuid_entry2;
 
     use super::*;
     use crate::cpuid::common::tests::get_topoext_fn;
+    use crate::cpuid::cpu_leaf::leaf_0xb::{LEVEL_TYPE_CORE, LEVEL_TYPE_THREAD};
     use crate::cpuid::transformer::VmSpec;
 
     #[test]
@@ -202,6 +283,41 @@ mod tests {
         );
     }
 
+    fn check_update_extended_topology_entry(
+        cpu_count: u8,
+        smt: bool,
+        index: u32,
+        expected_apicid: u32,
+        expected_num_logical_processors: u32,
+        expected_level_type: u32,
+    ) {
+        use crate::cpuid::cpu_leaf::leaf_0xb::*;
+
+        let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
+        let entry = &mut kvm_cpuid_entry2 {
+            function: 0x0,
+            index,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_extended_topology_entry(entry, &vm_spec).is_ok());
+
+        assert!(entry.eax.read_bits_in_range(&eax::APICID_BITRANGE) == expected_apicid);
+        assert!(
+            entry
+                .ebx
+                .read_bits_in_range(&ebx::NUM_LOGICAL_PROCESSORS_BITRANGE)
+                == expected_num_logical_processors
+        );
+        assert!(entry.ecx.read_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE) == expected_level_type);
+        assert!(entry.ecx.read_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE) == index);
+    }
+
     #[test]
     fn test_1vcpu_ht_off() {
         check_update_feature_info_entry(1, false);
@@ -213,6 +329,12 @@ mod tests {
         check_update_cache_parameters_entry(1, false, 2, 0);
         // test L3
         check_update_cache_parameters_entry(1, false, 3, 0);
+
+        // test update_extended_topology_entry
+        // index 0
+        check_update_extended_topology_entry(1, false, 0, 0, 1, LEVEL_TYPE_THREAD);
+        // index 1
+        check_update_extended_topology_entry(1, false, 1, LEAFBH_INDEX1_APICID, 1, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -226,6 +348,12 @@ mod tests {
         check_update_cache_parameters_entry(1, true, 2, 0);
         // test L3
         check_update_cache_parameters_entry(1, true, 3, 0);
+
+        // test update_extended_topology_entry
+        // index 0
+        check_update_extended_topology_entry(1, true, 0, 0, 1, LEVEL_TYPE_THREAD);
+        // index 1
+        check_update_extended_topology_entry(1, true, 1, LEAFBH_INDEX1_APICID, 1, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -239,6 +367,12 @@ mod tests {
         check_update_cache_parameters_entry(2, false, 2, 0);
         // test L3
         check_update_cache_parameters_entry(2, false, 3, 1);
+
+        // test update_extended_topology_entry
+        // index 0
+        check_update_extended_topology_entry(2, false, 0, 0, 1, LEVEL_TYPE_THREAD);
+        // index 1
+        check_update_extended_topology_entry(2, false, 1, LEAFBH_INDEX1_APICID, 2, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -252,6 +386,12 @@ mod tests {
         check_update_cache_parameters_entry(2, true, 2, 1);
         // test L3
         check_update_cache_parameters_entry(2, true, 3, 1);
+
+        // test update_extended_topology_entry
+        // index 0
+        check_update_extended_topology_entry(2, true, 0, 1, 2, LEVEL_TYPE_THREAD);
+        // index 1
+        check_update_extended_topology_entry(2, true, 1, LEAFBH_INDEX1_APICID, 2, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -302,6 +442,20 @@ mod tests {
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
             Err(Error::Fam(utils::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_use_host_cpuid_function_leaf_0xb() {
+        use crate::cpuid::cpu_leaf::leaf_0xb::*;
+        let ext_cpu_topo_fn = LEAF_NUM;
+
+        // Check that leaf 0xb ends before the level type becomes invalid (0).
+        let mut cpuid = CpuId::new(0).unwrap();
+        assert!(use_host_cpuid_function(&mut cpuid, ext_cpu_topo_fn, true).is_ok());
+        for entry in cpuid.as_slice().iter() {
+            assert_ne!(entry.ecx.read_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE), 0);
         }
     }
 }
