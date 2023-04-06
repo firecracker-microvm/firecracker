@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed feature flags in T2S CPU template on Intel Ice Lake.
+- Fixed CPUID leaf 0xb to be exposed to guests running on AMD host.
 
 ## [1.3.0]
 
