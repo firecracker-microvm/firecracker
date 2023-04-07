@@ -963,6 +963,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_templates"
+version = "0.1.0"
+dependencies = [
+ "kvm-bindings",
+ "serde_json",
+ "vmm",
+]
+
+[[package]]
 name = "subtle"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
