@@ -26,14 +26,14 @@ def is_on_skylake():
 # differences may appear.
 if utils.is_io_uring_supported():
     COVERAGE_DICT = {
-        "Intel": 81.93 if is_on_skylake() else 84.37,
-        "AMD": 84.68,
+        "Intel": 82.32 if is_on_skylake() else 84.71,
+        "AMD": 85.00,
         "ARM": 82.44,
     }
 else:
     COVERAGE_DICT = {
-        "Intel": 79.46 if is_on_skylake() else 81.88,
-        "AMD": 82.19,
+        "Intel": 79.9 if is_on_skylake() else 82.27,
+        "AMD": 82.56,
         "ARM": 79.37,
     }
 
