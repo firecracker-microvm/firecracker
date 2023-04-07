@@ -66,6 +66,7 @@
  'shlex',
  'snapshot',
  'static_assertions',
+ 'static_templates',
  'subtle',
  'syn',
  'thiserror',
