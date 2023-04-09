@@ -98,6 +98,16 @@ impl super::IntelCpuid {
     ) -> Result<(), DeterministicCacheError> {
         for i in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x4, i)) {
+                // If ECX contains an invalid subleaf, EAX/EBX/ECX/EDX return 0 and the
+                // normalization should not be applied. Exits when it hits such an invalid subleaf.
+                if subleaf.result.eax == 0
+                    && subleaf.result.ebx == 0
+                    && subleaf.result.ecx == 0
+                    && subleaf.result.edx == 0
+                {
+                    break;
+                }
+
                 // Cache Type Field.
                 // - 0 = Null - No more caches.
                 // - 1 = Data Cache.
