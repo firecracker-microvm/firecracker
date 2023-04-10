@@ -63,3 +63,9 @@ def test_num_dependencies(dep_file):
         assert (
             False
         ), f"New build dependencies detected. Is this expected? New dependencies {difference}"
+
+    difference = set(prev_deps) - current_deps
+    if difference:
+        assert (
+            False
+        ), f"Some build dependencies have been removed: {difference}. Please update the test accordingly."
