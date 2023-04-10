@@ -3,7 +3,6 @@
  'aes-gcm',
  'aho-corasick',
  'api_server',
- 'arch_gen',
  'autocfg',
  'base64',
  'bincode',
