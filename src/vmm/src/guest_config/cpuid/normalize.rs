@@ -425,7 +425,10 @@ const fn get_max_cpus_per_package(cpu_count: u8) -> Result<u8, GetMaxCpusPerPack
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
+    use crate::guest_config::cpuid::{AmdCpuid, Cpuid, IntelCpuid};
 
     #[test]
     fn get_max_cpus_per_package_test() {
@@ -455,5 +458,73 @@ mod tests {
             get_max_cpus_per_package(u8::MAX),
             Err(GetMaxCpusPerPackageError::Overflow)
         );
+    }
+
+    #[test]
+    fn check_leaf_0xb_subleaf_0x1_added() {
+        // Check leaf 0xb / subleaf 0x1 is added in `update_extended_topology_entry()` even when it
+        // isn't included.
+
+        // Pseudo CPU setting
+        let smt = false;
+        let cpu_index = 0;
+        let cpu_count = 2;
+        let cpu_bits = u8::from(cpu_count > 1 && smt);
+        let cpus_per_core = 1u8
+            .checked_shl(u32::from(cpu_bits))
+            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))
+            .unwrap();
+
+        // Case 1: Intel CPUID
+        let mut intel_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0xb,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0,
+                    ecx: 0,
+                    edx: 0,
+                },
+            },
+        )])));
+        let result = intel_cpuid.update_extended_topology_entry(
+            cpu_index,
+            cpu_count,
+            cpu_bits,
+            cpus_per_core,
+        );
+        assert!(result.is_ok());
+        assert!(intel_cpuid.inner().contains_key(&CpuidKey {
+            leaf: 0xb,
+            subleaf: 0x1
+        }));
+
+        // Case 2: AMD CPUID
+        let mut amd_cpuid = Cpuid::Amd(AmdCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0xb,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0,
+                    ecx: 0,
+                    edx: 0,
+                },
+            },
+        )])));
+        let result =
+            amd_cpuid.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core);
+        assert!(result.is_ok());
+        assert!(amd_cpuid.inner().contains_key(&CpuidKey {
+            leaf: 0xb,
+            subleaf: 0x1
+        }));
     }
 }
