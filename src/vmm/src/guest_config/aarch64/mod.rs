@@ -35,6 +35,10 @@ impl CpuConfiguration {
     fn with_template(vcpu: &VcpuFd, template: &CpuTemplateType) -> Result<Self, Error> {
         match template {
             CpuTemplateType::Custom(template) => Self::with_applied_template(vcpu, template),
+            CpuTemplateType::Static(StaticCpuTemplate::V1N1) => {
+                let template = static_cpu_templates::v1n1::v1n1();
+                Self::with_applied_template(vcpu, &template)
+            }
             _ => unreachable!("Options other than V1N1 are invalid"),
         }
     }
