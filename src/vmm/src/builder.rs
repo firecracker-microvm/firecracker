@@ -47,13 +47,14 @@ use crate::device_manager::persist::MMIODevManagerConstructorArgs;
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::cpuid::{Cpuid, RawCpuid};
 use crate::guest_config::templates::{
-    create_guest_cpu_config, CpuConfiguration, CpuConfigurationType, CpuTemplate, GuestConfigError,
+    create_guest_cpu_config, CpuConfiguration, CpuConfigurationType, CpuTemplate, CpuTemplateType,
+    GuestConfigError,
 };
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{VmConfigError, VmUpdateConfig};
+use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError};
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::Vcpu;
 use crate::vstate::vm::Vm;
@@ -362,8 +363,7 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory =
-        create_guest_memory(vm_resources.vm_config().mem_size_mib, track_dirty_pages)?;
+    let guest_memory = create_guest_memory(vm_resources.vm_config.mem_size_mib, track_dirty_pages)?;
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
@@ -376,7 +376,7 @@ pub fn build_microvm_for_boot(
         guest_memory,
         None,
         track_dirty_pages,
-        vm_resources.vm_config().vcpu_count,
+        vm_resources.vm_config.vcpu_count,
     )?;
 
     let vcpu_config = if let Some(vcpu) = vcpus.get(0) {
@@ -467,7 +467,7 @@ fn build_guest_cpu_config(
     vcpu: &Vcpu,
 ) -> Result<CpuConfigurationType, GuestConfigError> {
     let mut cpu_config: Option<CpuConfiguration> = None;
-    if let Some(cpu_template) = &vm_resources.vm_config.custom_cpu_template {
+    if let Some(CpuTemplateType::Custom(cpu_template)) = &vm_resources.vm_config.cpu_template {
         #[cfg(target_arch = "x86_64")]
         let cpu_config_result = create_guest_cpu_config(
             cpu_template,
@@ -488,7 +488,14 @@ fn build_guest_cpu_config(
         cpu_config = Some(cpu_config_result?);
     }
 
-    CpuConfigurationType::from(Some(vm_resources.vm_config.config.cpu_template), cpu_config)
+    let static_template =
+        if let Some(CpuTemplateType::Static(template)) = vm_resources.vm_config.cpu_template {
+            Some(template)
+        } else {
+            None
+        };
+
+    CpuConfigurationType::from(static_template, cpu_config)
 }
 
 /// Error type for [`build_microvm_from_snapshot`].
@@ -597,7 +604,7 @@ pub fn build_microvm_from_snapshot(
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
 
-    vm_resources.update_vm_config(&VmUpdateConfig {
+    vm_resources.update_vm_config(&MachineConfigUpdate {
         vcpu_count: Some(vcpu_count),
         mem_size_mib: Some(microvm_state.vm_info.mem_size_mib as usize),
         smt: Some(microvm_state.vm_info.smt),
