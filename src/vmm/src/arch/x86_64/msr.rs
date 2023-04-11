@@ -10,17 +10,15 @@ use kvm_ioctls::{Kvm, VcpuFd};
 
 use crate::arch_gen::x86::msr_index::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
 pub enum Error {
     /// A FamStructWrapper operation has failed.
+    #[error("A FamStructWrapper operation has failed: {0}")]
     Fam(utils::fam::Error),
     /// Getting supported MSRs failed.
+    #[error("Getting supported MSRs failed: {0}")]
     GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
-    /// Setting up MSRs failed.
-    SetModelSpecificRegisters(kvm_ioctls::Error),
-    /// Failed to set all MSRs.
-    SetModelSpecificRegistersCount,
 }
 
 type Result<T> = result::Result<T, Error>;
