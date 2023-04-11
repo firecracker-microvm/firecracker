@@ -22,15 +22,29 @@ use versionize_derive::Versionize;
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::SetMSRsError;
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use crate::guest_config::static_templates::c3::c3;
-use crate::guest_config::static_templates::t2::t2;
-use crate::guest_config::static_templates::t2a::t2a;
-use crate::guest_config::static_templates::t2cl::{t2cl, update_t2cl_msr_entries};
-use crate::guest_config::static_templates::t2s::{t2s, update_t2s_msr_entries};
-use crate::guest_config::static_templates::{msr_entries_to_save, TSC_KHZ_TOL};
 use crate::guest_config::templates::{CpuConfigurationType, StaticCpuTemplate};
+use crate::guest_config::x86_64::static_cpu_templates::*;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
+
+/// Tolerance for TSC frequency expected variation.
+/// The value of 250 parts per million is based on
+/// the QEMU approach, more details here:
+/// https://bugzilla.redhat.com/show_bug.cgi?id=1839095
+#[cfg(target_arch = "x86_64")]
+pub const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
+
+#[allow(clippy::missing_docs_in_private_items)]
+#[cfg(target_arch = "x86_64")]
+static EXTRA_MSR_ENTRIES: &[u32] = &[crate::arch_gen::x86::msr_index::MSR_IA32_ARCH_CAPABILITIES];
+
+/// Return a list of MSRs specific to this T2S template.
+#[inline]
+#[must_use]
+#[cfg(target_arch = "x86_64")]
+pub fn msr_entries_to_save() -> &'static [u32] {
+    EXTRA_MSR_ENTRIES
+}
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
@@ -239,11 +253,11 @@ impl KvmVcpu {
 
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match static_cpu_template {
-            StaticCpuTemplate::T2 => t2(),
-            StaticCpuTemplate::T2S => t2s(),
-            StaticCpuTemplate::C3 => c3(),
-            StaticCpuTemplate::T2CL => t2cl(),
-            StaticCpuTemplate::T2A => t2a(),
+            StaticCpuTemplate::T2 => t2::t2(),
+            StaticCpuTemplate::T2S => t2s::t2s(),
+            StaticCpuTemplate::C3 => c3::c3(),
+            StaticCpuTemplate::T2CL => t2cl::t2cl(),
+            StaticCpuTemplate::T2A => t2a::t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
             StaticCpuTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
                 crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
@@ -301,11 +315,11 @@ impl KvmVcpu {
         match static_cpu_template {
             StaticCpuTemplate::T2S => {
                 self.msr_list.extend(msr_entries_to_save());
-                update_t2s_msr_entries(&mut msr_boot_entries);
+                t2s::update_t2s_msr_entries(&mut msr_boot_entries);
             }
             StaticCpuTemplate::T2CL => {
                 self.msr_list.extend(msr_entries_to_save());
-                update_t2cl_msr_entries(&mut msr_boot_entries);
+                t2cl::update_t2cl_msr_entries(&mut msr_boot_entries);
             }
             _ => (),
         }
