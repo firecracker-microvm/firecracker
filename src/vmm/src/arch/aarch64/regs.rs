@@ -155,10 +155,17 @@ macro_rules! arm64_sys_reg {
     };
 }
 
-// Constant imported from the Linux kernel:
+// Constants imported from the Linux kernel:
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/asm/sysreg.h#L135
 arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
+
+// ID registers that represent cpu capabilities.
+// Needed for static cpu templates.
+arm64_sys_reg!(ID_AA64PFR0_EL1, 3, 0, 0, 4, 0);
+arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
+arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
+arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
 /// Extract the Manufacturer ID from a VCPU state's registers.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
@@ -419,13 +426,25 @@ pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) ->
 
     // Now, for the rest of the registers left in the previously fetched register list, we are
     // simply calling KVM_GET_ONE_REG.
-    let indices = reg_list.as_slice();
-    for index in indices.iter() {
+    save_registers(vcpu, reg_list.as_slice(), state)?;
+
+    Ok(())
+}
+
+/// Saves states of registers into `state`.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `ids` - Slice of registers ids to save.
+/// * `state` - Input/Output vector of registers states.
+pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Register>) -> Result<()> {
+    for id in ids.iter() {
         state.push(Aarch64Register {
-            id: *index,
+            id: *id,
             value: vcpu
-                .get_one_reg(*index)
-                .map_err(|e| Error::GetSysRegister(*index, e))?,
+                .get_one_reg(*id)
+                .map_err(|e| Error::GetSysRegister(*id, e))?,
         });
     }
 
