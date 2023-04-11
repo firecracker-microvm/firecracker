@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::{Display, Formatter};
 use std::result;
 
 use kvm_ioctls::*;
@@ -20,43 +19,22 @@ use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Error configuring the general purpose aarch64 registers.
+    #[error("Error configuring the vcpu registers: {0}")]
     ConfigureRegisters(crate::arch::aarch64::regs::Error),
-    /// Cannot open the kvm related file descriptor.
-    CreateFd(kvm_ioctls::Error),
-    /// Error getting the Vcpu preferred target on Arm.
+    #[error("Error creating vcpu: {0}")]
+    CreateVcpu(kvm_ioctls::Error),
+    #[error("Error getting the vcpu preferred target: {0}")]
     GetPreferredTarget(kvm_ioctls::Error),
-    /// Error doing Vcpu Init on Arm.
+    #[error("Error initializing the vcpu: {0}")]
     Init(kvm_ioctls::Error),
-    /// Failed to set value for some arm specific register.
+    #[error("Error applying template to the vcpu: {0}")]
+    ApplyCpuTemplate(crate::arch::aarch64::regs::Error),
+    #[error("Failed to restore the state of the vcpu: {0}")]
     RestoreState(crate::arch::aarch64::regs::Error),
-    /// Failed to fetch value for some arm specific register.
+    #[error("Failed to save the state of the vcpu: {0}")]
     SaveState(crate::arch::aarch64::regs::Error),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match self {
-            ConfigureRegisters(err) => {
-                write!(
-                    f,
-                    "Error configuring the general purpose registers: {}",
-                    err
-                )
-            }
-            CreateFd(err) => write!(f, "Error in opening the VCPU file descriptor: {}", err),
-            GetPreferredTarget(err) => {
-                write!(f, "Error retrieving the vcpu preferred target: {}", err)
-            }
-            Init(err) => write!(f, "Error initializing the vcpu: {}", err),
-            RestoreState(err) => write!(f, "Failed to restore the state of the vcpu: {}", err),
-            SaveState(err) => write!(f, "Failed to save the state of the vcpu: {}", err),
-        }
-    }
 }
 
 type Result<T> = result::Result<T, Error>;
