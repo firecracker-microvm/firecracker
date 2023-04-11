@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use logger::{IncMetric, METRICS};
-use vmm::guest_config::templates::CpuTemplate;
+use vmm::guest_config::templates::CustomCpuTemplate;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
@@ -13,7 +13,7 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 
     // Convert the API request into a a deserialized/binary format
     Ok(ParsedRequest::new_sync(VmmAction::PutCpuConfiguration(
-        serde_json::from_slice::<CpuTemplate>(body.raw()).map_err(|err| {
+        serde_json::from_slice::<CustomCpuTemplate>(body.raw()).map_err(|err| {
             METRICS.put_api_requests.cpu_cfg_fails.inc();
             Error::SerdeJson(err)
         })?,
@@ -24,7 +24,6 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 mod tests {
     use logger::{IncMetric, METRICS};
     use micro_http::Body;
-    use vmm::guest_config::templates::guest_config_test;
     use vmm::rpc_interface::VmmAction;
 
     use super::*;
@@ -32,7 +31,7 @@ mod tests {
 
     #[test]
     fn test_parse_put_cpu_config_request() {
-        let cpu_template = vmm::guest_config::templates::guest_config_test::build_test_template();
+        let cpu_template = CustomCpuTemplate::build_test_template();
         let cpu_config_json_result = serde_json::to_string(&cpu_template);
         assert!(
             &cpu_config_json_result.is_ok(),
@@ -80,7 +79,7 @@ mod tests {
 
         // Test request with invalid fields
         let invalid_put_result =
-            parse_put_cpu_config(&Body::new(guest_config_test::INVALID_TEMPLATE_JSON));
+            parse_put_cpu_config(&Body::new(CustomCpuTemplate::TEST_INVALID_TEMPLATE_JSON));
         expected_err_count += 1;
 
         assert!(invalid_put_result.is_err());
