@@ -320,7 +320,7 @@ pub mod tests {
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::vmm_config::machine_config::VmConfig;
+    use vmm::vmm_config::machine_config::MachineConfig;
 
     use super::*;
 
@@ -589,7 +589,7 @@ pub mod tests {
         }));
         verify_ok_response_with(VmmData::Empty);
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
-        verify_ok_response_with(VmmData::MachineConfiguration(VmConfig::default()));
+        verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));
         verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
         verify_ok_response_with(VmmData::VmmVersion(String::default()));
