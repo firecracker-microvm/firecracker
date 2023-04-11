@@ -3,10 +3,10 @@
 use std::fmt;
 
 use serde::{de, Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
+use versionize::*;
 use versionize_derive::Versionize;
 
-use crate::guest_config::templates::{CpuTemplate, GuestConfigError};
+use crate::guest_config::templates::{CpuTemplate, CpuTemplateType};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -39,17 +39,12 @@ pub enum VmConfigError {
          the memory size."
     )]
     InvalidVmState,
-    /// Error applying template to host-supported config to create
-    /// vCPU configuration for the guest machine.
-    #[error("Error applying CPU template to create guest configuration: {0}")]
-    InvalidCpuTemplateConfig(GuestConfigError),
 }
 
-/// Strongly typed structure that represents the configuration of the
-/// microvm.
+/// Struct used in PUT `/machine-config` API call.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct VmConfig {
+pub struct MachineConfig {
     /// Number of vcpu to start.
     #[serde(deserialize_with = "deserialize_vcpu_num")]
     pub vcpu_count: u8,
@@ -70,19 +65,13 @@ pub struct VmConfig {
     pub track_dirty_pages: bool,
 }
 
-impl Default for VmConfig {
+impl Default for MachineConfig {
     fn default() -> Self {
-        VmConfig {
-            vcpu_count: 1,
-            mem_size_mib: DEFAULT_MEM_SIZE_MIB,
-            smt: false,
-            cpu_template: CpuFeaturesTemplate::None,
-            track_dirty_pages: false,
-        }
+        Self::from(&VmConfig::default())
     }
 }
 
-impl fmt::Display for VmConfig {
+impl fmt::Display for MachineConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -93,14 +82,15 @@ impl fmt::Display for VmConfig {
     }
 }
 
-/// Spec for partial configuration of the machine.
-/// This struct mirrors all the fields in `VmConfig`.
+/// Struct used in PATCH `/machine-config` API call.
+/// Used to update `VmConfig` in `VmResources`.
+/// This struct mirrors all the fields in `MachineConfig`.
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct VmUpdateConfig {
+pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
     #[serde(
         default,
@@ -130,7 +120,7 @@ pub struct VmUpdateConfig {
     pub track_dirty_pages: Option<bool>,
 }
 
-impl VmUpdateConfig {
+impl MachineConfigUpdate {
     /// Checks if the update request contains any data.
     /// Returns `true` if all fields are set to `None` which means that there is nothing
     /// to be updated.
@@ -148,9 +138,9 @@ impl VmUpdateConfig {
     }
 }
 
-impl From<VmConfig> for VmUpdateConfig {
-    fn from(cfg: VmConfig) -> Self {
-        VmUpdateConfig {
+impl From<MachineConfig> for MachineConfigUpdate {
+    fn from(cfg: MachineConfig) -> Self {
+        MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
             smt: Some(cfg.smt),
@@ -160,55 +150,97 @@ impl From<VmConfig> for VmUpdateConfig {
     }
 }
 
-/// Builder to generate VmConfig while also storing custom templates.
-/// When a custom template is not defined the VmConfig can permit
-/// a static template as defined by the variants in `CpuFeaturesTemplate`.
-/// If a custom template is defined, the `VmConfig.cpu_template` field
-/// will return CpuFeatureTemplate::None.
-#[derive(Clone, Default)]
-pub struct VmConfigBuilder {
-    /// Custom CPU template, if populated, will force a default value
-    /// for the VmConfig.cpu_feature field.
-    pub custom_cpu_template: Option<CpuTemplate>,
-    /// VmConfig structure with default values.
-    pub config: VmConfig,
+/// Configuration of the microvm.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VmConfig {
+    /// Number of vcpu to start.
+    pub vcpu_count: u8,
+    /// The memory size in MiB.
+    pub mem_size_mib: usize,
+    /// Enables or disabled SMT.
+    pub smt: bool,
+    /// A CPU template that it is used to filter the CPU features exposed to the guest.
+    pub cpu_template: Option<CpuTemplateType>,
+    /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
+    pub track_dirty_pages: bool,
 }
 
-impl VmConfigBuilder {
-    /// Gives data for initializing VmConfig that
-    /// takes custom CPU templates into consideration.
-    pub fn new(
-        config: VmConfig,
-        custom_cpu_template: Option<CpuTemplate>,
-    ) -> Result<VmConfigBuilder, VmConfigError> {
-        if config.cpu_template != CpuFeaturesTemplate::None && custom_cpu_template.is_some() {
-            Err(VmConfigError::InvalidCpuTemplateConfig(
-                GuestConfigError::ConflictingCpuTemplateConfigured,
-            ))
-        } else {
-            Ok(VmConfigBuilder {
-                custom_cpu_template,
-                config,
-            })
-        }
+impl VmConfig {
+    /// Sets cpu tempalte field to `CpuTemplateType::Custom(cpu_template)`.
+    pub fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) {
+        self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
     }
 
-    pub(crate) fn build(&self) -> VmConfig {
-        VmConfig {
-            vcpu_count: self.config.vcpu_count,
-            mem_size_mib: self.config.mem_size_mib,
-            smt: self.config.smt,
-            cpu_template: if self.custom_cpu_template.is_some() {
-                CpuFeaturesTemplate::None
-            } else {
-                self.config.cpu_template
-            },
-            track_dirty_pages: self.config.track_dirty_pages,
+    /// Updates `VmConfig` with `MachineConfigUpdate`.
+    /// Mapping for cpu tempalte update:
+    /// StaticCpuTemplate::None -> None
+    /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other))
+    pub fn update(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+        let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
+
+        let smt = update.smt.unwrap_or(self.smt);
+
+        if vcpu_count == 0 {
+            return Err(VmConfigError::InvalidVcpuCount);
+        }
+
+        // If SMT is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
+        if smt && vcpu_count > 1 && vcpu_count % 2 == 1 {
+            return Err(VmConfigError::InvalidVcpuCount);
+        }
+
+        self.vcpu_count = vcpu_count;
+        self.smt = smt;
+
+        let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
+
+        if mem_size_mib == 0 {
+            return Err(VmConfigError::InvalidMemorySize);
+        }
+
+        self.mem_size_mib = mem_size_mib;
+
+        if let Some(cpu_template) = update.cpu_template {
+            self.cpu_template = match cpu_template {
+                CpuFeaturesTemplate::None => None,
+                other => Some(CpuTemplateType::Static(other)),
+            };
+        }
+
+        if let Some(track_dirty_pages) = update.track_dirty_pages {
+            self.track_dirty_pages = track_dirty_pages;
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for VmConfig {
+    fn default() -> Self {
+        Self {
+            vcpu_count: 1,
+            mem_size_mib: DEFAULT_MEM_SIZE_MIB,
+            smt: false,
+            cpu_template: None,
+            track_dirty_pages: false,
         }
     }
 }
 
-/// Deserialization function for the `vcpu_num` field in `VmConfig` and `VmUpdateConfig`.
+impl From<&VmConfig> for MachineConfig {
+    fn from(value: &VmConfig) -> Self {
+        Self {
+            vcpu_count: value.vcpu_count,
+            mem_size_mib: value.mem_size_mib,
+            smt: value.smt,
+            cpu_template: (&value.cpu_template).into(),
+            track_dirty_pages: value.track_dirty_pages,
+        }
+    }
+}
+
+/// Deserialization function for the `vcpu_num` field in `MachineConfig` and `MachineConfigUpdate`.
 /// This is called only when `vcpu_num` is present in the JSON configuration.
 /// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
 /// present in the JSON.
@@ -235,7 +267,7 @@ where
     Ok(val)
 }
 
-/// Deserialization function for the `smt` field in `VmConfig` and `VmUpdateConfig`.
+/// Deserialization function for the `smt` field in `MachineConfig` and `MachineConfigUpdate`.
 /// This is called only when `smt` is present in the JSON configuration.
 fn deserialize_smt<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
@@ -258,8 +290,9 @@ where
     Ok(val)
 }
 
-/// Deserialization function for the `cpu_template` field in `VmConfig` and `VmUpdateConfig`.
-/// This is called only when `cpu_template` is present in the JSON configuration.
+/// Deserialization function for the `cpu_template` field in `MachineConfig` and
+/// `MachineConfigUpdate`. This is called only when `cpu_template` is present in the JSON
+/// configuration.
 fn deserialize_cpu_template<'de, D, T>(_d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
