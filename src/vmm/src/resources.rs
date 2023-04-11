@@ -19,12 +19,14 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigBuilder, VmConfigError, VmUpdateConfig};
+use crate::vmm_config::machine_config::{
+    MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::vcpu::VcpuConfig;
+use crate::VcpuConfig;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -85,7 +87,7 @@ pub struct VmmConfig {
     #[serde(rename = "logger")]
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
-    machine_config: Option<VmConfig>,
+    machine_config: Option<MachineConfig>,
     #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
     #[serde(rename = "mmds-config")]
@@ -101,7 +103,7 @@ pub struct VmmConfig {
 #[derive(Default)]
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
-    pub vm_config: VmConfigBuilder,
+    pub vm_config: VmConfig,
     /// The boot source spec (contains both config and builder) for this microVM.
     boot_source: BootSource,
     /// The block devices.
@@ -145,7 +147,7 @@ impl VmResources {
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
-            let machine_config = VmUpdateConfig::from(machine_config);
+            let machine_config = MachineConfigUpdate::from(machine_config);
             resources.update_vm_config(&machine_config)?;
         }
 
@@ -221,69 +223,39 @@ impl VmResources {
     /// Returns a VcpuConfig based on the vm config and resources.
     pub fn vcpu_config(&self, cpu_config: CpuConfigurationType) -> VcpuConfig {
         VcpuConfig {
-            vcpu_count: self.vm_config().vcpu_count,
-            smt: self.vm_config().smt,
+            vcpu_count: self.vm_config.vcpu_count,
+            smt: self.vm_config.smt,
             cpu_config,
         }
     }
 
     /// Returns whether dirty page tracking is enabled or not.
     pub fn track_dirty_pages(&self) -> bool {
-        self.vm_config().track_dirty_pages
+        self.vm_config.track_dirty_pages
     }
 
     /// Configures the dirty page tracking functionality of the microVM.
     pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
-        self.vm_config.config.track_dirty_pages = dirty_page_tracking;
-    }
-
-    /// Returns the VmConfig.
-    pub fn vm_config(&self) -> VmConfig {
-        self.vm_config.build()
+        self.vm_config.track_dirty_pages = dirty_page_tracking;
     }
 
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
-    pub fn set_cpu_template(&mut self, cpu_template: CpuTemplate) {
-        self.vm_config.custom_cpu_template = Some(cpu_template);
+    pub fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) {
+        self.vm_config.set_custom_cpu_template(cpu_template);
     }
 
-    /// Update the machine configuration of the microVM.
+    /// Updates the configuration of the microVM.
     pub fn update_vm_config(
         &mut self,
-        machine_config: &VmUpdateConfig,
+        update: &MachineConfigUpdate,
     ) -> std::result::Result<(), VmConfigError> {
-        let vcpu_count = machine_config
-            .vcpu_count
-            .unwrap_or(self.vm_config.config.vcpu_count);
-
-        let smt = machine_config.smt.unwrap_or(self.vm_config.config.smt);
-
-        if vcpu_count == 0 {
-            return Err(VmConfigError::InvalidVcpuCount);
-        }
-
-        // If SMT is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even.
-        if smt && vcpu_count > 1 && vcpu_count % 2 == 1 {
-            return Err(VmConfigError::InvalidVcpuCount);
-        }
-
-        self.vm_config.config.vcpu_count = vcpu_count;
-        self.vm_config.config.smt = smt;
-
-        let mem_size_mib = machine_config
-            .mem_size_mib
-            .unwrap_or(self.vm_config.config.mem_size_mib);
-
-        if mem_size_mib == 0 {
-            return Err(VmConfigError::InvalidMemorySize);
-        }
+        self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
-            && mem_size_mib
+            && self.vm_config.mem_size_mib
                 < self
                     .balloon
                     .get_config()
@@ -291,18 +263,6 @@ impl VmResources {
                     .amount_mib as usize
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
-        }
-
-        self.vm_config.config.mem_size_mib = mem_size_mib;
-
-        // Update the CPU template
-        if let Some(cpu_template) = machine_config.cpu_template {
-            self.vm_config.config.cpu_template = cpu_template;
-        }
-
-        // Update dirty page tracking
-        if let Some(track_dirty_pages) = machine_config.track_dirty_pages {
-            self.vm_config.config.track_dirty_pages = track_dirty_pages;
         }
 
         Ok(())
@@ -363,7 +323,7 @@ impl VmResources {
     ) -> Result<BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize > self.vm_config.config.mem_size_mib {
+        if config.amount_mib as usize > self.vm_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
@@ -488,7 +448,7 @@ impl From<&VmResources> for VmmConfig {
             block_devices: resources.block.configs(),
             boot_source: resources.boot_source_config().clone(),
             logger: None,
-            machine_config: Some(resources.vm_config.build()),
+            machine_config: Some(MachineConfig::from(&resources.vm_config)),
             metrics: None,
             mmds_config: resources.mmds_config(),
             net_devices: resources.net_builder.configs(),
@@ -514,11 +474,10 @@ mod tests {
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
-    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
-    use crate::vstate::vcpu::VcpuConfig;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
@@ -585,7 +544,7 @@ mod tests {
 
     fn default_vm_resources() -> VmResources {
         VmResources {
-            vm_config: VmConfigBuilder::default(),
+            vm_config: VmConfig::default(),
             boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
@@ -1261,30 +1220,9 @@ mod tests {
     }
 
     #[test]
-    fn test_vcpu_config() {
-        let vm_resources = default_vm_resources();
-        let expected_vcpu_config = VcpuConfig {
-            vcpu_count: vm_resources.vm_config().vcpu_count,
-            smt: vm_resources.vm_config().smt,
-            cpu_config: CpuConfigurationType::default(),
-        };
-
-        let vcpu_config = vm_resources.vcpu_config(CpuConfigurationType::default());
-        assert_eq!(vcpu_config, expected_vcpu_config);
-    }
-
-    #[test]
-    fn test_vm_config() {
-        let vm_resources = default_vm_resources();
-        let expected_vm_cfg = VmConfig::default();
-
-        assert_eq!(vm_resources.vm_config(), expected_vm_cfg);
-    }
-
-    #[test]
     fn test_update_vm_config() {
         let mut vm_resources = default_vm_resources();
-        let mut aux_vm_config = VmUpdateConfig {
+        let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(true),
@@ -1293,12 +1231,12 @@ mod tests {
         };
 
         assert_ne!(
-            VmUpdateConfig::from(vm_resources.vm_config.build()),
+            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
             aux_vm_config
         );
         vm_resources.update_vm_config(&aux_vm_config).unwrap();
         assert_eq!(
-            VmUpdateConfig::from(vm_resources.vm_config.build()),
+            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
             aux_vm_config
         );
 
@@ -1323,7 +1261,7 @@ mod tests {
         );
 
         // Incompatible mem_size_mib with balloon size.
-        vm_resources.vm_config.config.mem_size_mib = 128;
+        vm_resources.vm_config.mem_size_mib = 128;
         vm_resources
             .set_balloon_device(BalloonDeviceConfig {
                 amount_mib: 100,

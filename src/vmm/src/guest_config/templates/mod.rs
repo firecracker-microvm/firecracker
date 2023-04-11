@@ -83,6 +83,33 @@ impl CpuConfigurationType {
     }
 }
 
+/// Enum that represents types of cpu templates available.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CpuTemplateType {
+    /// Custom cpu template
+    Custom(CpuTemplate),
+    /// Static cpu template
+    Static(CpuFeaturesTemplate),
+}
+
+impl From<CpuFeaturesTemplate> for Option<CpuTemplateType> {
+    fn from(value: CpuFeaturesTemplate) -> Self {
+        match value {
+            CpuFeaturesTemplate::None => None,
+            other => Some(CpuTemplateType::Static(other)),
+        }
+    }
+}
+
+impl From<&Option<CpuTemplateType>> for CpuFeaturesTemplate {
+    fn from(value: &Option<CpuTemplateType>) -> Self {
+        match value {
+            Some(CpuTemplateType::Static(template)) => *template,
+            Some(CpuTemplateType::Custom(_)) | None => CpuFeaturesTemplate::None,
+        }
+    }
+}
+
 /// Guest config sub-module specifically useful for
 /// config templates.
 #[cfg(target_arch = "x86_64")]
