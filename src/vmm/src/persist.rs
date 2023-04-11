@@ -30,6 +30,7 @@ use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
 use crate::guest_config::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::cpuid::CpuidTrait;
+use crate::guest_config::templates::StaticCpuTemplate;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
@@ -37,7 +38,7 @@ use crate::version_map::FC_V0_23_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -63,7 +64,7 @@ pub struct VmInfo {
         default_fn = "def_cpu_template",
         ser_fn = "ser_cpu_template"
     )]
-    pub cpu_template: CpuFeaturesTemplate,
+    pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
     #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
     pub boot_source: BootSourceConfig,
@@ -81,9 +82,9 @@ impl VmInfo {
         Ok(())
     }
 
-    fn def_cpu_template(_: u16) -> CpuFeaturesTemplate {
+    fn def_cpu_template(_: u16) -> StaticCpuTemplate {
         warn!("CPU template field not found in snapshot.");
-        CpuFeaturesTemplate::None
+        StaticCpuTemplate::default()
     }
 
     fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
@@ -101,6 +102,17 @@ impl VmInfo {
         // v1.1 and older versions do not include boot source info.
         warn!("Saving to older snapshot version, boot source information will not be saved.");
         Ok(())
+    }
+}
+
+impl From<&VmResources> for VmInfo {
+    fn from(value: &VmResources) -> Self {
+        Self {
+            mem_size_mib: value.vm_config.mem_size_mib as u64,
+            smt: value.vm_config.smt,
+            cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+            boot_source: value.boot_source_config().clone(),
+        }
     }
 }
 
