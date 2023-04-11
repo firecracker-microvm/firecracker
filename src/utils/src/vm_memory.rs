@@ -86,7 +86,7 @@ fn build_guarded_region(
             prot,
             flags | libc::MAP_FIXED,
             fd,
-            offset as libc::off_t,
+            libc::off_t::try_from(offset).unwrap(),
         )
     };
 

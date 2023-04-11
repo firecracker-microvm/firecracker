@@ -38,6 +38,7 @@ generate_read_fn!(read_be_u32, u32, u8, 4, from_be_bytes);
 
 generate_write_fn!(write_le_u16, u16, u8, to_le_bytes);
 generate_write_fn!(write_le_u32, u32, u8, to_le_bytes);
+generate_write_fn!(write_le_u32_to_i8, u32, i8, to_le_bytes);
 generate_write_fn!(write_le_u64, u64, u8, to_le_bytes);
 generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
 
