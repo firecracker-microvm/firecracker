@@ -196,7 +196,7 @@ impl Net {
         )
         .map_err(NetError::TapSetOffload)?;
 
-        let vnet_hdr_size = vnet_hdr_len() as i32;
+        let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 

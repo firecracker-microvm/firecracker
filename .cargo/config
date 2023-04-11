@@ -5,6 +5,7 @@ rustflags = [
   "-Dclippy::ptr_as_ptr",
   "-Dclippy::undocumented_unsafe_blocks",
   "-Dclippy::cast_lossless",
+  "-Dclippy::cast_possible_wrap",
   "-Dclippy::cast_sign_loss",
   "-Dmissing_debug_implementations"
 ]

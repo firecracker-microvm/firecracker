@@ -181,7 +181,7 @@ pub fn get_time_ms(clock_type: ClockType) -> u64 {
 ///
 /// * `value` - Timestamp in seconds.
 pub fn seconds_to_nanoseconds(value: i64) -> Option<i64> {
-    value.checked_mul(NANOS_PER_SECOND as i64)
+    value.checked_mul(i64::try_from(NANOS_PER_SECOND).unwrap())
 }
 
 #[cfg(test)]

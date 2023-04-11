@@ -17,7 +17,7 @@ use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use bindings::io_uring_params;
-use operation::{Cqe, OpCode, Operation};
+use operation::{Cqe, FixedFd, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
 pub use queue::completion::CQueueError;
 use queue::completion::CompletionQueue;
@@ -43,7 +43,7 @@ pub enum IoUringError {
     /// The number of ops in the ring is >= CQ::count
     FullCQueue,
     /// Fd was not registered.
-    InvalidFixedFd(i32),
+    InvalidFixedFd(FixedFd),
     /// There are no registered fds.
     NoRegisteredFds,
     /// Error probing the io_uring subsystem.
@@ -165,12 +165,10 @@ impl IoUring {
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
     pub unsafe fn push<T: Debug>(&mut self, op: Operation<T>) -> Result<(), (IoUringError, T)> {
         // validate that we actually did register fds
-        let fd = op.fd() as i32;
+        let fd = op.fd();
         match self.registered_fds_count {
             0 => Err((IoUringError::NoRegisteredFds, op.user_data())),
-            len if fd < 0 || (len as i32 - 1) < fd => {
-                Err((IoUringError::InvalidFixedFd(fd), op.user_data()))
-            }
+            len if fd >= len => Err((IoUringError::InvalidFixedFd(fd), op.user_data())),
             _ => {
                 if self.num_ops >= self.cqueue.count() {
                     return Err((IoUringError::FullCQueue, op.user_data()));
@@ -527,7 +525,7 @@ mod tests {
                                         write_mem_region.as_ptr().add(operation.addr.unwrap())
                                             as *const libc::c_void,
                                         operation.len.unwrap() as usize,
-                                        operation.offset.unwrap() as i64,
+                                        i64::try_from(operation.offset.unwrap()).unwrap(),
                                     ) as libc::c_int
                                 })
                                 .into_result()
@@ -543,7 +541,7 @@ mod tests {
                                             .add(operation.addr.unwrap())
                                             .cast::<libc::c_void>(),
                                         operation.len.unwrap() as usize,
-                                        operation.offset.unwrap() as i64,
+                                        i64::try_from(operation.offset.unwrap()).unwrap(),
                                     ) as libc::c_int
                                 })
                                 .into_result()

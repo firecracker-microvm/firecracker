@@ -193,7 +193,7 @@ impl Tap {
 
     /// Write an `IoVecBuffer` to tap
     pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
-        let iovcnt = buffer.iovec_count() as i32;
+        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
         let iov = buffer.as_iovec_ptr();
 
         // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length

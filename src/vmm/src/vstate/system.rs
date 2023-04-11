@@ -47,6 +47,7 @@ impl KvmContext {
         let kvm = Kvm::new()?;
 
         // Check that KVM has the correct version.
+        #[allow(clippy::cast_possible_wrap)] // This is a constant
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
             return Err(SystemError::ApiVersion(kvm.get_api_version()));
         }
