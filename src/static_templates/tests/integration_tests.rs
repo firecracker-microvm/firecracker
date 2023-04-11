@@ -7,9 +7,9 @@ mod main_branch;
 #[cfg(target_arch = "x86_64")]
 mod x86_64 {
     use static_templates::{c3, t2, t2a, t2cl, t2s};
-    use vmm::guest_config::templates::CpuTemplate;
+    use vmm::guest_config::templates::CustomCpuTemplate;
 
-    fn load_json_template(template_type: &str) -> CpuTemplate {
+    fn load_json_template(template_type: &str) -> CustomCpuTemplate {
         use std::fs::read_to_string;
         use std::path::PathBuf;
 

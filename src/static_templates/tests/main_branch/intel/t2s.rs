@@ -3,10 +3,10 @@
 
 use vmm::arch::x86_64::msr::{ArchCapaMSRFlags, MSR_IA32_ARCH_CAPABILITIES};
 use vmm::guest_config::templates::x86_64::{RegisterModifier, RegisterValueFilter};
-use vmm::guest_config::templates::CpuTemplate;
+use vmm::guest_config::templates::CustomCpuTemplate;
 
-pub fn t2s() -> CpuTemplate {
-    CpuTemplate {
+pub fn t2s() -> CustomCpuTemplate {
+    CustomCpuTemplate {
         cpuid_modifiers: vec![
             super::t2::leaf_0x1_subleaf_0x0(),
             super::t2::leaf_0x7_subleaf_0x0(),

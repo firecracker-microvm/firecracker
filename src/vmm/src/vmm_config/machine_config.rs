@@ -3,10 +3,8 @@
 use std::fmt;
 
 use serde::{de, Deserialize, Serialize};
-use versionize::*;
-use versionize_derive::Versionize;
 
-use crate::guest_config::templates::{CpuTemplate, CpuTemplateType};
+use crate::guest_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -57,9 +55,9 @@ pub struct MachineConfig {
     #[serde(
         default,
         deserialize_with = "deserialize_cpu_template",
-        skip_serializing_if = "CpuFeaturesTemplate::is_none"
+        skip_serializing_if = "StaticCpuTemplate::is_none"
     )]
-    pub cpu_template: CpuFeaturesTemplate,
+    pub cpu_template: StaticCpuTemplate,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(default)]
     pub track_dirty_pages: bool,
@@ -114,7 +112,7 @@ pub struct MachineConfigUpdate {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_cpu_template"
     )]
-    pub cpu_template: Option<CpuFeaturesTemplate>,
+    pub cpu_template: Option<StaticCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_dirty_pages: Option<bool>,
@@ -167,7 +165,7 @@ pub struct VmConfig {
 
 impl VmConfig {
     /// Sets cpu tempalte field to `CpuTemplateType::Custom(cpu_template)`.
-    pub fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) {
+    pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
         self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
     }
 
@@ -203,7 +201,7 @@ impl VmConfig {
 
         if let Some(cpu_template) = update.cpu_template {
             self.cpu_template = match cpu_template {
-                CpuFeaturesTemplate::None => None,
+                StaticCpuTemplate::None => None,
                 other => Some(CpuTemplateType::Static(other)),
             };
         }
@@ -308,65 +306,4 @@ where
 
     #[cfg(target_arch = "x86_64")]
     T::deserialize(_d)
-}
-
-/// Template types available for configuring the CPU features that map
-/// to EC2 instances.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Versionize)]
-pub enum CpuFeaturesTemplate {
-    /// C3 Template.
-    C3,
-    /// T2 Template.
-    T2,
-    /// T2S Template.
-    T2S,
-    /// No CPU template is used.
-    #[default]
-    None,
-    /// T2CL Template.
-    T2CL,
-    /// T2A Template.
-    T2A,
-}
-
-/// Utility methods for handling CPU template types
-impl CpuFeaturesTemplate {
-    fn is_none(&self) -> bool {
-        *self == CpuFeaturesTemplate::None
-    }
-}
-
-impl fmt::Display for CpuFeaturesTemplate {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CpuFeaturesTemplate::C3 => write!(f, "C3"),
-            CpuFeaturesTemplate::T2 => write!(f, "T2"),
-            CpuFeaturesTemplate::T2S => write!(f, "T2S"),
-            CpuFeaturesTemplate::T2CL => write!(f, "T2CL"),
-            CpuFeaturesTemplate::T2A => write!(f, "T2A"),
-            CpuFeaturesTemplate::None => write!(f, "None"),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_display_cpu_features_template() {
-        assert_eq!(CpuFeaturesTemplate::C3.to_string(), String::from("C3"));
-        assert_eq!(CpuFeaturesTemplate::T2.to_string(), String::from("T2"));
-        assert_eq!(CpuFeaturesTemplate::T2S.to_string(), String::from("T2S"));
-    }
-
-    #[test]
-    fn test_display_vm_config_error() {
-        let expected_str = "The vCPU number is invalid! The vCPU number can only be 1 or an even \
-                            number when SMT is enabled.";
-        assert_eq!(VmConfigError::InvalidVcpuCount.to_string(), expected_str);
-
-        let expected_str = "The memory size (MiB) is invalid.";
-        assert_eq!(VmConfigError::InvalidMemorySize.to_string(), expected_str);
-    }
 }

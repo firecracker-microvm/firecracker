@@ -22,7 +22,7 @@ use super::{
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
-use crate::guest_config::templates::{CpuTemplate, GuestConfigError};
+use crate::guest_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -34,9 +34,7 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{
-    CpuFeaturesTemplate, MachineConfig, MachineConfigUpdate, VmConfigError,
-};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -97,7 +95,7 @@ pub enum VmmAction {
     /// Repopulate the MMDS contents.
     PutMMDS(Value),
     /// Configure the guest vCPU features.
-    PutCpuConfiguration(CpuTemplate),
+    PutCpuConfiguration(CustomCpuTemplate),
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
@@ -515,7 +513,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MachineConfig)
     }
 
-    fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) -> ActionResult {
+    fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) -> ActionResult {
         self.vm_resources.set_custom_cpu_template(cpu_template);
         Ok(VmmData::Empty)
     }
@@ -760,13 +758,7 @@ impl RuntimeApiController {
         }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
-        let vm_cfg = &self.vm_resources.vm_config;
-        let vm_info = VmInfo {
-            mem_size_mib: vm_cfg.mem_size_mib as u64,
-            smt: vm_cfg.smt,
-            cpu_template: CpuFeaturesTemplate::from(&vm_cfg.cpu_template),
-            boot_source: self.vm_resources.boot_source_config().clone(),
-        };
+        let vm_info = VmInfo::from(&self.vm_resources);
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         create_snapshot(
@@ -852,8 +844,7 @@ mod tests {
     use seccompiler::BpfThreadMap;
 
     use super::*;
-    use crate::guest_config::templates::guest_config_test::build_test_template;
-    use crate::guest_config::templates::{CpuTemplate, CpuTemplateType};
+    use crate::guest_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
@@ -1027,7 +1018,7 @@ mod tests {
         }
 
         /// Update the CPU configuration for the guest.
-        pub fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) {
+        pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
             self.vm_config.set_custom_cpu_template(cpu_template);
         }
     }
@@ -1035,6 +1026,17 @@ mod tests {
     impl From<&MockVmRes> for VmmConfig {
         fn from(_: &MockVmRes) -> Self {
             VmmConfig::default()
+        }
+    }
+
+    impl From<&MockVmRes> for VmInfo {
+        fn from(value: &MockVmRes) -> Self {
+            Self {
+                mem_size_mib: value.vm_config.mem_size_mib as u64,
+                smt: value.vm_config.smt,
+                cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+                boot_source: value.boot_source_config().clone(),
+            }
         }
     }
 
@@ -1294,12 +1296,14 @@ mod tests {
     #[test]
     fn test_preboot_put_cpu_config() {
         // Start testing - Provide VMM vCPU configuration in preparation for `InstanceStart`
-        let req = VmmAction::PutCpuConfiguration(build_test_template());
+        let req = VmmAction::PutCpuConfiguration(CustomCpuTemplate::build_test_template());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert_eq!(
                 vm_res.vm_config.cpu_template,
-                Some(CpuTemplateType::Custom(build_test_template()))
+                Some(CpuTemplateType::Custom(
+                    CustomCpuTemplate::build_test_template()
+                ))
             );
         });
     }

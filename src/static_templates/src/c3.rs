@@ -5,10 +5,10 @@ use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterValueFilter,
 };
-use vmm::guest_config::templates::CpuTemplate;
+use vmm::guest_config::templates::CustomCpuTemplate;
 
-pub fn c3() -> CpuTemplate {
-    CpuTemplate {
+pub fn c3() -> CustomCpuTemplate {
+    CustomCpuTemplate {
         cpuid_modifiers: vec![
             CpuidLeafModifier {
                 leaf: 0x1,

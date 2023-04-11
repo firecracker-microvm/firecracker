@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
-use crate::guest_config::templates::{CpuConfigurationType, CpuTemplate};
+use crate::guest_config::templates::{CpuConfigurationType, CustomCpuTemplate};
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -241,7 +241,7 @@ impl VmResources {
 
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
-    pub fn set_custom_cpu_template(&mut self, cpu_template: CpuTemplate) {
+    pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
         self.vm_config.set_custom_cpu_template(cpu_template);
     }
 
@@ -469,12 +469,13 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::guest_config::templates::StaticCpuTemplate;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
-    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MachineConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
@@ -1226,7 +1227,10 @@ mod tests {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(true),
-            cpu_template: Some(CpuFeaturesTemplate::T2),
+            #[cfg(target_arch = "x86_64")]
+            cpu_template: Some(StaticCpuTemplate::T2),
+            #[cfg(target_arch = "aarch64")]
+            cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
         };
 

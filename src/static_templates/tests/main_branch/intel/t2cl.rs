@@ -6,12 +6,12 @@ use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
-use vmm::guest_config::templates::CpuTemplate;
+use vmm::guest_config::templates::CustomCpuTemplate;
 
 use crate::main_branch::bit_helper::{BitHelper, BitRangeExt};
 
-pub fn t2cl() -> CpuTemplate {
-    CpuTemplate {
+pub fn t2cl() -> CustomCpuTemplate {
+    CustomCpuTemplate {
         cpuid_modifiers: vec![
             super::t2::leaf_0x1_subleaf_0x0(),
             super::t2::leaf_0x7_subleaf_0x0(),

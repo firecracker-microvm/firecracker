@@ -44,11 +44,8 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::cpuid::{Cpuid, RawCpuid};
 use crate::guest_config::templates::{
-    create_guest_cpu_config, CpuConfiguration, CpuConfigurationType, CpuTemplate, CpuTemplateType,
-    GuestConfigError,
+    CpuConfigurationType, CpuTemplateType, CustomCpuTemplate, GuestConfigError, StaticCpuTemplate,
 };
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
@@ -328,14 +325,14 @@ fn create_vmm_and_vcpus(
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unused)]
-fn get_msr_values(_vcpu: &Vcpu, _template: &CpuTemplate) -> HashMap<u32, u64> {
+fn get_msr_values(_vcpu: &Vcpu, _template: &CustomCpuTemplate) -> HashMap<u32, u64> {
     // TODO - Use a created vCPU to retrieve MSR values
     Default::default()
 }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unused)]
-fn get_reg_values(_vcpu: &Vcpu, _template: &CpuTemplate) -> HashMap<u64, u128> {
+fn get_reg_values(_vcpu: &Vcpu, _template: &CustomCpuTemplate) -> HashMap<u64, u128> {
     // TODO - Use a created vCPU to retrieve register values
     Default::default()
 }
@@ -379,15 +376,11 @@ pub fn build_microvm_for_boot(
         vm_resources.vm_config.vcpu_count,
     )?;
 
-    let vcpu_config = if let Some(vcpu) = vcpus.get(0) {
-        vm_resources.vcpu_config(
-            build_guest_cpu_config(vm_resources, &vmm.vm, vcpu).map_err(ApplyCpuTemplate)?,
-        )
-    } else {
-        return Err(ApplyCpuTemplate(GuestConfigError::Internal(
-            "Unable to access a vCPU".to_string(),
-        )));
-    };
+    let vcpu_config = vm_resources.vcpu_config(build_guest_cpu_config(
+        vm_resources,
+        &vmm.vm,
+        vcpus.get(0).unwrap(),
+    )?);
 
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
@@ -465,37 +458,30 @@ fn build_guest_cpu_config(
     vm_resources: &VmResources,
     vm: &Vm,
     vcpu: &Vcpu,
-) -> Result<CpuConfigurationType, GuestConfigError> {
-    let mut cpu_config: Option<CpuConfiguration> = None;
-    if let Some(CpuTemplateType::Custom(cpu_template)) = &vm_resources.vm_config.cpu_template {
-        #[cfg(target_arch = "x86_64")]
-        let cpu_config_result = create_guest_cpu_config(
-            cpu_template,
-            &CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
-                msrs: get_msr_values(vcpu, cpu_template),
-            },
-        );
+) -> Result<CpuConfigurationType, StartMicrovmError> {
+    match vm_resources.vm_config.cpu_template {
+        Some(ref template) => match template {
+            CpuTemplateType::Custom(custom) => {
+                #[cfg(target_arch = "x86_64")]
+                let config = crate::guest_config::x86_64::CpuConfiguration::new(
+                    vm,
+                    &vm_resources.vm_config.cpu_template,
+                )
+                .map_err(StartMicrovmError::ApplyCpuTemplate)?;
 
-        #[cfg(target_arch = "aarch64")]
-        let cpu_config_result = create_guest_cpu_config(
-            cpu_template,
-            &CpuConfiguration {
-                regs: get_reg_values(vcpu, cpu_template),
-            },
-        );
+                #[cfg(target_arch = "aarch64")]
+                let config = crate::guest_config::aarch64::CpuConfiguration::new(
+                    &vcpu.kvm_vcpu.fd,
+                    &vm_resources.vm_config.cpu_template,
+                )
+                .map_err(StartMicrovmError::ApplyCpuTemplate)?;
 
-        cpu_config = Some(cpu_config_result?);
+                Ok(CpuConfigurationType::Custom(config))
+            }
+            CpuTemplateType::Static(s) => Ok(CpuConfigurationType::Static(*s)),
+        },
+        None => Ok(CpuConfigurationType::Static(StaticCpuTemplate::None)),
     }
-
-    let static_template =
-        if let Some(CpuTemplateType::Static(template)) = vm_resources.vm_config.cpu_template {
-            Some(template)
-        } else {
-            None
-        };
-
-    CpuConfigurationType::from(static_template, cpu_config)
 }
 
 /// Error type for [`build_microvm_from_snapshot`].
