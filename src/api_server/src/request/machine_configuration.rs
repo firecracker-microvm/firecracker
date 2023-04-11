@@ -46,7 +46,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+    use vmm::guest_config::templates::StaticCpuTemplate;
 
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
@@ -83,7 +83,7 @@ mod tests {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             smt: Some(false),
-            cpu_template: Some(CpuFeaturesTemplate::None),
+            cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
         };
 
@@ -102,7 +102,7 @@ mod tests {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             smt: Some(false),
-            cpu_template: Some(CpuFeaturesTemplate::None),
+            cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(true),
         };
 
@@ -126,7 +126,7 @@ mod tests {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
                 smt: Some(false),
-                cpu_template: Some(CpuFeaturesTemplate::T2),
+                cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
             };
 
@@ -155,7 +155,7 @@ mod tests {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
                 smt: Some(true),
-                cpu_template: Some(CpuFeaturesTemplate::None),
+                cpu_template: Some(StaticCpuTemplate::None),
                 track_dirty_pages: Some(true),
             };
 
