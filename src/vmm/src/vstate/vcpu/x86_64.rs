@@ -28,8 +28,7 @@ use crate::guest_config::static_templates::t2a::t2a;
 use crate::guest_config::static_templates::t2cl::{t2cl, update_t2cl_msr_entries};
 use crate::guest_config::static_templates::t2s::{t2s, update_t2s_msr_entries};
 use crate::guest_config::static_templates::{msr_entries_to_save, TSC_KHZ_TOL};
-use crate::guest_config::templates::CpuConfigurationType;
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::guest_config::templates::{CpuConfigurationType, StaticCpuTemplate};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -235,18 +234,18 @@ impl KvmVcpu {
             if let CpuConfigurationType::Static(static_template) = &vcpu_config.cpu_config {
                 static_template
             } else {
-                &CpuFeaturesTemplate::None
+                &StaticCpuTemplate::None
             };
 
         // If a template is specified, get the CPUID template, else use `cpuid`.
         let mut config_cpuid = match static_cpu_template {
-            CpuFeaturesTemplate::T2 => t2(),
-            CpuFeaturesTemplate::T2S => t2s(),
-            CpuFeaturesTemplate::C3 => c3(),
-            CpuFeaturesTemplate::T2CL => t2cl(),
-            CpuFeaturesTemplate::T2A => t2a(),
+            StaticCpuTemplate::T2 => t2(),
+            StaticCpuTemplate::T2S => t2s(),
+            StaticCpuTemplate::C3 => c3(),
+            StaticCpuTemplate::T2CL => t2cl(),
+            StaticCpuTemplate::T2A => t2a(),
             // If a template is not supplied we use the given `cpuid` as the base.
-            CpuFeaturesTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
+            StaticCpuTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
                 crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
             )
             .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
@@ -300,11 +299,11 @@ impl KvmVcpu {
         // to save at snapshot as well.
         // C3, T2 and T2A currently don't have extra MSRs to save/set.
         match static_cpu_template {
-            CpuFeaturesTemplate::T2S => {
+            StaticCpuTemplate::T2S => {
                 self.msr_list.extend(msr_entries_to_save());
                 update_t2s_msr_entries(&mut msr_boot_entries);
             }
-            CpuFeaturesTemplate::T2CL => {
+            StaticCpuTemplate::T2CL => {
                 self.msr_list.extend(msr_entries_to_save());
                 update_t2cl_msr_entries(&mut msr_boot_entries);
             }
@@ -684,7 +683,7 @@ mod tests {
         );
 
         // Test configure while using the T2 template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(CpuFeaturesTemplate::T2);
+        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2);
         let t2_res = vcpu.configure(
             &vm_mem,
             GuestAddress(crate::arch::get_kernel_start()),
@@ -693,7 +692,7 @@ mod tests {
         );
 
         // Test configure while using the C3 template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(CpuFeaturesTemplate::C3);
+        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::C3);
         let c3_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
@@ -702,7 +701,7 @@ mod tests {
         );
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(CpuFeaturesTemplate::T2S);
+        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2S);
         let t2s_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
@@ -713,7 +712,7 @@ mod tests {
         let mut t2cl_res = Ok(());
         if is_at_least_cascade_lake() {
             // Test configure while using the T2CL template.
-            vcpu_config.cpu_config = CpuConfigurationType::Static(CpuFeaturesTemplate::T2CL);
+            vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2CL);
             t2cl_res = vcpu.configure(
                 &vm_mem,
                 GuestAddress(0),
@@ -723,7 +722,7 @@ mod tests {
         }
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(CpuFeaturesTemplate::T2A);
+        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2A);
         let t2a_res = vcpu.configure(
             &vm_mem,
             GuestAddress(0),
