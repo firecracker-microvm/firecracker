@@ -14,6 +14,10 @@ use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::aarch64::regs::Aarch64Register;
+use crate::arch::regs::{
+    get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
+    save_system_registers, set_mpstate,
+};
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -39,6 +43,8 @@ pub enum Error {
 
 type Result<T> = result::Result<T, Error>;
 
+pub type KvmVcpuConfigureError = Error;
+
 /// A wrapper around creating and using a kvm aarch64 vcpu.
 pub struct KvmVcpu {
     pub index: u8,
@@ -47,8 +53,9 @@ pub struct KvmVcpu {
     pub mmio_bus: Option<devices::Bus>,
 
     mpidr: u64,
+    additional_register_ids: Vec<u64>,
 }
-pub type KvmVcpuConfigureError = Error;
+
 impl KvmVcpu {
     /// Constructs a new kvm vcpu with arch specific functionality.
     ///
@@ -57,13 +64,17 @@ impl KvmVcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     pub fn new(index: u8, vm: &Vm) -> Result<Self> {
-        let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::CreateFd)?;
+        let kvm_vcpu = vm
+            .fd()
+            .create_vcpu(index.into())
+            .map_err(Error::CreateVcpu)?;
 
         Ok(KvmVcpu {
             index,
             fd: kvm_vcpu,
             mmio_bus: None,
             mpidr: 0,
+            additional_register_ids: vec![],
         })
     }
 
@@ -78,13 +89,13 @@ impl KvmVcpu {
     ///
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
+    /// * `vcpu_config` - The vCPU configuration.
     pub fn configure(
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
-        _vcpu_config: &VcpuConfig,
-    ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        // TODO - Apply CPU config
+        vcpu_config: &VcpuConfig,
+    ) -> std::result::Result<(), Error> {
         crate::arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
@@ -95,6 +106,12 @@ impl KvmVcpu {
 
         self.mpidr =
             crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
+
+        vcpu_config
+            .cpu_config
+            .apply(&self.fd)
+            .map_err(Error::ApplyCpuTemplate)?;
+        self.additional_register_ids = vcpu_config.cpu_config.register_ids();
 
         Ok(())
     }
@@ -123,26 +140,27 @@ impl KvmVcpu {
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
         let mut state = VcpuState {
-            mp_state: crate::arch::regs::get_mpstate(&self.fd).map_err(Error::SaveState)?,
+            mp_state: get_mpstate(&self.fd).map_err(Error::SaveState)?,
             ..Default::default()
         };
 
-        crate::arch::regs::save_core_registers(&self.fd, &mut state.regs)
+        save_core_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
+
+        save_system_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
+
+        save_registers(&self.fd, &self.additional_register_ids, &mut state.regs)
             .map_err(Error::SaveState)?;
 
-        crate::arch::regs::save_system_registers(&self.fd, &mut state.regs)
-            .map_err(Error::SaveState)?;
-
-        state.mpidr = crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::SaveState)?;
+        state.mpidr = read_mpidr(&self.fd).map_err(Error::SaveState)?;
 
         Ok(state)
     }
 
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
-        crate::arch::regs::restore_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
+        restore_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
 
-        crate::arch::regs::set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
+        set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
 
         Ok(())
     }
@@ -178,6 +196,7 @@ mod tests {
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
+    use crate::guest_config::aarch64::CpuConfiguration;
     use crate::vcpu::VcpuConfig;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
@@ -207,8 +226,7 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error in opening the VCPU file descriptor: Bad file descriptor (os error 9)"
-                .to_string()
+            "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
         );
     }
 
@@ -219,7 +237,7 @@ mod tests {
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            cpu_config: Default::default(),
+            cpu_config: CpuConfiguration::default(),
         };
         assert!(vcpu
             .configure(
@@ -239,8 +257,8 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: Failed to set processor state \
-             register: Bad file descriptor (os error 9)"
+            "Error configuring the vcpu registers: Failed to set processor state register: Bad \
+             file descriptor (os error 9)"
                 .to_string()
         );
 
@@ -254,8 +272,8 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: Failed to set processor state \
-             register: Bad file descriptor (os error 9)"
+            "Error configuring the vcpu registers: Failed to set processor state register: Bad \
+             file descriptor (os error 9)"
                 .to_string()
         );
     }
@@ -268,8 +286,7 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error retrieving the vcpu preferred target: Bad file descriptor (os error 9)"
-                .to_string()
+            "Error getting the vcpu preferred target: Bad file descriptor (os error 9)".to_string()
         );
     }
 
@@ -299,7 +316,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             res.err().unwrap().to_string(),
-            "Failed to restore the state of the vcpu: Failed to set register: Exec format error \
+            "Failed to restore the state of the vcpu: Failed to set register 0: Exec format error \
              (os error 8)"
                 .to_string()
         );

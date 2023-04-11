@@ -3,7 +3,6 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use std::collections::HashMap;
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
@@ -44,16 +43,14 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::guest_config::templates::{
-    CpuConfigurationType, CpuTemplateType, CustomCpuTemplate, GuestConfigError, StaticCpuTemplate,
-};
+use crate::guest_config::templates::GuestConfigError;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError};
+use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::vstate::system::KvmContext;
-use crate::vstate::vcpu::Vcpu;
+use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEventsObserver};
 
@@ -61,7 +58,7 @@ use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEven
 #[derive(Debug)]
 pub enum StartMicrovmError {
     /// Error using CPU template to configure vCPUs
-    ApplyCpuTemplate(GuestConfigError),
+    CreateCpuConfig(GuestConfigError),
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
@@ -114,11 +111,10 @@ impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;
         match self {
-            ApplyCpuTemplate(err) => {
+            CreateCpuConfig(err) => {
                 write!(
                     f,
-                    "Unable to successfully apply custom CPU template to create configuration \
-                     usable for guest vCPUs: {:?}",
+                    "Unable to successfully create cpu configuration usable for guest vCPUs: {:?}",
                     err
                 )
             }
@@ -269,13 +265,12 @@ fn create_vmm_and_vcpus(
     )
     .map_err(StartMicrovmError::RegisterMmioDevice)?;
 
-    let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
-    let pio_device_manager = {
+    let (vcpus, pio_device_manager) = {
         setup_interrupt_controller(&mut vm)?;
-        vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
         // Make stdout non blocking.
         set_stdout_nonblocking();
@@ -292,8 +287,12 @@ fn create_vmm_and_vcpus(
             .try_clone()
             .map_err(Error::EventFd)
             .map_err(Internal)?;
-        create_pio_dev_manager_with_legacy_devices(&vm, serial_device, reset_evt)
-            .map_err(Internal)?
+
+        let pio_device_manager =
+            create_pio_dev_manager_with_legacy_devices(&vm, serial_device, reset_evt)
+                .map_err(Internal)?;
+
+        (vcpus, pio_device_manager)
     };
 
     // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
@@ -301,10 +300,11 @@ fn create_vmm_and_vcpus(
     // was already initialized.
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
-    {
-        vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+    let vcpus = {
+        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
         setup_interrupt_controller(&mut vm, vcpu_count)?;
-    }
+        vcpus
+    };
 
     let vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
@@ -321,20 +321,6 @@ fn create_vmm_and_vcpus(
     };
 
     Ok((vmm, vcpus))
-}
-
-#[cfg(target_arch = "x86_64")]
-#[allow(unused)]
-fn get_msr_values(_vcpu: &Vcpu, _template: &CustomCpuTemplate) -> HashMap<u32, u64> {
-    // TODO - Use a created vCPU to retrieve MSR values
-    Default::default()
-}
-
-#[cfg(target_arch = "aarch64")]
-#[allow(unused)]
-fn get_reg_values(_vcpu: &Vcpu, _template: &CustomCpuTemplate) -> HashMap<u64, u128> {
-    // TODO - Use a created vCPU to retrieve register values
-    Default::default()
 }
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
@@ -376,12 +362,6 @@ pub fn build_microvm_for_boot(
         vm_resources.vm_config.vcpu_count,
     )?;
 
-    let vcpu_config = vm_resources.vcpu_config(build_guest_cpu_config(
-        vm_resources,
-        &vmm.vm,
-        vcpus.get(0).unwrap(),
-    )?);
-
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
     // and tests.
@@ -415,7 +395,7 @@ pub fn build_microvm_for_boot(
     configure_system_for_boot(
         &vmm,
         vcpus.as_mut(),
-        vcpu_config,
+        &vm_resources.vm_config,
         entry_addr,
         &initrd,
         boot_cmdline,
@@ -451,37 +431,6 @@ pub fn build_microvm_for_boot(
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
-}
-
-#[allow(unused_variables)]
-fn build_guest_cpu_config(
-    vm_resources: &VmResources,
-    vm: &Vm,
-    vcpu: &Vcpu,
-) -> Result<CpuConfigurationType, StartMicrovmError> {
-    match vm_resources.vm_config.cpu_template {
-        Some(ref template) => match template {
-            CpuTemplateType::Custom(custom) => {
-                #[cfg(target_arch = "x86_64")]
-                let config = crate::guest_config::x86_64::CpuConfiguration::new(
-                    vm,
-                    &vm_resources.vm_config.cpu_template,
-                )
-                .map_err(StartMicrovmError::ApplyCpuTemplate)?;
-
-                #[cfg(target_arch = "aarch64")]
-                let config = crate::guest_config::aarch64::CpuConfiguration::new(
-                    &vcpu.kvm_vcpu.fd,
-                    &vm_resources.vm_config.cpu_template,
-                )
-                .map_err(StartMicrovmError::ApplyCpuTemplate)?;
-
-                Ok(CpuConfigurationType::Custom(config))
-            }
-            CpuTemplateType::Static(s) => Ok(CpuConfigurationType::Static(*s)),
-        },
-        None => Ok(CpuConfigurationType::Static(StaticCpuTemplate::None)),
-    }
 }
 
 /// Error type for [`build_microvm_from_snapshot`].
@@ -883,22 +832,28 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
 pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &mut [Vcpu],
-    vcpu_config: crate::vstate::vcpu::VcpuConfig,
+    vm_config: &VmConfig,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     boot_cmdline: LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
+
     #[cfg(target_arch = "x86_64")]
     {
+        let cpu_config =
+            crate::guest_config::x86_64::CpuConfiguration::new(&vmm.vm, &vm_config.cpu_template)
+                .map_err(CreateCpuConfig)?;
+
+        let vcpu_config = VcpuConfig {
+            vcpu_count: vm_config.vcpu_count,
+            smt: vm_config.smt,
+            cpu_config,
+        };
+
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .configure(
-                    vmm.guest_memory(),
-                    entry_addr,
-                    &vcpu_config,
-                    vmm.vm.supported_cpuid().clone(),
-                )
+                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
                 .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
         }
@@ -926,6 +881,18 @@ pub fn configure_system_for_boot(
     }
     #[cfg(target_arch = "aarch64")]
     {
+        let cpu_config = crate::guest_config::aarch64::CpuConfiguration::new(
+            &vcpus[0].kvm_vcpu.fd,
+            &vm_config.cpu_template,
+        )
+        .map_err(CreateCpuConfig)?;
+
+        let vcpu_config = VcpuConfig {
+            vcpu_count: vm_config.vcpu_count,
+            smt: vm_config.smt,
+            cpu_config,
+        };
+
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
                 .configure(vmm.guest_memory(), entry_addr, &vcpu_config)

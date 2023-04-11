@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
-use crate::guest_config::templates::{CpuConfigurationType, CustomCpuTemplate};
+use crate::guest_config::templates::CustomCpuTemplate;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -26,7 +26,6 @@ use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::VcpuConfig;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -217,15 +216,6 @@ impl VmResources {
             SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
-        }
-    }
-
-    /// Returns a VcpuConfig based on the vm config and resources.
-    pub fn vcpu_config(&self, cpu_config: CpuConfigurationType) -> VcpuConfig {
-        VcpuConfig {
-            vcpu_count: self.vm_config.vcpu_count,
-            smt: self.vm_config.smt,
-            cpu_config,
         }
     }
 
