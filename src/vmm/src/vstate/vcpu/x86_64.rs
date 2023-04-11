@@ -6,8 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::result;
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -20,28 +18,23 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::SetMSRsError;
+use crate::arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use crate::guest_config::templates::{CpuConfigurationType, StaticCpuTemplate};
-use crate::guest_config::x86_64::static_cpu_templates::*;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
-/// Tolerance for TSC frequency expected variation.
-/// The value of 250 parts per million is based on
-/// the QEMU approach, more details here:
-/// https://bugzilla.redhat.com/show_bug.cgi?id=1839095
-#[cfg(target_arch = "x86_64")]
-pub const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
+// Tolerance for TSC frequency expected variation.
+// The value of 250 parts per million is based on
+// the QEMU approach, more details here:
+// https://bugzilla.redhat.com/show_bug.cgi?id=1839095
+const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 
 #[allow(clippy::missing_docs_in_private_items)]
-#[cfg(target_arch = "x86_64")]
-static EXTRA_MSR_ENTRIES: &[u32] = &[crate::arch_gen::x86::msr_index::MSR_IA32_ARCH_CAPABILITIES];
+static EXTRA_MSR_ENTRIES: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
 
 /// Return a list of MSRs specific to this T2S template.
 #[inline]
 #[must_use]
-#[cfg(target_arch = "x86_64")]
 pub fn msr_entries_to_save() -> &'static [u32] {
     EXTRA_MSR_ENTRIES
 }
@@ -147,7 +140,7 @@ pub enum Error {
     VcpuTemplateError,
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
 #[derive(Debug, thiserror::Error, derive_more::From, Eq, PartialEq)]
@@ -233,40 +226,15 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-        cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        let cpuid = if let CpuConfigurationType::Custom(cpu_template) = &vcpu_config.cpu_config {
-            cpu_template.cpuid.clone()
-        } else {
-            crate::guest_config::cpuid::Cpuid::try_from(crate::guest_config::cpuid::RawCpuid::from(
-                cpuid,
-            ))
-            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?
-        };
-
-        let static_cpu_template =
-            if let CpuConfigurationType::Static(static_template) = &vcpu_config.cpu_config {
-                static_template
-            } else {
-                &StaticCpuTemplate::None
-            };
-
-        // If a template is specified, get the CPUID template, else use `cpuid`.
-        let mut config_cpuid = match static_cpu_template {
-            StaticCpuTemplate::T2 => t2::t2(),
-            StaticCpuTemplate::T2S => t2s::t2s(),
-            StaticCpuTemplate::C3 => c3::c3(),
-            StaticCpuTemplate::T2CL => t2cl::t2cl(),
-            StaticCpuTemplate::T2A => t2a::t2a(),
-            // If a template is not supplied we use the given `cpuid` as the base.
-            StaticCpuTemplate::None => crate::guest_config::cpuid::Cpuid::try_from(
-                crate::guest_config::cpuid::RawCpuid::from(cpuid.clone()),
-            )
-            .map_err(KvmVcpuConfigureError::SnapshotCpuid)?,
-        };
+        let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
+        self.msr_list
+            .extend(vcpu_config.cpu_config.supported_msrs.iter());
+        let msr_boot_entries = vcpu_config.cpu_config.msr_boot_entries.clone();
 
         // Apply machine specific changes to CPUID.
-        config_cpuid
+        // config_cpuid
+        cpuid
             .normalize(
                 // The index of the current logical CPU in the range [0..cpu_count].
                 self.index,
@@ -277,19 +245,14 @@ impl KvmVcpu {
             )
             .map_err(KvmVcpuConfigureError::NormalizeCpuidError)?;
 
-        // Include leaves from host that are not present in CPUID template.
-        let joined_cpuid = config_cpuid.include_leaves_from(cpuid)?;
-
         // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::from(joined_cpuid);
+        // let kvm_cpuid = kvm_bindings::CpuId::from(joined_cpuid);
+        let kvm_cpuid = kvm_bindings::CpuId::from(cpuid);
 
         // Set CPUID in the KVM
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
-
-        // Initialize some architectural MSRs that will be set for boot.
-        let mut msr_boot_entries = crate::arch::x86_64::msr::create_boot_msr_entries();
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -303,26 +266,6 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
         self.msr_list.extend(extra_msrs);
 
-        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
-        // be implemented. For now we define known dependencies statically in the CPU
-        // templates.
-
-        // Depending on which CPU template the user selected, we may need to initialize
-        // additional MSRs for boot to correctly enable some CPU features. As stated in
-        // the previous comment, we get from the template a static list of MSRs we need
-        // to save at snapshot as well.
-        // C3, T2 and T2A currently don't have extra MSRs to save/set.
-        match static_cpu_template {
-            StaticCpuTemplate::T2S => {
-                self.msr_list.extend(msr_entries_to_save());
-                t2s::update_t2s_msr_entries(&mut msr_boot_entries);
-            }
-            StaticCpuTemplate::T2CL => {
-                self.msr_list.extend(msr_entries_to_save());
-                t2cl::update_t2cl_msr_entries(&mut msr_boot_entries);
-            }
-            _ => (),
-        }
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
@@ -636,6 +579,7 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
+    use crate::guest_config::templates::{CpuConfiguration, CpuTemplateType, StaticCpuTemplate};
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -676,95 +620,80 @@ mod tests {
             })
     }
 
+    fn create_vcpu_config(
+        vm: &Vm,
+        template: Option<CpuTemplateType>,
+    ) -> std::result::Result<VcpuConfig, crate::guest_config::x86_64::Error> {
+        let custom_cpu_config = CpuConfiguration::new(vm, &template)?;
+        Ok(VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config: custom_cpu_config,
+        })
+    }
+
     #[test]
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let mut vcpu_config = VcpuConfig {
-            vcpu_count: 1,
-            smt: false,
-            cpu_config: CpuConfigurationType::default(),
-        };
-
+        let vcpu_config = create_vcpu_config(&vm, None).unwrap();
         assert_eq!(
-            vcpu.configure(
-                &vm_mem,
-                GuestAddress(0),
-                &vcpu_config,
-                vm.supported_cpuid().clone(),
-            ),
+            vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config,),
             Ok(())
         );
 
+        let try_configure = |vm: &Vm, vcpu: &mut KvmVcpu, template| -> bool {
+            if let Ok(config) = create_vcpu_config(vm, Some(CpuTemplateType::Static(template))) {
+                vcpu.configure(
+                    &vm_mem,
+                    GuestAddress(crate::arch::get_kernel_start()),
+                    &config,
+                )
+                .is_ok()
+            } else {
+                false
+            }
+        };
+
         // Test configure while using the T2 template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2);
-        let t2_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(crate::arch::get_kernel_start()),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2);
 
         // Test configure while using the C3 template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::C3);
-        let c3_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let c3_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::C3);
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2S);
-        let t2s_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2s_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2S);
 
-        let mut t2cl_res = Ok(());
+        let mut t2cl_res = true;
         if is_at_least_cascade_lake() {
             // Test configure while using the T2CL template.
-            vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2CL);
-            t2cl_res = vcpu.configure(
-                &vm_mem,
-                GuestAddress(0),
-                &vcpu_config,
-                vm.supported_cpuid().clone(),
-            );
+            t2cl_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2CL);
         }
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_config = CpuConfigurationType::Static(StaticCpuTemplate::T2A);
-        let t2a_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2a_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2A);
 
         match &crate::guest_config::cpuid::common::get_vendor_id_from_host().unwrap() {
             crate::guest_config::cpuid::VENDOR_ID_INTEL => {
-                assert!(t2_res.is_ok());
-                assert!(c3_res.is_ok());
-                assert!(t2s_res.is_ok());
-                assert!(t2cl_res.is_ok());
-                assert!(t2a_res.is_err());
+                assert!(t2_res);
+                assert!(c3_res);
+                assert!(t2s_res);
+                assert!(t2cl_res);
+                assert!(!t2a_res);
             }
             crate::guest_config::cpuid::VENDOR_ID_AMD => {
-                assert!(t2_res.is_err());
-                assert!(c3_res.is_err());
-                assert!(t2s_res.is_err());
-                assert!(t2cl_res.is_err());
-                assert!(t2a_res.is_ok());
+                assert!(!t2_res);
+                assert!(!c3_res);
+                assert!(!t2s_res);
+                assert!(!t2cl_res);
+                assert!(t2a_res);
             }
             _ => {
-                assert!(t2_res.is_err());
-                assert!(c3_res.is_err());
-                assert!(t2s_res.is_err());
-                assert!(t2cl_res.is_err());
-                assert!(t2a_res.is_err());
+                assert!(!t2_res);
+                assert!(!c3_res);
+                assert!(!t2s_res);
+                assert!(!t2cl_res);
+                assert!(!t2a_res);
             }
         }
     }

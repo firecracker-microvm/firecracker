@@ -28,46 +28,6 @@ mod common_types {
 
 pub use common_types::*;
 
-/// CPU configuration wrapper that wraps all
-/// possible configuration options
-/// Default - Static(CpuFeaturesTemplate::None)
-/// Hard-coded - Static(CpuFeaturesTemplate::<any non-none variant>)
-/// User-defined - Custom(<provided by user>)
-#[derive(Debug, PartialEq)]
-pub enum CpuConfigurationType {
-    /// Enum for all hard-coded (static) templates
-    Static(StaticCpuTemplate),
-    /// CPU configuration to be created by applying
-    /// a template (modifiers) on top of the host's (and KVM's)
-    /// supported vCPU configuration.
-    Custom(CpuConfiguration),
-}
-
-impl Default for CpuConfigurationType {
-    /// Returns a "none" type for CPU configuration.
-    /// Firecracker and KVM defaults will be used to configure vCPUs.
-    fn default() -> Self {
-        CpuConfigurationType::Static(StaticCpuTemplate::None)
-    }
-}
-
-impl CpuConfigurationType {
-    /// Will work out what type of CPU configuration is based on
-    /// configuration provided by user.
-    pub fn from(
-        static_config: Option<StaticCpuTemplate>,
-        custom_config: Option<CpuConfiguration>,
-    ) -> Result<Self, GuestConfigError> {
-        if let Some(custom_config) = custom_config {
-            Ok(CpuConfigurationType::Custom(custom_config))
-        } else if let Some(static_template) = static_config {
-            Ok(CpuConfigurationType::Static(static_template))
-        } else {
-            Ok(CpuConfigurationType::Static(StaticCpuTemplate::None))
-        }
-    }
-}
-
 /// Enum that represents types of cpu templates available.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CpuTemplateType {
