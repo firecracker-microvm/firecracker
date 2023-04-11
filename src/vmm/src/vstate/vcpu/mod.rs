@@ -23,7 +23,7 @@ use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 
-use crate::guest_config::templates::CpuConfigurationType;
+use crate::guest_config::templates::{CpuConfiguration, GuestConfigError};
 use crate::vstate::vm::Vm;
 use crate::FcExitCode;
 
@@ -43,6 +43,9 @@ pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Error creating vcpu config.
+    #[error("Error creating vcpu config: {0}")]
+    VcpuConfig(GuestConfigError),
     /// Error triggered by the KVM subsystem.
     #[error("Received error signaling kvm exit: {0}")]
     FaultyKvmExit(String),
@@ -69,14 +72,14 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// Encapsulates configuration parameters for the guest vCPUS.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,
     /// Enable simultaneous multithreading in the CPUID configuration.
     pub smt: bool,
-    /// Configuration to be applied to all guest vCPUs.
-    pub cpu_config: CpuConfigurationType,
+    /// Configuration for vCPU
+    pub cpu_config: CpuConfiguration,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -687,7 +690,7 @@ pub enum VcpuEmulation {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::sync::{Arc, Barrier, Mutex};
@@ -924,6 +927,32 @@ mod tests {
         // Needs a kernel since we'll actually run this vcpu.
         let entry_addr = load_good_kernel(&vm_mem);
 
+        #[cfg(target_arch = "x86_64")]
+        vcpu.kvm_vcpu
+            .configure(
+                &vm_mem,
+                entry_addr,
+                &VcpuConfig {
+                    vcpu_count: 1,
+                    smt: false,
+                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
+                },
+            )
+            .expect("failed to configure vcpu");
+
+        #[cfg(target_arch = "x86_64")]
+        vcpu.kvm_vcpu
+            .configure(
+                &vm_mem,
+                entry_addr,
+                &VcpuConfig {
+                    vcpu_count: 1,
+                    smt: false,
+                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
+                },
+            )
+            .expect("failed to configure vcpu");
+
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu
             .configure(
@@ -932,25 +961,10 @@ mod tests {
                 &VcpuConfig {
                     vcpu_count: 1,
                     smt: false,
-                    cpu_config: CpuConfigurationType::default(),
+                    cpu_config: crate::guest_config::aarch64::CpuConfiguration::default(),
                 },
             )
             .expect("failed to configure vcpu");
-        #[cfg(target_arch = "x86_64")]
-        {
-            vcpu.kvm_vcpu
-                .configure(
-                    &vm_mem,
-                    entry_addr,
-                    &VcpuConfig {
-                        vcpu_count: 1,
-                        smt: false,
-                        cpu_config: CpuConfigurationType::default(),
-                    },
-                    _vm.supported_cpuid().clone(),
-                )
-                .expect("failed to configure vcpu");
-        }
 
         let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
         let barrier = Arc::new(Barrier::new(2));
