@@ -72,8 +72,8 @@ def _check_statistics(directory, mean):
 
     measure = BASELINES[proc_model[0]][bench][attribute]
     target, delta = measure["target"], measure["delta"]
-    assert target == pytest.approx(
-        mean, abs=delta, rel=1e-6
+    assert mean == pytest.approx(
+        target, abs=delta, rel=1e-6
     ), f"Benchmark result {directory} has changed!"
 
     return f"{target - delta} <= result <= {target + delta}"
