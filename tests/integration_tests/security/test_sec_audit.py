@@ -21,6 +21,6 @@ def test_cargo_audit():
     """
     # Run command and raise exception if non-zero return code
     utils.run_cmd(
-        "cargo audit --deny warnings -q  --ignore RUSTSEC-2021-0145",
+        "cargo audit --deny warnings -q",
         cwd=defs.FC_WORKSPACE_DIR,
     )
