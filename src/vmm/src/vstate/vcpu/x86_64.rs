@@ -18,7 +18,7 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
+use crate::arch::x86_64::msr::{SetMsrsError, MSR_IA32_ARCH_CAPABILITIES};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -47,19 +47,19 @@ pub enum Error {
     Fam(utils::fam::Error),
     /// Error configuring the floating point related registers
     #[error("Error configuring the floating point related registers: {0:?}")]
-    FPUConfiguration(crate::arch::x86_64::regs::Error),
+    FpuConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
     #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
     LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
     /// Error configuring the MSR registers
     #[error("Error configuring the MSR registers: {0:?}")]
-    MSRSConfiguration(crate::arch::x86_64::msr::Error),
+    MsrsConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
     #[error("Error configuring the general purpose registers: {0:?}")]
-    REGSConfiguration(crate::arch::x86_64::regs::Error),
+    RegsConfiguration(crate::arch::x86_64::regs::Error),
     /// Error configuring the special registers
     #[error("Error configuring the special registers: {0:?}")]
-    SREGSConfiguration(crate::arch::x86_64::regs::Error),
+    SregsConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot open the VCPU file descriptor.
     #[error("Cannot open the VCPU file descriptor: {0}")]
     VcpuFd(kvm_ioctls::Error),
@@ -74,7 +74,7 @@ pub enum Error {
     VcpuGetMpState(kvm_ioctls::Error),
     /// The number of MSRS returned by the kernel is unexpected.
     #[error("Unexpected number of MSRS reported by the kernel")]
-    VcpuGetMSRSIncomplete,
+    VcpuGetMsrsIncomplete,
     /// Failed to get KVM vcpu msrs.
     #[error("Failed to get KVM vcpu msrs: {0}")]
     VcpuGetMsrs(kvm_ioctls::Error),
@@ -98,7 +98,7 @@ pub enum Error {
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC freq.
     #[error("Failed to get KVM TSC frequency: {0}")]
-    VcpuGetTSC(kvm_ioctls::Error),
+    VcpuGetTsc(kvm_ioctls::Error),
     /// Failed to set KVM vcpu cpuid.
     #[error("Failed to set KVM vcpu cpuid: {0}")]
     VcpuSetCpuid(kvm_ioctls::Error),
@@ -116,7 +116,7 @@ pub enum Error {
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
     #[error("Failed to set all KVM MSRs for this vCPU. Only a partial write was done.")]
-    VcpuSetMSRSIncomplete,
+    VcpuSetMsrsIncomplete,
     /// Failed to set KVM vcpu regs.
     #[error("Failed to set KVM vcpu regs: {0}")]
     VcpuSetRegs(kvm_ioctls::Error),
@@ -134,7 +134,7 @@ pub enum Error {
     VcpuSetXsave(kvm_ioctls::Error),
     /// Failed to set KVM TSC freq.
     #[error("Failed to set KVM TSC frequency: {0}")]
-    VcpuSetTSC(kvm_ioctls::Error),
+    VcpuSetTsc(kvm_ioctls::Error),
     /// Failed to apply CPU template.
     #[error("Failed to apply CPU template")]
     VcpuTemplateError,
@@ -172,7 +172,7 @@ pub enum KvmVcpuConfigureError {
     #[error("Failed to get MSRs to save from CPUID: {0}")]
     MsrsToSaveByCpuid(crate::guest_config::cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
-    SetMsrs(#[from] SetMSRsError),
+    SetMsrs(#[from] SetMsrsError),
     #[error("Failed to setup registers: {0}")]
     SetupRegisters(#[from] SetupRegistersError),
     #[error("Failed to setup FPU: {0}")]
@@ -353,7 +353,7 @@ impl KvmVcpu {
             let expected_nmsrs = msrs.as_slice().len();
             let nmsrs = self.fd.get_msrs(msrs).map_err(Error::VcpuGetMsrs)?;
             if nmsrs != expected_nmsrs {
-                return Err(Error::VcpuGetMSRSIncomplete);
+                return Err(Error::VcpuGetMsrsIncomplete);
             }
         }
         let vcpu_events = self
@@ -450,7 +450,7 @@ impl KvmVcpu {
         for msrs in &state.saved_msrs {
             let nmsrs = self.fd.set_msrs(msrs).map_err(Error::VcpuSetMsrs)?;
             if nmsrs < msrs.as_fam_struct_ref().nmsrs as usize {
-                return Err(Error::VcpuSetMSRSIncomplete);
+                return Err(Error::VcpuSetMsrsIncomplete);
             }
         }
         self.fd
