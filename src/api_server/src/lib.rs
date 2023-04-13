@@ -338,7 +338,12 @@ mod tests {
         let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
 
-        let start_time_us = utils::time::get_time_us(ClockType::Monotonic);
+        // Since the vmm side is mocked out in this test, the call to serve_vmm_action_request can
+        // complete very fast (under 1us, the resolution of our metrics). In these cases, the
+        // latencies_us.pause_vm metric can be set to 0, failing the assertion below. By
+        // subtracting 1 we assure that the metric will always be set to at least 1 (if it gets set
+        // at all, which is what this test is trying to prove).
+        let start_time_us = utils::time::get_time_us(ClockType::Monotonic) - 1;
         assert_eq!(METRICS.latencies_us.pause_vm.fetch(), 0);
         to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
         let response =
