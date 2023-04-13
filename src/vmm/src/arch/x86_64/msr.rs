@@ -275,7 +275,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 
 /// Error type for [`set_msrs`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum SetMSRsError {
+pub enum SetMsrsError {
     /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
     #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
     Create(utils::fam::Error),
@@ -302,15 +302,15 @@ pub enum SetMSRsError {
 pub fn set_msrs(
     vcpu: &VcpuFd,
     msr_entries: &[kvm_msr_entry],
-) -> std::result::Result<(), SetMSRsError> {
-    let msrs = Msrs::from_entries(msr_entries).map_err(SetMSRsError::Create)?;
+) -> std::result::Result<(), SetMsrsError> {
+    let msrs = Msrs::from_entries(msr_entries).map_err(SetMsrsError::Create)?;
     vcpu.set_msrs(&msrs)
-        .map_err(SetMSRsError::Set)
+        .map_err(SetMsrsError::Set)
         .and_then(|msrs_written| {
             if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
             } else {
-                Err(SetMSRsError::Incomplete)
+                Err(SetMsrsError::Incomplete)
             }
         })
 }
