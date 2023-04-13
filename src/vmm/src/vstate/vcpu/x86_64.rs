@@ -191,7 +191,7 @@ pub struct KvmVcpu {
     pub pio_bus: Option<devices::Bus>,
     pub mmio_bus: Option<devices::Bus>,
 
-    msr_list: HashSet<u32>,
+    msrs_to_save: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -209,7 +209,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             pio_bus: None,
             mmio_bus: None,
-            msr_list: vm.supported_msrs().as_slice().iter().copied().collect(),
+            msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
         })
     }
 
@@ -228,8 +228,8 @@ impl KvmVcpu {
         vcpu_config: &VcpuConfig,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
-        self.msr_list
-            .extend(vcpu_config.cpu_config.supported_msrs.iter());
+        self.msrs_to_save
+            .extend(vcpu_config.cpu_config.msrs_to_save.iter());
         let msr_boot_entries = vcpu_config.cpu_config.msr_boot_entries.clone();
 
         // Apply machine specific changes to CPUID.
@@ -264,7 +264,7 @@ impl KvmVcpu {
         // the extra MSRs that we need to save based on a dependency map.
         let extra_msrs = crate::guest_config::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
-        self.msr_list.extend(extra_msrs);
+        self.msrs_to_save.extend(extra_msrs);
 
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
@@ -321,11 +321,11 @@ impl KvmVcpu {
         // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
         // to allow an unlimited number.
         let mut all_msrs: Vec<Msrs> = Vec::new();
-        let msr_list: Vec<&u32> = self.msr_list.iter().collect();
+        let msrs_to_save: Vec<&u32> = self.msrs_to_save.iter().collect();
 
         // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
         // them up into `Msrs` so it's easy to pass to the ioctl.
-        for chunk in msr_list.chunks(KVM_MAX_MSR_ENTRIES) {
+        for chunk in msrs_to_save.chunks(KVM_MAX_MSR_ENTRIES) {
             let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
             let msr_entries = msrs.as_mut_slice();
             assert_eq!(chunk.len(), msr_entries.len());
