@@ -8,8 +8,8 @@
 use std::collections::HashSet;
 
 use kvm_bindings::{
-    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_msr_entry, kvm_regs, kvm_sregs,
+    kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
@@ -230,7 +230,7 @@ impl KvmVcpu {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
         self.msr_list
             .extend(vcpu_config.cpu_config.supported_msrs.iter());
-        let msr_boot_entries = vcpu_config.cpu_config.msr_boot_entries.clone();
+        let mut msr_boot_entries = vcpu_config.cpu_config.msr_boot_entries.clone();
 
         // Apply machine specific changes to CPUID.
         // config_cpuid
@@ -265,6 +265,18 @@ impl KvmVcpu {
         let extra_msrs = crate::guest_config::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
         self.msr_list.extend(extra_msrs);
+
+        // Append MSRs from the CPU configuration for setting them to KVM
+        // and saving in the snapshot.
+        let msrs = &vcpu_config.cpu_config.msrs;
+
+        msr_boot_entries.extend(msrs.iter().map(|(&addr, &value)| kvm_msr_entry {
+            index: addr,
+            data: value,
+            ..Default::default()
+        }));
+
+        self.msr_list.extend(msrs.iter().map(|(&addr, _)| addr));
 
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
@@ -624,7 +636,8 @@ mod tests {
         vm: &Vm,
         template: Option<CpuTemplateType>,
     ) -> std::result::Result<VcpuConfig, crate::guest_config::x86_64::Error> {
-        let custom_cpu_config = CpuConfiguration::new(vm, &template)?;
+        let vcpu = vm.fd().create_vcpu(0).unwrap();
+        let custom_cpu_config = CpuConfiguration::new(vm, &vcpu, &template)?;
         Ok(VcpuConfig {
             vcpu_count: 1,
             smt: false,

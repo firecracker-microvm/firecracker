@@ -6,7 +6,8 @@ pub mod static_cpu_templates;
 
 use std::collections::{HashMap, HashSet};
 
-use kvm_bindings::kvm_msr_entry;
+use kvm_bindings::{kvm_msr_entry, Msrs, KVM_MAX_MSR_ENTRIES};
+use kvm_ioctls::VcpuFd;
 use static_cpu_templates::*;
 
 use super::cpuid::{CpuidKey, RawCpuid};
@@ -32,6 +33,12 @@ pub enum Error {
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
     CpuidFromRaw(super::cpuid::CpuidTryFromRawCpuid),
+    /// Failed to get KVM vCPU MSRs.
+    #[error("Failed to get KVM vCPU MSRs: {0}")]
+    VcpuGetMsrs(kvm_ioctls::Error),
+    /// The number of MSRs returned by the kernel is unexpected.
+    #[error("Unexpected number of MSRs reported by the kernel")]
+    VcpuGetMsrsIncomplete,
 }
 
 /// CPU configuration for x86_64 CPUs
@@ -53,9 +60,9 @@ pub struct CpuConfiguration {
 
 impl CpuConfiguration {
     /// Creates new CpuConfig with cpu template changes applied
-    pub fn new(vm: &Vm, template: &Option<CpuTemplateType>) -> Result<Self, Error> {
+    pub fn new(vm: &Vm, vcpu: &VcpuFd, template: &Option<CpuTemplateType>) -> Result<Self, Error> {
         match template {
-            Some(ref cpu_template) => Self::with_template(vm, cpu_template),
+            Some(ref cpu_template) => Self::with_template(vcpu, vm, cpu_template),
             None => Self::host(vm),
         }
     }
@@ -75,9 +82,13 @@ impl CpuConfiguration {
     }
 
     /// Creates new CpuConfig with cpu template changes applied
-    pub fn with_template(vm: &Vm, template: &CpuTemplateType) -> Result<Self, Error> {
+    pub fn with_template(
+        vcpu: &VcpuFd,
+        vm: &Vm,
+        template: &CpuTemplateType,
+    ) -> Result<Self, Error> {
         match template {
-            CpuTemplateType::Custom(template) => Self::host(vm)?.apply_template(template),
+            CpuTemplateType::Custom(template) => Self::host(vm)?.apply_template(vcpu, template),
             CpuTemplateType::Static(template) => {
                 let mut config = Self::host(vm)?;
                 // If a template is specified, get the CPUID template, else use `cpuid`.
@@ -126,7 +137,11 @@ impl CpuConfiguration {
     }
 
     /// Modifies provided config with changes from template
-    pub fn apply_template(self, template: &CustomCpuTemplate) -> Result<Self, Error> {
+    pub fn apply_template(
+        self,
+        vcpu: &VcpuFd,
+        template: &CustomCpuTemplate,
+    ) -> Result<Self, Error> {
         let Self {
             mut cpuid,
             mut msrs,
@@ -177,6 +192,31 @@ impl CpuConfiguration {
             }
         }
 
+        // Extract MSR addresses from the template to a vector
+        let entries: Vec<kvm_msr_entry> = template
+            .msr_modifiers
+            .iter()
+            .map(|msr| kvm_msr_entry {
+                index: msr.addr,
+                ..Default::default()
+            })
+            .collect();
+
+        // We have to read MSRs in chunks, because KVM only allows to read KVM_MAX_MSR_ENTRIES
+        // MSRs at a time and the custom CPU template may contain more.
+        for chunk in entries.chunks(KVM_MAX_MSR_ENTRIES) {
+            // Safe to unwrap as we are using chunks of KVM_MAX_MSR_ENTRIES MSR entries
+            let mut kvm_msrs = Msrs::from_entries(chunk).unwrap();
+
+            // Read MSRs from KVM
+            let num_msrs = vcpu.get_msrs(&mut kvm_msrs).map_err(Error::VcpuGetMsrs)?;
+            if num_msrs != chunk.len() {
+                return Err(Error::VcpuGetMsrsIncomplete);
+            }
+
+            msrs.extend(kvm_msrs.as_slice().iter().map(|ent| (ent.index, ent.data)));
+        }
+
         for modifier in &template.msr_modifiers {
             if let Some(reg_value) = msrs.get_mut(&modifier.addr) {
                 *reg_value = modifier.bitmap.apply(*reg_value);
@@ -199,6 +239,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
+    use kvm_ioctls::Kvm;
 
     use super::*;
     use crate::guest_config::cpuid::{IntelCpuid, KvmCpuidFlags};
@@ -291,10 +332,13 @@ mod tests {
 
     #[test]
     fn test_empty_template() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let host_configuration = empty_cpu_config();
         let guest_config_result = host_configuration
             .clone()
-            .apply_template(&CustomCpuTemplate::default());
+            .apply_template(&vcpu, &CustomCpuTemplate::default());
         assert!(
             guest_config_result.is_ok(),
             "{}",
@@ -308,10 +352,13 @@ mod tests {
 
     #[test]
     fn test_apply_template() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let host_configuration = supported_cpu_config();
         let guest_config_result = host_configuration
             .clone()
-            .apply_template(&build_test_template());
+            .apply_template(&vcpu, &build_test_template());
         assert!(
             guest_config_result.is_ok(),
             "{}",
@@ -325,9 +372,12 @@ mod tests {
     #[test]
     fn test_invalid_template() {
         // Test CPUID validation
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let host_configuration = empty_cpu_config();
         let guest_template = build_test_template();
-        let guest_config_result = host_configuration.apply_template(&guest_template);
+        let guest_config_result = host_configuration.apply_template(&vcpu, &guest_template);
         assert!(
             guest_config_result.is_err(),
             "Expected an error as template should have failed to modify a CPUID entry that is not \
@@ -344,7 +394,7 @@ mod tests {
         // Test MSR validation
         let host_configuration = unsupported_cpu_config();
         let guest_template = build_test_template();
-        let guest_config_result = host_configuration.apply_template(&guest_template);
+        let guest_config_result = host_configuration.apply_template(&vcpu, &guest_template);
         assert!(
             guest_config_result.is_err(),
             "Expected an error as template should have failed to modify an MSR value that is not \

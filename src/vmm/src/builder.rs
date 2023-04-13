@@ -841,9 +841,12 @@ pub fn configure_system_for_boot(
 
     #[cfg(target_arch = "x86_64")]
     {
-        let cpu_config =
-            crate::guest_config::x86_64::CpuConfiguration::new(&vmm.vm, &vm_config.cpu_template)
-                .map_err(CreateCpuConfig)?;
+        let cpu_config = crate::guest_config::x86_64::CpuConfiguration::new(
+            &vmm.vm,
+            &vcpus[0].kvm_vcpu.fd,
+            &vm_config.cpu_template,
+        )
+        .map_err(CreateCpuConfig)?;
 
         let vcpu_config = VcpuConfig {
             vcpu_count: vm_config.vcpu_count,
