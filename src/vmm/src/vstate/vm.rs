@@ -116,7 +116,7 @@ pub struct Vm {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
-    supported_msrs: MsrList,
+    msrs_to_save: MsrList,
 
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
@@ -246,13 +246,13 @@ impl Vm {
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
-        let supported_msrs =
-            crate::arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMsrs)?;
+        let msrs_to_save =
+            crate::arch::x86_64::msr::get_msrs_to_save(kvm).map_err(Error::GuestMsrs)?;
 
         Ok(Vm {
             fd: vm_fd,
             supported_cpuid,
-            supported_msrs,
+            msrs_to_save,
         })
     }
 
@@ -261,9 +261,9 @@ impl Vm {
         &self.supported_cpuid
     }
 
-    /// Returns a ref to the supported `MsrList` for this Vm.
-    pub fn supported_msrs(&self) -> &MsrList {
-        &self.supported_msrs
+    /// Returns a ref to the list of serializable MSR indices.
+    pub fn msrs_to_save(&self) -> &MsrList {
+        &self.msrs_to_save
     }
 
     /// Restores the KVM VM state.
