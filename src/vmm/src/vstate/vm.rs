@@ -30,7 +30,7 @@ use crate::arch::aarch64::gic::GicState;
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
-    GuestMSRs(crate::arch::x86_64::msr::Error),
+    GuestMsrs(crate::arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
@@ -101,7 +101,7 @@ impl fmt::Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            GuestMSRs(err) => write!(f, "Retrieving supported guest MSRs fails: {:?}", err),
+            GuestMsrs(err) => write!(f, "Retrieving supported guest MSRs fails: {:?}", err),
             #[cfg(target_arch = "aarch64")]
             VmCreateGIC(err) => write!(
                 f,
@@ -276,7 +276,7 @@ impl Vm {
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
         let supported_msrs =
-            crate::arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+            crate::arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMsrs)?;
 
         Ok(Vm {
             fd: vm_fd,
