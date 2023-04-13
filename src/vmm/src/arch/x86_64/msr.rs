@@ -136,7 +136,7 @@ macro_rules! MSR_RANGE {
 }
 
 // List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
-static ALLOWED_MSR_RANGES: &[MsrRange] = &[
+static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_IA32_P5_MC_ADDR),
     MSR_RANGE!(MSR_IA32_P5_MC_TYPE),
     MSR_RANGE!(MSR_IA32_TSC),
@@ -242,7 +242,9 @@ pub fn msr_should_serialize(index: u32) -> bool {
     if index == MSR_IA32_MCG_CTL {
         return false;
     };
-    ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
+    SERIALIZABLE_MSR_RANGES
+        .iter()
+        .any(|range| range.contains(index))
 }
 
 /// Creates and populates required MSR entries for booting Linux on X86_64.
@@ -315,12 +317,12 @@ pub fn set_msrs(
         })
 }
 
-/// Returns the list of supported, serializable MSRs.
+/// Returns the list of supported and serializable MSR indices.
 ///
 /// # Arguments
 ///
 /// * `kvm_fd` - Structure that holds the KVM's fd.
-pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
     let mut msr_list = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetSupportedModelSpecificRegisters)?;
@@ -338,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_msr_allowlist() {
-        for range in ALLOWED_MSR_RANGES.iter() {
+        for range in SERIALIZABLE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 let should = !matches!(msr, MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);

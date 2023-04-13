@@ -45,7 +45,7 @@ pub struct CpuConfiguration {
     pub msrs: HashMap<u32, u64>,
 
     /// Set of supported MSRs
-    pub supported_msrs: HashSet<u32>,
+    pub msrs_to_save: HashSet<u32>,
 
     /// Architectural MSPs required for boot
     pub msr_boot_entries: Vec<kvm_msr_entry>,
@@ -69,7 +69,7 @@ impl CpuConfiguration {
         Ok(Self {
             cpuid: supported_cpuid,
             msrs: Default::default(),
-            supported_msrs: Default::default(),
+            msrs_to_save: Default::default(),
             msr_boot_entries: create_boot_msr_entries(),
         })
     }
@@ -106,13 +106,13 @@ impl CpuConfiguration {
                 // C3, T2 and T2A currently don't have extra MSRs to save/set.
                 match template {
                     StaticCpuTemplate::T2S => {
-                        config.supported_msrs.extend(msr_entries_to_save());
+                        config.msrs_to_save.extend(msr_entries_to_save());
                         static_cpu_templates::t2s::update_t2s_msr_entries(
                             &mut config.msr_boot_entries,
                         );
                     }
                     StaticCpuTemplate::T2CL => {
-                        config.supported_msrs.extend(msr_entries_to_save());
+                        config.msrs_to_save.extend(msr_entries_to_save());
                         static_cpu_templates::t2cl::update_t2cl_msr_entries(
                             &mut config.msr_boot_entries,
                         );
@@ -130,7 +130,7 @@ impl CpuConfiguration {
         let Self {
             mut cpuid,
             mut msrs,
-            supported_msrs,
+            msrs_to_save,
             msr_boot_entries,
         } = self;
 
@@ -188,7 +188,7 @@ impl CpuConfiguration {
         Ok(Self {
             cpuid,
             msrs,
-            supported_msrs,
+            msrs_to_save,
             msr_boot_entries,
         })
     }
@@ -266,7 +266,7 @@ mod tests {
         CpuConfiguration {
             cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
             msrs: Default::default(),
-            supported_msrs: Default::default(),
+            msrs_to_save: Default::default(),
             msr_boot_entries: Default::default(),
         }
     }
@@ -275,7 +275,7 @@ mod tests {
         CpuConfiguration {
             cpuid: static_cpu_templates::t2::t2(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-            supported_msrs: Default::default(),
+            msrs_to_save: Default::default(),
             msr_boot_entries: Default::default(),
         }
     }
@@ -284,7 +284,7 @@ mod tests {
         CpuConfiguration {
             cpuid: static_cpu_templates::t2::t2(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-            supported_msrs: Default::default(),
+            msrs_to_save: Default::default(),
             msr_boot_entries: Default::default(),
         }
     }
