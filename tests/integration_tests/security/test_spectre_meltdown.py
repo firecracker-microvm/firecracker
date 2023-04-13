@@ -6,10 +6,13 @@
 # GPL-3.0-only license.
 """Tests spectre / meltdown mitigation."""
 
+from pathlib import Path
+
 import pytest
 import requests
 
 from framework import utils
+from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
 
 pytestmark = pytest.mark.skipif(
@@ -33,6 +36,66 @@ def download_spectre_meltdown_checker(tmp_path_factory):
     return path
 
 
+def run_microvm(microvm, network_config, cpu_template=None):
+    """
+    Run a microVM with a template.
+    """
+    microvm.spawn()
+    microvm.basic_config(cpu_template=cpu_template)
+    tap, host_ip, guest_ip = microvm.ssh_network_config(network_config, "1")
+    microvm.start()
+
+    return microvm, tap, host_ip, guest_ip
+
+
+def take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip):
+    """
+    Take a snapshot from the source microVM, restore a destination microVM from the snapshot
+    and return the destination VM.
+    """
+
+    # Take a snapshot of the source VM
+    mem_file_path = Path(src_vm.jailer.chroot_path()) / "mem.bin"
+    snapshot_path = Path(src_vm.jailer.chroot_path()) / "snapshot.bin"
+
+    src_vm.pause_to_snapshot(
+        mem_file_path=mem_file_path.name,
+        snapshot_path=snapshot_path.name,
+    )
+    assert mem_file_path.exists()
+
+    # Create a destination VM
+    dst_vm = microvm_factory.build()
+    dst_vm.spawn()
+    dst_vm.create_tap_and_ssh_config(
+        host_ip=host_ip,
+        guest_ip=guest_ip,
+        netmask_len=DEFAULT_NETMASK,
+        tapname=tap.name,
+    )
+    dst_vm.ssh_config["ssh_key_path"] = src_vm.ssh_config["ssh_key_path"]
+
+    # Restore the destination VM from the snapshot
+    dst_vm.restore_from_snapshot(
+        snapshot_vmstate=snapshot_path,
+        snapshot_mem=mem_file_path,
+        snapshot_disks=[src_vm.rootfs_file],
+    )
+
+    return dst_vm
+
+
+def run_spectre_meltdown_checker_on_guest(
+    microvm,
+    spectre_meltdown_checker,
+):
+    """Run the spectre / meltdown checker on guest"""
+    remote_path = f"/bin/{CHECKER_FILENAME}"
+    microvm.ssh.scp_file(spectre_meltdown_checker, remote_path)
+    ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
+    assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
+
+
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
@@ -52,14 +115,33 @@ def test_spectre_meltdown_checker_on_guest(
 
     @type: security
     """
-    microvm = test_microvm_with_spectre_meltdown
-    microvm.spawn()
-    microvm.basic_config()
-    microvm.ssh_network_config(network_config, "1")
-    microvm.start()
+    microvm, _, _, _ = run_microvm(test_microvm_with_spectre_meltdown, network_config)
 
     run_spectre_meltdown_checker_on_guest(
         microvm,
+        spectre_meltdown_checker,
+    )
+
+
+def test_spectre_meltdown_checker_on_restored_guest(
+    spectre_meltdown_checker,
+    test_microvm_with_spectre_meltdown,
+    network_config,
+    microvm_factory,
+):
+    """
+    Test with the spectre / meltdown checker on a restored guest.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(
+        test_microvm_with_spectre_meltdown, network_config
+    )
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    run_spectre_meltdown_checker_on_guest(
+        dst_vm,
         spectre_meltdown_checker,
     )
 
@@ -75,17 +157,9 @@ def test_spectre_meltdown_checker_on_guest_with_template(
 
     @type: security
     """
-    microvm = test_microvm_with_spectre_meltdown
-    microvm.spawn()
-    microvm.basic_config()
-    resp = microvm.machine_cfg.put(
-        vcpu_count=2,
-        mem_size_mib=256,
-        cpu_template=cpu_template,
+    microvm, _, _, _ = run_microvm(
+        test_microvm_with_spectre_meltdown, network_config, cpu_template
     )
-    assert microvm.api_session.is_status_no_content(resp.status_code)
-    microvm.ssh_network_config(network_config, "1")
-    microvm.start()
 
     run_spectre_meltdown_checker_on_guest(
         microvm,
@@ -93,12 +167,25 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     )
 
 
-def run_spectre_meltdown_checker_on_guest(
-    microvm,
+def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
+    test_microvm_with_spectre_meltdown,
+    network_config,
+    cpu_template,
+    microvm_factory,
 ):
-    """Run the spectre / meltdown checker on guest"""
-    remote_path = f"/bin/{CHECKER_FILENAME}"
-    microvm.ssh.scp_file(spectre_meltdown_checker, remote_path)
-    ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
-    assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
+    """
+    Test with the spectre / meltdown checker on a restored guest with a CPU template.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(
+        test_microvm_with_spectre_meltdown, network_config, cpu_template
+    )
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    run_spectre_meltdown_checker_on_guest(
+        dst_vm,
+        spectre_meltdown_checker,
+    )
