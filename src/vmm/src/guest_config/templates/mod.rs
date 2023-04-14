@@ -26,7 +26,30 @@ mod common_types {
     pub use crate::guest_config::templates::aarch64::CustomCpuTemplate;
 }
 
+use std::borrow::Cow;
+use std::result::Result;
+
 pub use common_types::*;
+
+/// Error for GetCpuTemplate trait.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum GetCpuTemplateError {
+    /// Invalid static CPU template.
+    #[error("Invalid static CPU template: {0}")]
+    InvalidStaticCpuTemplate(StaticCpuTemplate),
+}
+
+/// Trait to unwrap the inner `CustomCpuTemplate` from Option<CpuTemplateType>.
+///
+/// This trait is needed because static CPU template and custom CPU template have different nested
+/// structures: `CpuTemplateType::Static(StaticCpuTemplate::StaticTemplateType(CustomCpuTemplate))`
+/// vs `CpuTemplateType::Custom(CustomCpuTemplate)`. As static CPU templates return owned
+/// `CustomCpuTemplate`s, `Cow` is used here to avoid unnecessary clone of `CustomCpuTemplate` for
+/// custom CPU templates and handle static CPU template and custom CPU template in a same manner.
+pub trait GetCpuTemplate {
+    /// Get CPU template
+    fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError>;
+}
 
 /// Enum that represents types of cpu templates available.
 #[derive(Debug, Clone, PartialEq, Eq)]
