@@ -5,7 +5,6 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
@@ -55,139 +54,81 @@ use crate::vstate::vm::Vm;
 use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum StartMicrovmError {
-    /// Error using CPU template to configure vCPUs
-    CreateCpuConfig(GuestConfigError),
     /// Unable to attach block device to Vmm.
+    #[error("Unable to attach block device to Vmm: {0}")]
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
+    #[error("System configuration error: {0:?}")]
     ConfigureSystem(crate::arch::Error),
+    /// Error using CPU template to configure vCPUs
+    #[error("Unable to successfully create cpu configuration usable for guest vCPUs: {0:?}")]
+    CreateCpuConfig(GuestConfigError),
     /// Internal errors are due to resource exhaustion.
+    #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
+    #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
+    #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
     GuestMemoryMmap(vm_memory::Error),
     /// Cannot load initrd due to an invalid memory configuration.
+    #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,
     /// Cannot load initrd due to an invalid image.
+    #[error("Cannot load initrd due to an invalid image: {0}")]
     InitrdRead(io::Error),
     /// Internal error encountered while starting a microVM.
+    #[error("Internal error while starting microVM: {0}")]
     Internal(Error),
     /// The kernel command line is invalid.
+    #[error("Invalid kernel command line: {0}")]
     KernelCmdline(String),
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    #[error(
+        "Cannot load kernel due to invalid memory configuration or invalid kernel image: {}",
+        format!("{}", .0).replace('\"', "")
+    )]
     KernelLoader(linux_loader::loader::Error),
     /// Cannot load command line string.
+    #[error("Cannot load command line string: {}", format!("{}", .0).replace('\"', ""))]
     LoadCommandline(linux_loader::loader::Error),
     /// Cannot start the VM because the kernel builder was not configured.
+    #[error("Cannot start microvm without kernel configuration.")]
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
+    #[error("Cannot start microvm without guest mem_size config.")]
     MissingMemSizeConfig,
     /// The seccomp filter map is missing a key.
+    #[error("No seccomp filter for thread category: {0}")]
     MissingSeccompFilters(String),
     /// The net device configuration is missing the tap device.
+    #[error("The net device configuration is missing the tap device.")]
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
+    #[error("Cannot open the block device backing file: {}", format!("{:?}", .0).replace('\"', ""))]
     OpenBlockDevice(io::Error),
     /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline.
+    #[error(
+        "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline: {}",
+        format!("{}", .0).replace('\"', "")
+    )]
     RegisterMmioDevice(device_manager::mmio::Error),
     /// Cannot restore microvm state.
+    #[error("Cannot restore microvm state: {0}")]
     RestoreMicrovmState(MicrovmStateError),
     /// Unable to set VmResources.
+    #[error("Cannot set vm resources: {0}")]
     SetVmResources(VmConfigError),
 }
-impl std::error::Error for StartMicrovmError {}
+
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
 impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
-    }
-}
-
-impl Display for StartMicrovmError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::StartMicrovmError::*;
-        match self {
-            CreateCpuConfig(err) => {
-                write!(
-                    f,
-                    "Unable to successfully create cpu configuration usable for guest vCPUs: {:?}",
-                    err
-                )
-            }
-            AttachBlockDevice(err) => {
-                write!(f, "Unable to attach block device to Vmm: {}", err)
-            }
-            ConfigureSystem(err) => write!(f, "System configuration error: {:?}", err),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            CreateNetDevice(err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-
-                write!(f, "Cannot create network device. {}", err_msg)
-            }
-            GuestMemoryMmap(err) => {
-                // Remove imbricated quotes from error message.
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(f, "Invalid Memory Configuration: {}", err_msg)
-            }
-            InitrdLoad => write!(
-                f,
-                "Cannot load initrd due to an invalid memory configuration."
-            ),
-            InitrdRead(err) => write!(f, "Cannot load initrd due to an invalid image: {}", err),
-            Internal(err) => write!(f, "Internal error while starting microVM: {}", err),
-            KernelCmdline(err) => write!(f, "Invalid kernel command line: {}", err),
-            KernelLoader(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(
-                    f,
-                    "Cannot load kernel due to invalid memory configuration or invalid kernel \
-                     image. {}",
-                    err_msg
-                )
-            }
-            LoadCommandline(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(f, "Cannot load command line string. {}", err_msg)
-            }
-            MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
-            MissingMemSizeConfig => {
-                write!(f, "Cannot start microvm without guest mem_size config.")
-            }
-            MissingSeccompFilters(thread_category) => write!(
-                f,
-                "No seccomp filter for thread category: {}",
-                thread_category
-            ),
-            NetDeviceNotConfigured => {
-                write!(f, "The net device configuration is missing the tap device.")
-            }
-            OpenBlockDevice(err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-
-                write!(f, "Cannot open the block device backing file. {}", err_msg)
-            }
-            RegisterMmioDevice(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(
-                    f,
-                    "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline. \
-                     {}",
-                    err_msg
-                )
-            }
-            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
-            SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
-        }
     }
 }
 
