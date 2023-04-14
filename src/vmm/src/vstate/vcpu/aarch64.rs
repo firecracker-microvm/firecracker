@@ -16,7 +16,7 @@ use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::arch::aarch64::regs::Aarch64Register;
 use crate::arch::regs::{
     get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
-    save_system_registers, set_mpstate,
+    save_system_registers, set_mpstate, Error as ArchError,
 };
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
@@ -33,12 +33,14 @@ pub enum Error {
     GetPreferredTarget(kvm_ioctls::Error),
     #[error("Error initializing the vcpu: {0}")]
     Init(kvm_ioctls::Error),
+    #[error("Error gettings vcpu register: {0}")]
+    GetRegs(ArchError),
     #[error("Error applying template to the vcpu: {0}")]
-    ApplyCpuTemplate(crate::arch::aarch64::regs::Error),
+    ApplyCpuTemplate(ArchError),
     #[error("Failed to restore the state of the vcpu: {0}")]
-    RestoreState(crate::arch::aarch64::regs::Error),
+    RestoreState(ArchError),
     #[error("Failed to save the state of the vcpu: {0}")]
-    SaveState(crate::arch::aarch64::regs::Error),
+    SaveState(ArchError),
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -76,6 +78,18 @@ impl KvmVcpu {
             mpidr: 0,
             additional_register_ids: vec![],
         })
+    }
+
+    /// Queries registres from vcpu
+    pub fn get_regs(&self, ids: &[u64]) -> std::result::Result<Vec<Aarch64Register>, ArchError> {
+        ids.iter()
+            .map(|id| {
+                self.fd
+                    .get_one_reg(*id)
+                    .map(|value| Aarch64Register { id: *id, value })
+                    .map_err(|e| ArchError::GetSysRegister(*id, e))
+            })
+            .collect::<std::result::Result<Vec<_>, ArchError>>()
     }
 
     /// Gets the MPIDR register value.

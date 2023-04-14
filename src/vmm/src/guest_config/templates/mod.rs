@@ -28,6 +28,12 @@ mod common_types {
 
 pub use common_types::*;
 
+/// Trait to take cpu template from VmConfig if one exist
+pub trait TakeCpuTemplate {
+    /// Take cpu template
+    fn take_template(&mut self) -> Option<CustomCpuTemplate>;
+}
+
 /// Enum that represents types of cpu templates available.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CpuTemplateType {

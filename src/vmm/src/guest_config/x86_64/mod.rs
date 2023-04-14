@@ -6,16 +6,13 @@ pub mod static_cpu_templates;
 
 use std::collections::{HashMap, HashSet};
 
-use kvm_bindings::kvm_msr_entry;
-use static_cpu_templates::*;
+use kvm_bindings::{kvm_msr_entry, CpuId};
 
 use super::cpuid::{CpuidKey, RawCpuid};
 use super::templates::x86_64::CpuidRegister;
-use super::templates::{CpuTemplateType, CustomCpuTemplate};
+use super::templates::CustomCpuTemplate;
 use crate::arch::x86_64::msr::create_boot_msr_entries;
 use crate::guest_config::cpuid::Cpuid;
-use crate::vstate::vcpu::msr_entries_to_save;
-use crate::vstate::vm::Vm;
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -52,19 +49,10 @@ pub struct CpuConfiguration {
 }
 
 impl CpuConfiguration {
-    /// Creates new CpuConfig with cpu template changes applied
-    pub fn new(vm: &Vm, template: &Option<CpuTemplateType>) -> Result<Self, Error> {
-        match template {
-            Some(ref cpu_template) => Self::with_template(vm, cpu_template),
-            None => Self::host(vm),
-        }
-    }
-
     /// Creates new CpuConfig with default values
-    pub fn host(vm: &Vm) -> Result<Self, Error> {
-        let supported_cpuid = vm.supported_cpuid().clone();
+    pub fn new(cpuid: CpuId, _msrs: Vec<u64>) -> Result<Self, Error> {
         let supported_cpuid =
-            Cpuid::try_from(RawCpuid::from(supported_cpuid)).map_err(Error::CpuidFromRaw)?;
+            Cpuid::try_from(RawCpuid::from(cpuid)).map_err(Error::CpuidFromRaw)?;
 
         Ok(Self {
             cpuid: supported_cpuid,
@@ -72,57 +60,6 @@ impl CpuConfiguration {
             supported_msrs: Default::default(),
             msr_boot_entries: create_boot_msr_entries(),
         })
-    }
-
-    /// Creates new CpuConfig with cpu template changes applied
-    pub fn with_template(vm: &Vm, template: &CpuTemplateType) -> Result<Self, Error> {
-        match template {
-            CpuTemplateType::Custom(template) => Self::host(vm)?.apply_template(template),
-            CpuTemplateType::Static(template) => {
-                let mut config = Self::host(vm)?;
-                // If a template is specified, get the CPUID template, else use `cpuid`.
-                let template_cpuid = match template {
-                    StaticCpuTemplate::C3 => static_cpu_templates::c3::c3(),
-                    StaticCpuTemplate::T2 => static_cpu_templates::t2::t2(),
-                    StaticCpuTemplate::T2S => static_cpu_templates::t2s::t2s(),
-                    StaticCpuTemplate::T2CL => static_cpu_templates::t2cl::t2cl(),
-                    StaticCpuTemplate::T2A => static_cpu_templates::t2a::t2a(),
-                    StaticCpuTemplate::None => unreachable!("None state is invalid"),
-                };
-
-                // Include leaves from host that are not present in CPUID template.
-                config.cpuid = template_cpuid
-                    .include_leaves_from(config.cpuid)
-                    .map_err(Error::CpuidJoin)?;
-
-                // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
-                // be implemented. For now we define known dependencies statically in the CPU
-                // templates.
-
-                // Depending on which CPU template the user selected, we may need to initialize
-                // additional MSRs for boot to correctly enable some CPU features. As stated in
-                // the previous comment, we get from the template a static list of MSRs we need
-                // to save at snapshot as well.
-                // C3, T2 and T2A currently don't have extra MSRs to save/set.
-                match template {
-                    StaticCpuTemplate::T2S => {
-                        config.supported_msrs.extend(msr_entries_to_save());
-                        static_cpu_templates::t2s::update_t2s_msr_entries(
-                            &mut config.msr_boot_entries,
-                        );
-                    }
-                    StaticCpuTemplate::T2CL => {
-                        config.supported_msrs.extend(msr_entries_to_save());
-                        static_cpu_templates::t2cl::update_t2cl_msr_entries(
-                            &mut config.msr_boot_entries,
-                        );
-                    }
-                    _ => (),
-                }
-
-                Ok(config)
-            }
-        }
     }
 
     /// Modifies provided config with changes from template

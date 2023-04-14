@@ -39,13 +39,13 @@ fn test_setup_serial_device() {
 fn test_build_microvm() {
     // Error case: no boot source configured.
     {
-        let resources: VmResources = MockVmResources::new().into();
+        let mut resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
         let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
         let vmm_ret = build_microvm_for_boot(
             &InstanceInfo::default(),
-            &resources,
+            &mut resources,
             &mut event_manager,
             &empty_seccomp_filters,
         );

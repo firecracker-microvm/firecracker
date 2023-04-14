@@ -18,7 +18,7 @@ use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
+use crate::arch::x86_64::msr::SetMSRsError; //, MSR_IA32_ARCH_CAPABILITIES};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -29,15 +29,15 @@ use crate::vstate::vm::Vm;
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
 const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 
-#[allow(clippy::missing_docs_in_private_items)]
-static EXTRA_MSR_ENTRIES: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
+// #[allow(clippy::missing_docs_in_private_items)]
+// static EXTRA_MSR_ENTRIES: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
 
 /// Return a list of MSRs specific to this T2S template.
-#[inline]
-#[must_use]
-pub fn msr_entries_to_save() -> &'static [u32] {
-    EXTRA_MSR_ENTRIES
-}
+// #[inline]
+// #[must_use]
+// pub fn msr_entries_to_save() -> &'static [u32] {
+//     EXTRA_MSR_ENTRIES
+// }
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
@@ -211,6 +211,11 @@ impl KvmVcpu {
             mmio_bus: None,
             msr_list: vm.supported_msrs().as_slice().iter().copied().collect(),
         })
+    }
+
+    /// Queries msrs from vcpu
+    pub fn get_msrs(&self, _msr_ids: &[u32]) -> Vec<u64> {
+        vec![]
     }
 
     /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
@@ -579,7 +584,9 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::guest_config::templates::{CpuConfiguration, CpuTemplateType, StaticCpuTemplate};
+    use crate::guest_config::templates::{
+        CpuConfiguration, CpuTemplateType, StaticCpuTemplate, TakeCpuTemplate,
+    };
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -622,13 +629,25 @@ mod tests {
 
     fn create_vcpu_config(
         vm: &Vm,
-        template: Option<CpuTemplateType>,
+        vcpu: &KvmVcpu,
+        mut template: Option<CpuTemplateType>,
     ) -> std::result::Result<VcpuConfig, crate::guest_config::x86_64::Error> {
-        let custom_cpu_config = CpuConfiguration::new(vm, &template)?;
+        let cpu_template = template.take_template();
+
+        let cpu_config = match cpu_template {
+            Some(template) => {
+                let msr_ids = template.msr_ids();
+                let msrs = vcpu.get_msrs(&msr_ids);
+                CpuConfiguration::new(vm.supported_cpuid().clone(), msrs)
+                    .and_then(|cpu_config| cpu_config.apply_template(&template))
+            }
+            None => CpuConfiguration::new(vm.supported_cpuid().clone(), Default::default()),
+        }?;
+
         Ok(VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            cpu_config: custom_cpu_config,
+            cpu_config,
         })
     }
 
@@ -636,14 +655,16 @@ mod tests {
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let vcpu_config = create_vcpu_config(&vm, None).unwrap();
+        let vcpu_config = create_vcpu_config(&vm, &vcpu, None).unwrap();
         assert_eq!(
             vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config,),
             Ok(())
         );
 
         let try_configure = |vm: &Vm, vcpu: &mut KvmVcpu, template| -> bool {
-            if let Ok(config) = create_vcpu_config(vm, Some(CpuTemplateType::Static(template))) {
+            if let Ok(config) =
+                create_vcpu_config(vm, &vcpu, Some(CpuTemplateType::Static(template)))
+            {
                 vcpu.configure(
                     &vm_mem,
                     GuestAddress(crate::arch::get_kernel_start()),

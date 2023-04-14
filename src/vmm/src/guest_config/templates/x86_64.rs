@@ -8,7 +8,23 @@ use std::str::FromStr;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::{CpuTemplateType, TakeCpuTemplate};
 use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
+
+impl TakeCpuTemplate for Option<CpuTemplateType> {
+    /// Take cpu template
+    fn take_template(&mut self) -> Option<CustomCpuTemplate> {
+        match self.take() {
+            Some(CpuTemplateType::Custom(template)) => Some(template),
+            Some(CpuTemplateType::Static(template)) => {
+                *self = Some(CpuTemplateType::Static(template));
+                // TODO here should be match for static cpu templates
+                Some(CustomCpuTemplate::default())
+            }
+            None => None,
+        }
+    }
+}
 
 /// CPUID register enumeration
 #[allow(missing_docs)]
@@ -72,6 +88,13 @@ pub struct CustomCpuTemplate {
     /// Modifiers for model specific registers.
     #[serde(default)]
     pub msr_modifiers: Vec<RegisterModifier>,
+}
+
+impl CustomCpuTemplate {
+    /// Get mrs ids from the template
+    pub fn msr_ids(&self) -> Vec<u32> {
+        self.msr_modifiers.iter().map(|m| m.addr).collect()
+    }
 }
 
 /// Bit-mapped value to adjust targeted bits of a register.

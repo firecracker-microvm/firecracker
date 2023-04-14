@@ -25,7 +25,7 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
         None => boot_source_cfg.into(),
     };
     let mock_vm_res = MockVmResources::new().with_boot_source(boot_source_cfg);
-    let resources: VmResources = if is_diff {
+    let mut resources: VmResources = if is_diff {
         mock_vm_res
             .with_vm_config(MockVmConfig::new().with_dirty_page_tracking().into())
             .into()
@@ -36,7 +36,7 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
     (
         build_microvm_for_boot(
             &InstanceInfo::default(),
-            &resources,
+            &mut resources,
             &mut event_manager,
             &empty_seccomp_filters,
         )

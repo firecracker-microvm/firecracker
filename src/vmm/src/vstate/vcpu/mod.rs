@@ -935,20 +935,11 @@ pub mod tests {
                 &VcpuConfig {
                     vcpu_count: 1,
                     smt: false,
-                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
-                },
-            )
-            .expect("failed to configure vcpu");
-
-        #[cfg(target_arch = "x86_64")]
-        vcpu.kvm_vcpu
-            .configure(
-                &vm_mem,
-                entry_addr,
-                &VcpuConfig {
-                    vcpu_count: 1,
-                    smt: false,
-                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
+                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::new(
+                        _vm.supported_cpuid().clone(),
+                        Default::default(),
+                    )
+                    .unwrap(),
                 },
             )
             .expect("failed to configure vcpu");

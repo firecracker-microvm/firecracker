@@ -8,6 +8,38 @@ use std::str::FromStr;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::{CpuTemplateType, StaticCpuTemplate, TakeCpuTemplate};
+use crate::guest_config::aarch64::v1n1::v1n1;
+
+impl From<CpuTemplateType> for CustomCpuTemplate {
+    fn from(value: CpuTemplateType) -> Self {
+        match value {
+            CpuTemplateType::Custom(template) => template,
+            CpuTemplateType::Static(template) => match template {
+                StaticCpuTemplate::V1N1 => v1n1(),
+                _ => unreachable!("Options other than V1N1 are invalid"),
+            },
+        }
+    }
+}
+
+impl TakeCpuTemplate for Option<CpuTemplateType> {
+    /// Take cpu template
+    fn take_template(&mut self) -> Option<CustomCpuTemplate> {
+        match self.take() {
+            Some(CpuTemplateType::Custom(template)) => Some(template),
+            Some(CpuTemplateType::Static(template)) => {
+                *self = Some(CpuTemplateType::Static(template));
+                match template {
+                    StaticCpuTemplate::V1N1 => Some(v1n1()),
+                    _ => unreachable!("Options other than V1N1 are invalid"),
+                }
+            }
+            None => None,
+        }
+    }
+}
+
 /// Wrapper type to containing aarch64 CPU config modifiers.
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,6 +47,13 @@ pub struct CustomCpuTemplate {
     /// Modifiers for registers on Aarch64 CPUs.
     #[serde(default)]
     pub reg_modifiers: Vec<RegisterModifier>,
+}
+
+impl CustomCpuTemplate {
+    /// Returns ids of registers specifyed in the template
+    pub fn reg_ids(&self) -> Vec<u64> {
+        self.reg_modifiers.iter().map(|m| m.addr).collect()
+    }
 }
 
 /// Wrapper of a mask defined as a bitmap to apply

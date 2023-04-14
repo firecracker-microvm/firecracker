@@ -495,7 +495,7 @@ fn build_microvm_from_json(
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(
         &instance_info,
-        &vm_resources,
+        &mut vm_resources,
         event_manager,
         seccomp_filters,
     )

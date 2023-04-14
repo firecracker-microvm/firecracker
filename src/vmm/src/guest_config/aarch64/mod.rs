@@ -7,7 +7,7 @@ pub mod static_cpu_templates;
 use kvm_ioctls::VcpuFd;
 pub use static_cpu_templates::*;
 
-use super::templates::{CpuTemplateType, CustomCpuTemplate};
+use super::templates::CustomCpuTemplate;
 use crate::arch::regs::{Aarch64Register, Error as ArchError};
 
 /// Errors thrown while configuring templates.
@@ -19,46 +19,21 @@ pub struct Error(#[from] ArchError);
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CpuConfiguration {
     /// Vector of CPU registers
-    pub regs: Vec<Aarch64Register>,
+    regs: Vec<Aarch64Register>,
 }
 
 impl CpuConfiguration {
-    /// Creates new guest CPU config based on the provided template
-    pub fn new(vcpu: &VcpuFd, template: &Option<CpuTemplateType>) -> Result<Self, Error> {
-        match template {
-            Some(ref cpu_template) => Self::with_template(vcpu, cpu_template),
-            None => Ok(Self::default()),
-        }
+    /// Creates new guest CPU with provide registers
+    pub fn new(regs: Vec<Aarch64Register>) -> Self {
+        Self { regs }
     }
 
     /// Creates new guest CPU config based on the provided template
-    fn with_template(vcpu: &VcpuFd, template: &CpuTemplateType) -> Result<Self, Error> {
-        match template {
-            CpuTemplateType::Custom(template) => Self::with_applied_template(vcpu, template),
-            CpuTemplateType::Static(StaticCpuTemplate::V1N1) => {
-                let template = static_cpu_templates::v1n1::v1n1();
-                Self::with_applied_template(vcpu, &template)
-            }
-            _ => unreachable!("Options other than V1N1 are invalid"),
+    pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Self {
+        for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
+            reg.value = modifier.bitmap.apply(reg.value);
         }
-    }
-
-    /// Creates new guest CPU config based on the provided template
-    fn with_applied_template(vcpu: &VcpuFd, template: &CustomCpuTemplate) -> Result<Self, Error> {
-        let regs = template
-            .reg_modifiers
-            .iter()
-            .map(|modifier| {
-                vcpu.get_one_reg(modifier.addr)
-                    .map(|value| Aarch64Register {
-                        id: modifier.addr,
-                        value: modifier.bitmap.apply(value),
-                    })
-                    .map_err(|e| Error(ArchError::GetSysRegister(modifier.addr, e)))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-
-        Ok(Self { regs })
+        self
     }
 
     /// Returns ids of registers that are changed
@@ -75,5 +50,56 @@ impl CpuConfiguration {
                 .map_err(|error| ArchError::SetSysRegister(*id, error))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
+
+    fn build_test_template() -> CustomCpuTemplate {
+        CustomCpuTemplate {
+            reg_modifiers: vec![
+                RegisterModifier {
+                    addr: 0,
+                    bitmap: RegisterValueFilter {
+                        filter: 0b1111,
+                        value: 0b1001,
+                    },
+                },
+                RegisterModifier {
+                    addr: 1,
+                    bitmap: RegisterValueFilter {
+                        filter: 0b1111,
+                        value: 0b0110,
+                    },
+                },
+            ],
+        }
+    }
+
+    fn supported_cpu_config() -> CpuConfiguration {
+        let regs = [(0, 0b0000), (1, 0b0000)]
+            .into_iter()
+            .map(|(id, value)| Aarch64Register { id, value })
+            .collect();
+        CpuConfiguration { regs }
+    }
+
+    #[test]
+    fn test_empty_template() {
+        let host_configuration = CpuConfiguration::default();
+        let guest_config = host_configuration
+            .clone()
+            .apply_template(&CustomCpuTemplate::default());
+        assert_eq!(host_configuration.regs, guest_config.regs);
+    }
+
+    #[test]
+    fn test_apply_template() {
+        let guest_config = supported_cpu_config().apply_template(&build_test_template());
+        assert_eq!(guest_config.regs[0].value, 0b1001);
+        assert_eq!(guest_config.regs[1].value, 0b0110);
     }
 }
