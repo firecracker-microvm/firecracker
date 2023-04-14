@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use kvm_bindings::kvm_msr_entry;
+use std::collections::HashMap;
 
 use crate::arch::x86_64::msr::ArchCapaMSRFlags;
 use crate::arch_gen::x86::msr_index::MSR_IA32_ARCH_CAPABILITIES;
@@ -10,18 +10,14 @@ use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidRegisters, In
 
 /// Add the MSR entries specific to this T2S template.
 #[inline]
-pub fn update_t2cl_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
+pub fn update_t2cl_msr_entries(msr_entries: &mut HashMap<u32, u64>) {
     let capabilities = ArchCapaMSRFlags::RDCL_NO
         | ArchCapaMSRFlags::IBRS_ALL
         | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
         | ArchCapaMSRFlags::MDS_NO
         | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
         | ArchCapaMSRFlags::TSX_CTRL;
-    msr_entries.push(kvm_msr_entry {
-        index: MSR_IA32_ARCH_CAPABILITIES,
-        data: capabilities.bits(),
-        ..kvm_msr_entry::default()
-    });
+    msr_entries.insert(MSR_IA32_ARCH_CAPABILITIES, capabilities.bits());
 }
 
 /// This is translated from `cpuid -r` within a T2CL guest microVM on an ec2 m5.metal instance:
