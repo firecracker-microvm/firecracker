@@ -15,11 +15,6 @@ from framework import utils
 from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
 
-pytestmark = pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
-)
-
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
 
@@ -96,6 +91,10 @@ def run_spectre_meltdown_checker_on_guest(
     assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
 
 
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
@@ -105,6 +104,10 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
 
 
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 def test_spectre_meltdown_checker_on_guest(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -123,6 +126,10 @@ def test_spectre_meltdown_checker_on_guest(
     )
 
 
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 def test_spectre_meltdown_checker_on_restored_guest(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -146,6 +153,10 @@ def test_spectre_meltdown_checker_on_restored_guest(
     )
 
 
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -167,6 +178,10 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     )
 
 
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal",
+    reason="spectre_meltdown_checker does not support c7g",
+)
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -189,3 +204,82 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
         dst_vm,
         spectre_meltdown_checker,
     )
+
+
+def check_vulnerabilities_files_on_guest(microvm):
+    """
+    Check that the guest's vulnerabilities files do not contain `Vulnerable`.
+    See also: https://elixir.bootlin.com/linux/latest/source/Documentation/ABI/testing/sysfs-devices-system-cpu
+    and search for `vulnerabilities`.
+    """
+    vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
+    ecode, stdout, stderr = microvm.ssh.execute_command(
+        f"grep -r Vulnerable {vuln_dir}"
+    )
+    assert ecode == 1, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
+
+
+def test_vulnerabilities_files_on_guest(
+    test_microvm_with_api,
+    network_config,
+):
+    """
+    Test vulnerabilities files on guest.
+
+    @type: security
+    """
+    microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config)
+
+    check_vulnerabilities_files_on_guest(microvm)
+
+
+def test_vulnerabilities_files_on_restored_guest(
+    test_microvm_with_api,
+    network_config,
+    microvm_factory,
+):
+    """
+    Test vulnerabilities files on a restored guest.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(test_microvm_with_api, network_config)
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    check_vulnerabilities_files_on_guest(dst_vm)
+
+
+def test_vulnerabilities_files_on_guest_with_template(
+    test_microvm_with_api,
+    network_config,
+    cpu_template,
+):
+    """
+    Test vulnerabilities files on guest with CPU template.
+
+    @type: security
+    """
+    microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config, cpu_template)
+
+    check_vulnerabilities_files_on_guest(microvm)
+
+
+def test_vulnerabilities_files_on_restored_guest_with_template(
+    test_microvm_with_api,
+    network_config,
+    cpu_template,
+    microvm_factory,
+):
+    """
+    Test vulnerabilities files on a restored guest with a CPU template.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(
+        test_microvm_with_api, network_config, cpu_template
+    )
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    check_vulnerabilities_files_on_guest(dst_vm)
