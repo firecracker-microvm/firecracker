@@ -160,6 +160,11 @@ fn main_exitable() -> FcExitCode {
                 .help("Path to a file that contains the microVM configuration in JSON format."),
         )
         .arg(
+            Argument::new("custom-cpu-template-file")
+                .takes_value(true)
+                .help("Path to a file that contains the custom CPU template in JSON format."),
+        )
+        .arg(
             Argument::new(MMDS_CONTENT_ARG)
                 .takes_value(true)
                 .help("Path to a file that contains metadata in JSON format to add to the mmds."),
@@ -330,6 +335,11 @@ fn main_exitable() -> FcExitCode {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
+    let custom_cpu_template_json = arguments
+        .single_value("custom-cpu-template-file")
+        .map(fs::read_to_string)
+        .map(|x| x.expect("Unable to open or read from the custom CPU template file"));
+
     let metadata_json = arguments
         .single_value(MMDS_CONTENT_ARG)
         .map(fs::read_to_string)
@@ -391,6 +401,7 @@ fn main_exitable() -> FcExitCode {
             api_payload_limit,
             mmds_size_limit,
             metadata_json.as_deref(),
+            custom_cpu_template_json,
         )
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
@@ -404,6 +415,7 @@ fn main_exitable() -> FcExitCode {
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json.as_deref(),
+            custom_cpu_template_json,
         )
     }
 }
@@ -477,6 +489,7 @@ fn print_snapshot_data_format(snapshot_path: &str) {
 }
 
 // Configure and start a microVM as described by the command-line JSON.
+#[allow(clippy::too_many_arguments)]
 fn build_microvm_from_json(
     seccomp_filters: &BpfThreadMap,
     event_manager: &mut EventManager,
@@ -485,13 +498,19 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
+    custom_cpu_template_json: Option<String>,
 ) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), FcExitCode> {
-    let mut vm_resources =
-        VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
-            .map_err(|err| {
-                error!("Configuration for VMM from one single json failed: {}", err);
-                vmm::FcExitCode::BadConfiguration
-            })?;
+    let mut vm_resources = VmResources::from_json(
+        &config_json,
+        &instance_info,
+        mmds_size_limit,
+        metadata_json,
+        custom_cpu_template_json,
+    )
+    .map_err(|err| {
+        error!("Configuration for VMM from one single json failed: {}", err);
+        vmm::FcExitCode::BadConfiguration
+    })?;
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(
         &instance_info,
@@ -518,6 +537,7 @@ fn run_without_api(
     bool_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
+    custom_cpu_template_json: Option<String>,
 ) -> FcExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -535,6 +555,7 @@ fn run_without_api(
         bool_timer_enabled,
         mmds_size_limit,
         metadata_json,
+        custom_cpu_template_json,
     ) {
         Ok((res, vmm)) => (res, vmm),
         Err(exit_code) => return exit_code,

@@ -343,6 +343,7 @@ impl<'a> PrebootApiController<'a> {
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
+        custom_cpu_template_json: Option<String>,
     ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode>
     where
         F: Fn() -> VmmAction,
@@ -356,6 +357,18 @@ impl<'a> PrebootApiController<'a> {
         {
             vm_resources.mmds_size_limit = mmds_size_limit;
             vm_resources.boot_timer = boot_timer_enabled;
+        }
+
+        if let Some(template_json) = custom_cpu_template_json {
+            let template: CustomCpuTemplate =
+                serde_json::from_str(&template_json).map_err(|err| {
+                    error!(
+                        "Failed to deserialize custom CPU template json file: {}",
+                        err
+                    );
+                    FcExitCode::BadConfiguration
+                })?;
+            vm_resources.set_custom_cpu_template(template);
         }
 
         // Init the data store from file, if present.
@@ -1809,6 +1822,7 @@ mod tests {
             false,
             HTTP_MAX_PAYLOAD_SIZE,
             Some(r#""magic""#),
+            None,
         )
         .unwrap();
 

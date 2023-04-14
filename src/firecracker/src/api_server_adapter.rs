@@ -125,6 +125,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
+    custom_cpu_template_json: Option<String>,
 ) -> FcExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
@@ -189,6 +190,7 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
+            custom_cpu_template_json,
         ),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filters,
@@ -213,6 +215,7 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
+            custom_cpu_template_json,
         ),
     };
 
