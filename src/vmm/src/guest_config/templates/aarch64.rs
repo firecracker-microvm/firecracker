@@ -15,10 +15,13 @@ impl From<CpuTemplateType> for CustomCpuTemplate {
     fn from(value: CpuTemplateType) -> Self {
         match value {
             CpuTemplateType::Custom(template) => template,
-            CpuTemplateType::Static(template) => match template {
-                StaticCpuTemplate::V1N1 => v1n1(),
-                _ => unreachable!("Options other than V1N1 are invalid"),
-            },
+            CpuTemplateType::Static(template) => {
+                *self = Some(CpuTemplateType::Static(template));
+                match template {
+                    StaticCpuTemplate::V1N1 => v1n1(),
+                    _ => unreachable!("Options other than V1N1 are invalid"),
+                }
+            }
         }
     }
 }

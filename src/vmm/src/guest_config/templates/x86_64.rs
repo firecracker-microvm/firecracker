@@ -8,8 +8,9 @@ use std::str::FromStr;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{CpuTemplateType, TakeCpuTemplate};
+use super::{CpuTemplateType, StaticCpuTemplate, TakeCpuTemplate};
 use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
+use crate::guest_config::x86_64::static_templates::*;
 
 impl TakeCpuTemplate for Option<CpuTemplateType> {
     /// Take cpu template
@@ -18,8 +19,14 @@ impl TakeCpuTemplate for Option<CpuTemplateType> {
             Some(CpuTemplateType::Custom(template)) => Some(template),
             Some(CpuTemplateType::Static(template)) => {
                 *self = Some(CpuTemplateType::Static(template));
-                // TODO here should be match for static cpu templates
-                Some(CustomCpuTemplate::default())
+                Some(match template {
+                    StaticCpuTemplate::C3 => c3(),
+                    StaticCpuTemplate::T2 => t2(),
+                    StaticCpuTemplate::T2A => t2a(),
+                    StaticCpuTemplate::T2CL => t2cl(),
+                    StaticCpuTemplate::T2S => t2s(),
+                    StaticCpuTemplate::None => unreachable!("None static template is invalid"),
+                })
             }
             None => None,
         }

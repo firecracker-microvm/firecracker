@@ -4,6 +4,9 @@
 /// Module with CPU templates for x86_64
 pub mod static_cpu_templates;
 
+/// Module with updated CPU templates for x86_64
+pub mod static_templates;
+
 use std::collections::{HashMap, HashSet};
 
 use kvm_bindings::{kvm_msr_entry, CpuId};

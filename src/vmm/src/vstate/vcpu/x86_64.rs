@@ -663,7 +663,7 @@ mod tests {
 
         let try_configure = |vm: &Vm, vcpu: &mut KvmVcpu, template| -> bool {
             if let Ok(config) =
-                create_vcpu_config(vm, &vcpu, Some(CpuTemplateType::Static(template)))
+                create_vcpu_config(vm, vcpu, Some(CpuTemplateType::Static(template)))
             {
                 vcpu.configure(
                     &vm_mem,
