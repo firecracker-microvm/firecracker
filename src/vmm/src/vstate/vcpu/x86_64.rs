@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -300,6 +300,66 @@ impl KvmVcpu {
         Ok(res)
     }
 
+    /// Get MSR chunks for the given MSR index list.
+    ///
+    /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
+    /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
+    /// chunk, and collect into a Vec<Msrs>.
+    ///
+    /// # Arguments
+    ///
+    /// * `msr_index_list`: List of MSR indices.
+    ///
+    /// # Errors
+    ///
+    /// * When [`kvm_bindings::Msrs::new`] returns errors.
+    /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
+    /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
+    ///   could be gotten) is less than expected.
+    fn get_msr_chunks(&self, msr_index_list: Vec<u32>) -> Result<Vec<Msrs>> {
+        let mut msr_chunks: Vec<Msrs> = Vec::new();
+
+        for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
+            let mut msrs = Msrs::new(msr_index_chunk.len()).map_err(Error::Fam)?;
+            let msr_entries = msrs.as_mut_slice();
+            assert_eq!(msr_index_chunk.len(), msr_entries.len());
+            for (pos, index) in msr_index_chunk.iter().enumerate() {
+                msr_entries[pos].index = *index;
+            }
+
+            let expected_nmsrs = msrs.as_slice().len();
+            let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
+            if nmsrs != expected_nmsrs {
+                return Err(Error::VcpuGetMsrsIncomplete);
+            }
+
+            msr_chunks.push(msrs);
+        }
+
+        Ok(msr_chunks)
+    }
+
+    /// Get MSRs for the given MSR index list.
+    ///
+    /// # Arguments
+    ///
+    /// * `msr_index_list`: List of MSR indices
+    ///
+    /// # Errors
+    ///
+    /// * When `KvmVcpu::get_msr_chunks()` returns errors.
+    pub fn get_msrs(&self, msr_index_list: Vec<u32>) -> Result<HashMap<u32, u64>> {
+        let mut msrs: HashMap<u32, u64> = HashMap::new();
+        self.get_msr_chunks(msr_index_list)?
+            .iter()
+            .for_each(|msr_chunk| {
+                msr_chunk.as_slice().iter().for_each(|msr| {
+                    msrs.insert(msr.index, msr.data);
+                });
+            });
+        Ok(msrs)
+    }
+
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
         // Ordering requirements:
@@ -319,27 +379,6 @@ impl KvmVcpu {
         //
         // SREGS saves/restores a pending interrupt, similar to what
         // VCPU_EVENTS also does.
-        //
-        // GET_MSRS requires a pre-populated data structure to do something
-        // meaningful. For SET_MSRS it will then contain good data.
-
-        // Build the list of MSRs we want to save. Sometimes we need to save
-        // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
-        // to allow an unlimited number.
-        let mut all_msrs: Vec<Msrs> = Vec::new();
-        let msrs_to_save: Vec<&u32> = self.msrs_to_save.iter().collect();
-
-        // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
-        // them up into `Msrs` so it's easy to pass to the ioctl.
-        for chunk in msrs_to_save.chunks(KVM_MAX_MSR_ENTRIES) {
-            let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
-            let msr_entries = msrs.as_mut_slice();
-            assert_eq!(chunk.len(), msr_entries.len());
-            for (pos, index) in chunk.iter().enumerate() {
-                msr_entries[pos].index = **index;
-            }
-            all_msrs.push(msrs);
-        }
 
         let mp_state = self.fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
         let regs = self.fd.get_regs().map_err(Error::VcpuGetRegs)?;
@@ -355,13 +394,7 @@ impl KvmVcpu {
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
-        for msrs in all_msrs.iter_mut() {
-            let expected_nmsrs = msrs.as_slice().len();
-            let nmsrs = self.fd.get_msrs(msrs).map_err(Error::VcpuGetMsrs)?;
-            if nmsrs != expected_nmsrs {
-                return Err(Error::VcpuGetMsrsIncomplete);
-            }
-        }
+        let saved_msrs = self.get_msr_chunks(self.msrs_to_save.iter().copied().collect())?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
@@ -372,7 +405,7 @@ impl KvmVcpu {
                 .fd
                 .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
                 .map_err(Error::VcpuGetCpuid)?,
-            saved_msrs: all_msrs,
+            saved_msrs,
             msrs: Msrs::new(0).map_err(Error::Fam)?,
             debug_regs,
             lapic,
@@ -763,6 +796,33 @@ mod tests {
             }
         } else {
             assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn test_get_msrs_with_msrs_to_save() {
+        // Test `get_msrs()` with the MSR indices that should be serialized into snapshots.
+        // The MSR indices should be valid and this test should succeed.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+        assert!(vcpu
+            .get_msrs(vcpu.msrs_to_save.iter().copied().collect())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_get_msrs_with_invalid_msr_index() {
+        // Test `get_msrs()` with unsupported MSR indices. This should return
+        // `VcpuGetMsrsIncomplete` error that happens when `KVM_GET_MSRS` fails to populdate
+        // MSR value in the middle and exits. Currently, MSR indices 2..=4 are not listed as
+        // supported MSRs.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+        let msr_index_list: Vec<u32> = vec![2, 3, 4];
+        match vcpu.get_msrs(msr_index_list) {
+            Err(Error::VcpuGetMsrsIncomplete) => (),
+            Err(err) => panic!("Unexpected error: {err}"),
+            Ok(_) => panic!(
+                "KvmVcpu::get_msrs() for unsupported MSRs should fail with VcpuGetMsrsIncomplete."
+            ),
         }
     }
 }
