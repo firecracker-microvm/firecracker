@@ -18,7 +18,7 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{SetMsrsError, MSR_IA32_ARCH_CAPABILITIES};
+use crate::arch::x86_64::msr::{create_boot_msr_entries, SetMsrsError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -28,16 +28,6 @@ use crate::vstate::vm::Vm;
 // the QEMU approach, more details here:
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
 const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
-
-#[allow(clippy::missing_docs_in_private_items)]
-static EXTRA_MSR_ENTRIES: &[u32] = &[MSR_IA32_ARCH_CAPABILITIES];
-
-/// Return a list of MSRs specific to this T2S template.
-#[inline]
-#[must_use]
-pub fn msr_entries_to_save() -> &'static [u32] {
-    EXTRA_MSR_ENTRIES
-}
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
@@ -228,12 +218,8 @@ impl KvmVcpu {
         vcpu_config: &VcpuConfig,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
-        self.msrs_to_save
-            .extend(vcpu_config.cpu_config.msrs_to_save.iter());
-        let msr_boot_entries = vcpu_config.cpu_config.msr_boot_entries.clone();
 
         // Apply machine specific changes to CPUID.
-        // config_cpuid
         cpuid
             .normalize(
                 // The index of the current logical CPU in the range [0..cpu_count].
@@ -246,13 +232,21 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::NormalizeCpuidError)?;
 
         // Set CPUID.
-        // let kvm_cpuid = kvm_bindings::CpuId::from(joined_cpuid);
         let kvm_cpuid = kvm_bindings::CpuId::from(cpuid);
 
         // Set CPUID in the KVM
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
+
+        // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
+        let mut msrs = vcpu_config.cpu_config.msrs.clone();
+        self.msrs_to_save.extend(msrs.keys());
+
+        // Apply MSR modification to comply the linux boot protocol.
+        create_boot_msr_entries().into_iter().for_each(|entry| {
+            msrs.insert(entry.index, entry.data);
+        });
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -266,11 +260,23 @@ impl KvmVcpu {
             .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
         self.msrs_to_save.extend(extra_msrs);
 
+        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
+        // be implemented.
+
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        crate::arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        let kvm_msrs = msrs
+            .into_iter()
+            .map(|entry| kvm_bindings::kvm_msr_entry {
+                index: entry.0,
+                data: entry.1,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
         crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;

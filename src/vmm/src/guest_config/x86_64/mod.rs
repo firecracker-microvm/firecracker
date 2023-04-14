@@ -4,17 +4,14 @@
 /// Module with CPU templates for x86_64
 pub mod static_cpu_templates;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use kvm_bindings::kvm_msr_entry;
 use static_cpu_templates::*;
 
 use super::cpuid::{CpuidKey, RawCpuid};
 use super::templates::x86_64::CpuidRegister;
 use super::templates::{CpuTemplateType, CustomCpuTemplate};
-use crate::arch::x86_64::msr::create_boot_msr_entries;
 use crate::guest_config::cpuid::Cpuid;
-use crate::vstate::vcpu::msr_entries_to_save;
 use crate::vstate::vm::Vm;
 
 /// Errors thrown while configuring templates.
@@ -43,12 +40,6 @@ pub struct CpuConfiguration {
     /// Key: MSR address
     /// Value: MSR value
     pub msrs: HashMap<u32, u64>,
-
-    /// Set of supported MSRs
-    pub msrs_to_save: HashSet<u32>,
-
-    /// Architectural MSPs required for boot
-    pub msr_boot_entries: Vec<kvm_msr_entry>,
 }
 
 impl CpuConfiguration {
@@ -69,8 +60,6 @@ impl CpuConfiguration {
         Ok(Self {
             cpuid: supported_cpuid,
             msrs: Default::default(),
-            msrs_to_save: Default::default(),
-            msr_boot_entries: create_boot_msr_entries(),
         })
     }
 
@@ -95,27 +84,12 @@ impl CpuConfiguration {
                     .include_leaves_from(config.cpuid)
                     .map_err(Error::CpuidJoin)?;
 
-                // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
-                // be implemented. For now we define known dependencies statically in the CPU
-                // templates.
-
-                // Depending on which CPU template the user selected, we may need to initialize
-                // additional MSRs for boot to correctly enable some CPU features. As stated in
-                // the previous comment, we get from the template a static list of MSRs we need
-                // to save at snapshot as well.
-                // C3, T2 and T2A currently don't have extra MSRs to save/set.
                 match template {
                     StaticCpuTemplate::T2S => {
-                        config.msrs_to_save.extend(msr_entries_to_save());
-                        static_cpu_templates::t2s::update_t2s_msr_entries(
-                            &mut config.msr_boot_entries,
-                        );
+                        static_cpu_templates::t2s::update_t2s_msr_entries(&mut config.msrs);
                     }
                     StaticCpuTemplate::T2CL => {
-                        config.msrs_to_save.extend(msr_entries_to_save());
-                        static_cpu_templates::t2cl::update_t2cl_msr_entries(
-                            &mut config.msr_boot_entries,
-                        );
+                        static_cpu_templates::t2cl::update_t2cl_msr_entries(&mut config.msrs);
                     }
                     _ => (),
                 }
@@ -130,8 +104,6 @@ impl CpuConfiguration {
         let Self {
             mut cpuid,
             mut msrs,
-            msrs_to_save,
-            msr_boot_entries,
         } = self;
 
         let guest_cpuid = match &mut cpuid {
@@ -185,12 +157,7 @@ impl CpuConfiguration {
             }
         }
 
-        Ok(Self {
-            cpuid,
-            msrs,
-            msrs_to_save,
-            msr_boot_entries,
-        })
+        Ok(Self { cpuid, msrs })
     }
 }
 
@@ -266,8 +233,6 @@ mod tests {
         CpuConfiguration {
             cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
             msrs: Default::default(),
-            msrs_to_save: Default::default(),
-            msr_boot_entries: Default::default(),
         }
     }
 
@@ -275,8 +240,6 @@ mod tests {
         CpuConfiguration {
             cpuid: static_cpu_templates::t2::t2(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
-            msrs_to_save: Default::default(),
-            msr_boot_entries: Default::default(),
         }
     }
 
@@ -284,8 +247,6 @@ mod tests {
         CpuConfiguration {
             cpuid: static_cpu_templates::t2::t2(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-            msrs_to_save: Default::default(),
-            msr_boot_entries: Default::default(),
         }
     }
 
