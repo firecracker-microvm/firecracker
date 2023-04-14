@@ -3,12 +3,37 @@
 
 /// Guest config sub-module specifically useful for
 /// config templates.
+use std::borrow::Cow;
+use std::result::Result;
 use std::str::FromStr;
 
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
 use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
+use crate::guest_config::x86_64::static_cpu_templates_new::{c3, t2, t2a, t2cl, t2s};
+
+impl GetCpuTemplate for Option<CpuTemplateType> {
+    fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
+        match self {
+            Some(template_type) => match template_type {
+                CpuTemplateType::Custom(template) => Ok(Cow::Borrowed(template)),
+                CpuTemplateType::Static(template) => match template {
+                    StaticCpuTemplate::C3 => Ok(Cow::Owned(c3::c3())),
+                    StaticCpuTemplate::T2 => Ok(Cow::Owned(t2::t2())),
+                    StaticCpuTemplate::T2S => Ok(Cow::Owned(t2s::t2s())),
+                    StaticCpuTemplate::T2CL => Ok(Cow::Owned(t2cl::t2cl())),
+                    StaticCpuTemplate::T2A => Ok(Cow::Owned(t2a::t2a())),
+                    StaticCpuTemplate::None => Err(GetCpuTemplateError::InvalidStaticCpuTemplate(
+                        StaticCpuTemplate::None,
+                    )),
+                },
+            },
+            None => Ok(Cow::Owned(CustomCpuTemplate::default())),
+        }
+    }
+}
 
 /// CPUID register enumeration
 #[allow(missing_docs)]
@@ -438,6 +463,96 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+
+    #[test]
+    fn test_get_cpu_template_with_no_template() {
+        // Test `get_cpu_template()` when no template is provided. The empty owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = None;
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(CustomCpuTemplate::default()),
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_c3_static_template() {
+        // Test `get_cpu_template()` when C3 static CPU template is specified. The owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::C3));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(c3::c3())
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_t2_static_template() {
+        // Test `get_cpu_template()` when T2 static CPU template is specified. The owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(t2::t2())
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_t2s_static_template() {
+        // Test `get_cpu_template()` when T2S static CPU template is specified. The owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2S));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(t2s::t2s())
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_t2cl_static_template() {
+        // Test `get_cpu_template()` when T2CL static CPU template is specified. The owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2CL));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(t2cl::t2cl())
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_t2a_static_template() {
+        // Test `get_cpu_template()` when T2A static CPU template is specified. The owned
+        // `CustomCpuTemplate` should be returned.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2A));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Owned(t2a::t2a())
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_none_static_template() {
+        // Test `get_cpu_template()` when no static CPU template is provided.
+        // `InvalidStaticCpuTemplate` error should be returned because it is no longer valid and
+        // was replaced with `None` of `Option<CpuTemplateType>`.
+        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::None));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap_err(),
+            GetCpuTemplateError::InvalidStaticCpuTemplate(StaticCpuTemplate::None)
+        );
+    }
+
+    #[test]
+    fn test_get_cpu_template_with_custom_template() {
+        // Test `get_cpu_template()` when a custom CPU template is provided. The borrowed
+        // `CustomCpuTemplate` should be returned.
+        let inner_cpu_template = CustomCpuTemplate::default();
+        let cpu_template = Some(CpuTemplateType::Custom(inner_cpu_template.clone()));
+        assert_eq!(
+            cpu_template.get_cpu_template().unwrap(),
+            Cow::Borrowed(&inner_cpu_template)
+        );
+    }
 
     #[test]
     fn test_malformed_json() {
