@@ -4,7 +4,7 @@
 # N.B.: Although this repository is released under the Apache-2.0, part of its test requires a
 # script from the third party "Spectre & Meltdown Checker" project. This script is under the
 # GPL-3.0-only license.
-"""Tests spectre / meltdown mitigation."""
+"""Tests vulnerabilities mitigations."""
 
 from pathlib import Path
 
