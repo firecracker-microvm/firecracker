@@ -338,6 +338,12 @@ mod tests {
 
     use super::*;
 
+    fn create_vcpu() -> VcpuFd {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        vm.create_vcpu(0).unwrap()
+    }
+
     #[test]
     fn test_msr_allowlist() {
         for range in SERIALIZABLE_MSR_RANGES.iter() {
@@ -351,9 +357,7 @@ mod tests {
     #[test]
     #[allow(clippy::cast_ptr_alignment)]
     fn test_setup_msrs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
+        let vcpu = create_vcpu();
         let msr_boot_entries = create_boot_msr_entries();
         set_msrs(&vcpu, &msr_boot_entries).unwrap();
 
@@ -376,5 +380,34 @@ mod tests {
         // expect.
         let entry_vec = create_boot_msr_entries();
         assert_eq!(entry_vec[9], kvm_msrs_wrapper.as_slice()[0]);
+    }
+
+    #[test]
+    fn test_set_valid_msrs() {
+        // Test `set_msrs()` with a valid MSR entry. It should succeed, as IA32_TSC MSR is listed
+        // in supported MSRs as of now.
+        let vcpu = create_vcpu();
+        let msr_entries = vec![kvm_msr_entry {
+            index: MSR_IA32_TSC,
+            data: 0,
+            ..Default::default()
+        }];
+        assert!(set_msrs(&vcpu, &msr_entries).is_ok());
+    }
+
+    #[test]
+    fn test_set_invalid_msrs() {
+        // Test `set_msrs()` with an invalid MSR entry. It should fail, as MSR index 2 is not
+        // listed in supported MSRs as of now. If hardware vendor adds this MSR index and KVM
+        // supports this MSR, we need to change the index as needed.
+        let vcpu = create_vcpu();
+        let msr_entries = vec![kvm_msr_entry {
+            index: 2,
+            ..Default::default()
+        }];
+        assert_eq!(
+            set_msrs(&vcpu, &msr_entries).unwrap_err(),
+            SetMsrsError::Incomplete
+        );
     }
 }
