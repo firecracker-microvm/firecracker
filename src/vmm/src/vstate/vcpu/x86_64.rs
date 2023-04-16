@@ -30,7 +30,7 @@ use crate::vstate::vm::Vm;
 const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// A FamStructWrapper operation has failed.
     #[error("Failed FamStructWrapper operation: {0:?}")]
@@ -618,7 +618,11 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::guest_config::templates::{CpuConfiguration, CpuTemplateType, StaticCpuTemplate};
+    use crate::guest_config::cpuid::{Cpuid, RawCpuid};
+    use crate::guest_config::templates::{
+        CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
+        StaticCpuTemplate,
+    };
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
@@ -661,13 +665,20 @@ mod tests {
 
     fn create_vcpu_config(
         vm: &Vm,
-        template: Option<CpuTemplateType>,
-    ) -> std::result::Result<VcpuConfig, crate::guest_config::x86_64::Error> {
-        let custom_cpu_config = CpuConfiguration::new(vm, &template)?;
+        vcpu: &KvmVcpu,
+        template: &CustomCpuTemplate,
+    ) -> std::result::Result<VcpuConfig, GuestConfigError> {
+        let cpuid = Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone()))
+            .map_err(GuestConfigError::CpuidFromRaw)?;
+        let msrs = vcpu
+            .get_msrs(template.get_msr_index_list())
+            .map_err(GuestConfigError::VcpuIoctl)?;
+        let base_cpu_config = CpuConfiguration { cpuid, msrs };
+        let cpu_config = CpuConfiguration::apply_template(base_cpu_config, template)?;
         Ok(VcpuConfig {
             vcpu_count: 1,
             smt: false,
-            cpu_config: custom_cpu_config,
+            cpu_config,
         })
     }
 
@@ -675,22 +686,27 @@ mod tests {
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let vcpu_config = create_vcpu_config(&vm, None).unwrap();
+        let vcpu_config = create_vcpu_config(&vm, &vcpu, &CustomCpuTemplate::default()).unwrap();
         assert_eq!(
             vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config,),
             Ok(())
         );
 
         let try_configure = |vm: &Vm, vcpu: &mut KvmVcpu, template| -> bool {
-            if let Ok(config) = create_vcpu_config(vm, Some(CpuTemplateType::Static(template))) {
-                vcpu.configure(
-                    &vm_mem,
-                    GuestAddress(crate::arch::get_kernel_start()),
-                    &config,
-                )
-                .is_ok()
-            } else {
-                false
+            let cpu_template = Some(CpuTemplateType::Static(template));
+            let template = cpu_template.get_cpu_template();
+            match template {
+                Ok(template) => match create_vcpu_config(vm, vcpu, &template) {
+                    Ok(config) => vcpu
+                        .configure(
+                            &vm_mem,
+                            GuestAddress(crate::arch::get_kernel_start()),
+                            &config,
+                        )
+                        .is_ok(),
+                    Err(_) => false,
+                },
+                Err(_) => false,
             }
         };
 
