@@ -14,7 +14,7 @@ use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTempl
 use crate::guest_config::cpuid::common::get_vendor_id_from_host;
 use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
 use crate::guest_config::cpuid::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
-use crate::guest_config::x86_64::static_cpu_templates_new::{c3, t2, t2a, t2cl, t2s};
+use crate::guest_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s};
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
