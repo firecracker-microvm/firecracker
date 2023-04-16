@@ -19,6 +19,7 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
             Some(template_type) => match template_type {
                 CpuTemplateType::Custom(template) => Ok(Cow::Borrowed(template)),
                 CpuTemplateType::Static(template) => match template {
+                    // TODO: Check if the CPU model is Neoverse-V1.
                     StaticCpuTemplate::V1N1 => Ok(Cow::Owned(v1n1::v1n1())),
                     other => Err(GetCpuTemplateError::InvalidStaticCpuTemplate(*other)),
                 },
