@@ -42,7 +42,9 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::guest_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
+use crate::guest_config::templates::{
+    CpuConfiguration, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -785,10 +787,10 @@ pub fn configure_system_for_boot(
 
     let cpu_template = vm_config.cpu_template.get_cpu_template()?;
 
+    // Construct the base CpuConfiguration to apply CPU template onto.
     #[cfg(target_arch = "x86_64")]
-    {
+    let cpu_config = {
         use crate::guest_config::cpuid;
-        // Construct the base CpuConfiguration to apply CPU template onto.
         let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(vmm.vm.supported_cpuid().clone()))
             .map_err(GuestConfigError::CpuidFromRaw)?;
         let msr_index_list = cpu_template.get_msr_index_list();
@@ -796,27 +798,37 @@ pub fn configure_system_for_boot(
             .kvm_vcpu
             .get_msrs(msr_index_list)
             .map_err(GuestConfigError::VcpuIoctl)?;
-        let cpu_config = crate::guest_config::x86_64::CpuConfiguration { cpuid, msrs };
+        CpuConfiguration { cpuid, msrs }
+    };
 
-        // Apply CPU template to the base CpuConfiguration.
-        let cpu_config = crate::guest_config::x86_64::CpuConfiguration::apply_template(
-            cpu_config,
-            &cpu_template,
-        )?;
+    #[cfg(target_arch = "aarch64")]
+    let cpu_config = {
+        let regs = vcpus[0]
+            .kvm_vcpu
+            .get_regs(&cpu_template.reg_list())
+            .map_err(GuestConfigError)?;
+        CpuConfiguration { regs }
+    };
 
-        let vcpu_config = VcpuConfig {
-            vcpu_count: vm_config.vcpu_count,
-            smt: vm_config.smt,
-            cpu_config,
-        };
+    // Apply CPU template to the base CpuConfiguration.
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, &cpu_template)?;
 
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
-                .map_err(Error::VcpuConfigure)
-                .map_err(Internal)?;
-        }
+    let vcpu_config = VcpuConfig {
+        vcpu_count: vm_config.vcpu_count,
+        smt: vm_config.smt,
+        cpu_config,
+    };
 
+    // Configure vCPUs with normalizing and setting the generated CPU configuration.
+    for vcpu in vcpus.iter_mut() {
+        vcpu.kvm_vcpu
+            .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
+            .map_err(Error::VcpuConfigure)
+            .map_err(Internal)?;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
         let cmdline_size = boot_cmdline
@@ -840,32 +852,6 @@ pub fn configure_system_for_boot(
     }
     #[cfg(target_arch = "aarch64")]
     {
-        // Construct the base CpuConfiguration to apply CPU template onto.
-        let regs = vcpus[0]
-            .kvm_vcpu
-            .get_regs(&cpu_template.reg_list())
-            .map_err(GuestConfigError)?;
-        let cpu_config = crate::guest_config::aarch64::CpuConfiguration { regs };
-
-        // Apply CPU template to the base CpuConfiguration.
-        let cpu_config = crate::guest_config::aarch64::CpuConfiguration::apply_template(
-            cpu_config,
-            &cpu_template,
-        )?;
-
-        let vcpu_config = VcpuConfig {
-            vcpu_count: vm_config.vcpu_count,
-            smt: vm_config.smt,
-            cpu_config,
-        };
-
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
-                .map_err(Error::VcpuConfigure)
-                .map_err(Internal)?;
-        }
-
         let vcpu_mpidr = vcpus
             .iter_mut()
             .map(|cpu| cpu.kvm_vcpu.get_mpidr())
