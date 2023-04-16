@@ -44,6 +44,9 @@ pub enum GetCpuTemplateError {
     /// Invalid static CPU template.
     #[error("Invalid static CPU template: {0}")]
     InvalidStaticCpuTemplate(StaticCpuTemplate),
+    /// Invalid CPU model.
+    #[error("The current CPU model is not permitted to apply the CPU template.")]
+    InvalidCpuModel,
 }
 
 /// Trait to unwrap the inner `CustomCpuTemplate` from Option<CpuTemplateType>.

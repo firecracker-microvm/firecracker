@@ -715,11 +715,8 @@ mod tests {
         // Test configure while using the T2S template.
         let t2s_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2S);
 
-        let mut t2cl_res = true;
-        if is_at_least_cascade_lake() {
-            // Test configure while using the T2CL template.
-            t2cl_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2CL);
-        }
+        // Test configure while using the T2CL template.
+        let t2cl_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2CL);
 
         // Test configure while using the T2S template.
         let t2a_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2A);
@@ -729,7 +726,11 @@ mod tests {
                 assert!(t2_res);
                 assert!(c3_res);
                 assert!(t2s_res);
-                assert!(t2cl_res);
+                if is_at_least_cascade_lake() {
+                    assert!(t2cl_res);
+                } else {
+                    assert!(!t2cl_res);
+                }
                 assert!(!t2a_res);
             }
             crate::guest_config::cpuid::VENDOR_ID_AMD => {
