@@ -11,6 +11,7 @@ use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
+use crate::arch::x86_64::cpu_model::CpuModel;
 use crate::guest_config::cpuid::common::get_vendor_id_from_host;
 use crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags;
 use crate::guest_config::cpuid::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
@@ -47,6 +48,8 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                         StaticCpuTemplate::T2CL => {
                             if &vendor_id != VENDOR_ID_INTEL {
                                 return Err(CpuVendorMismatched);
+                            } else if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+                                return Err(InvalidCpuModel);
                             }
                             Ok(Cow::Owned(t2cl::t2cl()))
                         }
@@ -577,10 +580,17 @@ mod tests {
         // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
         let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2CL));
         if &get_vendor_id_from_host().unwrap() == VENDOR_ID_INTEL {
-            assert_eq!(
-                cpu_template.get_cpu_template().unwrap(),
-                Cow::Owned(t2cl::t2cl())
-            );
+            if CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap(),
+                    Cow::Owned(t2cl::t2cl())
+                );
+            } else {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap_err(),
+                    GetCpuTemplateError::InvalidCpuModel,
+                )
+            }
         } else {
             assert_eq!(
                 cpu_template.get_cpu_template().unwrap_err(),
