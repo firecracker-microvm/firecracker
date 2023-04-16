@@ -42,7 +42,7 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::guest_config::templates::GuestConfigError;
+use crate::guest_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -63,8 +63,8 @@ pub enum StartMicrovmError {
     #[error("System configuration error: {0:?}")]
     ConfigureSystem(crate::arch::Error),
     /// Error using CPU template to configure vCPUs
-    #[error("Unable to successfully create cpu configuration usable for guest vCPUs: {0:?}")]
-    CreateCpuConfig(GuestConfigError),
+    #[error("Failed to create guest config: {0:?}")]
+    CreateGuestConfig(#[from] GuestConfigError),
     /// Internal errors are due to resource exhaustion.
     #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
     CreateNetDevice(devices::virtio::net::Error),
@@ -83,6 +83,9 @@ pub enum StartMicrovmError {
     /// Internal error encountered while starting a microVM.
     #[error("Internal error while starting microVM: {0}")]
     Internal(Error),
+    /// Failed to get CPU template.
+    #[error("Failed to get CPU template: {0}")]
+    GetCpuTemplate(#[from] GetCpuTemplateError),
     /// The kernel command line is invalid.
     #[error("Invalid kernel command line: {0}")]
     KernelCmdline(String),
@@ -780,11 +783,26 @@ pub fn configure_system_for_boot(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
+    let cpu_template = vm_config.cpu_template.get_cpu_template()?;
+
     #[cfg(target_arch = "x86_64")]
     {
-        let cpu_config =
-            crate::guest_config::x86_64::CpuConfiguration::new(&vmm.vm, &vm_config.cpu_template)
-                .map_err(CreateCpuConfig)?;
+        use crate::guest_config::cpuid;
+        // Construct the base CpuConfiguration to apply CPU template onto.
+        let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(vmm.vm.supported_cpuid().clone()))
+            .map_err(GuestConfigError::CpuidFromRaw)?;
+        let msr_index_list = cpu_template.get_msr_index_list();
+        let msrs = vcpus[0]
+            .kvm_vcpu
+            .get_msrs(msr_index_list)
+            .map_err(GuestConfigError::VcpuIoctl)?;
+        let cpu_config = crate::guest_config::x86_64::CpuConfiguration { cpuid, msrs };
+
+        // Apply CPU template to the base CpuConfiguration.
+        let cpu_config = crate::guest_config::x86_64::CpuConfiguration::apply_template(
+            cpu_config,
+            &cpu_template,
+        )?;
 
         let vcpu_config = VcpuConfig {
             vcpu_count: vm_config.vcpu_count,
@@ -825,8 +843,7 @@ pub fn configure_system_for_boot(
         let cpu_config = crate::guest_config::aarch64::CpuConfiguration::new(
             &vcpus[0].kvm_vcpu.fd,
             &vm_config.cpu_template,
-        )
-        .map_err(CreateCpuConfig)?;
+        )?;
 
         let vcpu_config = VcpuConfig {
             vcpu_count: vm_config.vcpu_count,
