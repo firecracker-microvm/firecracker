@@ -150,10 +150,6 @@ pub enum KvmVcpuConfigureError {
         "Failed to construct `crate::guest_config::cpuid::RawCpuid` from `kvm_bindings::CpuId`"
     )]
     SnapshotCpuid(crate::guest_config::cpuid::CpuidTryFromRawCpuid),
-    /// Failed to join given cpuid and specified CPUID template (specified template is for
-    /// different manufacturer than the given cpuid).
-    #[error("Failed to join given `cpuid` and specified CPUID template: {0}")]
-    Join(#[from] crate::guest_config::cpuid::CpuidJoinError),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
     NormalizeCpuidError(crate::guest_config::cpuid::NormalizeCpuidError),

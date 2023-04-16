@@ -20,9 +20,6 @@ pub enum Error {
     /// Failure in processing the MSRs in template for x86_64 CPU configuration.
     #[error("Template changes an MSR entry not supported by KVM: Register Address: {0:0x}")]
     MsrNotSupported(u32),
-    /// Can not join 2 cpuids.
-    #[error("Can not join 2 cpuids: {0}")]
-    CpuidJoin(super::cpuid::CpuidJoinError),
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
     CpuidFromRaw(super::cpuid::CpuidTryFromRawCpuid),
