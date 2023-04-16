@@ -840,9 +840,17 @@ pub fn configure_system_for_boot(
     }
     #[cfg(target_arch = "aarch64")]
     {
-        let cpu_config = crate::guest_config::aarch64::CpuConfiguration::new(
-            &vcpus[0].kvm_vcpu.fd,
-            &vm_config.cpu_template,
+        // Construct the base CpuConfiguration to apply CPU template onto.
+        let regs = vcpus[0]
+            .kvm_vcpu
+            .get_regs(&cpu_template.reg_list())
+            .map_err(GuestConfigError)?;
+        let cpu_config = crate::guest_config::aarch64::CpuConfiguration { regs };
+
+        // Apply CPU template to the base CpuConfiguration.
+        let cpu_config = crate::guest_config::aarch64::CpuConfiguration::apply_template(
+            cpu_config,
+            &cpu_template,
         )?;
 
         let vcpu_config = VcpuConfig {
