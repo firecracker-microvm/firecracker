@@ -928,30 +928,24 @@ pub mod tests {
         let entry_addr = load_good_kernel(&vm_mem);
 
         #[cfg(target_arch = "x86_64")]
-        vcpu.kvm_vcpu
-            .configure(
-                &vm_mem,
-                entry_addr,
-                &VcpuConfig {
-                    vcpu_count: 1,
-                    smt: false,
-                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
-                },
-            )
-            .expect("failed to configure vcpu");
-
-        #[cfg(target_arch = "x86_64")]
-        vcpu.kvm_vcpu
-            .configure(
-                &vm_mem,
-                entry_addr,
-                &VcpuConfig {
-                    vcpu_count: 1,
-                    smt: false,
-                    cpu_config: crate::guest_config::x86_64::CpuConfiguration::host(&_vm).unwrap(),
-                },
-            )
-            .expect("failed to configure vcpu");
+        {
+            use crate::guest_config::cpuid::{Cpuid, RawCpuid};
+            vcpu.kvm_vcpu
+                .configure(
+                    &vm_mem,
+                    entry_addr,
+                    &VcpuConfig {
+                        vcpu_count: 1,
+                        smt: false,
+                        cpu_config: CpuConfiguration {
+                            cpuid: Cpuid::try_from(RawCpuid::from(_vm.supported_cpuid().clone()))
+                                .unwrap(),
+                            msrs: std::collections::HashMap::new(),
+                        },
+                    },
+                )
+                .expect("failed to configure vcpu");
+        }
 
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu

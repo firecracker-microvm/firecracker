@@ -327,6 +327,16 @@ where
     serializer.serialize_str(bitmap_str.as_str())
 }
 
+impl CustomCpuTemplate {
+    /// Get a list of MSR indices that are modified by the CPU template.
+    pub fn get_msr_index_list(&self) -> Vec<u32> {
+        self.msr_modifiers
+            .iter()
+            .map(|modifier| modifier.addr)
+            .collect()
+    }
+}
+
 // TODO mark with #[cfg(test)] when we combine all crates into
 // one firecracker crate
 impl CustomCpuTemplate {
