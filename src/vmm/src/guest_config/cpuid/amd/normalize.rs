@@ -18,6 +18,9 @@ pub enum NormalizeCpuidError {
     /// Failed to passthrough cache topology.
     #[error("Failed to passthrough cache topology: {0}")]
     PassthroughCacheTopology(#[from] PassthroughCacheTopologyError),
+    /// Missing leaf 0x7 / subleaf 0.
+    #[error("Missing leaf 0x7 / subleaf 0.")]
+    MissingLeaf0x7Subleaf0,
     /// Missing leaf 0x80000000.
     #[error("Missing leaf 0x80000000.")]
     MissingLeaf0x80000000,
@@ -119,6 +122,7 @@ impl super::AmdCpuid {
         cpus_per_core: u8,
     ) -> Result<(), NormalizeCpuidError> {
         self.passthrough_cache_topology()?;
+        self.update_structured_extended_entry()?;
         self.update_largest_extended_fn_entry()?;
         self.update_extended_feature_fn_entry()?;
         self.update_amd_feature_entry(cpu_count)?;
@@ -224,6 +228,20 @@ impl super::AmdCpuid {
         //
         // topology_extensions: 22,
         set_bit(&mut leaf_80000001.result.ecx, 22, true);
+        Ok(())
+    }
+
+    // Update structured extended feature entry.
+    fn update_structured_extended_entry(&mut self) -> Result<(), NormalizeCpuidError> {
+        let leaf_7_subleaf_0 = self
+            .get_mut(&CpuidKey::subleaf(0x7, 0x0))
+            .ok_or(NormalizeCpuidError::MissingLeaf0x7Subleaf0)?;
+
+        // According to AMD64 Architecture Programmer’s Manual, IA32_ARCH_CAPABILITIES MSR is not
+        // available on AMD. The availability of IA32_ARCH_CAPABILITIES MSR is controlled via
+        // CPUID.07H(ECX=0):EDX[bit 29]. KVM sets this bit no matter what but this feature is not
+        // supported by hardware.
+        set_bit(&mut leaf_7_subleaf_0.result.edx, 29, false);
         Ok(())
     }
 
@@ -406,5 +424,59 @@ impl super::AmdCpuid {
         self.apply_brand_string(Self::DEFAULT_BRAND_STRING)
             .map_err(NormalizeCpuidError::BrandString)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::guest_config::cpuid::AmdCpuid;
+
+    #[test]
+    fn test_update_structured_extended_entry_invalid() {
+        // `update_structured_extended_entry()` should exit with MissingLeaf0x7Subleaf0 error for
+        // CPUID lacking leaf 0x7 / subleaf 0.
+        let mut cpuid = AmdCpuid(BTreeMap::new());
+        assert_eq!(
+            cpuid.update_structured_extended_entry().unwrap_err(),
+            NormalizeCpuidError::MissingLeaf0x7Subleaf0
+        );
+    }
+
+    #[test]
+    fn test_update_structured_extended_entry_valid() {
+        // `update_structured_extended_entry()` should succeed for CPUID having leaf 0x7 / subleaf
+        // 0, and bit 29 of EDX (IA32_ARCH_CAPABILITIES MSR enumeration) should be disabled.
+        let mut cpuid = AmdCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x7,
+                subleaf: 0x0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0,
+                    ecx: 0,
+                    edx: u32::MAX,
+                },
+            },
+        )]));
+        assert!(cpuid.update_structured_extended_entry().is_ok());
+        assert_eq!(
+            cpuid
+                .get(&CpuidKey {
+                    leaf: 0x7,
+                    subleaf: 0x0
+                })
+                .unwrap()
+                .result
+                .edx
+                & (1 << 29),
+            0
+        );
     }
 }
