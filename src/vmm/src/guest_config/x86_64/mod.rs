@@ -1,11 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Module with CPU templates for x86_64
-pub mod static_cpu_templates;
-
 /// Module for static CPU templates for x86_64
-pub mod static_cpu_templates_new;
+pub mod static_cpu_templates;
 
 use std::collections::HashMap;
 
@@ -115,7 +112,7 @@ mod tests {
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
 
     use super::*;
-    use crate::guest_config::cpuid::{IntelCpuid, KvmCpuidFlags};
+    use crate::guest_config::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
     use crate::guest_config::templates::x86_64::{
         CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
     };
@@ -176,6 +173,16 @@ mod tests {
         }
     }
 
+    fn build_supported_cpuid() -> Cpuid {
+        Cpuid::Intel(IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x3,
+                subleaf: 0x0,
+            },
+            CpuidEntry::default(),
+        )])))
+    }
+
     fn empty_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
             cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
@@ -185,14 +192,14 @@ mod tests {
 
     fn supported_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
-            cpuid: static_cpu_templates::t2::t2(),
+            cpuid: build_supported_cpuid(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
         }
     }
 
     fn unsupported_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
-            cpuid: static_cpu_templates::t2::t2(),
+            cpuid: build_supported_cpuid(),
             msrs: HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
         }
     }
