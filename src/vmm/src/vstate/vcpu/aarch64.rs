@@ -14,10 +14,9 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::aarch64::regs::Aarch64Register;
-use crate::arch::regs::Error as ArchError;
 use crate::arch::regs::{
     get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
-    save_system_registers, set_mpstate,
+    save_system_registers, set_mpstate, Error as ArchError,
 };
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
@@ -27,19 +26,19 @@ use crate::vstate::vm::Vm;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Error configuring the vcpu registers: {0}")]
-    ConfigureRegisters(crate::arch::aarch64::regs::Error),
+    ConfigureRegisters(ArchError),
     #[error("Error creating vcpu: {0}")]
     CreateVcpu(kvm_ioctls::Error),
     #[error("Error getting the vcpu preferred target: {0}")]
     GetPreferredTarget(kvm_ioctls::Error),
     #[error("Error initializing the vcpu: {0}")]
     Init(kvm_ioctls::Error),
-    #[error("Error applying template to the vcpu: {0}")]
-    ApplyCpuTemplate(crate::arch::aarch64::regs::Error),
+    #[error("Error applying template: {0}")]
+    ApplyCpuTemplate(ArchError),
     #[error("Failed to restore the state of the vcpu: {0}")]
-    RestoreState(crate::arch::aarch64::regs::Error),
+    RestoreState(ArchError),
     #[error("Failed to save the state of the vcpu: {0}")]
-    SaveState(crate::arch::aarch64::regs::Error),
+    SaveState(ArchError),
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -97,6 +96,13 @@ impl KvmVcpu {
         kernel_load_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
     ) -> std::result::Result<(), Error> {
+        for Aarch64Register { id, value } in vcpu_config.cpu_config.regs.iter() {
+            self.fd
+                .set_one_reg(*id, *value)
+                .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(*id, err)))?;
+        }
+        self.additional_register_ids = vcpu_config.cpu_config.register_ids();
+
         crate::arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
@@ -107,12 +113,6 @@ impl KvmVcpu {
 
         self.mpidr =
             crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
-
-        vcpu_config
-            .cpu_config
-            .apply(&self.fd)
-            .map_err(Error::ApplyCpuTemplate)?;
-        self.additional_register_ids = vcpu_config.cpu_config.register_ids();
 
         Ok(())
     }

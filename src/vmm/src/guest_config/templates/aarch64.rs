@@ -168,6 +168,16 @@ where
     Ok(deserialized_number)
 }
 
+impl CustomCpuTemplate {
+    /// Get a list of register IDs that are modified by the CPU template.
+    pub fn reg_list(&self) -> Vec<u64> {
+        self.reg_modifiers
+            .iter()
+            .map(|modifier| modifier.addr)
+            .collect()
+    }
+}
+
 // TODO mark with #[cfg(test)] when we combine all crates into
 // one firecracker crate
 impl CustomCpuTemplate {
