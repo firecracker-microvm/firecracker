@@ -5,8 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::Formatter;
-use std::{fmt, result};
+use std::result;
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
@@ -26,43 +25,59 @@ use crate::arch::aarch64::gic::GICDevice;
 use crate::arch::aarch64::gic::GicState;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Retrieving supported guest MSRs fails.
+    #[error("Retrieving supported guest MSRs fails: {0:?}")]
     GuestMsrs(crate::arch::x86_64::msr::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
+    #[error("The number of configured slots is bigger than the maximum reported by KVM")]
     NotEnoughMemorySlots,
     /// Cannot set the memory regions.
+    #[error("Cannot set the memory regions: {0}")]
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    /// Cannot create the global interrupt controller..
+    /// Cannot create the global interrupt controller.
+    #[error("Error creating the global interrupt controller: {0:?}")]
     VmCreateGIC(crate::arch::aarch64::gic::Error),
     /// Cannot open the VM file descriptor.
+    #[error("Cannot open the VM file descriptor: {0}")]
     VmFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vm pit state.
+    #[error("Failed to get KVM vm pit state: {0}")]
     VmGetPit2(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vm clock.
+    #[error("Failed to get KVM vm clock: {0}")]
     VmGetClock(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vm irqchip.
+    #[error("Failed to get KVM vm irqchip: {0}")]
     VmGetIrqChip(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vm pit state.
+    #[error("Failed to set KVM vm pit state: {0}")]
     VmSetPit2(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vm clock.
+    #[error("Failed to set KVM vm clock: {0}")]
     VmSetClock(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vm irqchip.
+    #[error("Failed to set KVM vm irqchip: {0}")]
     VmSetIrqChip(kvm_ioctls::Error),
     /// Cannot configure the microvm.
+    #[error("Cannot configure the microvm: {0}")]
     VmSetup(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
+    /// Failed to save the VM's GIC state.
+    #[error("Failed to save the VM's GIC state: {0:?}")]
     SaveGic(crate::arch::aarch64::gic::Error),
     #[cfg(target_arch = "aarch64")]
+    /// Failed to restore the VM's GIC state.
+    #[error("Failed to restore the VM's GIC state: {0:?}")]
     RestoreGic(crate::arch::aarch64::gic::Error),
 }
 
@@ -87,53 +102,13 @@ pub enum RestoreStateError {
 #[derive(Debug, derive_more::From)]
 pub struct RestoreStateError(crate::arch::aarch64::gic::Error);
 #[cfg(target_arch = "aarch64")]
-impl fmt::Display for RestoreStateError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Display for RestoreStateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 #[cfg(target_arch = "aarch64")]
 impl std::error::Error for RestoreStateError {}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match self {
-            #[cfg(target_arch = "x86_64")]
-            GuestMsrs(err) => write!(f, "Retrieving supported guest MSRs fails: {:?}", err),
-            #[cfg(target_arch = "aarch64")]
-            VmCreateGIC(err) => write!(
-                f,
-                "Error creating the global interrupt controller: {:?}",
-                err
-            ),
-            VmFd(err) => write!(f, "Cannot open the VM file descriptor: {}", err),
-            VmSetup(err) => write!(f, "Cannot configure the microvm: {}", err),
-            NotEnoughMemorySlots => write!(
-                f,
-                "The number of configured slots is bigger than the maximum reported by KVM"
-            ),
-            SetUserMemoryRegion(err) => write!(f, "Cannot set the memory regions: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmGetPit2(err) => write!(f, "Failed to get KVM vm pit state: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmGetClock(err) => write!(f, "Failed to get KVM vm clock: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmGetIrqChip(err) => write!(f, "Failed to get KVM vm irqchip: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmSetPit2(err) => write!(f, "Failed to set KVM vm pit state: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmSetClock(err) => write!(f, "Failed to set KVM vm clock: {}", err),
-            #[cfg(target_arch = "x86_64")]
-            VmSetIrqChip(err) => write!(f, "Failed to set KVM vm irqchip: {}", err),
-            #[cfg(target_arch = "aarch64")]
-            SaveGic(err) => write!(f, "Failed to save the VM's GIC state: {:?}", err),
-            #[cfg(target_arch = "aarch64")]
-            RestoreGic(err) => write!(f, "Failed to restore the VM's GIC state: {:?}", err),
-        }
-    }
-}
 
 pub type Result<T> = result::Result<T, Error>;
 
