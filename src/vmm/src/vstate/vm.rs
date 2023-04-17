@@ -99,16 +99,12 @@ pub enum RestoreStateError {
 
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
-#[derive(Debug, derive_more::From)]
-pub struct RestoreStateError(crate::arch::aarch64::gic::Error);
-#[cfg(target_arch = "aarch64")]
-impl std::fmt::Display for RestoreStateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreStateError {
+    /// GIC Error
+    #[error("{0}")]
+    GicError(crate::arch::aarch64::gic::Error),
 }
-#[cfg(target_arch = "aarch64")]
-impl std::error::Error for RestoreStateError {}
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -236,7 +232,7 @@ impl Vm {
     ) -> std::result::Result<(), RestoreStateError> {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
-            .map_err(RestoreStateError)
+            .map_err(RestoreStateError::GicError)
     }
 }
 
