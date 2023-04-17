@@ -145,3 +145,12 @@ def run_rebase_snap_bin(base_snap, diff_snap):
     )
 
     assert rc == 0
+
+
+@with_filelock
+def gcc_compile(src_file, output_file, extra_flags="-static -O3"):
+    """Build a source file with gcc."""
+    output_file = Path(output_file)
+    if not output_file.exists():
+        compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
+        utils.run_cmd(compile_cmd)
