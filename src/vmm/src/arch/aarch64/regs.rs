@@ -48,6 +48,9 @@ pub enum Error {
     /// Failed to set a system register.
     #[error("Failed to set register {0}: {1}")]
     SetSysRegister(u64, kvm_ioctls::Error),
+    /// Failed to get a register value.
+    #[error("Failed to get register {0}: {1}")]
+    GetOneReg(u64, kvm_ioctls::Error),
     /// Failed to get the register list.
     #[error("Failed to retrieve list of registers: {0}")]
     GetRegList(kvm_ioctls::Error),
