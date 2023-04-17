@@ -1,12 +1,16 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::guest_config::cpuid::KvmCpuidFlags;
-use vmm::guest_config::templates::x86_64::{
+use crate::guest_config::cpuid::KvmCpuidFlags;
+use crate::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
-use vmm::guest_config::templates::CustomCpuTemplate;
+use crate::guest_config::templates::CustomCpuTemplate;
 
+/// T2S template
+///
+/// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance and allow
+/// migrating snapshots between hosts with Intel Skylake and Cascade Lake securely.
 pub fn t2s() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

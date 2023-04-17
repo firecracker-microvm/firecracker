@@ -4,6 +4,9 @@
 /// Module with CPU templates for x86_64
 pub mod static_cpu_templates;
 
+/// Module for static CPU templates for x86_64
+pub mod static_cpu_templates_new;
+
 use std::collections::HashMap;
 
 use static_cpu_templates::*;
