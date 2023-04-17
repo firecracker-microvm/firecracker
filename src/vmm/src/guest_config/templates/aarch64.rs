@@ -179,63 +179,12 @@ impl CustomCpuTemplate {
     }
 }
 
-// TODO mark with #[cfg(test)] when we combine all crates into
-// one firecracker crate
-impl CustomCpuTemplate {
-    /// Test CPU template in JSON format
-    pub const TEST_TEMPLATE_JSON: &str = r#"{
-        "reg_modifiers":  [
-            {
-                "addr": "0x0AAC",
-                "bitmap": "0b1xx1"
-            },
-            {
-                "addr": "0x0AAB",
-                "bitmap": "0b1x00"
-            }
-        ]
-    }"#;
-
-    /// Test CPU template in JSON format but has an invalid field for the architecture.
-    /// "msr_modifiers" is the field name for the model specific registers for
-    /// defined by x86 CPUs.
-    pub const TEST_INVALID_TEMPLATE_JSON: &str = r#"{
-        "msr_modifiers":  [
-            {
-                "addr": "0x0AAC",
-                "bitmap": "0b1xx1"
-            }
-        ]
-    }"#;
-
-    /// Builds a sample custom CPU template
-    pub fn build_test_template() -> CustomCpuTemplate {
-        CustomCpuTemplate {
-            reg_modifiers: vec![
-                RegisterModifier {
-                    addr: 0x9999,
-                    bitmap: RegisterValueFilter {
-                        filter: 0b100010001,
-                        value: 0b100000001,
-                    },
-                },
-                RegisterModifier {
-                    addr: 0x8000,
-                    bitmap: RegisterValueFilter {
-                        filter: 0b1110,
-                        value: 0b0110,
-                    },
-                },
-            ],
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
 
     use super::*;
+    use crate::guest_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
 
     #[test]
     fn test_get_cpu_template_with_no_template() {
@@ -382,15 +331,14 @@ mod tests {
 
     #[test]
     fn test_deserialization_lifecycle() {
-        let cpu_config =
-            serde_json::from_str::<CustomCpuTemplate>(CustomCpuTemplate::TEST_TEMPLATE_JSON)
-                .expect("Failed to deserialize custom CPU template.");
+        let cpu_config = serde_json::from_str::<CustomCpuTemplate>(TEST_TEMPLATE_JSON)
+            .expect("Failed to deserialize custom CPU template.");
         assert_eq!(2, cpu_config.reg_modifiers.len());
     }
 
     #[test]
     fn test_serialization_lifecycle() {
-        let template = CustomCpuTemplate::build_test_template();
+        let template = build_test_template();
         let template_json_str_result = serde_json::to_string_pretty(&template);
         assert!(&template_json_str_result.is_ok());
         let template_json = template_json_str_result.unwrap();
@@ -406,7 +354,7 @@ mod tests {
     fn test_bitmap_width() {
         let mut checked = false;
 
-        let template = CustomCpuTemplate::build_test_template();
+        let template = build_test_template();
 
         let aarch64_template_str =
             serde_json::to_string(&template).expect("Error serializing aarch64 template");

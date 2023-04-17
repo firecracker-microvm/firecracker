@@ -24,6 +24,9 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 mod tests {
     use logger::{IncMetric, METRICS};
     use micro_http::Body;
+    use vmm::guest_config::templates::test_utils::{
+        build_test_template, TEST_INVALID_TEMPLATE_JSON,
+    };
     use vmm::rpc_interface::VmmAction;
 
     use super::*;
@@ -31,7 +34,7 @@ mod tests {
 
     #[test]
     fn test_parse_put_cpu_config_request() {
-        let cpu_template = CustomCpuTemplate::build_test_template();
+        let cpu_template = build_test_template();
         let cpu_config_json_result = serde_json::to_string(&cpu_template);
         assert!(
             &cpu_config_json_result.is_ok(),
@@ -78,8 +81,7 @@ mod tests {
         );
 
         // Test request with invalid fields
-        let invalid_put_result =
-            parse_put_cpu_config(&Body::new(CustomCpuTemplate::TEST_INVALID_TEMPLATE_JSON));
+        let invalid_put_result = parse_put_cpu_config(&Body::new(TEST_INVALID_TEMPLATE_JSON));
         expected_err_count += 1;
 
         assert!(invalid_put_result.is_err());
