@@ -8,6 +8,9 @@
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
+/// Utility module for testing guest_configuration.
+pub mod test_utils;
+
 #[cfg(target_arch = "x86_64")]
 mod common_types {
     pub use crate::guest_config::templates::x86_64::CustomCpuTemplate;
