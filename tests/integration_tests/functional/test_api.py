@@ -476,9 +476,7 @@ def test_api_machine_config(test_microvm_with_api):
     response = test_microvm.actions.put(action_type="InstanceStart")
     if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
         # We shouldn't be able to apply Intel templates on AMD hosts
-        fail_msg = (
-            "Unable to successfully create cpu configuration usable for guest vCPUs:"
-        )
+        fail_msg = "CPU vendor mismatched between actual CPU and CPU template"
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         assert fail_msg in response.text
     else:
