@@ -14,6 +14,7 @@ use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::aarch64::regs::Aarch64Register;
+use crate::arch::regs::Error as ArchError;
 use crate::arch::regs::{
     get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
     save_system_registers, set_mpstate,
@@ -174,6 +175,22 @@ impl KvmVcpu {
         // receiving a vm exit that is not necessarily an error?
         error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(super::Error::UnhandledKvmExit(format!("{:?}", exit)))
+    }
+
+    /// Get registers for the given register IDs.
+    pub fn get_regs(
+        &self,
+        reg_list: &[u64],
+    ) -> std::result::Result<Vec<Aarch64Register>, ArchError> {
+        reg_list
+            .iter()
+            .map(|id| {
+                self.fd
+                    .get_one_reg(*id)
+                    .map(|value| Aarch64Register { id: *id, value })
+                    .map_err(|err| ArchError::GetOneReg(*id, err))
+            })
+            .collect::<std::result::Result<Vec<_>, ArchError>>()
     }
 }
 
@@ -343,5 +360,23 @@ mod tests {
         assert!(vcpu1.init(vm.fd()).is_ok());
         let vcpu2 = KvmVcpu::new(1, &vm).unwrap();
         assert!(vcpu2.init(vm.fd()).is_ok());
+    }
+
+    #[test]
+    fn test_get_valid_regs() {
+        // Test `get_regs()` with valid register IDs.
+        // - X0: 0x6030 0000 0010 0000
+        // - X1: 0x6030 0000 0010 0002
+        let (_, vcpu, _) = setup_vcpu(0x10000);
+        let reg_list = Vec::<u64>::from([0x6030000000100000, 0x6030000000100002]);
+        assert!(vcpu.get_regs(&reg_list).is_ok());
+    }
+
+    #[test]
+    fn test_get_invalid_regs() {
+        // Test `get_regs()` with invalid register IDs.
+        let (_, vcpu, _) = setup_vcpu(0x10000);
+        let reg_list = Vec::<u64>::from([0x6030000000100001, 0x6030000000100003]);
+        assert!(vcpu.get_regs(&reg_list).is_err());
     }
 }
