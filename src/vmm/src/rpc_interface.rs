@@ -844,6 +844,7 @@ mod tests {
     use seccompiler::BpfThreadMap;
 
     use super::*;
+    use crate::guest_config::templates::test_utils::build_test_template;
     use crate::guest_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
@@ -1296,14 +1297,12 @@ mod tests {
     #[test]
     fn test_preboot_put_cpu_config() {
         // Start testing - Provide VMM vCPU configuration in preparation for `InstanceStart`
-        let req = VmmAction::PutCpuConfiguration(CustomCpuTemplate::build_test_template());
+        let req = VmmAction::PutCpuConfiguration(build_test_template());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert_eq!(
                 vm_res.vm_config.cpu_template,
-                Some(CpuTemplateType::Custom(
-                    CustomCpuTemplate::build_test_template()
-                ))
+                Some(CpuTemplateType::Custom(build_test_template()))
             );
         });
     }

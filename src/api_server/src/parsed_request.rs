@@ -315,7 +315,7 @@ pub mod tests {
 
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
-    use vmm::guest_config::templates::CustomCpuTemplate;
+    use vmm::guest_config::templates::test_utils::build_test_template;
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
@@ -961,7 +961,7 @@ pub mod tests {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
 
-        let cpu_template = CustomCpuTemplate::build_test_template();
+        let cpu_template = build_test_template();
         let cpu_config_json_result = serde_json::to_string(&cpu_template);
         assert!(
             cpu_config_json_result.is_ok(),
