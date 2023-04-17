@@ -34,6 +34,13 @@ pub use common_types::*;
 /// Error for GetCpuTemplate trait.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GetCpuTemplateError {
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get CPU vendor information.
+    #[error("Failed to get CPU vendor information: {0}")]
+    GetCpuVendor(crate::guest_config::cpuid::common::GetCpuidError),
+    /// CPU Vendor mismatched between the actual CPU and CPU template.
+    #[error("CPU vendor mismatched between actual CPU and CPU template.")]
+    CpuVendorMismatched,
     /// Invalid static CPU template.
     #[error("Invalid static CPU template: {0}")]
     InvalidStaticCpuTemplate(StaticCpuTemplate),
