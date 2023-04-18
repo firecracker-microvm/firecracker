@@ -34,12 +34,18 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    /// Failed to convert CPUID type.
+    #[error("Cannot convert CPUID type: {0:?}")]
+    CpuidTypeConversion(#[from] cpuid::CpuidTryFromRawCpuid),
     /// A FamStructWrapper operation has failed.
     #[error("Failed FamStructWrapper operation: {0:?}")]
     Fam(#[from] utils::fam::Error),
     /// Error configuring the floating point related registers
     #[error("Error configuring the floating point related registers: {0:?}")]
     FpuConfiguration(crate::arch::x86_64::regs::Error),
+    /// Failed to get dumpable MSR index list.
+    #[error("Failed to get dumpable MSR index list: {0}")]
+    GetMsrsToDump(#[from] crate::arch::x86_64::msr::Error),
     /// Cannot set the local interruption due to bad configuration.
     #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
     LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
@@ -327,7 +333,7 @@ impl KvmVcpu {
     /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
     /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
     ///   could be gotten) is less than expected.
-    fn get_msr_chunks(&self, msr_index_list: Vec<u32>) -> Result<Vec<Msrs>> {
+    fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>> {
         let mut msr_chunks: Vec<Msrs> = Vec::new();
 
         for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
@@ -359,7 +365,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
-    pub fn get_msrs(&self, msr_index_list: Vec<u32>) -> Result<HashMap<u32, u64>> {
+    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>> {
         let mut msrs: HashMap<u32, u64> = HashMap::new();
         self.get_msr_chunks(msr_index_list)?
             .iter()
@@ -406,7 +412,8 @@ impl KvmVcpu {
             None
         });
         let cpuid = self.get_cpuid()?;
-        let saved_msrs = self.get_msr_chunks(self.msrs_to_save.iter().copied().collect())?;
+        let saved_msrs =
+            self.get_msr_chunks(&self.msrs_to_save.iter().copied().collect::<Vec<_>>())?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
@@ -433,11 +440,11 @@ impl KvmVcpu {
     /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
     /// serializable ones.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
-        // TODO: Add code to retrieve CPU config.
-        Ok(CpuConfiguration {
-            cpuid: cpuid::Cpuid::Intel(cpuid::IntelCpuid(std::collections::BTreeMap::new())),
-            msrs: HashMap::new(),
-        })
+        let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(self.get_cpuid()?))?;
+        let kvm = kvm_ioctls::Kvm::new().unwrap();
+        let msr_index_list = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm)?;
+        let msrs = self.get_msrs(msr_index_list.as_slice())?;
+        Ok(CpuConfiguration { cpuid, msrs })
     }
 
     /// Checks whether the TSC needs scaling when restoring a snapshot.
@@ -692,7 +699,7 @@ mod tests {
         let cpuid = Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone()))
             .map_err(GuestConfigError::CpuidFromRaw)?;
         let msrs = vcpu
-            .get_msrs(template.get_msr_index_list())
+            .get_msrs(&template.get_msr_index_list())
             .map_err(GuestConfigError::VcpuIoctl)?;
         let base_cpu_config = CpuConfiguration { cpuid, msrs };
         let cpu_config = CpuConfiguration::apply_template(base_cpu_config, template)?;
@@ -847,6 +854,40 @@ mod tests {
     }
 
     #[test]
+    fn test_dump_cpu_config_with_non_configured_vcpu() {
+        // Test `dump_cpu_config()` before vcpu configuration.
+        //
+        // `KVM_GET_CPUID2` returns the result of `KVM_SET_CPUID2`. See
+        // https://docs.kernel.org/virt/kvm/api.html#kvm-set-cpuid
+        // Since `KVM_SET_CPUID2` has not been called before vcpu configuration, all leaves should
+        // be filled with zero. Therefore, `KvmVcpu::dump_cpu_config()` should fail with CPUID type
+        // conversion error due to the lack of brand string info in leaf 0x0.
+        let (_, vcpu, _) = setup_vcpu(0x10000);
+        match vcpu.dump_cpu_config() {
+            Err(Error::CpuidTypeConversion(_)) => (),
+            Err(err) => panic!("Unexpected error: {err}"),
+            Ok(_) => panic!("Dumping CPU configuration should fail before vcpu configuration."),
+        }
+    }
+
+    #[test]
+    fn test_dump_cpu_config_with_configured_vcpu() {
+        // Test `dump_cpu_config()` after vcpu configuration.
+        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config: CpuConfiguration {
+                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
+                msrs: HashMap::new(),
+            },
+        };
+        vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
+            .unwrap();
+        assert!(vcpu.dump_cpu_config().is_ok());
+    }
+
+    #[test]
     #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
@@ -898,7 +939,7 @@ mod tests {
         // The MSR indices should be valid and this test should succeed.
         let (_, vcpu, _) = setup_vcpu(0x1000);
         assert!(vcpu
-            .get_msrs(vcpu.msrs_to_save.iter().copied().collect())
+            .get_msrs(&vcpu.msrs_to_save.iter().copied().collect::<Vec<_>>())
             .is_ok());
     }
 
@@ -910,9 +951,7 @@ mod tests {
 
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
-        assert!(vcpu
-            .get_msrs(msrs_to_dump.as_slice().iter().copied().collect())
-            .is_ok());
+        assert!(vcpu.get_msrs(msrs_to_dump.as_slice()).is_ok());
     }
 
     #[test]
@@ -923,7 +962,7 @@ mod tests {
         // supported MSRs.
         let (_, vcpu, _) = setup_vcpu(0x1000);
         let msr_index_list: Vec<u32> = vec![2, 3, 4];
-        match vcpu.get_msrs(msr_index_list) {
+        match vcpu.get_msrs(&msr_index_list) {
             Err(Error::VcpuGetMsrsIncomplete) => (),
             Err(err) => panic!("Unexpected error: {err}"),
             Ok(_) => panic!(
