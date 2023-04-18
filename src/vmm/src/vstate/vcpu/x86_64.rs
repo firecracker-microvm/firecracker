@@ -20,6 +20,7 @@ use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, SetMsrsError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
+use crate::guest_config::cpuid;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -145,18 +146,13 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Error type for [`KvmVcpu::configure`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    /// Failed to construct `crate::guest_config::cpuid::Cpuid` from snapshot.
-    #[error(
-        "Failed to construct `crate::guest_config::cpuid::RawCpuid` from `kvm_bindings::CpuId`"
-    )]
-    SnapshotCpuid(crate::guest_config::cpuid::CpuidTryFromRawCpuid),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
-    NormalizeCpuidError(crate::guest_config::cpuid::NormalizeCpuidError),
+    NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
     #[error("Failed to get MSRs to save from CPUID: {0}")]
-    MsrsToSaveByCpuid(crate::guest_config::cpuid::common::Leaf0NotFoundInCpuid),
+    MsrsToSaveByCpuid(#[from] cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(#[from] SetMsrsError),
     #[error("Failed to setup registers: {0}")]
@@ -216,16 +212,14 @@ impl KvmVcpu {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
 
         // Apply machine specific changes to CPUID.
-        cpuid
-            .normalize(
-                // The index of the current logical CPU in the range [0..cpu_count].
-                self.index,
-                // The total number of logical CPUs.
-                vcpu_config.vcpu_count,
-                // The number of bits needed to enumerate logical CPUs per core.
-                u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
-            )
-            .map_err(KvmVcpuConfigureError::NormalizeCpuidError)?;
+        cpuid.normalize(
+            // The index of the current logical CPU in the range [0..cpu_count].
+            self.index,
+            // The total number of logical CPUs.
+            vcpu_config.vcpu_count,
+            // The number of bits needed to enumerate logical CPUs per core.
+            u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
+        )?;
 
         // Set CPUID.
         let kvm_cpuid = kvm_bindings::CpuId::from(cpuid);
@@ -252,8 +246,7 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs = crate::guest_config::cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)
-            .map_err(KvmVcpuConfigureError::MsrsToSaveByCpuid)?;
+        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)?;
         self.msrs_to_save.extend(extra_msrs);
 
         // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
@@ -721,8 +714,8 @@ mod tests {
         // Test configure while using the T2S template.
         let t2a_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2A);
 
-        match &crate::guest_config::cpuid::common::get_vendor_id_from_host().unwrap() {
-            crate::guest_config::cpuid::VENDOR_ID_INTEL => {
+        match &cpuid::common::get_vendor_id_from_host().unwrap() {
+            cpuid::VENDOR_ID_INTEL => {
                 assert!(t2_res);
                 assert!(c3_res);
                 assert!(t2s_res);
@@ -733,7 +726,7 @@ mod tests {
                 }
                 assert!(!t2a_res);
             }
-            crate::guest_config::cpuid::VENDOR_ID_AMD => {
+            cpuid::VENDOR_ID_AMD => {
                 assert!(!t2_res);
                 assert!(!c3_res);
                 assert!(!t2s_res);
