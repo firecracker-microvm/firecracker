@@ -24,13 +24,16 @@ NSEC_IN_MSEC = 1000000
 
 BASELINES = {
     "Intel": {
-        "deserialize": {"target": 0.025, "delta": 0.02}  # milliseconds
+        "deserialize": {"target": 0.025, "delta": 0.02},  # milliseconds
+        "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
     },
     "AMD": {
-        "deserialize": {"target": 0.025, "delta": 0.02}  # milliseconds
+        "deserialize": {"target": 0.025, "delta": 0.02},  # milliseconds
+        "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
     },
     "ARM": {
-        "deserialize": {"target": 0.0015, "delta": 0.001}  # milliseconds
+        "deserialize": {"target": 0.0015, "delta": 0.001},  # milliseconds
+        "serialize": {"target": 0.005, "delta": 0.002},  # milliseconds
     },
 }
 
@@ -39,7 +42,12 @@ def _check_statistics(directory, mean):
     proc_model = [item for item in BASELINES if item in PROC_MODEL]
     assert len(proc_model) == 1, "Could not get processor model!"
 
-    measure = BASELINES[proc_model[0]]["deserialize"]
+    if "deserialize" in directory.lower():
+        bench = "deserialize"
+    else:
+        bench = "serialize"
+
+    measure = BASELINES[proc_model[0]][bench]
     target, delta = measure["target"], measure["delta"]
 
     # When using multiple data sets where the delta can
@@ -84,11 +92,12 @@ def test_cpu_template_benchmark(monkeypatch, record_property):
         estimates = json.loads(json_file.read_text())
 
         # Save the Mean measurement(nanoseconds) and transform it(milliseconds)
-        mean = estimates["mean"]["point_estimate"] / NSEC_IN_MSEC
-        logger.info("Mean: %f", mean)
+        mean_ns = estimates["mean"]["point_estimate"]
+        mean_ms = mean_ns / NSEC_IN_MSEC
+        logger.info("Mean: [%f milliseconds], [%f nanoseconds]", mean_ms, mean_ns)
 
-        criteria = _check_statistics(directory, mean)
-        record_property(f"{directory}_ms", mean)
+        criteria = _check_statistics(directory, mean_ms)
+        record_property(f"{directory}_ms", mean_ms)
         record_property(f"{directory}_criteria", criteria)
 
     # Cleanup the Target directory

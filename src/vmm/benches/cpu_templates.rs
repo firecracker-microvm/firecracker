@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Benchmarking cases:
-//   * `CustomCpuTemplate` Deserialization
+//   * `CustomCpuTemplate` JSON deserialization
+//   * `CustomCpuTemplate` JSON serialization
 
+use std::mem::size_of_val;
 use std::path::Path;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use vmm::guest_config::templates::test_utils::TEST_TEMPLATE_JSON;
+use vmm::guest_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
 use vmm::guest_config::templates::CustomCpuTemplate;
+
+#[inline]
+pub fn bench_serialize_cpu_template(cpu_template: &CustomCpuTemplate) {
+    serde_json::to_string(cpu_template);
+}
 
 #[inline]
 pub fn bench_deserialize_cpu_template(cpu_template_str: &str) {
@@ -17,12 +24,22 @@ pub fn bench_deserialize_cpu_template(cpu_template_str: &str) {
 
 pub fn cpu_template_benchmark(c: &mut Criterion) {
     println!(
-        "Template size (JSON string): [{}] bytes.",
+        "Deserialization test - Template size (JSON string): [{}] bytes.",
         TEST_TEMPLATE_JSON.len()
     );
 
-    c.bench_function("Deserialize custom CPU Template", |b| {
+    let test_cpu_template = build_test_template();
+    println!(
+        "Serialization test - Template size: [{}] bytes.",
+        size_of_val(&test_cpu_template)
+    );
+
+    c.bench_function("deserialize_cpu_template", |b| {
         b.iter(|| bench_deserialize_cpu_template(TEST_TEMPLATE_JSON))
+    });
+
+    c.bench_function("serialize_cpu_template", |b| {
+        b.iter(|| bench_serialize_cpu_template(&test_cpu_template))
     });
 }
 
