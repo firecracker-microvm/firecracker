@@ -19,7 +19,7 @@ use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{EventManager, FcExitCode};
+use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
 fn test_setup_serial_device() {
@@ -160,6 +160,26 @@ fn test_disallow_snapshots_without_pausing() {
     // It is now allowed.
     vmm.lock().unwrap().save_state(&vm_info).unwrap();
     // Stop.
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
+}
+
+#[test]
+fn test_disallow_dump_cpu_config_without_pausing() {
+    let (vmm, _) = default_vmm_no_boot(Some(NOISY_KERNEL_IMAGE));
+
+    // This call should succeed since the microVM is in the paused state before boot.
+    vmm.lock().unwrap().dump_cpu_config().unwrap();
+
+    // Boot the microVM.
+    vmm.lock().unwrap().resume_vm().unwrap();
+
+    // Verify this call is not allowed while running.
+    assert!(matches!(
+        vmm.lock().unwrap().dump_cpu_config(),
+        Err(DumpCpuConfigError::NotAllowed(_))
+    ));
+
+    // Stop the microVM.
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 

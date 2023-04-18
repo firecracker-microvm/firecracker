@@ -21,6 +21,7 @@ use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, Error as MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::guest_config::cpuid;
+use crate::guest_config::x86_64::CpuConfiguration;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -424,6 +425,18 @@ impl KvmVcpu {
             xcrs,
             xsave,
             tsc_khz,
+        })
+    }
+
+    /// Dumps CPU configuration (CPUID and MSRs).
+    ///
+    /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
+    /// serializable ones.
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
+        // TODO: Add code to retrieve CPU config.
+        Ok(CpuConfiguration {
+            cpuid: cpuid::Cpuid::Intel(cpuid::IntelCpuid(std::collections::BTreeMap::new())),
+            msrs: HashMap::new(),
         })
     }
 

@@ -166,6 +166,12 @@ impl KvmVcpu {
         Ok(())
     }
 
+    /// Dumps CPU configuration.
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
+        // TODO: Add code to retrieve CPU config.
+        Ok(CpuConfiguration::default())
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
