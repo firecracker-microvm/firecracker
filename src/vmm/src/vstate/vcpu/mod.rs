@@ -326,6 +326,14 @@ impl Vcpu {
                     )))
                     .expect("failed to send save not allowed status");
             }
+            // DumpCpuConfig cannot be performed on a running Vcpu.
+            Ok(VcpuEvent::DumpCpuConfig) => {
+                self.response_sender
+                    .send(VcpuResponse::NotAllowed(String::from(
+                        "cpu config dump is unavailable while running",
+                    )))
+                    .expect("failed to send save not allowed status");
+            }
             Ok(VcpuEvent::Finish) => return StateMachine::finish(),
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
@@ -386,6 +394,22 @@ impl Vcpu {
                         self.response_sender
                             .send(VcpuResponse::Error(Error::VcpuResponse(err)))
                             .expect("vcpu channel unexpectedly closed")
+                    });
+
+                StateMachine::next(Self::paused)
+            }
+            Ok(VcpuEvent::DumpCpuConfig) => {
+                self.kvm_vcpu
+                    .dump_cpu_config()
+                    .map(|cpu_config| {
+                        self.response_sender
+                            .send(VcpuResponse::DumpedCpuConfig(Box::new(cpu_config)))
+                            .expect("vcpu channel unexpectedly closed");
+                    })
+                    .unwrap_or_else(|err| {
+                        self.response_sender
+                            .send(VcpuResponse::Error(Error::VcpuResponse(err)))
+                            .expect("vcpu channel unnexpectedly closed");
                     });
 
                 StateMachine::next(Self::paused)
@@ -571,6 +595,8 @@ pub enum VcpuEvent {
     RestoreState(Box<VcpuState>),
     /// Event to save the state of a paused Vcpu.
     SaveState,
+    /// Event to dump CPU configuration of a paused Vcpu.
+    DumpCpuConfig,
 }
 
 /// List of responses that the Vcpu reports.
@@ -589,6 +615,8 @@ pub enum VcpuResponse {
     RestoredState,
     /// Vcpu state is saved.
     SavedState(Box<VcpuState>),
+    /// Vcpu is in the state where CPU config is dumped.
+    DumpedCpuConfig(Box<CpuConfiguration>),
 }
 
 impl fmt::Debug for VcpuResponse {
@@ -602,6 +630,7 @@ impl fmt::Debug for VcpuResponse {
             SavedState(_) => write!(f, "VcpuResponse::SavedState"),
             Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
             NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
+            DumpedCpuConfig(_) => write!(f, "VcpuResponse::DumpedCpuConfig"),
         }
     }
 }
@@ -851,14 +880,15 @@ pub mod tests {
             // Guard match with no wildcard to make sure we catch new enum variants.
             match self {
                 Paused | Resumed | Exited(_) => (),
-                Error(_) | NotAllowed(_) | RestoredState | SavedState(_) => (),
+                Error(_) | NotAllowed(_) | RestoredState | SavedState(_) | DumpedCpuConfig(_) => (),
             };
             match (self, other) {
                 (Paused, Paused) | (Resumed, Resumed) => true,
                 (Exited(code), Exited(other_code)) => code == other_code,
                 (NotAllowed(_), NotAllowed(_))
                 | (RestoredState, RestoredState)
-                | (SavedState(_), SavedState(_)) => true,
+                | (SavedState(_), SavedState(_))
+                | (DumpedCpuConfig(_), DumpedCpuConfig(_)) => true,
                 (Error(ref err), Error(ref other_err)) => {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
@@ -1142,6 +1172,38 @@ pub mod tests {
             &vcpu_handle,
             VcpuEvent::RestoreState(vcpu_state),
             VcpuResponse::RestoredState,
+        );
+
+        vcpu_handle.send_event(VcpuEvent::Finish).unwrap();
+    }
+
+    #[test]
+    fn test_vcpu_dump_cpu_config() {
+        let (vcpu_handle, _) = vcpu_configured_for_boot();
+
+        // Queue a DumpCpuConfig event, expect a DumpedCpuConfig response.
+        vcpu_handle
+            .send_event(VcpuEvent::DumpCpuConfig)
+            .expect("Failed to send an event to vcpu.");
+        match vcpu_handle
+            .response_receiver()
+            .recv_timeout(RECV_TIMEOUT_SEC)
+            .expect("Could not receive a response from vcpu.")
+        {
+            VcpuResponse::DumpedCpuConfig(_) => (),
+            VcpuResponse::Error(err) => panic!("Got an error: {err}"),
+            _ => panic!("Got an unexpected response."),
+        }
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue a DumpCpuConfig event, expect a NotAllowed respoonse.
+        // The DumpCpuConfig event is only allowed while paused.
+        queue_event_expect_response(
+            &vcpu_handle,
+            VcpuEvent::DumpCpuConfig,
+            VcpuResponse::NotAllowed(String::new()),
         );
 
         vcpu_handle.send_event(VcpuEvent::Finish).unwrap();
