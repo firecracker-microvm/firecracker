@@ -815,7 +815,7 @@ pub fn configure_system_for_boot(
         let msr_index_list = cpu_template.get_msr_index_list();
         let msrs = vcpus[0]
             .kvm_vcpu
-            .get_msrs(msr_index_list)
+            .get_msrs(&msr_index_list)
             .map_err(GuestConfigError::VcpuIoctl)?;
         CpuConfiguration { cpuid, msrs }
     };
