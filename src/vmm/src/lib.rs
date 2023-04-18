@@ -73,6 +73,7 @@ use crate::arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
+use crate::guest_config::templates::CpuConfiguration;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -287,6 +288,23 @@ pub enum RestoreVcpusError {
     RestoreVcpuState(#[from] vcpu::Error),
     /// Not allowed.
     #[error("Not allowed: {0}")]
+    NotAllowed(String),
+}
+
+/// Error type for [`Vmm::dump_cpu_config()`]
+#[derive(Debug, thiserror::Error)]
+pub enum DumpCpuConfigError {
+    /// Failed to send an event to vcpu thread.
+    #[error("Failed to send event to vcpu thread: {0:?}")]
+    SendEvent(#[from] VcpuSendEventError),
+    /// Got an unexpected response from vcpu thread.
+    #[error("Got unexpected response from vcpu thread.")]
+    UnexpectedResponse,
+    /// Failed to dump CPU config.
+    #[error("Failed to dump CPU config: {0}")]
+    DumpCpuConfig(#[from] vcpu::Error),
+    /// Operation not allowed.
+    #[error("Operation not allowed: {0}")]
     NotAllowed(String),
 }
 
@@ -567,6 +585,36 @@ impl Vmm {
         }
 
         Ok(())
+    }
+
+    /// Dumps CPU configuration.
+    pub fn dump_cpu_config(
+        &mut self,
+    ) -> std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
+        for handle in self.vcpus_handles.iter() {
+            handle
+                .send_event(VcpuEvent::DumpCpuConfig)
+                .map_err(DumpCpuConfigError::SendEvent)?;
+        }
+
+        let vcpu_responses = self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
+
+        let cpu_configs = vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                VcpuResponse::DumpedCpuConfig(cpu_config) => Ok(*cpu_config),
+                VcpuResponse::Error(err) => Err(DumpCpuConfigError::DumpCpuConfig(err)),
+                VcpuResponse::NotAllowed(reason) => Err(DumpCpuConfigError::NotAllowed(reason)),
+                _ => Err(DumpCpuConfigError::UnexpectedResponse),
+            })
+            .collect::<std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
+
+        Ok(cpu_configs)
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
