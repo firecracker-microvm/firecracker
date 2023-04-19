@@ -337,7 +337,10 @@ name = "cpu-template-helper"
 version = "1.3.0"
 dependencies = [
  "clap 4.2.3",
+ "serde_json",
  "thiserror",
+ "utils",
+ "vmm",
 ]
 
 [[package]]

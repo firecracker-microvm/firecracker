@@ -10,4 +10,10 @@ license = "Apache-2.0"
 
 [dependencies]
 clap = { version = "4.2.3", features = ["derive"] }
+serde_json = "1.0.78"
 thiserror = "1.0.32"
+
+vmm = { path = "../vmm" }
+
+[dev-dependencies]
+utils = { path = "../utils" }
