@@ -117,15 +117,19 @@ def build_cpuid_dict(raw_cpuid_output):
     return cpuid_dict
 
 
-def get_guest_cpuid(vm):
+def get_guest_cpuid(vm, leaf=None, subleaf=None):
     """
-    Return the guest CPUID in the form of a dictionary where the key is a tuple:
+    Return the guest CPUID of CPU 0 in the form of a dictionary where the key
+    is a tuple:
      - leaf (integer)
      - subleaf (integer)
      - register ("eax", "ebx", "ecx" or "edx")
     and the value is the register value (integer).
     """
-    read_cpuid_cmd = "cpuid -1 --raw | grep -v CPU"
+    if leaf is not None and subleaf is not None:
+        read_cpuid_cmd = f"cpuid -r -l {leaf} -s {subleaf} | head -n 2 | grep -v CPU"
+    else:
+        read_cpuid_cmd = "cpuid -r | sed '/CPU 1/q' | grep -v CPU"
     _, stdout, stderr = vm.ssh.execute_command(read_cpuid_cmd)
     assert stderr.read() == ""
 
