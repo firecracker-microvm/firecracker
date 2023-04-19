@@ -19,7 +19,7 @@ pub const NOISY_KERNEL_IMAGE: &str = "test_noisy_elf.bin";
 #[cfg(target_arch = "aarch64")]
 pub const NOISY_KERNEL_IMAGE: &str = "test_pe.bin";
 
-fn kernel_image_path(kernel_image: Option<&str>) -> String {
+pub fn kernel_image_path(kernel_image: Option<&str>) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("src/utilities/mock_resources");
     path.push(kernel_image.unwrap_or(DEFAULT_KERNEL_IMAGE));
