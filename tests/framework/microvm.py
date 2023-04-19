@@ -38,6 +38,7 @@ from framework.resources import (
     Actions,
     Balloon,
     BootSource,
+    CpuConfigure,
     DescribeInstance,
     Drive,
     FullConfig,
@@ -424,6 +425,7 @@ class Microvm:
         self.actions = Actions(self._api_socket, self._api_session)
         self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
+        self.cpu_cfg = CpuConfigure(self._api_socket, self._api_session)
         self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
@@ -604,6 +606,13 @@ class Microvm:
             assert self._api_session.is_status_no_content(
                 response.status_code
             ), response.text
+
+    def cpu_config(self, config):
+        """Set CPU configuration."""
+        response = self.cpu_cfg.put(config)
+        assert self._api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
     def daemonize_jailer(self, jailer_param_list):
         """Daemonize the jailer."""
