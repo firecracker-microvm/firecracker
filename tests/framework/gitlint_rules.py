@@ -100,7 +100,7 @@ class EndsSigned(CommitRule):
         co_auth = "Co-authored-by:"
         sig = "Signed-off-by:"
 
-        message_iter = enumerate(commit.message.body)
+        message_iter = enumerate(commit.message.original.split("\n"))
 
         # Checks commit message contains a `sig` string
         found = False
