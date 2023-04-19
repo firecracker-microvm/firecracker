@@ -100,7 +100,10 @@ from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
-from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.utils_cpu_templates import (
+    SUPPORTED_CPU_TEMPLATES,
+    SUPPORTED_CUSTOM_CPU_TEMPLATES,
+)
 from framework.with_filelock import with_filelock
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
@@ -521,6 +524,13 @@ def rootfs_msrtools(request, record_property):
 def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
     record_property("cpu_template", request.param)
+    return request.param
+
+
+@pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
+def custom_cpu_template(request, record_property):
+    """Return all dummy custom CPU templates supported by the vendor."""
+    record_property("custom_cpu_template", request.param)
     return request.param
 
 
