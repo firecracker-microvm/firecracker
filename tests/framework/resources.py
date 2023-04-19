@@ -143,6 +143,34 @@ class BootSource:
         return datax
 
 
+class CpuConfigure:
+    """Facility for configuring the CPU capabilities."""
+
+    CPU_CFG_RESOURCE = "cpu-config"
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
+
+        self._cpu_cfg_url = api_url + self.CPU_CFG_RESOURCE
+        self._api_session = api_session
+        self._datax = {}
+
+    def put(self, args):
+        """Specify the details of the CPU configuration."""
+        self._datax = self.create_json(args)
+        return self._api_session.put("{}".format(self._cpu_cfg_url), json=self._datax)
+
+    def get(self):
+        """Get CPU configuration."""
+        return self._api_session.get(self._cpu_cfg_url)
+
+    def create_json(self, config):
+        """Compose the json associated to this type of API request."""
+        return config
+
+
 # Too few public methods (1/2) (too-few-public-methods)
 # pylint: disable=R0903
 class DescribeInstance:
