@@ -35,7 +35,12 @@ def test_num_dependencies(dep_file):
 
     @type: build
     """
-    _, stdout, _ = utils.run_cmd("cargo tree --prefix none -e no-dev " "--workspace")
+    # cpu-template-helper is excluded, as it does not impact guests due to
+    # being a separate binary that does not run along with the firecracker.
+    _, stdout, _ = utils.run_cmd(
+        "cargo tree --prefix none -e no-dev "
+        "--workspace --exclude cpu-template-helper"
+    )
     deps = stdout.splitlines()
 
     current_deps = set()
