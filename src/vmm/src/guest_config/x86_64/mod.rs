@@ -22,7 +22,7 @@ pub enum Error {
     MsrNotSupported(u32),
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
-    CpuidFromRaw(super::cpuid::CpuidTryFromRawCpuid),
+    CpuidFromKvmCpuid(super::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctls failed.
     #[error("KVM vcpu ioctl failed: {0}")]
     VcpuIoctl(crate::vstate::vcpu::VcpuError),
