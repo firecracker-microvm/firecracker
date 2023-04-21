@@ -303,20 +303,6 @@ pub enum KvmGetSupportedCpuidError {
     KvmAccess(#[from] utils::errno::Error),
 }
 
-/// Error type for [`<Cpuid as TryFrom<RawCpuid>>::try_from`].
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum CpuidTryFromRawCpuid {
-    /// Leaf 0 not found in the given `RawCpuid`..
-    #[error("Leaf 0 not found in the given `RawCpuid`.")]
-    MissingLeaf0,
-    /// Unsupported CPUID manufacturer id.
-    #[error(
-        "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are \
-         supported)."
-    )]
-    UnsupportedVendor([u8; 12]),
-}
-
 /// Error type for conversion from `kvm_bindings::CpuId` to `Cpuid`.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CpuidTryFromKvmCpuid {
@@ -422,23 +408,6 @@ impl CpuidTrait for Cpuid {
     }
 }
 
-impl TryFrom<RawCpuid> for Cpuid {
-    type Error = CpuidTryFromRawCpuid;
-
-    #[inline]
-    fn try_from(raw_cpuid: RawCpuid) -> Result<Self, Self::Error> {
-        let vendor_id = raw_cpuid
-            .vendor_id()
-            .ok_or(CpuidTryFromRawCpuid::MissingLeaf0)?;
-
-        match std::str::from_utf8(&vendor_id) {
-            Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(raw_cpuid))),
-            Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(raw_cpuid))),
-            _ => Err(CpuidTryFromRawCpuid::UnsupportedVendor(vendor_id)),
-        }
-    }
-}
-
 impl TryFrom<kvm_bindings::CpuId> for Cpuid {
     type Error = CpuidTryFromKvmCpuid;
 
@@ -452,16 +421,6 @@ impl TryFrom<kvm_bindings::CpuId> for Cpuid {
             Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(kvm_cpuid))),
             Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid))),
             _ => Err(CpuidTryFromKvmCpuid::UnsupportedVendor(vendor_id)),
-        }
-    }
-}
-
-impl From<Cpuid> for RawCpuid {
-    #[inline]
-    fn from(cpuid: Cpuid) -> Self {
-        match cpuid {
-            Cpuid::Intel(intel_cpuid) => RawCpuid::from(intel_cpuid),
-            Cpuid::Amd(amd_cpuid) => RawCpuid::from(amd_cpuid),
         }
     }
 }
@@ -611,52 +570,6 @@ impl From<core::arch::x86_64::CpuidResult> for CpuidRegisters {
         core::arch::x86_64::CpuidResult { eax, ebx, ecx, edx }: core::arch::x86_64::CpuidResult,
     ) -> Self {
         Self { eax, ebx, ecx, edx }
-    }
-}
-
-impl From<(CpuidKey, CpuidEntry)> for RawKvmCpuidEntry {
-    #[inline]
-    fn from(
-        (CpuidKey { leaf, subleaf }, CpuidEntry { flags, result }): (CpuidKey, CpuidEntry),
-    ) -> Self {
-        let CpuidRegisters { eax, ebx, ecx, edx } = result;
-        Self {
-            function: leaf,
-            index: subleaf,
-            flags,
-            eax,
-            ebx,
-            ecx,
-            edx,
-            padding: Padding::default(),
-        }
-    }
-}
-
-impl From<RawKvmCpuidEntry> for (CpuidKey, CpuidEntry) {
-    #[inline]
-    fn from(
-        RawKvmCpuidEntry {
-            function,
-            index,
-            flags,
-            eax,
-            ebx,
-            ecx,
-            edx,
-            ..
-        }: RawKvmCpuidEntry,
-    ) -> Self {
-        (
-            CpuidKey {
-                leaf: function,
-                subleaf: index,
-            },
-            CpuidEntry {
-                flags,
-                result: CpuidRegisters { eax, ebx, ecx, edx },
-            },
-        )
     }
 }
 

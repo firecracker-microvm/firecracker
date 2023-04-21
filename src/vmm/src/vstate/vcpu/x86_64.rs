@@ -35,8 +35,8 @@ const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// Failed to convert CPUID type.
-    #[error("Cannot convert CPUID type: {0:?}")]
-    CpuidTypeConversion(#[from] cpuid::CpuidTryFromRawCpuid),
+    #[error("Failed to convert `kvm_bindings::CpuId` to `Cpuid`: {0}")]
+    ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
     /// A FamStructWrapper operation has failed.
     #[error("Failed FamStructWrapper operation: {0:?}")]
     Fam(#[from] utils::fam::Error),
@@ -442,7 +442,7 @@ impl KvmVcpu {
     /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
     /// serializable ones.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
-        let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(self.get_cpuid()?))?;
+        let cpuid = cpuid::Cpuid::try_from(self.get_cpuid()?)?;
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msr_index_list = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm)?;
         let msrs = self.get_msrs(msr_index_list.as_slice())?;
@@ -648,7 +648,7 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey, RawCpuid};
+    use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::guest_config::templates::{
         CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
         StaticCpuTemplate,
@@ -698,8 +698,8 @@ mod tests {
         vcpu: &KvmVcpu,
         template: &CustomCpuTemplate,
     ) -> std::result::Result<VcpuConfig, GuestConfigError> {
-        let cpuid = Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone()))
-            .map_err(GuestConfigError::CpuidFromRaw)?;
+        let cpuid = Cpuid::try_from(vm.supported_cpuid().clone())
+            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msrs = vcpu
             .get_msrs(&template.get_msr_index_list())
             .map_err(GuestConfigError::VcpuIoctl)?;
@@ -818,7 +818,7 @@ mod tests {
             vcpu_count: 1,
             smt: false,
             cpu_config: CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
+                cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
                 msrs: HashMap::new(),
             },
         };
@@ -840,7 +840,7 @@ mod tests {
         });
 
         // Leaf 0 should have non-zero entry in `Cpuid`.
-        let cpuid = Cpuid::try_from(RawCpuid::from(cpuid)).unwrap();
+        let cpuid = Cpuid::try_from(cpuid).unwrap();
         assert_ne!(
             cpuid
                 .inner()
@@ -866,7 +866,7 @@ mod tests {
         // conversion error due to the lack of brand string info in leaf 0x0.
         let (_, vcpu, _) = setup_vcpu(0x10000);
         match vcpu.dump_cpu_config() {
-            Err(Error::CpuidTypeConversion(_)) => (),
+            Err(Error::ConvertCpuidType(_)) => (),
             Err(err) => panic!("Unexpected error: {err}"),
             Ok(_) => panic!("Dumping CPU configuration should fail before vcpu configuration."),
         }
@@ -880,7 +880,7 @@ mod tests {
             vcpu_count: 1,
             smt: false,
             cpu_config: CpuConfiguration {
-                cpuid: Cpuid::try_from(RawCpuid::from(vm.supported_cpuid().clone())).unwrap(),
+                cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
                 msrs: HashMap::new(),
             },
         };
