@@ -38,10 +38,6 @@ use std::mem::{size_of, transmute};
 /// cpuid utility functions.
 pub mod common;
 
-/// Raw CPUID specification handling.
-pub(crate) mod cpuid_ffi;
-pub use cpuid_ffi::*;
-
 /// AMD CPUID specification handling.
 pub mod amd;
 pub use amd::AmdCpuid;
@@ -493,6 +489,31 @@ impl std::cmp::Ord for CpuidKey {
     }
 }
 
+/// Definitions from `kvm/arch/x86/include/uapi/asm/kvm.h
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy,
+)]
+pub struct KvmCpuidFlags(pub u32);
+impl KvmCpuidFlags {
+    /// Zero.
+    pub const EMPTY: Self = Self(0);
+    /// Indicates if the `index` field is used for indexing sub-leaves (if false, this CPUID leaf
+    /// has no subleaves).
+    pub const SIGNIFICANT_INDEX: Self = Self(1 << 0);
+    /// Deprecated.
+    pub const STATEFUL_FUNC: Self = Self(1 << 1);
+    /// Deprecated.
+    pub const STATE_READ_NEXT: Self = Self(1 << 2);
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for KvmCpuidFlags {
+    #[inline]
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 /// CPUID entry information stored for each leaf of [`IntelCpuid`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
@@ -504,7 +525,6 @@ pub struct CpuidEntry {
     ///
     /// A map on flags would look like:
     /// ```ignore
-    /// use cpuid::KvmCpuidFlags;
     /// #[allow(clippy::non_ascii_literal)]
     /// pub static KVM_CPUID_LEAF_FLAGS: phf::Map<u32, KvmCpuidFlags> = phf::phf_map! {
     ///     0x00u32 => KvmCpuidFlags::EMPTY,
@@ -543,7 +563,7 @@ pub struct CpuidEntry {
     ///     0x80000008u32 => KvmCpuidFlags::EMPTY,
     /// };
     /// ```
-    pub flags: crate::guest_config::cpuid::cpuid_ffi::KvmCpuidFlags,
+    pub flags: KvmCpuidFlags,
     /// Register values.
     pub result: CpuidRegisters,
 }
