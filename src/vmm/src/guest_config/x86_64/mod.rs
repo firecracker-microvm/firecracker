@@ -47,10 +47,7 @@ impl CpuConfiguration {
             mut msrs,
         } = self;
 
-        let guest_cpuid = match &mut cpuid {
-            Cpuid::Intel(cpuid) => &mut cpuid.0,
-            Cpuid::Amd(cpuid) => &mut cpuid.0,
-        };
+        let guest_cpuid = cpuid.inner_mut();
 
         // Apply CPUID modifiers
         for mod_leaf in template.cpuid_modifiers.iter() {
