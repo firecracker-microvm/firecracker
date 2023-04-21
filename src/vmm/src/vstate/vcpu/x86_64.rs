@@ -150,6 +150,8 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Error type for [`KvmVcpu::configure`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
+    #[error("Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}")]
+    ConvertCpuidType(#[from] utils::fam::Error),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
@@ -226,7 +228,7 @@ impl KvmVcpu {
         )?;
 
         // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::from(cpuid);
+        let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid)?;
 
         // Set CPUID in the KVM
         self.fd

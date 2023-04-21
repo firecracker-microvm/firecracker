@@ -317,6 +317,20 @@ pub enum CpuidTryFromRawCpuid {
     UnsupportedVendor([u8; 12]),
 }
 
+/// Error type for conversion from `kvm_bindings::CpuId` to `Cpuid`.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum CpuidTryFromKvmCpuid {
+    /// Leaf 0 not found in the given `kvm_bindings::CpuId`.
+    #[error("Leaf 0 not found in the given `kvm_bindings::CpuId`.")]
+    MissingLeaf0,
+    /// Unsupported CPUID manufacturer id.
+    #[error(
+        "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are \
+         supported)."
+    )]
+    UnsupportedVendor([u8; 12]),
+}
+
 /// CPUID information
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cpuid {
@@ -425,6 +439,23 @@ impl TryFrom<RawCpuid> for Cpuid {
     }
 }
 
+impl TryFrom<kvm_bindings::CpuId> for Cpuid {
+    type Error = CpuidTryFromKvmCpuid;
+
+    #[inline]
+    fn try_from(kvm_cpuid: kvm_bindings::CpuId) -> Result<Self, Self::Error> {
+        let vendor_id = kvm_cpuid
+            .vendor_id()
+            .ok_or(CpuidTryFromKvmCpuid::MissingLeaf0)?;
+
+        match std::str::from_utf8(&vendor_id) {
+            Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(kvm_cpuid))),
+            Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid))),
+            _ => Err(CpuidTryFromKvmCpuid::UnsupportedVendor(vendor_id)),
+        }
+    }
+}
+
 impl From<Cpuid> for RawCpuid {
     #[inline]
     fn from(cpuid: Cpuid) -> Self {
@@ -435,11 +466,26 @@ impl From<Cpuid> for RawCpuid {
     }
 }
 
-impl From<Cpuid> for kvm_bindings::CpuId {
-    #[inline]
-    fn from(cpuid: Cpuid) -> Self {
-        let raw_cpuid = RawCpuid::from(cpuid);
-        Self::from(raw_cpuid)
+impl TryFrom<Cpuid> for kvm_bindings::CpuId {
+    type Error = utils::fam::Error;
+
+    fn try_from(cpuid: Cpuid) -> Result<Self, Self::Error> {
+        let entries = cpuid
+            .inner()
+            .iter()
+            .map(|(key, entry)| kvm_bindings::kvm_cpuid_entry2 {
+                function: key.leaf,
+                index: key.subleaf,
+                flags: entry.flags.0,
+                eax: entry.result.eax,
+                ebx: entry.result.ebx,
+                ecx: entry.result.ecx,
+                edx: entry.result.edx,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        kvm_bindings::CpuId::from_entries(&entries)
     }
 }
 
