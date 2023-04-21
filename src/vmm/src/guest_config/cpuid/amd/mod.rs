@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::similar_names, clippy::unreadable_literal)]
 
-use super::{
-    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, RawCpuid, RawKvmCpuidEntry,
-};
+use super::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
 
 /// CPUID normalize implementation.
 mod normalize;
@@ -31,30 +29,6 @@ impl CpuidTrait for AmdCpuid {
     #[inline]
     fn get_mut(&mut self, key: &CpuidKey) -> Option<&mut CpuidEntry> {
         self.0.get_mut(key)
-    }
-}
-
-impl From<RawCpuid> for AmdCpuid {
-    #[inline]
-    fn from(raw_cpuid: RawCpuid) -> Self {
-        let map = raw_cpuid
-            .iter()
-            .cloned()
-            .map(<(CpuidKey, CpuidEntry)>::from)
-            .collect();
-        Self(map)
-    }
-}
-
-impl From<AmdCpuid> for RawCpuid {
-    #[inline]
-    fn from(amd_cpuid: AmdCpuid) -> Self {
-        let entries = amd_cpuid
-            .0
-            .into_iter()
-            .map(RawKvmCpuidEntry::from)
-            .collect::<Vec<_>>();
-        Self::from(entries)
     }
 }
 

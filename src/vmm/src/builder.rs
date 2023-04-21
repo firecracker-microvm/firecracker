@@ -810,8 +810,8 @@ pub fn configure_system_for_boot(
     #[cfg(target_arch = "x86_64")]
     let cpu_config = {
         use crate::guest_config::cpuid;
-        let cpuid = cpuid::Cpuid::try_from(cpuid::RawCpuid::from(vmm.vm.supported_cpuid().clone()))
-            .map_err(GuestConfigError::CpuidFromRaw)?;
+        let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
+            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msr_index_list = cpu_template.get_msr_index_list();
         let msrs = vcpus[0]
             .kvm_vcpu
