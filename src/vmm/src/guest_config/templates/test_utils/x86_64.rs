@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(target_arch = "x86_64")]
-use crate::guest_config::cpuid::KvmCpuidFlags;
+use crate::guest_config::cpuid::{host_brand_string, KvmCpuidFlags, VENDOR_ID_AMD};
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
 use crate::guest_config::templates::CustomCpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::static_cpu_templates::t2a::t2a;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::static_cpu_templates::t2s::t2s;
 
 /// Test CPU template in JSON format
 #[cfg(target_arch = "x86_64")]
@@ -169,4 +173,17 @@ pub fn build_test_template() -> CustomCpuTemplate {
             },
         ],
     }
+}
+
+/// Converts an existing static template to its JSON format.
+/// This function will also return a template applicable for AMD vs Intel.
+#[cfg(target_arch = "x86_64")]
+pub fn test_static_template() -> String {
+    let custom_cpu_template = if host_brand_string().eq_ignore_ascii_case(VENDOR_ID_AMD) {
+        t2a()
+    } else {
+        t2s()
+    };
+
+    serde_json::to_string(&custom_cpu_template).expect("Error serializing static template to JSON")
 }

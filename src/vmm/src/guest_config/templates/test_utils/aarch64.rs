@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(target_arch = "aarch64")]
+use crate::guest_config::aarch64::static_cpu_templates::v1n1::v1n1;
+#[cfg(target_arch = "aarch64")]
 use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
 use crate::guest_config::templates::CustomCpuTemplate;
 
@@ -54,4 +56,10 @@ pub fn build_test_template() -> CustomCpuTemplate {
             },
         ],
     }
+}
+
+/// Converts an existing static template to its JSON format.
+#[cfg(target_arch = "aarch64")]
+pub fn test_static_template() -> String {
+    serde_json::to_string(&v1n1()).expect("Error serializing static template to JSON")
 }

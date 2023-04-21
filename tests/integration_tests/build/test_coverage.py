@@ -74,6 +74,7 @@ def test_coverage(monkeypatch, record_property, metrics):
     # Generate test profiles.
     utils.run_cmd(
         f'\
+        export FC_BIN_PATH="../../build/cargo_target/{TARGET}/debug/firecracker" && \
         RUSTFLAGS="-Cinstrument-coverage" \
         LLVM_PROFILE_FILE="coverage-%p-%m.profraw" \
         cargo test --all --target={TARGET} -- --test-threads=1 \

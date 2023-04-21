@@ -25,3 +25,9 @@ vmm = { path = "../vmm" }
 [dev-dependencies]
 cargo_toml = "0.13.0"
 regex = { version = "1.5.5", default-features = false, features = ["std"] }
+# API server testing using hyper
+hyper = "0.14.26"
+hyperlocal = "0.8.0"
+futures = "0.3.28"
+tokio = { version = "1.27.0", features = ["full"] }
+tempfile = "3.5.0"
