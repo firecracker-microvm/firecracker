@@ -10,6 +10,8 @@ use crate::arch_gen::x86::hyperv::*;
 use crate::arch_gen::x86::hyperv_tlfs::*;
 use crate::arch_gen::x86::msr_index::*;
 use crate::arch_gen::x86::perf_event::*;
+use crate::guest_config::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::guest_config::cpuid::VENDOR_ID_AMD;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
@@ -20,6 +22,9 @@ pub enum Error {
     /// Failed to get MSR index list.
     #[error("Failed to get MSR index list: {0}")]
     GetMsrIndexList(kvm_ioctls::Error),
+    /// Invalid vendor.
+    #[error("Invalid CPU vendor: {0}")]
+    InvalidVendor(#[from] GetCpuidError),
     /// Failed to set MSRs.
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(kvm_ioctls::Error),
@@ -394,6 +399,28 @@ pub fn msr_should_dump(index: u32) -> bool {
         .any(|range| range.contains(index))
 }
 
+/// List of MSRs that should not be included in the dump of CPU configuration on AMD.
+static UNDUMPABLE_MSR_RANGES_AMD: &[MsrRange] = &[
+    // MSR_IA32_ARCH_CAPABILITIES has been emulated by KVM since kernel 5.7.
+    // https://github.com/torvalds/linux/commit/93c380e7b528882396ca463971012222bad7d82e
+    // https://lore.kernel.org/all/20200302235709.27467-1-sean.j.christopherson@intel.com/
+    // As this MSR is not available on AMD originally, Firecracker disables it explicitly by
+    // setting 0 to CPUID.(EAX=07H,ECX=0):EDX[bit 29]. Thus, this MSR should be removed from the
+    // dump on AMD.
+    MSR_RANGE!(MSR_IA32_ARCH_CAPABILITIES),
+];
+
+/// Specifies whether a particular MSR should be dumped on AMD
+///
+/// # Arguments
+///
+/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+pub fn msr_should_dump_amd(index: u32) -> bool {
+    !UNDUMPABLE_MSR_RANGES_AMD
+        .iter()
+        .any(|range| range.contains(index))
+}
+
 /// Returns the list of dumpable MSR indices.
 ///
 /// # Arguments
@@ -408,7 +435,12 @@ pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetMsrIndexList)?;
+
     msr_index_list.retain(|msr_index| msr_should_dump(*msr_index));
+    if &get_vendor_id_from_host()? == VENDOR_ID_AMD {
+        msr_index_list.retain(|msr_index| msr_should_dump_amd(*msr_index));
+    }
+
     Ok(msr_index_list)
 }
 
@@ -492,6 +524,15 @@ mod tests {
         for range in UNDUMPABLE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 assert!(!msr_should_dump(msr));
+            }
+        }
+    }
+
+    #[test]
+    fn test_msr_list_to_dump_amd() {
+        for range in UNDUMPABLE_MSR_RANGES_AMD.iter() {
+            for msr in range.base..(range.base + range.nmsrs) {
+                assert!(!msr_should_dump_amd(msr));
             }
         }
     }
