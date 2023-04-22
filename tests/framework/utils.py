@@ -9,6 +9,7 @@ import logging
 import os
 import platform
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -564,7 +565,7 @@ def get_firecracker_version_from_toml():
     """
     Return the version of the firecracker crate, from Cargo.toml.
 
-    Usually different from the output of `./firecracker --version`, if
+    Should be the same as the output of `./firecracker --version`, if
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
@@ -781,6 +782,8 @@ def guest_run_fio_iteration(ssh_connection, iteration):
 
 def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
+    if disk_fmt == "squashfs":
+        return
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
     assert exit_code == 0, stderr
@@ -801,3 +804,27 @@ def wait_process_running(process):
     a running state and will otherwise raise an exception.
     """
     assert process.is_running()
+
+
+class Timeout:
+    """
+    A Context Manager to timeout sections of code.
+
+    >>> with Timeout(30):
+    >>>     time.sleep(35)
+    """
+
+    def __init__(self, seconds, msg="Timed out"):
+        self.seconds = seconds
+        self.msg = msg
+
+    def handle_timeout(self, signum, frame):
+        """Handle SIGALRM signal"""
+        raise TimeoutError()
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handle_timeout)
+        signal.alarm(self.seconds)
+
+    def __exit__(self, _type, _value, _traceback):
+        signal.alarm(0)

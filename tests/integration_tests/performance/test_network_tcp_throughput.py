@@ -75,9 +75,6 @@ class TCPIPerf3Test(IPerf3Test):
             payload_length=payload_length,
         )
 
-    def guest_command(self, port_offset):
-        return super().guest_command(port_offset).with_arg("--verbose")
-
 
 def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
     """Create producer/consumer pipes."""

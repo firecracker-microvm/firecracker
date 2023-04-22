@@ -5,7 +5,6 @@
 import os
 
 import host_tools.logging as log_tools
-from framework.builder import MicrovmBuilder
 from framework.resources import DescribeInstance
 
 
@@ -29,13 +28,12 @@ def verify_net_emulation_paused(metrics):
     print(net_metrics)
 
 
-def test_pause_resume(bin_cloner_path):
+def test_pause_resume(uvm_nano):
     """
     Test scenario: boot/pause/resume.
     """
-    builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = builder.build_vm_nano()
-    microvm = vm_instance.vm
+    microvm = uvm_nano
+    microvm.add_net_iface()
 
     # Pausing the microVM before being started is not allowed.
     response = microvm.vm.patch(state="Paused")
@@ -102,13 +100,11 @@ def test_pause_resume(bin_cloner_path):
     microvm.kill()
 
 
-def test_describe_instance(bin_cloner_path):
+def test_describe_instance(uvm_nano):
     """
     Test scenario: DescribeInstance different states.
     """
-    builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = builder.build_vm_nano()
-    microvm = vm_instance.vm
+    microvm = uvm_nano
     descr_inst = DescribeInstance(microvm.api_socket, microvm.api_session)
 
     # Check MicroVM state is "Not started"
@@ -145,13 +141,11 @@ def test_describe_instance(bin_cloner_path):
     microvm.kill()
 
 
-def test_pause_resume_preboot(bin_cloner_path):
+def test_pause_resume_preboot(uvm_nano):
     """
     Test pause/resume operations are not allowed pre-boot.
     """
-    builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = builder.build_vm_nano()
-    basevm = vm_instance.vm
+    basevm = uvm_nano
 
     # Try to pause microvm when not running, it must fail.
     response = basevm.vm.patch(state="Paused")

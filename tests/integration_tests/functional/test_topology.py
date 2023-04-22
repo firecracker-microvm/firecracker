@@ -45,22 +45,24 @@ def _check_cache_topology_x86(
 
     cpu_vendor = utils.get_cpu_vendor()
     if cpu_vendor == utils.CpuVendor.AMD:
+        key_share = "extra cores sharing this cache"
         expected_level_1_topology = {
             "level": "0x1 (1)",
-            "extra cores sharing this cache": expected_lvl_1_str,
+            key_share: expected_lvl_1_str,
         }
         expected_level_3_topology = {
             "level": "0x3 (3)",
-            "extra cores sharing this cache": expected_lvl_3_str,
+            key_share: expected_lvl_3_str,
         }
     elif cpu_vendor == utils.CpuVendor.INTEL:
+        key_share = "maximum IDs for CPUs sharing cache"
         expected_level_1_topology = {
             "cache level": "0x1 (1)",
-            "extra threads sharing this cache": expected_lvl_1_str,
+            key_share: expected_lvl_1_str,
         }
         expected_level_3_topology = {
             "cache level": "0x3 (3)",
-            "extra threads sharing this cache": expected_lvl_3_str,
+            key_share: expected_lvl_3_str,
         }
 
     utils.check_guest_cpuid_output(

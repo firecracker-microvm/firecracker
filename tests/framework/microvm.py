@@ -187,19 +187,20 @@ class Microvm:
         # Compose the paths to the resources specific to this microvm.
         self._path = os.path.join(resource_path, microvm_id)
         os.makedirs(self._path, exist_ok=True)
-        self.kernel_file = ""
-        self.rootfs_file = ""
-        self.initrd_file = ""
+        self.kernel_file = None
+        self.rootfs_file = None
+        self.ssh_key = None
+        self.initrd_file = None
 
         # The binaries this microvm will use to start.
         if fc_binary_path is None:
             fc_binary_path, _ = build_tools.get_firecracker_binaries()
         if jailer_binary_path is None:
             _, jailer_binary_path = build_tools.get_firecracker_binaries()
-        self._fc_binary_path = fc_binary_path
-        assert os.path.exists(self._fc_binary_path)
-        self._jailer_binary_path = jailer_binary_path
-        assert os.path.exists(self._jailer_binary_path)
+        self._fc_binary_path = str(fc_binary_path)
+        assert fc_binary_path.exists()
+        self._jailer_binary_path = str(jailer_binary_path)
+        assert jailer_binary_path.exists()
 
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
@@ -267,6 +268,9 @@ class Microvm:
 
         # MMDS content from file
         self.metadata_file = None
+
+    def __repr__(self):
+        return f"<Microvm id={self.id}>"
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
@@ -468,6 +472,7 @@ class Microvm:
         dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
         jailed_path = os.path.join("/", self.jailer.ramfs_subdir_name, filename)
         shutil.copy(src, dest_path)
+        os.chmod(dest_path, 0o600)
         cmd = "chown {}:{} {}".format(self.jailer.uid, self.jailer.gid, dest_path)
         utils.run_cmd(cmd)
         return jailed_path
@@ -497,10 +502,13 @@ class Microvm:
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
         if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
-                "firecracker"
-            ]:
-                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            for thread_name, thread_pids in utils.ProcessManager.get_threads(
+                self.jailer_clone_pid
+            ).items():
+                # the firecracker thread should start with firecracker...
+                if thread_name.startswith("firecracker"):
+                    for pid in thread_pids:
+                        utils.ProcessManager.set_cpu_affinity(pid, [cpu_id])
                 return True
         return False
 
@@ -674,6 +682,12 @@ class Microvm:
 
         The function checks the response status code and asserts that
         the response is within the interval [200, 300).
+
+        If boot_args is None, the default boot_args in Firecracker is
+            reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
+            i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
+
+        Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
         response = self.machine_cfg.put(
             vcpu_count=vcpu_count,
@@ -697,7 +711,7 @@ class Microvm:
             "boot_args": boot_args,
         }
 
-        if use_initrd and self.initrd_file != "":
+        if use_initrd and self.initrd_file is not None:
             boot_source_args.update(
                 initrd_path=self.create_jailed_resource(self.initrd_file)
             )
@@ -707,8 +721,7 @@ class Microvm:
             response.status_code
         ), response.text
 
-        if add_root_device and self.rootfs_file != "":
-            self.rootfs_file = Path(self.rootfs_file)
+        if add_root_device and self.rootfs_file is not None:
             read_only = self.rootfs_file.suffix == ".squashfs"
 
             # Add the root file system

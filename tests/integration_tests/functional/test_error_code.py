@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for Firecracker kvm exit handling."""
 
-import os
 import platform
 
 import pytest
@@ -15,7 +14,7 @@ from framework.utils import wait_process_termination
     reason="The error code returned on aarch64 will not be returned on x86 "
     "under the same conditions.",
 )
-def test_enosys_error_code(test_microvm_with_initrd):
+def test_enosys_error_code(uvm_plain, artifact_dir):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.
     """
@@ -23,19 +22,18 @@ def test_enosys_error_code(test_microvm_with_initrd):
     # maps a file into memory and then tries to load the content from an
     # offset in the file bigger than its length into a register asm volatile
     # ("ldr %0, [%1], 4" : "=r" (ret), "+r" (buf));
-    vm = test_microvm_with_initrd
+    vm = uvm_plain
     vm.jailer.daemonize = False
     vm.spawn()
     vm.memory_monitor = None
 
-    vm.initrd_file = os.path.join(vm.path, "fsfiles", "initrd_enosys.img")
+    vm.initrd_file = artifact_dir / "initrd_enosys.img"
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
         use_initrd=True,
     )
-
     vm.start()
 
     # Check if FC process is closed

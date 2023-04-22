@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.microvm import SnapshotType
 from framework.utils import check_filesystem, wait_process_termination
 from framework.utils_vsock import (
@@ -95,9 +94,7 @@ def test_5_snapshots(
         check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Check that the root device is not corrupted.
-        check_filesystem(microvm.ssh, "ext4", "/dev/vda")
-
-        logger.info("Create snapshot #%d.", i + 1)
+        check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
 
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
@@ -112,16 +109,14 @@ def test_5_snapshots(
         base_snapshot = snapshot
 
 
-def test_patch_drive_snapshot(test_microvm_with_api, microvm_factory):
+def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     """
     Test that a patched drive is correctly used by guests loaded from snapshot.
     """
     logger = logging.getLogger("snapshot_sequence")
 
     # Use a predefined vm instance.
-    basevm = test_microvm_with_api
-    basevm.spawn()
-    basevm.basic_config()
+    basevm = uvm_nano
     basevm.add_net_iface()
 
     # Add a scratch 128MB RW non-root block device.
@@ -264,28 +259,22 @@ def test_negative_postload_api(test_microvm_with_api, microvm_factory):
     else:
         assert False, "Negative test failed"
 
-    microvm.kill()
 
-
-def test_negative_snapshot_permissions(test_microvm_with_api, microvm_factory):
+def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     """
     Test missing permission error scenarios.
     """
-    logger = logging.getLogger("snapshot_negative")
-
-    basevm = test_microvm_with_api
+    basevm = uvm_plain_rw
     basevm.spawn()
-    basevm.basic_config(track_dirty_pages=True)
+    basevm.basic_config()
     basevm.add_net_iface()
     basevm.start()
-
-    logger.info("Create snapshot")
 
     # Remove write permissions.
     os.chmod(basevm.jailer.chroot_path(), 0o444)
 
     try:
-        basevm.snapshot_full()
+        snapshot = basevm.snapshot_full()
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Permission denied" in str(error)
@@ -353,14 +342,11 @@ def test_negative_snapshot_permissions(test_microvm_with_api, microvm_factory):
         assert False, "Negative test failed"
 
 
-def test_negative_snapshot_create(bin_cloner_path):
+def test_negative_snapshot_create(uvm_nano):
     """
     Test create snapshot before pause.
     """
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano()
-    vm = vm_instance.vm
-
+    vm = uvm_nano
     vm.start()
 
     response = vm.snapshot.create(

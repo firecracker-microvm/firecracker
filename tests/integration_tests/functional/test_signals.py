@@ -78,11 +78,11 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
         assert metric_line["signals"][signum_str[signum]] == 1
 
 
-def test_sigxfsz_handler(test_microvm_with_api):
+def test_sigxfsz_handler(uvm_plain_rw):
     """
     Test intercepting and handling SIGXFSZ.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain_rw
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.
