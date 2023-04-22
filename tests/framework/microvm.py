@@ -157,14 +157,12 @@ class Microvm:
 
         # Initalize memory monitor
         self.memory_monitor = None
-
-        # iface dictionary
-        self.iface = {}
-
-        # Deal with memory monitoring.
         if monitor_memory:
             self.memory_monitor = mem_tools.MemoryMonitor()
 
+        # device dictionaries
+        self.iface = {}
+        self.disks = {}
         self.vcpus_count = None
 
         # External clone/exec tool, because Python can't into clone
@@ -616,20 +614,18 @@ class Microvm:
         ), response.text
 
         if add_root_device and self.rootfs_file != "":
-            jail_fn = self.create_jailed_resource
-            if self.jailer.uses_ramfs:
-                jail_fn = self.copy_to_jail_ramfs
-            # Add the root file system with rw permissions.
-            response = self.drive.put(
+            self.rootfs_file = Path(self.rootfs_file)
+            read_only = self.rootfs_file.suffix == ".squashfs"
+
+            # Add the root file system
+            self.add_drive(
                 drive_id="rootfs",
-                path_on_host=jail_fn(self.rootfs_file),
+                path_on_host=self.rootfs_file,
                 is_root_device=True,
-                is_read_only=False,
+                is_read_only=read_only,
                 io_engine=rootfs_io_engine,
+                use_ramdisk=self.jailer.uses_ramfs,
             )
-            assert self._api_session.is_status_no_content(
-                response.status_code
-            ), response.text
 
     def cpu_config(self, config):
         """Set CPU configuration."""
@@ -669,8 +665,8 @@ class Microvm:
     def add_drive(
         self,
         drive_id,
-        file_path,
-        root_device=False,
+        path_on_host,
+        is_root_device=False,
         is_read_only=False,
         partuuid=None,
         cache_type=None,
@@ -678,20 +674,23 @@ class Microvm:
         use_ramdisk=False,
     ):
         """Add a block device."""
+
+        if use_ramdisk:
+            path_on_jail = self.copy_to_jail_ramfs(path_on_host)
+        else:
+            path_on_jail = self.create_jailed_resource(path_on_host)
+
         response = self.drive.put(
             drive_id=drive_id,
-            path_on_host=(
-                self.copy_to_jail_ramfs(file_path)
-                if use_ramdisk
-                else self.create_jailed_resource(file_path)
-            ),
-            is_root_device=root_device,
+            path_on_host=path_on_jail,
+            is_root_device=is_root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
             cache_type=cache_type,
             io_engine=io_engine,
         )
         assert self.api_session.is_status_no_content(response.status_code)
+        self.disks[drive_id] = path_on_host
 
     def patch_drive(self, drive_id, file):
         """Modify/patch an existing block device."""
@@ -700,6 +699,7 @@ class Microvm:
             path_on_host=self.create_jailed_resource(file.path),
         )
         assert self.api_session.is_status_no_content(response.status_code)
+        self.disks[drive_id] = Path(file.path)
 
     def add_net_iface(self, iface=None, api=True, **kwargs):
         """Add a network interface"""

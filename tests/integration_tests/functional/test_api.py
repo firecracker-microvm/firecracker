@@ -15,7 +15,7 @@ import pytest
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
-from framework.artifacts import SnapshotType, NetIfaceConfig
+from framework.artifacts import NetIfaceConfig, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import skip_on_arm
@@ -793,16 +793,14 @@ def test_drive_patch(test_microvm_with_api):
     # a root file system with the rw permission.
     test_microvm.basic_config(rootfs_io_engine="Sync")
 
-    # The drive to be patched.
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    response = test_microvm.drive.put(
+    test_microvm.add_drive(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        path_on_host=fs.path,
         is_root_device=False,
         is_read_only=False,
         io_engine="Async" if is_io_uring_supported() else "Sync",
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Patching drive before boot is not allowed.
     response = test_microvm.drive.patch(drive_id="scratch", path_on_host="foo.bar")

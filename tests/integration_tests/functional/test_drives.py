@@ -191,7 +191,7 @@ def test_partuuid_boot(test_microvm_with_partuuid):
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
-        root_device=True,
+        is_root_device=True,
         partuuid=PARTUUID[platform.machine()],
     )
 
@@ -219,14 +219,14 @@ def test_partuuid_update(test_microvm_with_api):
 
     # Add the root block device specified through PARTUUID.
     test_microvm.add_drive(
-        "rootfs", test_microvm.rootfs_file, root_device=True, partuuid="0eaa91a0-01"
+        "rootfs", test_microvm.rootfs_file, is_root_device=True, partuuid="0eaa91a0-01"
     )
 
     # Update the root block device to boot from /dev/vda.
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
-        root_device=True,
+        is_root_device=True,
     )
 
     test_microvm.start()
@@ -289,7 +289,7 @@ def test_no_flush(test_microvm_with_api):
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
-        root_device=True,
+        is_root_device=True,
     )
 
     # Configure the metrics.
@@ -331,7 +331,7 @@ def test_flush(test_microvm_with_api):
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
-        root_device=True,
+        is_root_device=True,
         cache_type="Writeback",
     )
 
@@ -369,7 +369,7 @@ def test_block_default_cache_old_version(test_microvm_with_api):
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
-        root_device=True,
+        is_root_device=True,
         cache_type="Writeback",
     )
 
