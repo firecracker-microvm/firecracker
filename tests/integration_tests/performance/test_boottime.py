@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
+# pylint:disable=redefined-outer-name
+
 import re
 import time
 
@@ -15,11 +17,30 @@ MAX_BOOT_TIME_US = 150000
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
+DEFAULT_BOOT_ARGS = (
+    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0"
+    " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+)
+
+
 DIMENSIONS = {
     "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
     "host_kernel": "linux-" + global_props.host_linux_version,
 }
+
+
+@pytest.fixture
+def fast_microvm(microvm_factory, guest_kernel_linux_4_14, rootfs_rw):
+    """The microvm defined for the boottime SLA
+
+    Guest kernel 4.14
+    Rootfs: Ubuntu 22.04 ext4
+
+    Using ext4 seems to result in a faster boot than with squashfs. Probably
+    because we have to spend CPU time decompressing and extracting into memory.
+    """
+    return microvm_factory.build(kernel=guest_kernel_linux_4_14, rootfs=rootfs_rw)
 
 
 def test_no_boottime(test_microvm_with_api):
@@ -39,11 +60,12 @@ def test_no_boottime(test_microvm_with_api):
     global_props.host_linux_version == "6.1",
     reason="perf regression under investigation",
 )
-def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
+def test_boottime_no_network(fast_microvm, record_property, metrics):
     """
     Check boot time of microVM without a network device.
     """
-    vm = test_microvm_with_api
+
+    vm = fast_microvm
     vm.jailer.extra_args.update({"boot-timer": None})
     _configure_and_run_vm(vm)
     boottime_us = _get_microvm_boottime(vm)
@@ -61,11 +83,9 @@ def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     global_props.host_linux_version == "6.1",
     reason="perf regression under investigation",
 )
-def test_boottime_with_network(test_microvm_with_api, record_property, metrics):
-    """
-    Check boot time of microVM with a network device.
-    """
-    vm = test_microvm_with_api
+def test_boottime_with_network(fast_microvm, record_property, metrics):
+    """Check boot time of microVM with a network device."""
+    vm = fast_microvm
     vm.jailer.extra_args.update({"boot-timer": None})
     _configure_and_run_vm(vm, network=True)
     boottime_us = _get_microvm_boottime(vm)
@@ -115,8 +135,11 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
     microvm.spawn()
 
     # Machine configuration specified in the SLA.
-    config = {"vcpu_count": 1, "mem_size_mib": 128}
-
+    config = {
+        "vcpu_count": 1,
+        "mem_size_mib": 128,
+        "boot_args": DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+    }
     if initrd:
         config["add_root_device"] = False
         config["use_initrd"] = True

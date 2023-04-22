@@ -3,6 +3,7 @@
 """Performance benchmark for snapshot restore."""
 
 import json
+import os
 import tempfile
 from functools import lru_cache
 
@@ -10,6 +11,7 @@ import pytest
 
 import framework.stats as st
 import host_tools.drive as drive_tools
+import host_tools.logging as log_tools
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version
@@ -92,7 +94,7 @@ def get_snap_restore_latency(
     scratch_drives = get_scratch_drives()
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(use_ramdisk=True, log_level="Info")
+    vm.spawn(log_level="Info")
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=mem_size,
@@ -104,7 +106,7 @@ def get_snap_restore_latency(
 
     if blocks > 1:
         for name, diskfile in scratch_drives[: (blocks - 1)]:
-            vm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
+            vm.add_drive(name, diskfile.path, io_engine="Sync")
 
     if all_devices:
         response = vm.balloon.put(
@@ -122,7 +124,9 @@ def get_snap_restore_latency(
     values = []
     for _ in range(iterations):
         microvm = microvm_factory.build()
-        microvm.spawn()
+        metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
+        metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+        microvm.spawn(metrics_path=metrics_fifo_path)
         microvm.restore_from_snapshot(snapshot, resume=True)
         # Check if guest still runs commands.
         exit_code, _, _ = microvm.ssh.execute_command("dmesg")
@@ -130,7 +134,7 @@ def get_snap_restore_latency(
 
         value = 0
         # Parse all metric data points in search of load_snapshot time.
-        metrics = microvm.get_all_metrics()
+        metrics = microvm.get_all_metrics(metrics_fifo)
         for data_point in metrics:
             metrics = json.loads(data_point)
             cur_value = metrics["latencies_us"]["load_snapshot"]
@@ -173,7 +177,7 @@ def test_snapshot_scaling(microvm_factory, rootfs, guest_kernel, st_core, mem, v
 
     # The guest kernel does not "participate" in snapshot restore, so just pick some
     # arbitrary one
-    if "4.14" not in guest_kernel.name():
+    if "4.14" not in guest_kernel.name:
         pytest.skip()
 
     guest_config = f"{vcpus}vcpu_{mem}mb"
@@ -201,7 +205,7 @@ def test_snapshot_all_devices(microvm_factory, rootfs, guest_kernel, st_core):
 
     # The guest kernel does not "participate" in snapshot restore, so just pick some
     # arbitrary one
-    if "4.14" not in guest_kernel.name():
+    if "4.14" not in guest_kernel.name:
         pytest.skip()
 
     guest_config = "all_dev"

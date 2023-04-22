@@ -2,15 +2,53 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
+# pylint:disable=redefined-outer-name
+
 import os
-import platform
+from subprocess import check_output
+
+import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 from framework import utils
 
-PARTUUID = {"x86_64": "f647d602-01", "aarch64": "69d7c052-01"}
 MB = 1024 * 1024
+
+
+@pytest.fixture
+def uvm_with_partuuid(uvm_plain, record_property, rootfs_ubuntu_22, tmp_path):
+    """uvm_plain with a partuuid rootfs
+
+    We build the disk image here so we don't need a separate artifact for it.
+    """
+    disk_img = tmp_path / "disk.img"
+    initial_size = rootfs_ubuntu_22.stat().st_size + 50 * 2**20
+    disk_img.touch()
+    os.truncate(disk_img, initial_size)
+    check_output(f"echo type=83 | sfdisk {str(disk_img)}", shell=True)
+    stdout = check_output(
+        f"losetup --find --partscan --show {str(disk_img)}", shell=True
+    )
+    loop_dev = stdout.decode("ascii").strip()
+    check_output(f"dd if={str(rootfs_ubuntu_22)} of={loop_dev}p1", shell=True)
+
+    # UUID=$(sudo blkid -s UUID -o value "${loop_dev}p1")
+    stdout = check_output(f"blkid -s PARTUUID -o value {loop_dev}p1", shell=True)
+    partuuid = stdout.decode("ascii").strip()
+
+    # cleanup: release loop device
+    check_output(f"losetup -d {loop_dev}", shell=True)
+
+    record_property("rootfs", rootfs_ubuntu_22.name)
+    uvm_plain.spawn()
+    uvm_plain.rootfs_file = disk_img
+    uvm_plain.ssh_key = rootfs_ubuntu_22.with_suffix(".id_rsa")
+    uvm_plain.partuuid = partuuid
+    uvm_plain.basic_config(add_root_device=False)
+    uvm_plain.add_net_iface()
+    yield uvm_plain
+    disk_img.unlink()
 
 
 def test_rescan_file(test_microvm_with_api):
@@ -39,7 +77,7 @@ def test_rescan_file(test_microvm_with_api):
     # or errors out, after a truncate on the host.
     truncated_size = block_size // 2
     utils.run_cmd(f"truncate --size {truncated_size}M {fs.path}")
-    block_copy_name = "dev_vdb_copy"
+    block_copy_name = "/tmp/dev_vdb_copy"
     _, _, stderr = test_microvm.ssh.execute_command(
         f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}"
     )
@@ -167,38 +205,31 @@ def test_non_partuuid_boot(test_microvm_with_api):
     # Keep an array of strings specifying the location where some string
     # from the output is located.
     # 1-0 means line 1, column 0.
-    keys_array = ["1-0", "1-8", "2-0"]
+    keys_array = ["1-0", "1-6", "2-0"]
     # Keep a dictionary where the keys are the location and the values
     # represent the input to assert against.
-    assert_dict[keys_array[0]] = "rw"
+    assert_dict[keys_array[0]] = "ro"
     assert_dict[keys_array[1]] = "/dev/vda"
     assert_dict[keys_array[2]] = "ro"
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_boot(test_microvm_with_partuuid):
+def test_partuuid_boot(uvm_with_partuuid):
     """
     Test the output reported by blockdev when booting with PARTUUID.
     """
-    test_microvm = test_microvm_with_partuuid
-    test_microvm.spawn()
-
-    # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system.
-    test_microvm.basic_config(vcpu_count=1, add_root_device=False)
-    test_microvm.add_net_iface()
-
+    test_microvm = uvm_with_partuuid
     # Add the root block device specified through PARTUUID.
     test_microvm.add_drive(
         "rootfs",
         test_microvm.rootfs_file,
         is_root_device=True,
-        partuuid=PARTUUID[platform.machine()],
+        partuuid=test_microvm.partuuid,
     )
-
     test_microvm.start()
 
     assert_dict = {}
-    keys_array = ["1-0", "1-8", "2-0", "2-7"]
+    keys_array = ["1-0", "1-6", "2-0", "2-6"]
     assert_dict[keys_array[0]] = "rw"
     assert_dict[keys_array[1]] = "/dev/vda"
     assert_dict[keys_array[2]] = "rw"
@@ -233,7 +264,7 @@ def test_partuuid_update(test_microvm_with_api):
 
     # Assert that the final booting method is from /dev/vda.
     assert_dict = {}
-    keys_array = ["1-0", "1-8"]
+    keys_array = ["1-0", "1-6"]
     assert_dict[keys_array[0]] = "rw"
     assert_dict[keys_array[1]] = "/dev/vda"
     _check_drives(test_microvm, assert_dict, keys_array)
@@ -317,13 +348,12 @@ def test_no_flush(test_microvm_with_api):
     assert fc_metrics["block"]["flush_count"] == 0
 
 
-def test_flush(test_microvm_with_api):
+def test_flush(uvm_plain_rw):
     """
     Verify block with flush actually flushes.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_rw
     test_microvm.spawn()
-
     test_microvm.basic_config(vcpu_count=1, add_root_device=False)
     test_microvm.add_net_iface()
 
@@ -376,8 +406,7 @@ def test_block_default_cache_old_version(test_microvm_with_api):
     test_microvm.start()
 
     # Pause the VM to create the snapshot.
-    response = test_microvm.vm.patch(state="Paused")
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.pause()
 
     # Create the snapshot for a version without block cache type.
     response = test_microvm.snapshot.create(
@@ -503,8 +532,8 @@ def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
     for key in keys_array:
         line = int(key.split("-")[0])
         col = int(key.split("-")[1])
-        blockdev_out_line = blockdev_out_lines[line]
-        assert blockdev_out_line.split("   ")[col] == assert_dict[key]
+        blockdev_out_line_cols = blockdev_out_lines[line].split()
+        assert blockdev_out_line_cols[col] == assert_dict[key]
 
 
 def _check_drives(test_microvm, assert_dict, keys_array):

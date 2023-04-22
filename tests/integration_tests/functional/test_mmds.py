@@ -12,10 +12,7 @@ import time
 import pytest
 
 import host_tools.logging as log_tools
-from framework.artifacts import NetIfaceConfig
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import (
-    compare_versions,
     configure_mmds,
     generate_mmds_get_request,
     generate_mmds_session_token,
@@ -34,52 +31,38 @@ MMDS_VERSIONS = ["V2", "V1"]
 
 
 def _validate_mmds_snapshot(
-    vm_instance,
-    vm_builder,
+    basevm,
+    microvm_factory,
     version,
-    iface_cfg,
     target_fc_version=None,
-    fc_path=None,
-    jailer_path=None,
+    fc_binary_path=None,
+    jailer_binary_path=None,
 ):
     """Test MMDS behaviour across snap-restore."""
-    basevm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    disks = [root_disk.local_path()]
-    ssh_key = vm_instance.ssh_key
     ipv4_address = "169.254.169.250"
 
     # Configure MMDS version with custom IPv4 address.
     configure_mmds(
         basevm,
         version=version,
-        iface_ids=[iface_cfg.dev_name],
+        iface_ids=["eth0"],
         ipv4_address=ipv4_address,
         fc_version=target_fc_version,
     )
 
-    # Check if the FC version supports the latest format for mmds-config.
-    # If target_fc_version is None, we assume the current version is used.
-    if target_fc_version is None or (
-        target_fc_version is not None
-        and compare_versions(target_fc_version, "1.0.0") >= 0
-    ):
-        expected_mmds_config = {
-            "version": version,
-            "ipv4_address": ipv4_address,
-            "network_interfaces": [iface_cfg.dev_name],
-        }
-        response = basevm.full_cfg.get()
-        assert basevm.api_session.is_status_ok(response.status_code)
-        assert response.json()["mmds-config"] == expected_mmds_config
+    expected_mmds_config = {
+        "version": version,
+        "ipv4_address": ipv4_address,
+        "network_interfaces": ["eth0"],
+    }
+    response = basevm.full_cfg.get()
+    assert basevm.api_session.is_status_ok(response.status_code)
+    assert response.json()["mmds-config"] == expected_mmds_config
 
     data_store = {"latest": {"meta-data": {"ami-id": "ami-12345678"}}}
     populate_data_store(basevm, data_store)
 
     basevm.start()
-
-    snapshot_builder = SnapshotBuilder(basevm)
-
     ssh_connection = basevm.ssh
     run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
@@ -96,13 +79,10 @@ def _validate_mmds_snapshot(
     run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
 
     # Create snapshot.
-    snapshot = snapshot_builder.create(
-        disks, ssh_key, SnapshotType.FULL, target_version=target_fc_version
-    )
+    snapshot = basevm.snapshot_full(target_version=target_fc_version)
 
     # Resume microVM and ensure session token is still valid on the base.
-    response = basevm.vm.patch(state="Resumed")
-    assert basevm.api_session.is_status_no_content(response.status_code)
+    response = basevm.resume()
 
     # Fetch metadata again using the same token.
     run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
@@ -111,21 +91,19 @@ def _validate_mmds_snapshot(
     basevm.kill()
 
     # Load microVM clone from snapshot.
-    microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=True, fc_binary=fc_path, jailer_binary=jailer_path
+    microvm = microvm_factory.build(
+        fc_binary_path=fc_binary_path, jailer_binary_path=jailer_binary_path
     )
+    microvm.spawn()
+    microvm.restore_from_snapshot(snapshot)
+    microvm.resume()
 
     ssh_connection = microvm.ssh
 
-    # Check the reported mmds config. In versions up to (including) v1.0.0 this
-    # was not populated after restore.
-    if (
-        target_fc_version is not None
-        and compare_versions("1.0.0", target_fc_version) < 0
-    ):
-        response = microvm.full_cfg.get()
-        assert microvm.api_session.is_status_ok(response.status_code)
-        assert response.json()["mmds-config"] == expected_mmds_config
+    # Check the reported MMDS config.
+    response = microvm.full_cfg.get()
+    assert microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()["mmds-config"] == expected_mmds_config
 
     if version == "V1":
         # Verify that V2 requests don't work
@@ -633,58 +611,50 @@ def test_mmds_limit_scenario(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_snapshot(bin_cloner_path, version, firecracker_release):
+def test_mmds_snapshot(uvm_nano, microvm_factory, version, firecracker_release):
     """
-    Test MMDS behavior by restoring a snapshot on current and past FC versions.
+    Test MMDS behavior by restoring a snapshot on current FC versions.
 
     Ensures that the version is persisted or initialised with the default if
     the firecracker version does not support it.
     """
 
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    iface_cfg = NetIfaceConfig()
-    vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
-    target_version = firecracker_release.snapshot_version
-
-    # Validate current version.
-    _validate_mmds_snapshot(vm_instance, vm_builder, version, iface_cfg)
-
-    iface_cfg = NetIfaceConfig()
-    vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])
-    jailer = firecracker_release.jailer()
-
+    uvm_nano.add_net_iface()
     _validate_mmds_snapshot(
-        vm_instance,
-        vm_builder,
+        uvm_nano,
+        microvm_factory,
         version,
-        iface_cfg,
-        target_fc_version=target_version,
-        fc_path=firecracker_release.local_path(),
-        jailer_path=jailer.local_path(),
+        target_fc_version=firecracker_release.snapshot_version,
+        fc_binary_path=firecracker_release.path,
+        jailer_binary_path=firecracker_release.jailer,
     )
 
 
-def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
+def test_mmds_older_snapshot(
+    microvm_factory, guest_kernel, rootfs, firecracker_release
+):
     """
     Test MMDS behavior restoring older snapshots in the current version.
 
     Ensures that the MMDS version is persisted or initialised with the default
     if the FC version does not support this feature.
     """
-    net_iface = NetIfaceConfig()
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano(
-        net_ifaces=[net_iface],
-        fc_binary=firecracker_release.local_path(),
-        jailer_binary=firecracker_release.jailer().local_path(),
+
+    microvm = microvm_factory.build(
+        guest_kernel,
+        rootfs,
+        fc_binary_path=firecracker_release.path,
+        jailer_binary_path=firecracker_release.jailer,
     )
+    microvm.spawn()
+    microvm.basic_config()
+    microvm.add_net_iface()
 
     mmds_version = "V2"
     _validate_mmds_snapshot(
-        vm_instance,
-        vm_builder,
+        microvm,
+        microvm_factory,
         mmds_version,
-        net_iface,
         target_fc_version=firecracker_release.snapshot_version,
     )
 
