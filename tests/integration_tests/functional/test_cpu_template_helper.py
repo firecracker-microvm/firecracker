@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from framework import defs, utils
+from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import skip_on_arm
@@ -16,9 +16,7 @@ from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
 
 PLATFORM = platform.machine()
-TEST_RESOURCES_DIR = Path(
-    f"{defs.FC_WORKSPACE_DIR}/resources/tests/cpu_template_helper/"
-)
+TEST_RESOURCES_DIR = Path("./data/cpu_template_helper")
 
 
 class CpuTemplateHelper:
@@ -326,9 +324,9 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
     cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
 
     # Baseline fingerprint.
-    baseline_path = Path(
-        f"{TEST_RESOURCES_DIR}/"
-        f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+    baseline_path = (
+        TEST_RESOURCES_DIR
+        / f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
     )
     # Use this code to generate baseline fingerprint.
     # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
@@ -343,7 +341,7 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
 
 @pytest.mark.no_block_pr
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
+    global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_helper):
