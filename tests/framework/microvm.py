@@ -1,5 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 """Classes for working with microVMs.
 
 This module defines `Microvm`, which can be used to create, test drive, and
@@ -7,6 +8,8 @@ destroy microvms.
 
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
+
+# pylint:disable=too-many-lines
 
 import json
 import logging
@@ -18,6 +21,8 @@ import time
 import uuid
 import weakref
 from collections import namedtuple
+from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
@@ -59,6 +64,96 @@ LOG = logging.getLogger("microvm")
 data_lock = Lock()
 
 
+class SnapshotType(Enum):
+    """Supported snapshot types."""
+
+    FULL = "FULL"
+    DIFF = "DIFF"
+
+    def __repr__(self):
+        cls_name = self.__class__.__name__
+        return f"{cls_name}.{self.name}"
+
+
+def hardlink_or_copy(src, dst):
+    """If src and dst are in the same device, hardlink. Otherwise, copy."""
+    dst.touch(exist_ok=False)
+    if dst.stat().st_dev == src.stat().st_dev:
+        dst.unlink()
+        dst.hardlink_to(src)
+    else:
+        shutil.copyfile(src, dst)
+
+
+@dataclass(frozen=True, repr=True)
+class Snapshot:
+    """A Firecracker snapshot"""
+
+    vmstate: Path
+    mem: Path
+    net_ifaces: list
+    disks: dict
+    ssh_key: Path
+    snapshot_type: str
+
+    @property
+    def is_diff(self) -> bool:
+        """Is this a DIFF snapshot?"""
+        return self.snapshot_type == SnapshotType.DIFF
+
+    def rebase_snapshot(self, base):
+        """Rebases current incremental snapshot onto a specified base layer."""
+        if not self.is_diff:
+            raise ValueError("Can only rebase DIFF snapshots")
+        build_tools.run_rebase_snap_bin(base.mem, self.mem)
+        new_args = self.__dict__ | {"mem": base.mem}
+        return Snapshot(**new_args)
+
+    @classmethod
+    # TBD when Python 3.11: -> Self
+    def load_from(cls, src: Path) -> "Snapshot":
+        """Load a snapshot saved with `save_to`"""
+        snap_json = src / "snapshot.json"
+        obj = json.loads(snap_json.read_text())
+        return cls(
+            vmstate=src / obj["vmstate"],
+            mem=src / obj["mem"],
+            net_ifaces=[NetIfaceConfig(**d) for d in obj["net_ifaces"]],
+            disks={dsk: src / p for dsk, p in obj["disks"].items()},
+            ssh_key=src / obj["ssh_key"],
+            snapshot_type=obj["snapshot_type"],
+        )
+
+    def save_to(self, dst: Path):
+        """Serialize snapshot details to `dst`
+
+        Deserialize the snapshot with `load_from`
+        """
+        for path in [self.vmstate, self.mem, self.ssh_key]:
+            new_path = dst / path.name
+            hardlink_or_copy(path, new_path)
+        new_disks = {}
+        for disk_id, path in self.disks.items():
+            new_path = dst / path.name
+            hardlink_or_copy(path, new_path)
+            new_disks[disk_id] = new_path.name
+        obj = {
+            "vmstate": self.vmstate.name,
+            "mem": self.mem.name,
+            "net_ifaces": [x.__dict__ for x in self.net_ifaces],
+            "disks": new_disks,
+            "ssh_key": self.ssh_key.name,
+            "snapshot_type": self.snapshot_type,
+        }
+        snap_json = dst / "snapshot.json"
+        snap_json.write_text(json.dumps(obj))
+
+    def delete(self):
+        """Delete the backing files from disk."""
+        self.mem.unlink()
+        self.vmstate.unlink()
+
+
 # pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
@@ -82,7 +177,6 @@ class Microvm:
         monitor_memory=True,
         bin_cloner_path=None,
     ):
-        # pylint: disable=too-many-statements
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
@@ -750,23 +844,33 @@ class Microvm:
             except KeyError:
                 assert self.started is True
 
+    def pause(self):
+        """Pauses the microVM"""
+        response = self.vm.patch(state="Paused")
+        assert self.api_session.is_status_no_content(response.status_code)
+
+    def resume(self):
+        """Resume the microVM"""
+        response = self.vm.patch(state="Resumed")
+        assert self.api_session.is_status_no_content(response.status_code)
+
     def pause_to_snapshot(
-        self, mem_file_path=None, snapshot_path=None, diff=False, version=None
+        self,
+        mem_file_path,
+        snapshot_path,
+        diff=False,
+        version=None,
     ):
         """Pauses the microVM, and creates snapshot.
 
         This function validates that the microVM pauses successfully and
         creates a snapshot.
         """
-        assert mem_file_path is not None, "Please specify mem_file_path."
-        assert snapshot_path is not None, "Please specify snapshot_path."
-
-        response = self.vm.patch(state="Paused")
-        assert self.api_session.is_status_no_content(response.status_code)
+        self.pause()
 
         response = self.snapshot.create(
-            mem_file_path=mem_file_path,
-            snapshot_path=snapshot_path,
+            mem_file_path=str(mem_file_path),
+            snapshot_path=str(snapshot_path),
             diff=diff,
             version=version,
         )
@@ -774,35 +878,79 @@ class Microvm:
             response.status_code
         ), response.text
 
+    def make_snapshot(self, snapshot_type: str, target_version: str = None):
+        """Create a Snapshot object from a microvm."""
+        vmstate_path = "vmstate"
+        mem_path = "mem"
+        self.pause_to_snapshot(
+            mem_file_path=mem_path,
+            snapshot_path=vmstate_path,
+            diff=snapshot_type == "DIFF",
+            version=target_version,
+        )
+        root = Path(self.chroot())
+        return Snapshot(
+            vmstate=root / vmstate_path,
+            mem=root / mem_path,
+            disks=self.disks,
+            net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
+            ssh_key=self.ssh_key,
+            snapshot_type=snapshot_type,
+        )
+
+    def snapshot_diff(self, target_version: str = None):
+        """Make a DIFF snapshot"""
+        return self.make_snapshot("DIFF", target_version)
+
+    def snapshot_full(self, target_version: str = None):
+        """Make a FULL snapshot"""
+        return self.make_snapshot("FULL", target_version)
+
     def restore_from_snapshot(
         self,
-        *,
-        snapshot_mem: Path,
-        snapshot_vmstate: Path,
-        snapshot_disks: list[Path],
-        snapshot_is_diff: bool = False,
+        snapshot: Snapshot,
+        resume: bool = False,
+        uffd_path: Path = None,
     ):
-        """
-        Restores a snapshot, and resumes the microvm
-        """
+        """Restore a snapshot"""
+        # Move all the snapshot files into the microvm jail.
+        # Use different names so a snapshot doesn't overwrite our original snapshot.
+        chroot = Path(self.chroot())
+        mem_src = chroot / snapshot.mem.with_suffix(".src").name
+        hardlink_or_copy(snapshot.mem, mem_src)
+        vmstate_src = chroot / snapshot.vmstate.with_suffix(".src").name
+        hardlink_or_copy(snapshot.vmstate, vmstate_src)
+        jailed_mem = Path("/") / mem_src.name
+        jailed_vmstate = Path("/") / vmstate_src.name
 
-        # Hardlink all the snapshot files into the microvm jail.
-        jailed_mem = self.create_jailed_resource(snapshot_mem)
-        jailed_vmstate = self.create_jailed_resource(snapshot_vmstate)
-
+        snapshot_disks = [v for k, v in snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
             jailed_disks.append(self.create_jailed_resource(disk))
+        self.disks = snapshot.disks
+        self.ssh_key = snapshot.ssh_key
+
+        # Create network interfaces.
+        for iface in snapshot.net_ifaces:
+            self.add_net_iface(iface, api=False)
+
+        mem_backend = {"type": "File", "path": str(jailed_mem)}
+        if uffd_path is not None:
+            mem_backend = {"type": "Uffd", "path": str(uffd_path)}
 
         response = self.snapshot.load(
-            mem_file_path=jailed_mem,
-            snapshot_path=jailed_vmstate,
-            diff=snapshot_is_diff,
-            resume=True,
+            mem_backend=mem_backend,
+            snapshot_path=str(jailed_vmstate),
+            diff=snapshot.is_diff,
+            resume=resume,
         )
         assert response.ok, response.content
         return True
+
+    def restore_from_path(self, snap_dir: Path, **kwargs):
+        """Restore snapshot from a path"""
+        return self.restore_from_snapshot(Snapshot.load_from(snap_dir), **kwargs)
 
     @lru_cache
     def ssh_iface(self, iface_idx=0):

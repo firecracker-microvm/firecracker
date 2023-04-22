@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.builder import MicrovmBuilder, SnapshotBuilder
+from framework.microvm import SnapshotType
 from framework.utils import check_filesystem, wait_process_termination
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -40,7 +41,6 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
 # TODO: Multiple microvm sizes must be tested in the async pipeline.
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
 def test_5_snapshots(
-    bin_cloner_path,
     bin_vsock_path,
     tmp_path,
     microvm_factory,
@@ -52,7 +52,6 @@ def test_5_snapshots(
     Create and load 5 snapshots.
     """
     logger = logging.getLogger("snapshot_sequence")
-    vm_builder = MicrovmBuilder(bin_cloner_path)
     seq_len = 5
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
@@ -63,7 +62,7 @@ def test_5_snapshots(
         mem_size_mib=512,
         track_dirty_pages=diff_snapshots,
     )
-    iface = vm.add_net_iface()
+    vm.add_net_iface()
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
     # Verify if guest can run commands.
@@ -77,23 +76,15 @@ def test_5_snapshots(
     _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     logger.info("Create %s #0.", snapshot_type)
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(vm)
-
-    # Create base snapshot.
-    ssh_key = rootfs.ssh_key()
-    disks = [vm.rootfs_file]
-    snapshot = snapshot_builder.create(
-        disks, ssh_key, snapshot_type, net_ifaces=[iface]
-    )
+    # Create a snapshot from a microvm.
+    snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
-    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
-        microvm, _ = vm_builder.build_from_snapshot(
-            snapshot, resume=True, diff_snapshots=diff_snapshots
-        )
+        microvm = microvm_factory.build()
+        microvm.spawn()
+        microvm.restore_from_snapshot(snapshot, resume=True)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -108,44 +99,36 @@ def test_5_snapshots(
 
         logger.info("Create snapshot #%d.", i + 1)
 
-        # Create a snapshot builder from the currently running microvm.
-        snapshot_builder = SnapshotBuilder(microvm)
-        snapshot = snapshot_builder.create(
-            disks, ssh_key, snapshot_type, net_ifaces=[iface]
-        )
-        microvm.kill()
+        logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
+        snapshot = microvm.make_snapshot(snapshot_type)
 
         # If we are testing incremental snapshots we must merge the base with
         # current layer.
-        if snapshot_type == SnapshotType.DIFF:
+        if snapshot.is_diff:
             logger.info("Base: %s, Layer: %s", base_snapshot.mem, snapshot.mem)
-            snapshot.rebase_snapshot(base_snapshot)
-            # Update the base for next iteration.
-            base_snapshot = snapshot
+            snapshot = snapshot.rebase_snapshot(base_snapshot)
+
+        # Update the base for next iteration.
+        base_snapshot = snapshot
 
 
-def test_patch_drive_snapshot(bin_cloner_path):
+def test_patch_drive_snapshot(test_microvm_with_api, microvm_factory):
     """
     Test that a patched drive is correctly used by guests loaded from snapshot.
     """
     logger = logging.getLogger("snapshot_sequence")
 
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    snapshot_type = SnapshotType.FULL
-    diff_snapshots = False
-
     # Use a predefined vm instance.
-    vm_instance = vm_builder.build_vm_nano()
-    basevm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
+    basevm = test_microvm_with_api
+    basevm.spawn()
+    basevm.basic_config()
+    basevm.add_net_iface()
 
     # Add a scratch 128MB RW non-root block device.
     root = Path(basevm.path)
     scratch_path1 = str(root / "scratch1")
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
     basevm.add_drive("scratch", scratch_disk1.path)
-
     basevm.start()
     # Verify if guest can run commands.
     exit_code, _, _ = basevm.ssh.run("sync")
@@ -158,27 +141,19 @@ def test_patch_drive_snapshot(bin_cloner_path):
     scratch_disk2 = drive_tools.FilesystemFile(scratch_path2, new_file_size_mb)
     basevm.patch_drive("scratch", scratch_disk2)
 
-    logger.info("Create %s #0.", snapshot_type)
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
-    disks = [root_disk.local_path(), scratch_disk2.path]
     # Create base snapshot.
-    snapshot = snapshot_builder.create(disks, ssh_key, snapshot_type)
-
-    basevm.kill()
+    logger.info("Create FULL snapshot #0.")
+    snapshot = basevm.snapshot_full()
 
     # Load snapshot in a new Firecracker microVM.
     logger.info("Load snapshot, mem %s", snapshot.mem)
-    microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=True, diff_snapshots=diff_snapshots
-    )
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True)
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
-    guest_drive_size = _get_guest_drive_size(microvm.ssh)
+    guest_drive_size = _get_guest_drive_size(vm.ssh)
     assert guest_drive_size == str(scratch_disk2.size())
-
-    microvm.kill()
 
 
 def test_load_snapshot_failure_handling(test_microvm_with_api):
@@ -220,9 +195,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     wait_process_termination(vm.jailer_clone_pid)
 
 
-def test_cmp_full_and_first_diff_mem(
-    microvm_factory, guest_kernel, rootfs
-):
+def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     """
     Compare memory of 2 consecutive full and diff snapshots.
 
@@ -247,63 +220,40 @@ def test_cmp_full_and_first_diff_mem(
     exit_code, _, _ = vm.ssh.execute_command("sync")
     assert exit_code == 0
 
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(vm)
-
     logger.info("Create full snapshot.")
-    ssh_key = rootfs.ssh_key()
     # Create full snapshot.
-    full_snapshot = snapshot_builder.create(
-        [rootfs.local_path()], ssh_key, SnapshotType.FULL
-    )
+    full_snapshot = vm.snapshot_full()
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
-    diff_snapshot = snapshot_builder.create(
-        [rootfs.local_path()],
-        ssh_key,
-        SnapshotType.DIFF,
-        mem_file_name="diff_vm.mem",
-        snapshot_name="diff_vm.vmstate",
-    )
+    diff_snapshot = vm.snapshot_diff()
+
     assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
 
 
-def test_negative_postload_api(bin_cloner_path):
+def test_negative_postload_api(test_microvm_with_api, microvm_factory):
     """
     Test APIs fail after loading from snapshot.
     """
-    logger = logging.getLogger("snapshot_api_fail")
-
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano(diff_snapshots=True)
-    basevm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
-
+    basevm = test_microvm_with_api
+    basevm.spawn()
+    basevm.basic_config(track_dirty_pages=True)
+    basevm.add_net_iface()
     basevm.start()
     # Verify if guest can run commands.
     exit_code, _, _ = basevm.ssh.run("sync")
     assert exit_code == 0
 
-    logger.info("Create snapshot")
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
     # Create base snapshot.
-    snapshot = snapshot_builder.create(
-        [root_disk.local_path()], ssh_key, SnapshotType.DIFF
-    )
-
+    snapshot = basevm.snapshot_diff()
     basevm.kill()
 
-    logger.info("Load snapshot, mem %s", snapshot.mem)
     # Do not resume, just load, so we can still call APIs that work.
-    microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=False, diff_snapshots=True
-    )
-    fail_msg = "The requested operation is not supported after starting " "the microVM"
+    microvm = microvm_factory.build()
+    microvm.spawn()
+    microvm.restore_from_snapshot(snapshot)
 
+    fail_msg = "The requested operation is not supported after starting the microVM"
     response = microvm.actions.put(action_type="InstanceStart")
     assert fail_msg in response.text
 
@@ -317,32 +267,25 @@ def test_negative_postload_api(bin_cloner_path):
     microvm.kill()
 
 
-def test_negative_snapshot_permissions(bin_cloner_path):
+def test_negative_snapshot_permissions(test_microvm_with_api, microvm_factory):
     """
     Test missing permission error scenarios.
     """
     logger = logging.getLogger("snapshot_negative")
-    vm_builder = MicrovmBuilder(bin_cloner_path)
 
-    # Use a predefined vm instance.
-    vm_instance = vm_builder.build_vm_nano()
-    basevm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
-
+    basevm = test_microvm_with_api
+    basevm.spawn()
+    basevm.basic_config(track_dirty_pages=True)
+    basevm.add_net_iface()
     basevm.start()
 
     logger.info("Create snapshot")
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
-    disks = [root_disk.local_path()]
 
     # Remove write permissions.
     os.chmod(basevm.jailer.chroot_path(), 0o444)
 
     try:
-        _ = snapshot_builder.create(disks, ssh_key, SnapshotType.FULL)
+        basevm.snapshot_full()
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Permission denied" in str(error)
@@ -353,19 +296,17 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     os.chmod(basevm.jailer.chroot_path(), 0o744)
 
     # Create base snapshot.
-    snapshot = snapshot_builder.create(disks, ssh_key, SnapshotType.FULL)
-
-    logger.info("Load snapshot, mem %s", snapshot.mem)
-
+    snapshot = basevm.snapshot_full()
     basevm.kill()
 
     # Remove permissions for mem file.
     os.chmod(snapshot.mem, 0o000)
 
+    microvm = microvm_factory.build()
+    microvm.spawn()
+
     try:
-        _, _ = vm_builder.build_from_snapshot(
-            snapshot, resume=True, diff_snapshots=True
-        )
+        microvm.restore_from_snapshot(snapshot, resume=True)
     except AssertionError as error:
         # Check if proper error is returned.
         assert (
@@ -379,10 +320,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     # Remove permissions for state file.
     os.chmod(snapshot.vmstate, 0o000)
 
+    microvm = microvm_factory.build()
+    microvm.spawn()
+
     try:
-        _, _ = vm_builder.build_from_snapshot(
-            snapshot, resume=True, diff_snapshots=True
-        )
+        microvm.restore_from_snapshot(snapshot, resume=True)
     except AssertionError as error:
         # Check if proper error is returned.
         assert (
@@ -397,12 +339,13 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     os.chmod(snapshot.mem, 0o744)
 
     # Remove permissions for block file.
-    os.chmod(snapshot.disks[0], 0o000)
+    os.chmod(snapshot.disks["rootfs"], 0o000)
+
+    microvm = microvm_factory.build()
+    microvm.spawn()
 
     try:
-        _, _ = vm_builder.build_from_snapshot(
-            snapshot, resume=True, diff_snapshots=True
-        )
+        microvm.restore_from_snapshot(snapshot, resume=True)
     except AssertionError as error:
         # Check if proper error is returned.
         assert "Block(BackingFile(Os { code: 13, kind: PermissionDenied" in str(error)
@@ -454,7 +397,6 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(mem_size_mib=16 * 1024, track_dirty_pages=True)
-
     vm.start()
 
     response = vm.vm.patch(state="Paused")

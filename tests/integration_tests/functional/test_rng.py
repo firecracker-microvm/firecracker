@@ -81,22 +81,10 @@ def test_rng_snapshot(test_microvm_with_rng, microvm_factory):
 
     check_entropy(vm.ssh)
 
-    mem_path = Path(vm.jailer.chroot_path()) / "test.mem"
-    snapshot_path = Path(vm.jailer.chroot_path()) / "test.snap"
-    vm.pause_to_snapshot(
-        mem_file_path=mem_path.name,
-        snapshot_path=snapshot_path.name,
-    )
-    assert mem_path.exists()
-
+    snapshot = vm.snapshot_full()
     new_vm = microvm_factory.build()
     new_vm.spawn()
-    new_vm.restore_from_snapshot(
-        snapshot_vmstate=snapshot_path,
-        snapshot_mem=mem_path,
-        snapshot_disks=[vm.rootfs_file],
-    )
-
+    new_vm.restore_from_snapshot(snapshot, resume=True)
     check_entropy(new_vm.ssh)
 
 
