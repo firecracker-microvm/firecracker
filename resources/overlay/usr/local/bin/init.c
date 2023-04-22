@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Init wrapper for boot timing. Alpine-specific because it points at /sbin/openrc-init.
+// Init wrapper for boot timing. It points at /sbin/init.
 
 #include <sys/types.h>
 #include <fcntl.h>
@@ -35,7 +35,7 @@ int main () {
    *map_base = MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE;
    msync(map_base, mapped_size, MS_ASYNC);
 
-   const char *init = "/sbin/openrc-init";
+   const char *init = "/sbin/init";
 
    char *const argv[] = { "/sbin/init", NULL };
    char *const envp[] = { };
