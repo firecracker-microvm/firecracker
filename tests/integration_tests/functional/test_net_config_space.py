@@ -79,10 +79,9 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     # After this step, the net device kernel struct MAC address will be the
     # same with the MAC address stored in the network device registers. The
     # `tx_spoofed_mac_count` metric shouldn't be incremented later on.
-    test_microvm.ssh.scp_put(change_net_config_space_bin, "change_net_config_space")
-    cmd = "chmod u+x change_net_config_space &&\
-          ./change_net_config_space {} {}"
-    cmd = cmd.format(net_addr_base, mac_hex)
+    rmt_path = "/tmp/change_net_config_space"
+    test_microvm.ssh.scp_put(change_net_config_space_bin, rmt_path)
+    cmd = f"chmod u+x {rmt_path} && {rmt_path} {net_addr_base} {mac_hex}"
 
     # This should be executed successfully.
     exit_code, stdout, stderr = ssh_conn.run(cmd)
@@ -159,8 +158,8 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
         "s.close()"
     )
 
-    # The guest has Python2
-    cmd = 'python -c "{}"'.format(
+    # The guest has Python3
+    cmd = 'python3 -c "{}"'.format(
         script.format(retries, host_ip, str(host_port), iterations, data)
     )
 

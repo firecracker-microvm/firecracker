@@ -118,8 +118,8 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 
-# Full path to the microVM images cache dir
-CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
+# Path to the microVM images cache dir
+MICROVM_IMAGES_DIR="build/img"
 
 # Full path to the public key mapping on the guest
 PUB_KEY_PATH=/root/.ssh/id_rsa.pub
@@ -312,7 +312,6 @@ run_devctr() {
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
-        --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
 }
@@ -540,6 +539,20 @@ umount_ramdisk() {
     sudo rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
 }
 
+ensure_ci_artifacts() {
+    # Fetch all the artifacts so they are local
+    say "Fetching CI artifacts from S3"
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.5/$(uname -m)
+    ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
+    if [ ! -d "$ARTIFACTS" ]; then
+        mkdir -pv $ARTIFACTS
+        aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
+        # fix permissions
+        find "$ARTIFACTS" -type f -name "*.id_rsa" |xargs chmod -c 400
+        find "$ARTIFACTS/firecracker" -type f |xargs chmod -c 755
+    fi
+}
+
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -574,6 +587,7 @@ cmd_test() {
     ensure_kvm
     ensure_devctr
     ensure_build_dir
+    ensure_ci_artifacts
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
@@ -727,6 +741,7 @@ cmd_shell() {
 
 cmd_sh() {
     ensure_build_dir
+    ensure_ci_artifacts
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \

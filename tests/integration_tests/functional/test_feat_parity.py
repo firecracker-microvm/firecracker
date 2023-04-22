@@ -32,12 +32,12 @@ def vm_fxt(
     microvm_factory,
     inst_set_cpu_template,
     guest_kernel,
-    rootfs_msrtools,
+    rootfs,
 ):
     """
     Create a VM, using the normal CPU templates
     """
-    vm = microvm_factory.build(guest_kernel, rootfs_msrtools)
+    vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     vm.basic_config(vcpu_count=1, mem_size_mib=1024, cpu_template=inst_set_cpu_template)
     vm.add_net_iface()

@@ -42,7 +42,7 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
     logger = logging.getLogger("make_guest_dirty_memory")
 
-    cmd = f"/sbin/fillmem {amount_mib}"
+    cmd = f"/usr/local/bin/fillmem {amount_mib}"
     exit_code, stdout, stderr = ssh_connection.execute_command(cmd)
     # add something to the logs for troubleshooting
     if exit_code != 0:
@@ -87,7 +87,7 @@ def _test_rss_memory_lower(test_microvm, stable_delta=1):
     _ = get_stable_rss_mem_by_pid(firecracker_pid, percentage_delta=stable_delta)
 
     # Dirty memory, then inflate balloon and get ballooned rss consumption.
-    make_guest_dirty_memory(ssh_connection)
+    make_guest_dirty_memory(ssh_connection, amount_mib=32)
 
     response = test_microvm.balloon.patch(amount_mib=200)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -577,5 +577,7 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     # Wait for the deflate to complete.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    exit_code, _, _ = microvm.ssh.execute_command("/sbin/readmem {} {}".format(60, 1))
+    exit_code, _, _ = microvm.ssh.execute_command(
+        "/usr/local/bin/readmem {} {}".format(60, 1)
+    )
     assert exit_code == 0

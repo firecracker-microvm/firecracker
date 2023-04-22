@@ -98,70 +98,10 @@ To learn more about Rustacean integration test, see
 Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
 
-Fixtures can be used to quickly build Firecracker microvm integration tests
-that run on all microvm images in `s3://spec.ccfc.min/img/`.
-
-For example, the test below makes use of the `test_microvm_any` fixture and will
-be run on every microvm image in the bucket, each as a separate test case.
-
-``` python
-def test_with_any_microvm(test_microvm_any):
-    response = test_microvm_any.machine_cfg.put(
-        vcpu_count=2
-    )
-    assert(test_microvm_any.api_session.is_good_response(response.status_code))
-
-    # [...]
-
-    response = test_microvm_any.actions.put(action_type='InstanceStart')
-    assert(test_microvm_any.api_session.is_good_response(response.status_code))
-```
-
-If instead of `test_microvm_any`, a capability-based fixture would be used,
-e.g., `test_microvm_with_net`, then the test would instead run on all microvm
-images with the `capability:net` tag.
-
-To see what fixtures are available, inspect `conftest.py`.
-
 ## Adding Rust Tests
 
 Add a new function annotated with `#[test]` in
 [`integration_tests.rs`](../src/vmm/tests/integration_tests.rs).
-
-## Adding Microvm Images
-
-Simply place the microvm image under `s3://spec.ccfc.min/img/`.
-The layout is:
-
-``` tree
-s3://<bucket-url>/img/
-    <microvm_test_image_folder_n>/
-        kernel/
-            <optional_kernel_name.>vmlinux.bin
-        fsfiles/
-            <rootfs_name>rootfs.ext4
-            <optional_initrd_name.>initrd.img
-            <other_fsfile_n>
-            ...
-        <other_resource_n>
-        ...
-    ...
-```
-
-Then, tag  `<microvm_test_image_folder_n>` with:
-
-``` json
-TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
-```
-
-For example, this can be done from the AWS CLI with:
-
-```sh
-aws s3api put-object-tagging                    \
-    --bucket ${bucket_name}                     \
-    --key img/${microvm_test_image_folder_n}    \
-    --tagging "TagSet=[{Key=capability:${cap_name},Value=''}]"
-```
 
 ## Adding Fixtures
 
@@ -300,17 +240,11 @@ Pytest was chosen because:
 
 ### Features
 
-- Modify `MicrovmImageS3Fetcher` to make the above FAQ possible (the borg
-  pattern is wrong for this).
 - A fixture for interacting with microvms via SSH.
-- Support generating fixtures with more than one capability. This is supported
-  by the MicrovmImageS3Fetcher, but not plumbed through.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
-- Manage output better: handle quietness levels, and use pytest reports.
 - Do the testrun in a container for better insulation.
-- Add support for non-Rust style checks.
 - Event-based monitoring of microvm socket file creation to avoid while spins.
-- Self-tests (e.g., Tests that test the testing system, python3 style tests).
+- Self-tests (e.g., Tests that test the testing system).
 
 ### Implementation
 
@@ -322,8 +256,6 @@ Pytest was chosen because:
   more easily understood with consistent type hints everywhere.
 
 ### Bug fixes
-
-- Fix the /install-kcov.sh bug.
 
 ## Further Reading
 
