@@ -313,7 +313,7 @@ def test_cpu_rdmsr(
     # Load baseline
     host_cpu = global_props.cpu_codename
     host_kv = global_props.host_linux_version
-    guest_kv = re.search("vmlinux-(.*).bin", guest_kernel.name()).group(1)
+    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel).group(1)
     baseline_file_name = (
         f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
@@ -337,14 +337,6 @@ SNAPSHOT_RESTORE_SHARED_NAMES = {
     "msrs_after_fname":                  "msrs_after.txt",
     "cpuid_before_fname":                "cpuid_before.txt",
     "cpuid_after_fname":                 "cpuid_after.txt",
-    "snapshot_fname":                    "vmstate",
-    "mem_fname":                         "mem",
-    "rootfs_fname":                      "bionic-msrtools.ext4",
-    # Testing matrix:
-    # * Rootfs: Ubuntu 18.04 with msr-tools package installed
-    # * Microvm: 1vCPU with 1024 MB RAM
-    "disk_keyword":                      "bionic-msrtools",
-    "microvm_keyword":                   "1vcpu_1024mb",
 }
 # fmt: on
 
@@ -434,26 +426,9 @@ def test_cpu_wrmsr_snapshot(
     time.sleep(0.25)
 
     # Take a snapshot
-    vm.pause_to_snapshot(
-        mem_file_path=shared_names["mem_fname"],
-        snapshot_path=shared_names["snapshot_fname"],
-        diff=True,
-    )
-
+    snapshot = vm.snapshot_diff()
     # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = Path(vm.chroot())
-    shutil.copyfile(
-        chroot_dir / shared_names["mem_fname"],
-        snapshot_artifacts_dir / shared_names["mem_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["snapshot_fname"],
-        snapshot_artifacts_dir / shared_names["snapshot_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["rootfs_fname"],
-        snapshot_artifacts_dir / shared_names["rootfs_fname"],
-    )
+    snapshot.save_to(snapshot_artifacts_dir)
 
 
 def check_msrs_are_equal(before_df, after_df):
@@ -515,21 +490,7 @@ def test_cpu_wrmsr_restore(
 
     vm = microvm_factory.build()
     vm.spawn()
-    # recreate eth0
-    vm.add_net_iface(api=False)
-    # would be better to also capture the SSH key in the snapshot
-    vm.ssh_key = rootfs_msrtools.ssh_key().local_path()
-
-    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
-    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
-    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
-    # Restore from the snapshot
-    vm.restore_from_snapshot(
-        snapshot_mem=mem,
-        snapshot_vmstate=vmstate,
-        snapshot_disks=[rootfs],
-        snapshot_is_diff=True,
-    )
+    vm.restore_from_path(snapshot_artifacts_dir, resume=True)
 
     # Dump MSR state to a file for further comparison
     msrs_after_fname = snapshot_artifacts_dir / shared_names["msrs_after_fname"]
@@ -600,26 +561,9 @@ def test_cpu_cpuid_snapshot(
     dump_cpuid_to_file(cpuid_before_fname, vm.ssh)
 
     # Take a snapshot
-    vm.pause_to_snapshot(
-        mem_file_path=shared_names["mem_fname"],
-        snapshot_path=shared_names["snapshot_fname"],
-        diff=True,
-    )
-
+    snapshot = vm.snapshot_diff()
     # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = Path(vm.chroot())
-    shutil.copyfile(
-        chroot_dir / shared_names["mem_fname"],
-        snapshot_artifacts_dir / shared_names["mem_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["snapshot_fname"],
-        snapshot_artifacts_dir / shared_names["snapshot_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["rootfs_fname"],
-        snapshot_artifacts_dir / Path(rootfs_msrtools.local_path()).name,
-    )
+    snapshot.save_to(snapshot_artifacts_dir)
 
 
 def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_name):
@@ -669,21 +613,7 @@ def test_cpu_cpuid_restore(
 
     vm = microvm_factory.build()
     vm.spawn()
-    # recreate eth0
-    vm.add_net_iface(api=False)
-    ssh_arti = rootfs_msrtools.ssh_key()
-    vm.ssh_key = ssh_arti.local_path()
-
-    # Restore from the snapshot
-    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
-    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
-    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
-    vm.restore_from_snapshot(
-        snapshot_mem=mem,
-        snapshot_vmstate=vmstate,
-        snapshot_disks=[rootfs],
-        snapshot_is_diff=True,
-    )
+    vm.restore_from_path(snapshot_artifacts_dir, resume=True)
 
     # Dump CPUID to a file for further comparison
     cpuid_after_fname = snapshot_artifacts_dir / shared_names["cpuid_after_fname"]

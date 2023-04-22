@@ -432,9 +432,12 @@ class SnapshotLoad:
                 "snapshot_path": snapshot_path,
             }
         else:
+            backend_type = mem_backend["type"]
+            if not isinstance(backend_type, str):
+                backend_type = backend_type.value
             datax = {
                 "mem_backend": {
-                    "backend_type": str(mem_backend["type"].value),
+                    "backend_type": backend_type,
                     "backend_path": mem_backend["path"],
                 },
                 "snapshot_path": snapshot_path,
