@@ -15,6 +15,8 @@ from retry.api import retry_call
 from framework import utils, utils_cpuid
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 
+# Directory with metadata JSON files
+DIR = Path("./data")
 
 def _configure_vm_from_json(test_microvm, vm_config_file, json_xform=None):
     """
@@ -303,8 +305,7 @@ def test_start_with_metadata(test_microvm_with_api):
     Test if metadata from file is available via MMDS.
     """
     test_microvm = test_microvm_with_api
-    metadata_file = "../resources/tests/metadata.json"
-
+    metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
     test_microvm.spawn()
@@ -328,9 +329,7 @@ def test_start_with_metadata_limit(test_microvm_with_api):
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"mmds-size-limit": "30"})
-
-    metadata_file = "../resources/tests/metadata.json"
-
+    metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
     test_microvm.spawn()
@@ -347,7 +346,7 @@ def test_start_with_metadata_default_limit(test_microvm_with_api):
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"http-api-max-payload-size": "30"})
 
-    metadata_file = "../resources/tests/metadata.json"
+    metadata_file = DIR / "metadata.json"
 
     _add_metadata_file(test_microvm, metadata_file)
 
@@ -384,8 +383,7 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
     Test if a microvm is configured with a invalid metadata file.
     """
     test_microvm = test_microvm_with_api
-    metadata_file = "../resources/tests/metadata_invalid.json"
-
+    metadata_file = DIR / "metadata_invalid.json"
     vm_metadata_path = os.path.join(test_microvm.path, os.path.basename(metadata_file))
     shutil.copy(metadata_file, vm_metadata_path)
     test_microvm.metadata_file = vm_metadata_path
@@ -466,7 +464,7 @@ def test_config_start_and_mmds_with_api(test_microvm_with_api, vm_config_file):
     "vm_config_file",
     ["framework/vm_config_with_mmdsv1.json", "framework/vm_config_with_mmdsv2.json"],
 )
-@pytest.mark.parametrize("metadata_file", ["../resources/tests/metadata.json"])
+@pytest.mark.parametrize("metadata_file", [DIR / "metadata.json"])
 def test_with_config_and_metadata_no_api(
     test_microvm_with_api, vm_config_file, metadata_file
 ):

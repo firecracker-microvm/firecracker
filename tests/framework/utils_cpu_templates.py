@@ -53,9 +53,7 @@ def get_supported_custom_cpu_templates():
     """
 
     def tmpl_name_to_json(name):
-        template_path = Path(
-            f"../resources/tests/static_cpu_templates/{name.lower()}.json"
-        )
+        template_path = Path(f"./data/static_cpu_templates/{name.lower()}.json")
         return {"name": name, "template": json.loads(template_path.read_text("utf-8"))}
 
     def name_list_to_tmpl_list(name_list):
