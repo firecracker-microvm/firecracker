@@ -193,6 +193,7 @@ def pytest_runtest_logreport(report):
             "host_kernel": "linux-" + global_props.host_linux_version,
         }
         METRICS.set_property("result", report.outcome)
+        METRICS.set_property("location", report.location)
         for prop_name, prop_val in report.user_properties:
             METRICS.set_property(prop_name, prop_val)
         METRICS.set_dimensions(dimensions)
