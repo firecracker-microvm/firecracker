@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 mod dump;
 mod strip;
+mod utils;
 
 const EXIT_CODE_ERROR: i32 = 1;
 
@@ -46,6 +47,9 @@ enum Command {
         /// List of paths of input CPU configuration files.
         #[arg(short, long, num_args = 2..)]
         path: Vec<PathBuf>,
+        /// Suffix of output files. To overwrite input files, specify an empty string ''.
+        #[arg(short, long, default_value = "_stripped")]
+        suffix: String,
     },
 }
 
@@ -56,12 +60,18 @@ fn run(cli: Cli) -> Result<()> {
             let dump_result = dump::dump(config)?;
             write(output, dump_result)?;
         }
-        Command::Strip { path } => {
+        Command::Strip { path, suffix } => {
             let input = path
                 .iter()
                 .map(read_to_string)
                 .collect::<std::io::Result<Vec<_>>>()?;
+
             let strip_result = strip::strip(input)?;
+
+            let path = path
+                .iter()
+                .map(|path| utils::add_suffix(path, &suffix))
+                .collect::<Vec<_>>();
             for (path, result) in path.into_iter().zip(strip_result.into_iter()) {
                 write(path, result)?;
             }
