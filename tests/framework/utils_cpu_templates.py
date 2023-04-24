@@ -41,7 +41,7 @@ def get_supported_cpu_templates():
 SUPPORTED_CPU_TEMPLATES = get_supported_cpu_templates()
 
 # Custom CPU templates for Aarch64 for testing
-AARCH64_CUSTOM_CPU_TEMPLATES_G2 = ["aarch64_remove_ssbs"]
+AARCH64_CUSTOM_CPU_TEMPLATES_G2 = ["aarch64_remove_ssbs", "aarch64_v1n1"]
 AARCH64_CUSTOM_CPU_TEMPLATES_G3 = ["aarch64_remove_ssbs", "aarch64_v1n1"]
 
 
