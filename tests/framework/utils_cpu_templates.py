@@ -40,6 +40,10 @@ def get_supported_cpu_templates():
 
 SUPPORTED_CPU_TEMPLATES = get_supported_cpu_templates()
 
+# Custom CPU templates for Aarch64 for testing
+AARCH64_CUSTOM_CPU_TEMPLATES_G2 = ["aarch64_remove_ssbs"]
+AARCH64_CUSTOM_CPU_TEMPLATES_G3 = ["aarch64_remove_ssbs", "aarch64_v1n1"]
+
 
 def get_supported_custom_cpu_templates():
     """
@@ -64,6 +68,12 @@ def get_supported_custom_cpu_templates():
             return name_list_to_tmpl_list(INTEL_TEMPLATES)
         case cpuid_utils.CpuVendor.AMD:
             return name_list_to_tmpl_list(AMD_TEMPLATES)
+        case cpuid_utils.CpuVendor.ARM:
+            match cpuid_utils.get_instance_type():
+                case "m6g.metal":
+                    return name_list_to_tmpl_list(AARCH64_CUSTOM_CPU_TEMPLATES_G2)
+                case "c7g.metal":
+                    return name_list_to_tmpl_list(AARCH64_CUSTOM_CPU_TEMPLATES_G3)
 
 
 SUPPORTED_CUSTOM_CPU_TEMPLATES = get_supported_custom_cpu_templates()
