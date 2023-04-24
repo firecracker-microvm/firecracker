@@ -199,7 +199,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     microvm, _, _, _ = run_microvm(
         test_microvm_with_spectre_meltdown,
         network_config,
-        custom_cpu_template=custom_cpu_template,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     run_spectre_meltdown_checker_on_guest(
@@ -255,7 +255,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_spectre_meltdown,
         network_config,
-        custom_cpu_template=custom_cpu_template,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
@@ -336,7 +336,9 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     @type: security
     """
     microvm, _, _, _ = run_microvm(
-        test_microvm_with_api, network_config, custom_cpu_template=custom_cpu_template
+        test_microvm_with_api,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     check_vulnerabilities_files_on_guest(microvm)
@@ -374,7 +376,9 @@ def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
-        test_microvm_with_api, network_config, custom_cpu_template=custom_cpu_template
+        test_microvm_with_api,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)

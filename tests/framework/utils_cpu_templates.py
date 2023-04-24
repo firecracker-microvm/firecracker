@@ -50,22 +50,20 @@ def get_supported_custom_cpu_templates():
         template_path = Path(
             f"../resources/tests/static_cpu_templates/{name.lower()}.json"
         )
-        return json.loads(template_path.read_text("utf-8"))
+        return {"name": name, "template": json.loads(template_path.read_text("utf-8"))}
 
     def name_list_to_tmpl_list(name_list):
         return [tmpl_name_to_json(name) for name in name_list]
 
-    vendor = cpuid_utils.get_cpu_vendor()
-    if vendor == cpuid_utils.CpuVendor.INTEL:
-        # T2CL template is only supported on Cascade Lake and newer CPUs.
-        skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
-        if cpuid_utils.get_cpu_model_name() == skylake_model:
-            return name_list_to_tmpl_list(set(INTEL_TEMPLATES) - set(["T2CL"]))
-        return name_list_to_tmpl_list(INTEL_TEMPLATES)
-    if vendor == cpuid_utils.CpuVendor.AMD:
-        return name_list_to_tmpl_list(AMD_TEMPLATES)
-
-    return []
+    match cpuid_utils.get_cpu_vendor():
+        case cpuid_utils.CpuVendor.INTEL:
+            # T2CL template is only supported on Cascade Lake and newer CPUs.
+            skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
+            if cpuid_utils.get_cpu_model_name() == skylake_model:
+                return name_list_to_tmpl_list(set(INTEL_TEMPLATES) - set(["T2CL"]))
+            return name_list_to_tmpl_list(INTEL_TEMPLATES)
+        case cpuid_utils.CpuVendor.AMD:
+            return name_list_to_tmpl_list(AMD_TEMPLATES)
 
 
 SUPPORTED_CUSTOM_CPU_TEMPLATES = get_supported_custom_cpu_templates()
