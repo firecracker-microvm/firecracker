@@ -410,14 +410,6 @@ def test_api_machine_config(test_microvm_with_api):
             in response.text
         )
 
-    # Test that CPU template errors on ARM.
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
-    if platform.machine() == "x86_64":
-        assert test_microvm.api_session.is_status_no_content(response.status_code)
-    else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
-
     # Test invalid mem_size_mib < 0.
     response = test_microvm.machine_cfg.put(mem_size_mib="-2")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -465,13 +457,16 @@ def test_api_machine_config(test_microvm_with_api):
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Set the cpu template again
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
+    # Set the cpu template
     if platform.machine() == "x86_64":
+        response = test_microvm.machine_cfg.patch(cpu_template="C3")
         assert test_microvm.api_session.is_status_no_content(response.status_code)
     else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
+        # We test with "None" because this is the only option supported on
+        # all aarch64 instances. It still tests setting `cpu_template`,
+        # even though the values we set is "None".
+        response = test_microvm.machine_cfg.patch(cpu_template="None")
+        assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.actions.put(action_type="InstanceStart")
     if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
