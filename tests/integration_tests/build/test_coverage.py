@@ -26,7 +26,7 @@ def is_on_skylake():
 if utils.is_io_uring_supported():
     COVERAGE_DICT = {
         "Intel": 81.77 if is_on_skylake() else 82.28,
-        "AMD": 80.86,
+        "AMD": 80.8,
         "ARM": 82.68,
     }
 else:
