@@ -95,8 +95,8 @@ def run_spectre_meltdown_checker_on_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
@@ -108,8 +108,8 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_guest(
     spectre_meltdown_checker,
@@ -130,8 +130,8 @@ def test_spectre_meltdown_checker_on_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_restored_guest(
     spectre_meltdown_checker,
@@ -157,8 +157,8 @@ def test_spectre_meltdown_checker_on_restored_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
@@ -182,8 +182,8 @@ def test_spectre_meltdown_checker_on_guest_with_template(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker,
@@ -209,8 +209,8 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
@@ -237,8 +237,8 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
