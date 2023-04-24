@@ -52,11 +52,7 @@ pub struct MachineConfig {
     #[serde(default, deserialize_with = "deserialize_smt")]
     pub smt: bool,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
-    #[serde(
-        default,
-        deserialize_with = "deserialize_cpu_template",
-        skip_serializing_if = "StaticCpuTemplate::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "StaticCpuTemplate::is_none")]
     pub cpu_template: StaticCpuTemplate,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(default)]
@@ -107,11 +103,7 @@ pub struct MachineConfigUpdate {
     )]
     pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_cpu_template"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_template: Option<StaticCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -286,24 +278,4 @@ where
     }
 
     Ok(val)
-}
-
-/// Deserialization function for the `cpu_template` field in `MachineConfig` and
-/// `MachineConfigUpdate`. This is called only when `cpu_template` is present in the JSON
-/// configuration.
-fn deserialize_cpu_template<'de, D, T>(_d: D) -> std::result::Result<T, D::Error>
-where
-    D: de::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    // If this function was called it means that `cpu_template` was specified in
-    // the JSON. Return an error since `cpu_template` is not supported on aarch64.
-    #[cfg(target_arch = "aarch64")]
-    return Err(de::Error::invalid_value(
-        de::Unexpected::Enum,
-        &"CPU templates are not supported on aarch64",
-    ));
-
-    #[cfg(target_arch = "x86_64")]
-    T::deserialize(_d)
 }
