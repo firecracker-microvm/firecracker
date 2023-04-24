@@ -122,24 +122,6 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="The CPU features on x86 are tested as part of the CPU templates.",
-)
-def test_cpu_features(test_microvm_with_api, network_config):
-    """
-    Check the CPU features for a microvm with the specified config.
-
-    @type: functional
-    """
-    vm = test_microvm_with_api
-    vm.spawn()
-    vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
-    vm.start()
-    _check_cpu_features_arm(vm)
-
-
-@pytest.mark.skipif(
     PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_api, network_config):
