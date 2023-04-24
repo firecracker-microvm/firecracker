@@ -54,7 +54,7 @@ def get_cpu_model_name():
     raw_cpu_model = info[1].strip()
     if platform.machine() == "x86_64":
         return raw_cpu_model
-    return CPU_DICT[CpuVendor.ARM][raw_cpu_model]
+    return CPU_DICT[CpuVendor.ARM].get(raw_cpu_model, "Unknown")
 
 
 def get_cpu_codename():
@@ -64,11 +64,11 @@ def get_cpu_codename():
     if vendor == CpuVendor.INTEL:
         result = re.match(r"^(.*) @.*$", cpu_model)
         assert result, "CPU model name does not match the regex pattern."
-        return CPU_DICT[CpuVendor.INTEL][result.group(1)]
+        return CPU_DICT[CpuVendor.INTEL].get(result.group(1), "Unknown")
     if vendor == CpuVendor.AMD:
         result = re.match(r"^(.*) [0-9]*-Core Processor$", cpu_model)
         assert result, "CPU model name does not match the regex pattern."
-        return CPU_DICT[CpuVendor.AMD][result.group(1)]
+        return CPU_DICT[CpuVendor.AMD].get(result.group(1), "Unknown")
     if vendor == CpuVendor.ARM:
         return cpu_model
     return None
