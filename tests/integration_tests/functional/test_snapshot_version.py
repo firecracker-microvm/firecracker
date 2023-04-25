@@ -136,8 +136,7 @@ def test_snapshot_current_version(bin_cloner_path):
 
     version = get_firecracker_version_from_toml()
     # normalize to a snapshot version
-    (major, minor, _) = version.split(".", maxsplit=3)
-    target_version = f"{major}.{minor}.0"
+    target_version = f"{version.major}.{version.minor}.0"
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
     disks = [vm_instance.disks[0].local_path()]

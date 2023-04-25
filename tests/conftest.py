@@ -463,9 +463,9 @@ def firecracker_id(fc):
 
 def firecracker_artifacts(*args, **kwargs):
     """Return all supported firecracker binaries."""
-    max_version = [int(x) for x in get_firecracker_version_from_toml().split(".")]
+    version = get_firecracker_version_from_toml()
     # until the next minor version (but not including)
-    max_version[1] += 1
+    max_version = (version.major, version.minor + 1, 0)
     params = {
         "min_version": "1.2.0",
         "max_version_open": ".".join(str(x) for x in max_version),
