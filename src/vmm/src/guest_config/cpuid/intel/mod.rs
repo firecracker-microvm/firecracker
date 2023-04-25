@@ -12,7 +12,7 @@ mod normalize;
 
 pub use normalize::{DeterministicCacheError, NormalizeCpuidError};
 
-use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
+use super::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
 
 /// A structure matching the Intel CPUID specification as described in
 /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Combined Volumes 2A, 2B, 2C, and 2D: Instruction Set Reference, A-Z](https://cdrdv2.intel.com/v1/dl/getContent/671110)
@@ -34,27 +34,31 @@ impl CpuidTrait for IntelCpuid {
     }
 }
 
-impl From<RawCpuid> for IntelCpuid {
+impl From<kvm_bindings::CpuId> for IntelCpuid {
     #[inline]
-    fn from(raw_cpuid: RawCpuid) -> Self {
-        let map = raw_cpuid
+    fn from(kvm_cpuid: kvm_bindings::CpuId) -> Self {
+        let map = kvm_cpuid
+            .as_slice()
             .iter()
-            .cloned()
-            .map(<(CpuidKey, CpuidEntry)>::from)
+            .map(|entry| {
+                (
+                    CpuidKey {
+                        leaf: entry.function,
+                        subleaf: entry.index,
+                    },
+                    CpuidEntry {
+                        flags: KvmCpuidFlags(entry.flags),
+                        result: CpuidRegisters {
+                            eax: entry.eax,
+                            ebx: entry.ebx,
+                            ecx: entry.ecx,
+                            edx: entry.edx,
+                        },
+                    },
+                )
+            })
             .collect();
         Self(map)
-    }
-}
-
-impl From<IntelCpuid> for RawCpuid {
-    #[inline]
-    fn from(intel_cpuid: IntelCpuid) -> Self {
-        let entries = intel_cpuid
-            .0
-            .into_iter()
-            .map(RawKvmCpuidEntry::from)
-            .collect::<Vec<_>>();
-        Self::from(entries)
     }
 }
 

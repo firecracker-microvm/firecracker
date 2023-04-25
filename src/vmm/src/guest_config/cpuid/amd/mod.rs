@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::similar_names, clippy::unreadable_literal)]
 
-use super::{CpuidEntry, CpuidKey, CpuidTrait, RawCpuid, RawKvmCpuidEntry};
+use super::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
 
 /// CPUID normalize implementation.
 mod normalize;
@@ -32,27 +32,31 @@ impl CpuidTrait for AmdCpuid {
     }
 }
 
-impl From<RawCpuid> for AmdCpuid {
+impl From<kvm_bindings::CpuId> for AmdCpuid {
     #[inline]
-    fn from(raw_cpuid: RawCpuid) -> Self {
-        let map = raw_cpuid
+    fn from(kvm_cpuid: kvm_bindings::CpuId) -> Self {
+        let map = kvm_cpuid
+            .as_slice()
             .iter()
-            .cloned()
-            .map(<(CpuidKey, CpuidEntry)>::from)
+            .map(|entry| {
+                (
+                    CpuidKey {
+                        leaf: entry.function,
+                        subleaf: entry.index,
+                    },
+                    CpuidEntry {
+                        flags: KvmCpuidFlags(entry.flags),
+                        result: CpuidRegisters {
+                            eax: entry.eax,
+                            ebx: entry.ebx,
+                            ecx: entry.ecx,
+                            edx: entry.edx,
+                        },
+                    },
+                )
+            })
             .collect();
         Self(map)
-    }
-}
-
-impl From<AmdCpuid> for RawCpuid {
-    #[inline]
-    fn from(amd_cpuid: AmdCpuid) -> Self {
-        let entries = amd_cpuid
-            .0
-            .into_iter()
-            .map(RawKvmCpuidEntry::from)
-            .collect::<Vec<_>>();
-        Self::from(entries)
     }
 }
 

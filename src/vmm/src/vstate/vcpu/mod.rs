@@ -959,7 +959,7 @@ pub mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            use crate::guest_config::cpuid::{Cpuid, RawCpuid};
+            use crate::guest_config::cpuid::Cpuid;
             vcpu.kvm_vcpu
                 .configure(
                     &vm_mem,
@@ -968,8 +968,7 @@ pub mod tests {
                         vcpu_count: 1,
                         smt: false,
                         cpu_config: CpuConfiguration {
-                            cpuid: Cpuid::try_from(RawCpuid::from(_vm.supported_cpuid().clone()))
-                                .unwrap(),
+                            cpuid: Cpuid::try_from(_vm.supported_cpuid().clone()).unwrap(),
                             msrs: std::collections::HashMap::new(),
                         },
                     },

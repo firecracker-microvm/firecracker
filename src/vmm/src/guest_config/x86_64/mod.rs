@@ -22,7 +22,7 @@ pub enum Error {
     MsrNotSupported(u32),
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
-    CpuidFromRaw(super::cpuid::CpuidTryFromRawCpuid),
+    CpuidFromKvmCpuid(super::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctls failed.
     #[error("KVM vcpu ioctl failed: {0}")]
     VcpuIoctl(crate::vstate::vcpu::VcpuError),
@@ -47,10 +47,7 @@ impl CpuConfiguration {
             mut msrs,
         } = self;
 
-        let guest_cpuid = match &mut cpuid {
-            Cpuid::Intel(cpuid) => &mut cpuid.0,
-            Cpuid::Amd(cpuid) => &mut cpuid.0,
-        };
+        let guest_cpuid = cpuid.inner_mut();
 
         // Apply CPUID modifiers
         for mod_leaf in template.cpuid_modifiers.iter() {
