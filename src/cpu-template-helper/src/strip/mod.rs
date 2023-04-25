@@ -8,8 +8,13 @@ use vmm::guest_config::templates::CustomCpuTemplate;
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
+#[cfg(target_arch = "aarch64")]
+use aarch64::strip as arch_strip;
+
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
+#[cfg(target_arch = "x86_64")]
+use x86_64::strip as arch_strip;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -25,10 +30,11 @@ pub fn strip(input: Vec<String>) -> Result<Vec<String>, Error> {
         .map(|s| serde_json::from_str::<CustomCpuTemplate>(s))
         .collect::<Result<Vec<_>, serde_json::Error>>()?;
 
-    // TODO: Add actual implementation to strip.
+    // Strip common items.
+    let stripped = arch_strip(input);
 
     // Serialize `Vec<CustomCpuTemplate>` to `Vec<String>`.
-    let result = input
+    let result = stripped
         .iter()
         .map(serde_json::to_string_pretty)
         .collect::<Result<Vec<_>, serde_json::Error>>()?;
