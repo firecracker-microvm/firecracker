@@ -51,6 +51,10 @@ function strip-and-split-debuginfo {
     objcopy --strip-debug --add-gnu-debuglink=$bin.debug $bin
 }
 
+function get-firecracker-version {
+    (cd src/firecracker; cargo pkgid | cut -d# -f2 | cut -d: -f2)
+}
+
 #### MAIN ####
 
 # defaults
@@ -93,16 +97,10 @@ done
 
 
 ARCH=$(uname -m)
-VERSION=$(git describe --tags --dirty)
+VERSION=$(get-firecracker-version)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
 CARGO_TARGET=$ARCH-unknown-linux-$LIBC
 CARGO_TARGET_DIR=build/cargo_target/$CARGO_TARGET/$PROFILE_DIR
-
-if [[ $VERSION = *-dirty ]]; then
-    say_warn "Building dirty version.. dirty because:"
-    git status -s --untracked-files=no
-    git --no-pager diff
-fi
 
 CARGO_REGISTRY_DIR="build/cargo_registry"
 CARGO_GIT_REGISTRY_DIR="build/cargo_git_registry"

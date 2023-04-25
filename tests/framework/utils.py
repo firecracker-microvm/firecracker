@@ -17,6 +17,7 @@ from collections import defaultdict, namedtuple
 from pathlib import Path
 from typing import Dict
 
+import packaging.version
 import psutil
 from retry import retry
 from retry.api import retry_call
@@ -607,11 +608,9 @@ def get_firecracker_version_from_toml():
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
-
-    rc, stdout, _ = run_cmd(cmd)
-    assert rc == 0
-
-    return stdout
+    rc, stdout, stderr = run_cmd(cmd)
+    assert rc == 0, stderr
+    return packaging.version.parse(stdout)
 
 
 def compare_versions(first, second):
