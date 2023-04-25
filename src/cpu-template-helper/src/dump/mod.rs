@@ -72,25 +72,7 @@ mod tests {
     use vmm::utilities::mock_resources::kernel_image_path;
 
     use super::*;
-
-    fn generate_config(kernel_image_path: &str, rootfs_path: &str) -> String {
-        format!(
-            r#"{{
-                "boot-source": {{
-                    "kernel_image_path": "{}"
-                }},
-                "drives": [
-                    {{
-                        "drive_id": "rootfs",
-                        "path_on_host": "{}",
-                        "is_root_device": true,
-                        "is_read_only": false
-                    }}
-                ]
-            }}"#,
-            kernel_image_path, rootfs_path,
-        )
-    }
+    use crate::tests::generate_config;
 
     #[test]
     fn test_valid_config() {
