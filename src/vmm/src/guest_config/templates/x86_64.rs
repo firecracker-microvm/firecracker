@@ -71,7 +71,7 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
 
 /// CPUID register enumeration
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub enum CpuidRegister {
     Eax,
     Ebx,
