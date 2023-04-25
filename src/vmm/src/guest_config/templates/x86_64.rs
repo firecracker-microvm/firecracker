@@ -71,7 +71,7 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
 
 /// CPUID register enumeration
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum CpuidRegister {
     Eax,
     Ebx,
@@ -80,7 +80,7 @@ pub enum CpuidRegister {
 }
 
 /// Target register to be modified by a bitmap.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct CpuidRegisterModifier {
     /// CPUID register to be modified by the bitmap.
     #[serde(
@@ -100,7 +100,7 @@ pub struct CpuidRegisterModifier {
 /// Composite type that holistically provides
 /// the location of a specific register being used
 /// in the context of a CPUID tree.
-#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct CpuidLeafModifier {
     /// Leaf value.
     #[serde(
@@ -134,7 +134,7 @@ pub struct CustomCpuTemplate {
 }
 
 /// Bit-mapped value to adjust targeted bits of a register.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RegisterValueFilter {
     /// Filter to be used when writing the value bits.
     pub filter: u64,
@@ -152,7 +152,7 @@ impl RegisterValueFilter {
 
 /// Wrapper of a mask defined as a bitmap to apply
 /// changes to a given register's value.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct RegisterModifier {
     /// Pointer of the location to be bit mapped.
     #[serde(
