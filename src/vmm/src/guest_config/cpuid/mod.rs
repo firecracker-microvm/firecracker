@@ -491,7 +491,7 @@ impl std::cmp::Ord for CpuidKey {
 
 /// Definitions from `kvm/arch/x86/include/uapi/asm/kvm.h
 #[derive(
-    Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy,
+    Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash,
 )]
 pub struct KvmCpuidFlags(pub u32);
 impl KvmCpuidFlags {
