@@ -6,6 +6,9 @@ use std::hash::Hash;
 
 use vmm::guest_config::templates::CustomCpuTemplate;
 
+#[cfg(target_arch = "x86_64")]
+mod x86_64;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to serialize/deserialize.
