@@ -40,7 +40,7 @@ pub struct CustomCpuTemplate {
 
 /// Wrapper of a mask defined as a bitmap to apply
 /// changes to a given register's value.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct RegisterModifier {
     /// Pointer of the location to be bit mapped.
     #[serde(
@@ -58,7 +58,7 @@ pub struct RegisterModifier {
 }
 
 /// Bit-mapped value to adjust targeted bits of a register.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RegisterValueFilter {
     /// Filter to be used when writing the value bits.
     pub filter: u128,
