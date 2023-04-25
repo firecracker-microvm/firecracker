@@ -145,4 +145,113 @@ mod tests {
 
         run(cli).unwrap();
     }
+
+    #[cfg(target_arch = "x86_64")]
+    fn build_sample_cpu_config_files() -> Vec<TempFile> {
+        let files = vec![TempFile::new().unwrap(), TempFile::new().unwrap()];
+        files[0]
+            .as_file()
+            .write_all(
+                r#"{
+                    "cpuid_modifiers": [
+                        {
+                            "leaf": "0x0",
+                            "subleaf": "0x0",
+                            "flags": 0,
+                            "modifiers": [
+                                {
+                                    "register": "eax",
+                                    "bitmap": "0b00000000000000000000000000000000"
+                                }
+                            ]
+                        }
+                    ],
+                    "msr_modifiers": [
+                        {
+                            "addr": "0x0",
+                            "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                    ]
+                }"#
+                .as_bytes(),
+            )
+            .unwrap();
+        files[1]
+            .as_file()
+            .write_all(
+                r#"{
+                    "cpuid_modifiers": [
+                        {
+                            "leaf": "0x0",
+                            "subleaf": "0x0",
+                            "flags": 0,
+                            "modifiers": [
+                                {
+                                    "register": "eax",
+                                    "bitmap": "0b00000000000000000000000000000000"
+                                }
+                            ]
+                        }
+                    ],
+                    "msr_modifiers": [
+                        {
+                            "addr": "0x0",
+                            "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                    ]
+                }"#
+                .as_bytes(),
+            )
+            .unwrap();
+        files
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn build_sample_cpu_config_files() -> Vec<TempFile> {
+        let files = vec![TempFile::new().unwrap(), TempFile::new().unwrap()];
+        files[0]
+            .as_file()
+            .write_all(
+                r#"{
+                    "reg_modifiers": [
+                        {
+                            "addr": "0x0",
+                            "bitmap": "0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                    ]
+                }"#
+                .as_bytes(),
+            )
+            .unwrap();
+        files[1]
+            .as_file()
+            .write_all(
+                r#"{
+                    "reg_modifiers": [
+                        {
+                            "addr": "0x0",
+                            "bitmap": "0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                    ]
+                }"#
+                .as_bytes(),
+            )
+            .unwrap();
+        files
+    }
+
+    #[test]
+    fn test_strip_command() {
+        let files = build_sample_cpu_config_files();
+
+        let mut args = vec!["cpu-template-helper", "strip", "-p"];
+        let paths = files
+            .iter()
+            .map(|file| file.as_path().to_str().unwrap())
+            .collect::<Vec<_>>();
+        args.extend(paths);
+        let cli = Cli::parse_from(args);
+
+        run(cli).unwrap();
+    }
 }
