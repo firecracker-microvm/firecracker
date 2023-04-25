@@ -89,3 +89,60 @@ fn main() {
         std::process::exit(EXIT_CODE_ERROR);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use ::utils::tempfile::TempFile;
+    use vmm::utilities::mock_resources::kernel_image_path;
+
+    use super::*;
+
+    pub fn generate_config(kernel_image_path: &str, rootfs_path: &str) -> String {
+        format!(
+            r#"{{
+                "boot-source": {{
+                    "kernel_image_path": "{}"
+                }},
+                "drives": [
+                    {{
+                        "drive_id": "rootfs",
+                        "path_on_host": "{}",
+                        "is_root_device": true,
+                        "is_read_only": false
+                    }}
+                ]
+            }}"#,
+            kernel_image_path, rootfs_path,
+        )
+    }
+
+    fn generate_valid_config_file(kernel_image_path: &str, rootfs_path: &str) -> TempFile {
+        let config = generate_config(kernel_image_path, rootfs_path);
+        let config_file = TempFile::new().unwrap();
+        config_file.as_file().write_all(config.as_bytes()).unwrap();
+        config_file
+    }
+
+    #[test]
+    fn test_dump_command() {
+        let kernel_image_path = kernel_image_path(None);
+        let rootfs_file = TempFile::new().unwrap();
+        let config_file =
+            generate_valid_config_file(&kernel_image_path, rootfs_file.as_path().to_str().unwrap());
+        let output_file = TempFile::new().unwrap();
+
+        let args = vec![
+            "cpu-template-helper",
+            "dump",
+            "--config",
+            config_file.as_path().to_str().unwrap(),
+            "--output",
+            output_file.as_path().to_str().unwrap(),
+        ];
+        let cli = Cli::parse_from(args);
+
+        run(cli).unwrap();
+    }
+}
