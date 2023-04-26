@@ -1167,6 +1167,8 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 
     test_microvm.machine_cfg.patch(**setup_cfg["machine-config"])
 
+    setup_cfg["cpu-config"] = None
+
     setup_cfg["drives"] = [
         {
             "drive_id": "rootfs",
@@ -1280,6 +1282,7 @@ def test_get_full_config(test_microvm_with_api):
         "smt": False,
         "track_dirty_pages": False,
     }
+    expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {
         "kernel_image_path": "/vmlinux.bin",
         "initrd_path": None,
