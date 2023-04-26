@@ -31,7 +31,7 @@ if utils.is_io_uring_supported():
     }
 else:
     COVERAGE_DICT = {
-        "Intel": 78.90 if is_on_skylake() else 79.52,
+        "Intel": 78.99 if is_on_skylake() else 79.52,
         "AMD": 78.06,
         "ARM": 79.59,
     }
