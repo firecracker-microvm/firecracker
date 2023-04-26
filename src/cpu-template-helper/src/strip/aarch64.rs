@@ -34,18 +34,7 @@ mod tests {
     use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
 
     use super::*;
-
-    macro_rules! reg_modifier {
-        ($addr:literal, $value:literal) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: u128::MAX,
-                    value: $value,
-                },
-            }
-        };
-    }
+    use crate::utils::aarch64::reg_modifier;
 
     // Summary of reg modifiers:
     // * As addr 0x0 modifier exists in all the templates but its values are different, it should be
