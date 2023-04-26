@@ -87,16 +87,16 @@ pub struct Metrics<T: Serialize> {
     // Metrics will get flushed here.
     metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
     is_initialized: AtomicBool,
-    pub metrics_buf_input: T,
+    pub metrics_data: T,
 }
 
 impl<T: Serialize> Metrics<T> {
     /// Creates a new instance of the current metrics.
-    pub fn new(metrics_buf_input: T) -> Metrics<T> {
+    pub fn new(metrics_data: T) -> Metrics<T> {
         Metrics {
             metrics_buf: Mutex::new(None),
             is_initialized: AtomicBool::new(false),
-            metrics_buf_input,
+            metrics_data,
         }
     }
 
@@ -146,7 +146,7 @@ impl<T: Serialize> Metrics<T> {
     /// known deadlock potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
-            match serde_json::to_string(&self.metrics_buf_input) {
+            match serde_json::to_string(&self.metrics_data) {
                 Ok(msg) => {
                     if let Some(guard) = extract_guard(self.metrics_buf.lock()).as_mut() {
                         // No need to explicitly call flush because the underlying LineWriter
@@ -180,7 +180,7 @@ impl<T: Serialize> Deref for Metrics<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.metrics_buf_input
+        &self.metrics_data
     }
 }
 
