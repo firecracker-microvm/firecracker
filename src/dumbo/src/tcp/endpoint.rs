@@ -79,7 +79,16 @@ pub struct Endpoint {
 // is the only option).
 
 impl Endpoint {
-    /// Asserts that RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE
+    /// Creates a new Endpoint from a [`crate::tcp::connection::Connection`]
+    /// ## Arguments:
+    /// - `segment`: The incoming `SYN`.
+    /// - `eviction_threshold`: CPU cycles that must elapse before this Endpoint is evictable
+    /// - `connection_rto_period`: How long the connection waits before a retransmission timeout fires for the
+    ///    first segment which has not been acknowledged yet. This uses an opaque time unit.
+    /// - `connection_rto_count_max`: How many consecutive timeout-based retransmission may occur before the
+    ///    connection resets itself.
+    /// ## Panics:
+    /// - `assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE as usize);`
     pub fn new<T: NetworkBytes>(
         segment: &TcpSegment<T>,
         eviction_threshold: NonZeroU64,
