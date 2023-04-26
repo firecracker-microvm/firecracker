@@ -57,21 +57,21 @@ def get_cpu_model_name():
     return CPU_DICT[CpuVendor.ARM].get(raw_cpu_model, "Unknown")
 
 
-def get_cpu_codename():
+def get_cpu_codename(default="Unknown"):
     """Return the CPU codename."""
     cpu_model = get_cpu_model_name()
     vendor = get_cpu_vendor()
     if vendor == CpuVendor.INTEL:
         result = re.match(r"^(.*) @.*$", cpu_model)
-        assert result, "CPU model name does not match the regex pattern."
-        return CPU_DICT[CpuVendor.INTEL].get(result.group(1), "Unknown")
+        if result:
+            return CPU_DICT[CpuVendor.INTEL].get(result.group(1), default)
     if vendor == CpuVendor.AMD:
         result = re.match(r"^(.*) [0-9]*-Core Processor$", cpu_model)
-        assert result, "CPU model name does not match the regex pattern."
-        return CPU_DICT[CpuVendor.AMD].get(result.group(1), "Unknown")
+        if result:
+            return CPU_DICT[CpuVendor.AMD].get(result.group(1), default)
     if vendor == CpuVendor.ARM:
         return cpu_model
-    return None
+    return default
 
 
 def get_instance_type():
