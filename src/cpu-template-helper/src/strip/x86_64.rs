@@ -122,41 +122,7 @@ mod tests {
     };
 
     use super::*;
-
-    macro_rules! cpuid_reg_modifier {
-        ($register:expr, $value:literal) => {
-            CpuidRegisterModifier {
-                register: $register,
-                bitmap: RegisterValueFilter {
-                    filter: u32::MAX.into(),
-                    value: $value,
-                },
-            }
-        };
-    }
-
-    macro_rules! cpuid_leaf_modifier {
-        ($leaf:literal, $subleaf:literal, $flags:expr, $reg_modifiers:expr) => {
-            CpuidLeafModifier {
-                leaf: $leaf,
-                subleaf: $subleaf,
-                flags: $flags,
-                modifiers: $reg_modifiers,
-            }
-        };
-    }
-
-    macro_rules! msr_modifier {
-        ($addr:literal, $value:literal) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: u64::MAX,
-                    value: $value,
-                },
-            }
-        };
-    }
+    use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
 
     // Summary of CPUID modifiers:
     // * As CPUID leaf 0x0 / subleaf 0x0 modifier exists in all the templates and its values are
