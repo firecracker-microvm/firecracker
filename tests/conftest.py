@@ -92,6 +92,7 @@ from pathlib import Path
 
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
@@ -524,6 +525,11 @@ def rootfs_msrtools(request, record_property):
 def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
     record_property("cpu_template", request.param)
+    if (
+        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
+        and not request.config.getoption("--nonci")
+    ):
+        pytest.skip("temporary skip on usual CI")
     return request.param
 
 
@@ -531,6 +537,11 @@ def cpu_template(request, record_property):
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
     record_property("custom_cpu_template", request.param)
+    if (
+        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
+        and not request.config.getoption("--nonci")
+    ):
+        pytest.skip("temporary skip on usual CI")
     return request.param
 
 
