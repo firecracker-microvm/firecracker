@@ -6,12 +6,6 @@ from threading import Thread
 
 from framework import utils
 
-# /proc/<pid>/stat output taken from
-# https://www.man7.org/linux/man-pages/man5/proc.5.html
-STAT_UTIME_IDX = 13
-STAT_STIME_IDX = 14
-STAT_STARTTIME_IDX = 21
-
 
 class CpuLoadExceededException(Exception):
     """A custom exception containing details on excessive cpu load."""
@@ -88,3 +82,18 @@ class CpuLoadMonitor(Thread):
         """Check that there are no samples above the threshold."""
         if len(self.cpu_load_samples) > 0:
             raise CpuLoadExceededException(self._cpu_load_samples, self._threshold)
+
+    def __enter__(self):
+        """Functions to use this CPU Load class as a Context Manager
+
+        >>> clm = CpuLoadMonitor(1000, 1000, 45)
+        >>> with clm:
+        >>>    # do stuff
+        """
+        self.start()
+
+    def __exit__(self, _type, _value, _traceback):
+        """Exit context"""
+        self.check_samples()
+        self.signal_stop()
+        self.join()
