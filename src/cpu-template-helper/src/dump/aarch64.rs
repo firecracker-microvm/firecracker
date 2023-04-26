@@ -4,17 +4,13 @@
 use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
 use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate};
 
+use crate::utils::aarch64::reg_modifier;
+
 pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
     let mut reg_modifiers: Vec<RegisterModifier> = cpu_config
         .regs
         .iter()
-        .map(|reg| RegisterModifier {
-            addr: reg.id,
-            bitmap: RegisterValueFilter {
-                filter: u128::MAX,
-                value: reg.value,
-            },
-        })
+        .map(|reg| reg_modifier!(reg.id, reg.value))
         .collect();
     reg_modifiers.sort_by_key(|modifier| modifier.addr);
 
@@ -46,27 +42,18 @@ mod tests {
 
     fn build_expected_reg_modifiers() -> Vec<RegisterModifier> {
         vec![
-            RegisterModifier {
-                addr: 0x0000_0000_0000_0000,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff,
-                    value: 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff,
-                },
-            },
-            RegisterModifier {
-                addr: 0x0000_0000_0000_0001,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff,
-                    value: 0x0000_ffff_0000_ffff_0000_ffff_0000_ffff,
-                },
-            },
-            RegisterModifier {
-                addr: 0xffff_ffff_ffff_ffff,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff,
-                    value: 0x0000_ffff_0000_ffff_0000_ffff_0000_ffff,
-                },
-            },
+            reg_modifier!(
+                0x0000_0000_0000_0000,
+                0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff
+            ),
+            reg_modifier!(
+                0x0000_0000_0000_0001,
+                0x0000_ffff_0000_ffff_0000_ffff_0000_ffff
+            ),
+            reg_modifier!(
+                0xffff_ffff_ffff_ffff,
+                0x0000_ffff_0000_ffff_0000_ffff_0000_ffff
+            ),
         ]
     }
 
