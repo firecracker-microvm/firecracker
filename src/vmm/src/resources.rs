@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use logger::info;
@@ -38,6 +39,8 @@ pub enum Error {
     BlockDevice(DriveError),
     /// Boot source configuration error.
     BootSource(BootSourceConfigError),
+    /// File operation error.
+    File(std::io::Error),
     /// JSON is invalid.
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
@@ -62,6 +65,7 @@ impl std::fmt::Display for Error {
             Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
             Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
             Error::BootSource(err) => write!(f, "Boot source error: {}", err),
+            Error::File(err) => write!(f, "File operation error: {}", err),
             Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
             Error::Logger(err) => write!(f, "Logger error: {}", err),
             Error::Metrics(err) => write!(f, "Metrics error: {}", err),
@@ -83,6 +87,8 @@ pub struct VmmConfig {
     block_devices: Vec<BlockDeviceConfig>,
     #[serde(rename = "boot-source")]
     boot_source: BootSourceConfig,
+    #[serde(rename = "cpu-config")]
+    cpu_config: Option<PathBuf>,
     #[serde(rename = "logger")]
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
@@ -148,6 +154,12 @@ impl VmResources {
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = MachineConfigUpdate::from(machine_config);
             resources.update_vm_config(&machine_config)?;
+        }
+
+        if let Some(cpu_config) = vmm_config.cpu_config {
+            let cpu_config_json = std::fs::read_to_string(cpu_config).map_err(Error::File)?;
+            let cpu_template: CustomCpuTemplate = serde_json::from_str(&cpu_config_json)?;
+            resources.set_custom_cpu_template(cpu_template);
         }
 
         resources.build_boot_source(vmm_config.boot_source)?;
@@ -437,6 +449,7 @@ impl From<&VmResources> for VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),
             boot_source: resources.boot_source_config().clone(),
+            cpu_config: None,
             logger: None,
             machine_config: Some(MachineConfig::from(&resources.vm_config)),
             metrics: None,
@@ -450,6 +463,7 @@ impl From<&VmResources> for VmmConfig {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::io::Write;
     use std::os::linux::fs::MetadataExt;
 
     use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
@@ -459,7 +473,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::guest_config::templates::StaticCpuTemplate;
+    use crate::guest_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
@@ -1015,6 +1029,92 @@ mod tests {
     }
 
     #[test]
+    fn test_cpu_config_from_invalid_json() {
+        // Invalid cpu config file path.
+        // `VmResources::from_json()` should fail with `Error::File`.
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+        let default_instance_info = InstanceInfo::default();
+
+        let json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "cpu-config": "/invalid/path",
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
+            Err(Error::File(_)) => (),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_cpu_config_from_valid_json() {
+        // Valid cpu config file path.
+        // `VmResources::from_json()` should succeed and it should have a custom CPU template.
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+        let default_instance_info = InstanceInfo::default();
+        let cpu_config_file = TempFile::new().unwrap();
+        cpu_config_file
+            .as_file()
+            .write_all("{}".as_bytes())
+            .unwrap();
+
+        let json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "cpu-config": "{}",
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            cpu_config_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        let vm_resources = VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            vm_resources.vm_config.cpu_template,
+            Some(CpuTemplateType::Custom(CustomCpuTemplate::default()))
+        );
+    }
+
+    #[test]
     fn test_cast_to_vmm_config() {
         // No mmds config.
         {
@@ -1448,6 +1548,13 @@ mod tests {
             format!(
                 "Boot source error: {}",
                 BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(21))
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::File(std::io::Error::from_raw_os_error(2))),
+            format!(
+                "File operation error: {}",
+                std::io::Error::from_raw_os_error(2)
             )
         );
         assert_eq!(
