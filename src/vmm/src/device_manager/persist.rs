@@ -809,6 +809,7 @@ mod tests {
     "kernel_image_path": "",
     "initrd_path": null
   }},
+  "cpu-config": null,
   "logger": null,
   "machine-config": {{
     "vcpu_count": 1,
