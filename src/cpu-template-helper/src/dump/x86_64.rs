@@ -9,6 +9,8 @@ use vmm::guest_config::templates::x86_64::{
 };
 use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate};
 
+use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
+
 /// Convert `&CpuConfiguration` to `CustomCputemplate`.
 pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
     CustomCpuTemplate {
@@ -21,40 +23,18 @@ fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
     cpuid
         .inner()
         .iter()
-        .map(|(key, entry)| CpuidLeafModifier {
-            leaf: key.leaf,
-            subleaf: key.subleaf,
-            flags: entry.flags,
-            modifiers: vec![
-                CpuidRegisterModifier {
-                    register: CpuidRegister::Eax,
-                    bitmap: RegisterValueFilter {
-                        filter: u32::MAX.into(),
-                        value: entry.result.eax.into(),
-                    },
-                },
-                CpuidRegisterModifier {
-                    register: CpuidRegister::Ebx,
-                    bitmap: RegisterValueFilter {
-                        filter: u32::MAX.into(),
-                        value: entry.result.ebx.into(),
-                    },
-                },
-                CpuidRegisterModifier {
-                    register: CpuidRegister::Ecx,
-                    bitmap: RegisterValueFilter {
-                        filter: u32::MAX.into(),
-                        value: entry.result.ecx.into(),
-                    },
-                },
-                CpuidRegisterModifier {
-                    register: CpuidRegister::Edx,
-                    bitmap: RegisterValueFilter {
-                        filter: u32::MAX.into(),
-                        value: entry.result.edx.into(),
-                    },
-                },
-            ],
+        .map(|(key, entry)| {
+            cpuid_leaf_modifier!(
+                key.leaf,
+                key.subleaf,
+                entry.flags,
+                vec![
+                    cpuid_reg_modifier!(CpuidRegister::Eax, entry.result.eax.into()),
+                    cpuid_reg_modifier!(CpuidRegister::Ebx, entry.result.ebx.into()),
+                    cpuid_reg_modifier!(CpuidRegister::Ecx, entry.result.ecx.into()),
+                    cpuid_reg_modifier!(CpuidRegister::Edx, entry.result.edx.into()),
+                ]
+            )
         })
         .collect()
 }
@@ -62,13 +42,7 @@ fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
 fn msrs_to_modifier(msrs: &HashMap<u32, u64>) -> Vec<RegisterModifier> {
     let mut msrs: Vec<RegisterModifier> = msrs
         .iter()
-        .map(|(index, value)| RegisterModifier {
-            addr: *index,
-            bitmap: RegisterValueFilter {
-                filter: u64::MAX,
-                value: *value,
-            },
-        })
+        .map(|(index, value)| msr_modifier!(*index, *value))
         .collect();
     msrs.sort_by_key(|modifier| modifier.addr);
     msrs
@@ -121,76 +95,28 @@ mod tests {
 
     fn build_expected_cpuid_modifiers() -> Vec<CpuidLeafModifier> {
         vec![
-            CpuidLeafModifier {
-                leaf: 0x0,
-                subleaf: 0x0,
-                flags: KvmCpuidFlags::EMPTY,
-                modifiers: vec![
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Eax,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0xffff_ffff,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ebx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0x0000_ffff,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ecx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0xffff_0000,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Edx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0x0000_0000,
-                        },
-                    },
-                ],
-            },
-            CpuidLeafModifier {
-                leaf: 0x1,
-                subleaf: 0x1,
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                modifiers: vec![
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Eax,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0xaaaa_aaaa,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ebx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0xaaaa_5555,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Ecx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0x5555_aaaa,
-                        },
-                    },
-                    CpuidRegisterModifier {
-                        register: CpuidRegister::Edx,
-                        bitmap: RegisterValueFilter {
-                            filter: 0xffff_ffff,
-                            value: 0x5555_5555,
-                        },
-                    },
-                ],
-            },
+            cpuid_leaf_modifier!(
+                0x0,
+                0x0,
+                KvmCpuidFlags::EMPTY,
+                vec![
+                    cpuid_reg_modifier!(CpuidRegister::Eax, 0xffff_ffff),
+                    cpuid_reg_modifier!(CpuidRegister::Ebx, 0x0000_ffff),
+                    cpuid_reg_modifier!(CpuidRegister::Ecx, 0xffff_0000),
+                    cpuid_reg_modifier!(CpuidRegister::Edx, 0x0000_0000),
+                ]
+            ),
+            cpuid_leaf_modifier!(
+                0x1,
+                0x1,
+                KvmCpuidFlags::SIGNIFICANT_INDEX,
+                vec![
+                    cpuid_reg_modifier!(CpuidRegister::Eax, 0xaaaa_aaaa),
+                    cpuid_reg_modifier!(CpuidRegister::Ebx, 0xaaaa_5555),
+                    cpuid_reg_modifier!(CpuidRegister::Ecx, 0x5555_aaaa),
+                    cpuid_reg_modifier!(CpuidRegister::Edx, 0x5555_5555),
+                ]
+            ),
         ]
     }
 
@@ -205,34 +131,10 @@ mod tests {
 
     fn build_expected_msr_modifiers() -> Vec<RegisterModifier> {
         vec![
-            RegisterModifier {
-                addr: 0x1,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff,
-                    value: 0xffff_ffff_ffff_ffff,
-                },
-            },
-            RegisterModifier {
-                addr: 0x2,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff,
-                    value: 0x0000_0000_0000_0000,
-                },
-            },
-            RegisterModifier {
-                addr: 0x3,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff,
-                    value: 0x0000_0000_ffff_ffff,
-                },
-            },
-            RegisterModifier {
-                addr: 0x5,
-                bitmap: RegisterValueFilter {
-                    filter: 0xffff_ffff_ffff_ffff,
-                    value: 0xffff_ffff_0000_0000,
-                },
-            },
+            msr_modifier!(0x1, 0xffff_ffff_ffff_ffff),
+            msr_modifier!(0x2, 0x0000_0000_0000_0000),
+            msr_modifier!(0x3, 0x0000_0000_ffff_ffff),
+            msr_modifier!(0x5, 0xffff_ffff_0000_0000),
         ]
     }
 
