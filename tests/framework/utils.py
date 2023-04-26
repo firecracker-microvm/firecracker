@@ -605,37 +605,6 @@ def sanitize_version(version):
     return version.split("-", 1)[0]
 
 
-def compare_dirty_versions(first, second):
-    """
-    Compare two versions out of which one is dirty.
-
-    We do not allow both versions to be dirty, because dirty info
-    does not reveal any ordering information.
-
-    :param first: first version string
-    :param second: second version string
-    :returns: 0 if equal, <0 if first < second, >0 if second < first
-    """
-    is_first_dirty = "-" in first
-    first = sanitize_version(first)
-
-    is_second_dirty = "-" in second
-    second = sanitize_version(second)
-
-    if is_first_dirty and is_second_dirty:
-        raise ValueError
-
-    diff = compare_versions(first, second)
-    if diff != 0:
-        return diff
-    if is_first_dirty:
-        return 1
-    if is_second_dirty:
-        return -1
-
-    return diff
-
-
 def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
