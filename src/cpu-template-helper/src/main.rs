@@ -18,6 +18,8 @@ enum Error {
     FileIo(#[from] std::io::Error),
     #[error("Failed to dump CPU configuration: {0}")]
     DumpCpuConfig(#[from] dump::Error),
+    #[error("Failed to serialize/deserialize JSON file: {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("Failed to strip CPU configuration: {0}")]
     StripCpuConfig(#[from] strip::Error),
     #[error("{0}")]
@@ -60,8 +62,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Dump { config, output } => {
             let config = read_to_string(config)?;
             let (vmm, _) = utils::build_microvm_from_config(&config)?;
-            let dump_result = dump::dump(vmm)?;
-            write(output, dump_result)?;
+
+            let cpu_config = dump::dump(vmm)?;
+
+            let cpu_config_json = serde_json::to_string_pretty(&cpu_config)?;
+            write(output, cpu_config_json)?;
         }
         Command::Strip { path, suffix } => {
             let input = path
