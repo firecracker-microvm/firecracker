@@ -24,7 +24,7 @@ pub enum Error {
 }
 
 #[allow(dead_code)]
-pub fn build_microvm_from_config(config: &str) -> Result<Arc<Mutex<Vmm>>, Error> {
+pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmResources), Error> {
     // Prepare resources from the given config file.
     let instance_info = InstanceInfo {
         id: "anonymous-instance".to_string(),
@@ -45,7 +45,7 @@ pub fn build_microvm_from_config(config: &str) -> Result<Arc<Mutex<Vmm>>, Error>
         &seccomp_filters,
     )?;
 
-    Ok(vmm)
+    Ok((vmm, vm_resources))
 }
 
 pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
