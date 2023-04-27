@@ -26,8 +26,8 @@ enum Error {
     Serde(#[from] serde_json::Error),
     #[error("{0}")]
     Utils(#[from] utils::Error),
-    #[error("A modifier has not been applied as intended: {0}")]
-    VerifyCpuTemplate(String),
+    #[error("{0}")]
+    VerifyCpuTemplate(#[from] verify::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -105,7 +105,7 @@ fn run(cli: Cli) -> Result<()> {
                 .into_owned();
             let cpu_config = dump::dump(vmm)?;
 
-            verify::verify(cpu_template, cpu_config).map_err(Error::VerifyCpuTemplate)?;
+            verify::verify(cpu_template, cpu_config)?;
         }
     };
 
