@@ -9,7 +9,7 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
-use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;

@@ -12,11 +12,11 @@ use logger::{error, IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
+use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
-use super::utils::{compact_page_frame_numbers, remove_range};
+use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER,
     MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
@@ -587,7 +587,7 @@ impl VirtioDevice for Balloon {
 pub(crate) mod tests {
     use std::u32;
 
-    use vm_memory::GuestAddress;
+    use utils::vm_memory::GuestAddress;
 
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
@@ -1026,7 +1026,7 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            vm_memory::test_utils::create_guest_memory_unguarded(
+            utils::vm_memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0x0), 0x1)],
                 false,
             )

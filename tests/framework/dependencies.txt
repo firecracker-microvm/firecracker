@@ -65,6 +65,7 @@
  'serde_json',
  'shlex',
  'snapshot',
+ 'static_assertions',
  'subtle',
  'syn',
  'thiserror',

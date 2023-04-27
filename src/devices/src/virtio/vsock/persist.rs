@@ -7,9 +7,9 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use snapshot::Persist;
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
 use super::*;
 use crate::virtio::persist::VirtioDeviceState;

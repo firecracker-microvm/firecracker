@@ -3,7 +3,7 @@
 
 use std::result::Result;
 
-use vm_memory::ByteValued;
+use utils::vm_memory::ByteValued;
 
 use crate::bindings::io_uring_cqe;
 

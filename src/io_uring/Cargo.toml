@@ -10,7 +10,6 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 libc = "0.2.117"
 
 utils = { path = "../utils" }
-vm-memory = { path="../vm-memory" }
 
 [dev-dependencies]
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }

@@ -15,9 +15,9 @@ use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
 use super::device::Net;
 use super::{NUM_QUEUES, QUEUE_SIZE};

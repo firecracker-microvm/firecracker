@@ -16,9 +16,9 @@
 /// to temporary buffers, before passing it on to the vsock backend.
 use std::io::{Read, Write};
 
-use vm_memory::{
-    self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
-    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
+use utils::vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
+    GuestRegionMmap, MemoryRegionAddress,
 };
 
 use super::super::DescriptorChain;
@@ -407,7 +407,7 @@ mod tests {
 
     use std::io::Cursor;
 
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::virtio::test_utils::VirtqDesc as GuestQDesc;
@@ -719,7 +719,7 @@ mod tests {
     fn test_buf_region_addr_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = vm_memory::test_utils::create_guest_memory_unguarded(
+        test_ctx.mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
             &[
                 (GuestAddress(0), 500),
                 (GuestAddress(500), 100),
