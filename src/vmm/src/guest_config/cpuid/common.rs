@@ -83,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get_cpuid_invalid_leaf() {
+    fn get_cpuid_unsupported_leaf() {
         let max_leaf =
             // JUSTIFICATION: There is no safe alternative.
             // SAFETY: This is safe because the host supports the `cpuid` instruction
