@@ -89,6 +89,7 @@ def test_coverage(monkeypatch, record_property, metrics):
             --ignore "build/*" \
             --ignore "**/tests/*" \
             --ignore "**/test_utils*" \
+            --ignore "**/mock_*" \
             -t html \
             --ignore-not-existing \
             -o ./build/cargo_target/{TARGET}/debug/coverage"""
