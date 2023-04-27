@@ -413,6 +413,21 @@ mod tests {
     }
 
     #[test]
+    fn test_t2cl_template_equality() {
+        // For coverage purposes, this test forces usage of T2CL and bypasses
+        // validation that is generally applied which usually enforces that T2CL
+        // can only be used on Cascade Lake (or newer) CPUs.
+        let t2cl_custom_template = CpuTemplateType::Custom(t2cl::t2cl());
+        // This test also demonstrates the difference in concept between custom and static
+        // templates, while practically T2CL is consistent for the user, in code
+        // the static template of T2CL, and the custom template of T2CL are not equivalent.
+        assert_ne!(
+            t2cl_custom_template,
+            CpuTemplateType::Static(StaticCpuTemplate::T2CL)
+        );
+    }
+
+    #[test]
     fn test_get_cpu_template_with_t2cl_static_template() {
         // Test `get_cpu_template()` when T2CL static CPU template is specified. The owned
         // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
