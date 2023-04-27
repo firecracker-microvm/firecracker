@@ -73,15 +73,6 @@ pub enum CpuTemplateType {
     Static(StaticCpuTemplate),
 }
 
-impl From<StaticCpuTemplate> for Option<CpuTemplateType> {
-    fn from(value: StaticCpuTemplate) -> Self {
-        match value {
-            StaticCpuTemplate::None => None,
-            other => Some(CpuTemplateType::Static(other)),
-        }
-    }
-}
-
 impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
     fn from(value: &Option<CpuTemplateType>) -> Self {
         match value {
