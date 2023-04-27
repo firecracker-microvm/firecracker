@@ -20,6 +20,8 @@ enum Error {
     DumpCpuConfig(#[from] dump::Error),
     #[error("Failed to strip CPU configuration: {0}")]
     StripCpuConfig(#[from] strip::Error),
+    #[error("{0}")]
+    Utils(#[from] utils::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -57,7 +59,8 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Dump { config, output } => {
             let config = read_to_string(config)?;
-            let dump_result = dump::dump(config)?;
+            let vmm = utils::build_microvm_from_config(&config)?;
+            let dump_result = dump::dump(vmm)?;
             write(output, dump_result)?;
         }
         Command::Strip { path, suffix } => {
