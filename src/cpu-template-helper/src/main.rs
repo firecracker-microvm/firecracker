@@ -5,11 +5,12 @@ use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use vmm::guest_config::templates::CustomCpuTemplate;
+use vmm::guest_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
 mod dump;
 mod strip;
 mod utils;
+mod verify;
 
 const EXIT_CODE_ERROR: i32 = 1;
 
@@ -19,10 +20,14 @@ enum Error {
     FileIo(#[from] std::io::Error),
     #[error("{0}")]
     DumpCpuConfig(#[from] dump::Error),
+    #[error("CPU template is not specified: {0}")]
+    NoCpuTemplate(#[from] GetCpuTemplateError),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("{0}")]
     Utils(#[from] utils::Error),
+    #[error("A modifier has not been applied as intended: {0}")]
+    VerifyCpuTemplate(String),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -54,6 +59,12 @@ enum Command {
         #[arg(short, long, default_value = "_stripped")]
         suffix: String,
     },
+    /// Verify that the given CPU template is applied as intended.
+    Verify {
+        /// Path of firecracker config file specifying CPU template.
+        #[arg(short, long, value_name = "PATH")]
+        config: PathBuf,
+    },
 }
 
 fn run(cli: Cli) -> Result<()> {
@@ -82,6 +93,19 @@ fn run(cli: Cli) -> Result<()> {
                 let template_json = serde_json::to_string_pretty(&template)?;
                 write(path, template_json)?;
             }
+        }
+        Command::Verify { config } => {
+            let config = read_to_string(config)?;
+            let (vmm, vm_resources) = utils::build_microvm_from_config(&config)?;
+
+            let cpu_template = vm_resources
+                .vm_config
+                .cpu_template
+                .get_cpu_template()?
+                .into_owned();
+            let cpu_config = dump::dump(vmm)?;
+
+            verify::verify(cpu_template, cpu_config).map_err(Error::VerifyCpuTemplate)?;
         }
     };
 
