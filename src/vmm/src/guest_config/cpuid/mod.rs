@@ -728,26 +728,38 @@ mod tests {
 
     #[test]
     fn get() {
-        let cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::new()));
+        let cpuid = build_sample_intel_cpuid();
         assert_eq!(
             cpuid.get(&CpuidKey {
-                leaf: 0,
-                subleaf: 0
+                leaf: 0x8888,
+                subleaf: 0x0
             }),
             None
         );
+        assert!(cpuid
+            .get(&CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            })
+            .is_some());
     }
 
     #[test]
     fn get_mut() {
-        let mut cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::new()));
+        let mut cpuid = build_sample_intel_cpuid();
         assert_eq!(
             cpuid.get_mut(&CpuidKey {
-                leaf: 0,
-                subleaf: 0
+                leaf: 0x888,
+                subleaf: 0x0,
             }),
             None
         );
+        assert!(cpuid
+            .get_mut(&CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            })
+            .is_some());
     }
 
     #[test]
