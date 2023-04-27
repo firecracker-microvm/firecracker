@@ -51,7 +51,7 @@ mod tests {
         let tmp_file = TempFile::new().unwrap();
         let valid_config =
             generate_config(&kernel_image_path, tmp_file.as_path().to_str().unwrap());
-        let vmm = build_microvm_from_config(&valid_config).unwrap();
+        let (vmm, _) = build_microvm_from_config(&valid_config).unwrap();
 
         assert!(dump(vmm).is_ok());
     }
