@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
 from host_tools import proc
+from host_tools.cargo_build import cargo
 
 BENCHMARK_DIRECTORY = "{}/src/vmm".format(FC_WORKSPACE_DIR)
 DEFAULT_BUILD_TARGET = "{}-unknown-linux-musl".format(platform.machine())
@@ -91,8 +91,7 @@ def test_serialization_benchmark(monkeypatch, record_property):
     monkeypatch.chdir(BENCHMARK_DIRECTORY)
 
     # Run benchmark test
-    cmd = "cargo bench --target {}".format(DEFAULT_BUILD_TARGET)
-    result = utils.run_cmd_sync(cmd)
+    result = cargo("bench", f"--target {DEFAULT_BUILD_TARGET}")
     assert result.returncode == 0
 
     # Parse each Criterion benchmark from the result folder and
