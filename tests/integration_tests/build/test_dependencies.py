@@ -9,6 +9,7 @@ import pytest
 
 from framework import utils
 from host_tools import proc
+from host_tools.cargo_build import cargo
 
 pytestmark = pytest.mark.skipif(
     "Intel" not in proc.proc_type(), reason="test only runs on Intel"
@@ -26,7 +27,8 @@ def test_licenses():
     toml_file = os.path.normpath(
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../Cargo.toml")
     )
-    utils.run_cmd("cargo deny --manifest-path {} check licenses".format(toml_file))
+
+    cargo("deny", f"--manifest-path {toml_file} check licenses")
 
 
 @pytest.mark.parametrize("dep_file", ["framework/dependencies.txt"])
@@ -35,7 +37,7 @@ def test_num_dependencies(dep_file):
 
     @type: build
     """
-    _, stdout, _ = utils.run_cmd("cargo tree --prefix none -e no-dev " "--workspace")
+    _, stdout, _ = cargo("tree", "--prefix none -e no-dev --workspace")
     deps = stdout.splitlines()
 
     current_deps = set()

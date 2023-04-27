@@ -6,6 +6,7 @@ import pytest
 
 from framework import utils
 from host_tools import proc
+from host_tools.cargo_build import cargo
 
 # We have different coverages based on the host kernel version. This is
 # caused by io_uring, which is only supported by FC for kernels newer
@@ -58,12 +59,14 @@ def test_coverage(monkeypatch, record_property, metrics):
     monkeypatch.chdir("..")
 
     # Generate test profiles.
-    utils.run_cmd(
-        f'\
-        RUSTFLAGS="-Cinstrument-coverage" \
-        LLVM_PROFILE_FILE="coverage-%p-%m.profraw" \
-        cargo test --all --target={TARGET} -- --test-threads=1 \
-    '
+    cargo(
+        "test",
+        f"--all --target {TARGET}",
+        "--test-threads=1",
+        env={
+            "RUSTFLAGS": "-Cinstrument-coverage",
+            "LLVM_PROFILE_FILE": "coverage-%p-%m.profraw",
+        },
     )
 
     # Generate coverage report.
