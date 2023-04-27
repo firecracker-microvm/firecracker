@@ -59,7 +59,7 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Dump { config, output } => {
             let config = read_to_string(config)?;
-            let vmm = utils::build_microvm_from_config(&config)?;
+            let (vmm, _) = utils::build_microvm_from_config(&config)?;
             let dump_result = dump::dump(vmm)?;
             write(output, dump_result)?;
         }
