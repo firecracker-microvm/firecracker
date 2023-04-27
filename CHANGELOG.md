@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.3.2]
+
+### Fixed
+
+- A race condition that has been identified between the API thread and the VMM
+  thread due to a misconfiguration of the `api_event_fd`.
+
 ## [1.3.1]
 
 ### Fixed
