@@ -4,42 +4,15 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 
-use vmm::guest_config::templates::CustomCpuTemplate;
-
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 #[cfg(target_arch = "aarch64")]
-use aarch64::strip as arch_strip;
+pub use aarch64::strip;
 
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
-use x86_64::strip as arch_strip;
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Failed to serialize/deserialize.
-    #[error("Failed to serialize/deserialize: {0}")]
-    Serde(#[from] serde_json::Error),
-}
-
-pub fn strip(input: Vec<String>) -> Result<Vec<String>, Error> {
-    // Deserialize `Vec<String>` to `Vec<CustomCpuTemplate>`.
-    let input = input
-        .iter()
-        .map(|s| serde_json::from_str::<CustomCpuTemplate>(s))
-        .collect::<Result<Vec<_>, serde_json::Error>>()?;
-
-    // Strip common items.
-    let stripped = arch_strip(input);
-
-    // Serialize `Vec<CustomCpuTemplate>` to `Vec<String>`.
-    let result = stripped
-        .iter()
-        .map(serde_json::to_string_pretty)
-        .collect::<Result<Vec<_>, serde_json::Error>>()?;
-    Ok(result)
-}
+pub use x86_64::strip;
 
 pub fn strip_common<T>(sets: &mut [HashSet<T>])
 where
