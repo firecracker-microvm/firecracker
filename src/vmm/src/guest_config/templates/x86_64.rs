@@ -4,6 +4,7 @@
 /// Guest config sub-module specifically useful for
 /// config templates.
 use std::borrow::Cow;
+use std::num::ParseIntError;
 use std::result::Result;
 use std::str::FromStr;
 
@@ -148,6 +149,13 @@ impl RegisterValueFilter {
     pub fn apply(&self, value: u64) -> u64 {
         (value & !self.filter) | self.value
     }
+
+    fn try_from(value_str: &str, filter_str: &str) -> Result<RegisterValueFilter, ParseIntError> {
+        Ok(RegisterValueFilter {
+            filter: u64::from_str_radix(filter_str, 2)?,
+            value: u64::from_str_radix(value_str, 2)?,
+        })
+    }
 }
 
 /// Wrapper of a mask defined as a bitmap to apply
@@ -263,20 +271,13 @@ where
     let filter_str = filter_str.replace('x', "0");
     let value_str = bitmap_str.replace('x', "0");
 
-    Ok(RegisterValueFilter {
-        filter: u64::from_str_radix(filter_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?,
-        value: u64::from_str_radix(value_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?,
-    })
+    match RegisterValueFilter::try_from(value_str.as_str(), filter_str.as_str()) {
+        Ok(rvf) => Ok(rvf),
+        Err(err) => Err(D::Error::custom(format!(
+            "Failed to parse string [{}] as a bitmap - {:?}",
+            bitmap_str, err
+        ))),
+    }
 }
 
 /// Serialize a RegisterValueFilter (bitmap)
@@ -648,5 +649,15 @@ mod tests {
             msr_checked,
             "MSR bitmap width in a x86_64 template was not tested."
         );
+    }
+
+    #[test]
+    fn test_register_value_filter_from() {
+        // Test sane parameters
+        assert!(RegisterValueFilter::try_from("0001", "0001").is_ok());
+        // Test malformed value parameter
+        assert!(RegisterValueFilter::try_from("0ggP01", "0001").is_err());
+        // Test malformed filter parameter
+        assert!(RegisterValueFilter::try_from("0001", "0ggP01").is_err());
     }
 }
