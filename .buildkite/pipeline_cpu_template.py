@@ -56,10 +56,18 @@ cpu_template_test = {
         },
         "instances": ["m5d.metal", "m6i.metal", "m6a.metal"],
     },
+    "aarch64_cpu_templates": {
+        BkStep.COMMAND: [
+            "tools/devtool -y test -- -s -ra --nonci --log-cli-level=INFO integration_tests/functional/test_cpu_features_aarch64.py"
+        ],
+        BkStep.LABEL: "📖 cpu templates",
+        "instances": ["m6g.metal", "c7g.metal"],
+        "platforms": [("al2_armpatch", "linux_5.10")],
+    },
 }
 
 
-def group_rdmsr(tests):
+def group_single(tests):
     """
     Generate a group step with specified parameters for each instance
     and kernel combination
@@ -151,9 +159,11 @@ def main():
     test_args = parser.parse_args()
 
     if test_args.test == "rdmsr":
-        test_group = group_rdmsr(cpu_template_test[test_args.test])
-    else:
+        test_group = group_single(cpu_template_test[test_args.test])
+    elif test_args.test == "cpuid_wrmsr":
         test_group = group_snapshot_restore(cpu_template_test[test_args.test])
+    elif test_args.test == "aarch64_cpu_templates":
+        test_group = group_single(cpu_template_test[test_args.test])
 
     pipeline = {"steps": test_group}
     print(pipeline_to_json(pipeline))
