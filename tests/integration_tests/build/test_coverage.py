@@ -25,23 +25,28 @@ def is_on_skylake():
 # differences may appear.
 if utils.is_io_uring_supported():
     COVERAGE_DICT = {
-        "Intel": 81.86 if is_on_skylake() else 82.37,
-        "AMD": 80.90,
-        "ARM": 82.76,
+        "Intel": 82.75 if is_on_skylake() else 83.27,
+        "AMD": 82.64,
+        "ARM": 82.68,
     }
 else:
     COVERAGE_DICT = {
-        "Intel": 79.09 if is_on_skylake() else 79.61,
-        "AMD": 78.13,
-        "ARM": 79.71,
+        "Intel": 79.94 if is_on_skylake() else 80.46,
+        "AMD": 79.77,
+        "ARM": 79.59,
     }
 
 PROC_MODEL = proc.proc_type()
 
 # Toolchain target architecture.
-if ("Intel" in PROC_MODEL) or ("AMD" in PROC_MODEL):
+if "Intel" in PROC_MODEL:
+    VENDOR = "Intel"
+    ARCH = "x86_64"
+elif "AMD" in PROC_MODEL:
+    VENDOR = "AMD"
     ARCH = "x86_64"
 elif "ARM" in PROC_MODEL:
+    VENDOR = "ARM"
     ARCH = "aarch64"
 else:
     raise Exception(f"Unsupported processor model ({PROC_MODEL})")
@@ -81,8 +86,7 @@ def test_coverage(monkeypatch, record_property, metrics):
     )
 
     # Generate coverage report.
-    utils.run_cmd(
-        f"""
+    cmd = f"""
         grcov . \
             -s . \
             --binary-path ./build/cargo_target/{TARGET}/debug/ \
@@ -93,7 +97,25 @@ def test_coverage(monkeypatch, record_property, metrics):
             -t html \
             --ignore-not-existing \
             -o ./build/cargo_target/{TARGET}/debug/coverage"""
-    )
+
+    # Ignore code not relevant for the intended platform
+    # - CPUID and CPU template
+    # - Static CPU templates intended for specific CPU vendors
+    if "AMD" == VENDOR:
+        cmd += " \
+            --ignore **/intel* \
+            --ignore *t2* \
+            --ignore *t2s* \
+            --ignore *t2cl* \
+            --ignore *c3* \
+            "
+    elif "Intel" == VENDOR:
+        cmd += " \
+            --ignore **/amd* \
+            --ignore *t2a* \
+            "
+
+    utils.run_cmd(cmd)
 
     # Extract coverage from html report.
     #
