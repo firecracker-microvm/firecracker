@@ -464,6 +464,9 @@ mod tests {
             cpu_template.get_cpu_template().unwrap_err(),
             GetCpuTemplateError::InvalidStaticCpuTemplate(StaticCpuTemplate::None)
         );
+
+        // Test the Display for StaticCpuTemplate
+        assert_eq!(format!("{}", StaticCpuTemplate::None), "None");
     }
 
     #[test]
