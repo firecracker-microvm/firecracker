@@ -118,7 +118,7 @@ mod tests {
         )
     }
 
-    fn generate_valid_config_file(kernel_image_path: &str, rootfs_path: &str) -> TempFile {
+    fn generate_config_file(kernel_image_path: &str, rootfs_path: &str) -> TempFile {
         let config = generate_config(kernel_image_path, rootfs_path);
         let config_file = TempFile::new().unwrap();
         config_file.as_file().write_all(config.as_bytes()).unwrap();
@@ -130,7 +130,7 @@ mod tests {
         let kernel_image_path = kernel_image_path(None);
         let rootfs_file = TempFile::new().unwrap();
         let config_file =
-            generate_valid_config_file(&kernel_image_path, rootfs_file.as_path().to_str().unwrap());
+            generate_config_file(&kernel_image_path, rootfs_file.as_path().to_str().unwrap());
         let output_file = TempFile::new().unwrap();
 
         let args = vec![
