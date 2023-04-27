@@ -34,50 +34,37 @@ pub struct Aarch64Register {
 }
 
 /// Errors thrown while setting aarch64 registers.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to get core register (PC, PSTATE or general purpose ones).
+    #[error("Failed to get {1} register: {0}")]
     GetCoreRegister(kvm_ioctls::Error, String),
     /// Failed to get multiprocessor state.
+    #[error("Failed to get multiprocessor state: {0}")]
     GetMP(kvm_ioctls::Error),
     /// Failed to get the register list.
+    #[error("Failed to retrieve list of registers: {0}")]
     GetRegList(kvm_ioctls::Error),
     /// Failed to get a system register.
+    #[error("Failed to get system register: {0}")]
     GetSysRegister(kvm_ioctls::Error),
     /// A FamStructWrapper operation has failed.
+    #[error("Failed FamStructWrapper operation: {0:?}")]
     Fam(utils::fam::Error),
     /// Failed to set core register (PC, PSTATE or general purpose ones).
+    #[error("Failed to set {1} register: {0}")]
     SetCoreRegister(kvm_ioctls::Error, String),
     /// Failed to Set multiprocessor state.
+    #[error("Failed to set multiprocessor state: {}")]
     SetMP(kvm_ioctls::Error),
     /// Failed to get a system register.
+    #[error("Failed to set register: {0}")]
     SetRegister(kvm_ioctls::Error),
     /// Failed to get midr_el1 from host.
+    #[error("{0}")]
     GetMidrEl1(String),
 }
 type Result<T> = result::Result<T, Error>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            GetCoreRegister(ref err, ref desc) => {
-                write!(f, "Failed to get {} register: {}", desc, err)
-            }
-            GetMP(ref err) => write!(f, "Failed to get multiprocessor state: {}", err),
-            GetRegList(ref err) => write!(f, "Failed to retrieve list of registers: {}", err),
-            GetSysRegister(ref err) => write!(f, "Failed to get system register: {}", err),
-            SetCoreRegister(ref err, ref desc) => {
-                write!(f, "Failed to set {} register: {}", desc, err)
-            }
-            SetMP(ref err) => write!(f, "Failed to set multiprocessor state: {}", err),
-            SetRegister(ref err) => write!(f, "Failed to set register: {}", err),
-            GetMidrEl1(ref err) => write!(f, "{}", err),
-            Fam(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
-        }
-    }
-}
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.

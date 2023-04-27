@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryFrom;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
@@ -11,24 +10,14 @@ use serde::{Deserialize, Serialize};
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum VsockConfigError {
     /// Failed to create the backend for the vsock device.
+    #[error("Cannot create backend for vsock device: {0:?}")]
     CreateVsockBackend(VsockUnixBackendError),
     /// Failed to create the vsock device.
+    #[error("Cannot create vsock device: {0:?}")]
     CreateVsockDevice(VsockError),
-}
-
-impl fmt::Display for VsockConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::VsockConfigError::*;
-        match *self {
-            CreateVsockBackend(ref err) => {
-                write!(f, "Cannot create backend for vsock device: {:?}", err)
-            }
-            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, VsockConfigError>;

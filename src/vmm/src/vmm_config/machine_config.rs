@@ -13,43 +13,25 @@ pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 
 /// Errors associated with configuring the microVM.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum VmConfigError {
     /// The memory size is smaller than the target size set in the balloon device configuration.
+    #[error("The memory size (MiB) is smaller than the previously set balloon device target \
+    size.")]
     IncompatibleBalloonSize,
     /// The memory size is invalid. The memory can only be an unsigned integer.
+    #[error("The memory size (MiB) is invalid.")]
     InvalidMemorySize,
     /// The vcpu count is invalid. When SMT is enabled, the `cpu_count` must be either
     /// 1 or an even number.
+    #[error("The vCPU number is invalid! The vCPU number can only be 1 or an even number when \
+    SMT is enabled.")]
     InvalidVcpuCount,
     /// Could not get the config of the balloon device from the VM resources, even though a
     /// balloon device was previously installed.
+    #[error("Could not get the configuration of the previously installed balloon device to \
+    validate the memory size.")]
     InvalidVmState,
-}
-impl std::error::Error for VmConfigError {}
-
-impl fmt::Display for VmConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::VmConfigError::*;
-        match *self {
-            IncompatibleBalloonSize => write!(
-                f,
-                "The memory size (MiB) is smaller than the previously set balloon device target \
-                 size.",
-            ),
-            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
-            InvalidVcpuCount => write!(
-                f,
-                "The vCPU number is invalid! The vCPU number can only be 1 or an even number when \
-                 SMT is enabled.",
-            ),
-            InvalidVmState => write!(
-                f,
-                "Could not get the configuration of the previously installed balloon device to \
-                 validate the memory size.",
-            ),
-        }
-    }
 }
 
 /// Strongly typed structure that represents the configuration of the

@@ -16,41 +16,26 @@ const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 const DESERIALIZATION_BYTES_LIMIT: Option<u64> = Some(100_000);
 
 /// Error retrieving seccomp filters.
-#[derive(fmt::Debug)]
+#[derive(fmt::Debug, thiserror::Error)]
 pub enum FilterError {
     /// Invalid SeccompConfig.
+    #[error("Invalid seccomp argument configuration: {0}")]
     SeccompConfig(String),
     /// Filter deserialitaion error.
+    #[error("Filter deserialization failed: {0}")]
     Deserialization(DeserializationError),
     /// Invalid thread categories.
+    #[error("Invalid thread categories: {0}")]
     ThreadCategories(String),
     /// Missing Thread Category.
+    #[error("Missing thread category: {0}")]
     MissingThreadCategory(String),
     /// Filter installation error.
+    #[error("Filter installation error: {0}")]
     Install(InstallationError),
     /// File open error.
+    #[error("Filter file open error: {0}")]
     FileOpen(std::io::Error),
-}
-
-impl fmt::Display for FilterError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::FilterError::*;
-
-        match *self {
-            SeccompConfig(ref message) => {
-                write!(f, "Invalid seccomp argument configuration: {}", message)
-            }
-            Deserialization(ref err) => write!(f, "Filter deserialization failed: {}", err),
-            ThreadCategories(ref categories) => {
-                write!(f, "Invalid thread categories: {}", categories)
-            }
-            MissingThreadCategory(ref category) => {
-                write!(f, "Missing thread category: {}", category)
-            }
-            Install(ref err) => write!(f, "Filter installation error: {}", err),
-            FileOpen(ref err) => write!(f, "Filter file open error: {}", err),
-        }
-    }
 }
 
 /// Seccomp filter configuration.

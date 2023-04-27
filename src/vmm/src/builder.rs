@@ -4,7 +4,6 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
@@ -154,84 +153,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
     }
 }
-/*
-impl Display for StartMicrovmError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::StartMicrovmError::*;
-        match self {
-            AttachBlockDevice(err) => {
-                write!(f, "Unable to attach block device to Vmm: {}", err)
-            }
-            ConfigureSystem(err) => write!(f, "System configuration error: {:?}", err),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            CreateNetDevice(err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-
-                write!(f, "Cannot create network device. {}", err_msg)
-            }
-            GuestMemoryMmap(err) => {
-                // Remove imbricated quotes from error message.
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(f, "Invalid Memory Configuration: {}", err_msg)
-            }
-            InitrdLoad => write!(
-                f,
-                "Cannot load initrd due to an invalid memory configuration."
-            ),
-            InitrdRead(err) => write!(f, "Cannot load initrd due to an invalid image: {}", err),
-            Internal(err) => write!(f, "Internal error while starting microVM: {}", err),
-            KernelCmdline(err) => write!(f, "Invalid kernel command line: {}", err),
-            KernelLoader(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(
-                    f,
-                    "Cannot load kernel due to invalid memory configuration or invalid kernel \
-                     image. {}",
-                    err_msg
-                )
-            }
-            LoadCommandline(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(f, "Cannot load command line string. {}", err_msg)
-            }
-            MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
-            MissingMemSizeConfig => {
-                write!(f, "Cannot start microvm without guest mem_size config.")
-            }
-            MissingSeccompFilters(thread_category) => write!(
-                f,
-                "No seccomp filter for thread category: {}",
-                thread_category
-            ),
-            NetDeviceNotConfigured => {
-                write!(f, "The net device configuration is missing the tap device.")
-            }
-            OpenBlockDevice(err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace('\"', "");
-
-                write!(f, "Cannot open the block device backing file. {}", err_msg)
-            }
-            RegisterMmioDevice(err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace('\"', "");
-                write!(
-                    f,
-                    "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline. \
-                     {}",
-                    err_msg
-                )
-            }
-            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
-            SetVmResources(err) => write!(f, "Cannot set vm resources. Error: {}", err),
-        }
-    }
-}
-*/
 
 // Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
 pub(crate) struct SerialStdin(io::Stdin);

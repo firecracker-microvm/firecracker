@@ -28,48 +28,41 @@ use crate::vstate::vcpu::VcpuConfig;
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum Error {
     /// Balloon device configuration error.
+    #[error("Balloon device error: {0}")]
     BalloonDevice(BalloonConfigError),
     /// Block device configuration error.
+    #[error("Block device error: {0}")]
     BlockDevice(DriveError),
     /// Boot source configuration error.
+    #[error("Boot source error: {0}")]
     BootSource(BootSourceConfigError),
     /// JSON is invalid.
+    #[error("Invalid JSON: {0}")]
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
+    #[error("Logger error: {0}")]
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
+    #[error("Metrics error: {0}")]
     Metrics(MetricsConfigError),
     /// MMDS error.
+    #[error("MMDS error: {0}")]
     Mmds(mmds::data_store::Error),
     /// MMDS configuration error.
+    #[error("MMDS config error: {0}")]
     MmdsConfig(MmdsConfigError),
     /// Net device configuration error.
+    #[error("Network device error: {0}")]
     NetDevice(NetworkInterfaceError),
     /// microVM vCpus or memory configuration error.
+    #[error("VM config error: {0}")]
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
+    #[error("Vsock device error: {0}")]
     VsockDevice(VsockConfigError),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
-            Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
-            Error::BootSource(err) => write!(f, "Boot source error: {}", err),
-            Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
-            Error::Logger(err) => write!(f, "Logger error: {}", err),
-            Error::Metrics(err) => write!(f, "Metrics error: {}", err),
-            Error::Mmds(err) => write!(f, "MMDS error: {}", err),
-            Error::MmdsConfig(err) => write!(f, "MMDS config error: {}", err),
-            Error::NetDevice(err) => write!(f, "Network device error: {}", err),
-            Error::VmConfig(err) => write!(f, "VM config error: {}", err),
-            Error::VsockDevice(err) => write!(f, "Vsock device error: {}", err),
-        }
-    }
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -1580,4 +1573,5 @@ mod tests {
             )
         );
     }
-}
+   
+} 
