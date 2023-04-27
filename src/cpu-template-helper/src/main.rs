@@ -16,7 +16,7 @@ const EXIT_CODE_ERROR: i32 = 1;
 enum Error {
     #[error("Failed to operate file: {0}")]
     FileIo(#[from] std::io::Error),
-    #[error("Failed to dump CPU configuration: {0}")]
+    #[error("{0}")]
     DumpCpuConfig(#[from] dump::Error),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
     Serde(#[from] serde_json::Error),
