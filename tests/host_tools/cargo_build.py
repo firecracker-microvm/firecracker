@@ -33,9 +33,9 @@ def cargo_build(path, extra_args="", src_dir="", extra_env=""):
     """Trigger build depending on flags provided."""
     cmd = "CARGO_TARGET_DIR={} {} cargo build {}".format(path, extra_env, extra_args)
     if src_dir:
-        cmd = "cd {} && {}".format(src_dir, cmd)
-
-    utils.run_cmd(cmd)
+        utils.run_cmd(cmd, cwd=src_dir)
+    else:
+        utils.run_cmd(cmd)
 
 
 def cargo_test(path, extra_args=""):
@@ -64,15 +64,12 @@ def get_firecracker_binaries():
     jailer_bin_path = out_dir / JAILER_BINARY_NAME
 
     if not fc_bin_path.exists():
-        cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
         flags = 'RUSTFLAGS="{}"'.format(get_rustflags())
-        cargo_default_cmd = f"cargo build --release --target {target}"
-        cargo_jailer_cmd = f"cargo build -p jailer --release --target {target}"
-        cmd = "{0} && {1} {2} && {1} {3}".format(
-            cd_cmd, flags, cargo_default_cmd, cargo_jailer_cmd
-        )
+        cargo_default_cmd = f"{flags} cargo build --release --target {target}"
+        cargo_jailer_cmd = f"{flags} cargo build -p jailer --release --target {target}"
 
-        utils.run_cmd(cmd)
+        utils.run_cmd(cargo_default_cmd, cwd=FC_WORKSPACE_DIR)
+        utils.run_cmd(cargo_jailer_cmd, cwd=FC_WORKSPACE_DIR)
         utils.run_cmd(f"strip --strip-debug {fc_bin_path} {jailer_bin_path}")
 
     return fc_bin_path, jailer_bin_path
