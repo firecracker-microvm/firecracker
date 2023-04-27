@@ -9,6 +9,8 @@
 - Fixed a performance regression in the jailer logic for closing open file
   descriptors. Related to:
   [#3542](https://github.com/firecracker-microvm/firecracker/issues/3542).
+- A race condition that has been identified between the API thread and the VMM
+  thread due to a misconfiguration of the `api_event_fd`.
 
 ## [1.3.0]
 
