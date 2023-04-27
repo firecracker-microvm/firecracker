@@ -363,6 +363,7 @@ dependencies = [
  "thiserror",
  "versionize",
  "versionize_derive",
+ "vm-memory",
  "vmm-sys-util",
 ]
 
@@ -392,6 +393,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "vm-memory"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "688a70366615b45575a424d9c665561c1b5ab2224d494f706b6a6812911a827c"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
