@@ -5,6 +5,7 @@ use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use vmm::guest_config::templates::CustomCpuTemplate;
 
 mod dump;
 mod strip;
@@ -20,8 +21,6 @@ enum Error {
     DumpCpuConfig(#[from] dump::Error),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
     Serde(#[from] serde_json::Error),
-    #[error("Failed to strip CPU configuration: {0}")]
-    StripCpuConfig(#[from] strip::Error),
     #[error("{0}")]
     Utils(#[from] utils::Error),
 }
@@ -50,7 +49,7 @@ enum Command {
     Strip {
         /// List of paths of input CPU configuration files.
         #[arg(short, long, num_args = 2..)]
-        path: Vec<PathBuf>,
+        paths: Vec<PathBuf>,
         /// Suffix of output files. To overwrite input files, specify an empty string ''.
         #[arg(short, long, default_value = "_stripped")]
         suffix: String,
@@ -68,20 +67,20 @@ fn run(cli: Cli) -> Result<()> {
             let cpu_config_json = serde_json::to_string_pretty(&cpu_config)?;
             write(output, cpu_config_json)?;
         }
-        Command::Strip { path, suffix } => {
-            let input = path
-                .iter()
-                .map(read_to_string)
-                .collect::<std::io::Result<Vec<_>>>()?;
+        Command::Strip { paths, suffix } => {
+            let mut templates = Vec::with_capacity(paths.len());
+            for path in &paths {
+                let template_json = read_to_string(path)?;
+                let template: CustomCpuTemplate = serde_json::from_str(&template_json)?;
+                templates.push(template);
+            }
 
-            let strip_result = strip::strip(input)?;
+            let stripped_templates = strip::strip(templates);
 
-            let path = path
-                .iter()
-                .map(|path| utils::add_suffix(path, &suffix))
-                .collect::<Vec<_>>();
-            for (path, result) in path.into_iter().zip(strip_result.into_iter()) {
-                write(path, result)?;
+            for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
+                let path = utils::add_suffix(&path, &suffix);
+                let template_json = serde_json::to_string_pretty(&template)?;
+                write(path, template_json)?;
             }
         }
     };
