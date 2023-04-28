@@ -11,6 +11,11 @@ use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::{EventManager, Vmm, HTTP_MAX_PAYLOAD_SIZE};
 
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64;
+
 const CPU_TEMPLATE_HELPER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
 #[derive(Debug, thiserror::Error)]
@@ -61,90 +66,6 @@ pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
 
     // Swap the file name.
     path.with_file_name(new_file_name)
-}
-
-#[cfg(target_arch = "aarch64")]
-pub mod aarch64 {
-    macro_rules! reg_modifier {
-        ($addr:expr, $value:expr) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: u128::MAX,
-                    value: $value,
-                },
-            }
-        };
-        ($addr:expr, $value:expr, $filter:expr) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: $filter,
-                    value: $value,
-                },
-            }
-        };
-    }
-
-    pub(crate) use reg_modifier;
-}
-
-#[cfg(target_arch = "x86_64")]
-pub mod x86_64 {
-    macro_rules! cpuid_reg_modifier {
-        ($register:expr, $value:expr) => {
-            CpuidRegisterModifier {
-                register: $register,
-                bitmap: RegisterValueFilter {
-                    filter: u32::MAX.into(),
-                    value: $value,
-                },
-            }
-        };
-        ($register:expr, $value:expr, $filter:expr) => {
-            CpuidRegisterModifier {
-                register: $register,
-                bitmap: RegisterValueFilter {
-                    filter: $filter,
-                    value: $value,
-                },
-            }
-        };
-    }
-
-    macro_rules! cpuid_leaf_modifier {
-        ($leaf:expr, $subleaf:expr, $flags:expr, $reg_modifiers:expr) => {
-            CpuidLeafModifier {
-                leaf: $leaf,
-                subleaf: $subleaf,
-                flags: $flags,
-                modifiers: $reg_modifiers,
-            }
-        };
-    }
-
-    macro_rules! msr_modifier {
-        ($addr:expr, $value:expr) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: u64::MAX,
-                    value: $value,
-                },
-            }
-        };
-        ($addr:expr, $value:expr, $filter:expr) => {
-            RegisterModifier {
-                addr: $addr,
-                bitmap: RegisterValueFilter {
-                    filter: $filter,
-                    value: $value,
-                },
-            }
-        };
-    }
-
-    pub(crate) use {cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
 }
 
 #[cfg(test)]
