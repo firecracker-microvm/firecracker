@@ -4,9 +4,7 @@
 
 """Generate Buildkite performance pipelines dynamically"""
 
-import argparse
-
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import COMMON_PARSER, group, pipeline_to_json
 
 perf_test = {
     "block": {
@@ -58,26 +56,13 @@ def build_group(test):
     )
 
 
-parser = argparse.ArgumentParser()
+parser = COMMON_PARSER
 parser.add_argument(
     "--test",
     required=True,
     choices=list(perf_test.keys()),
     help="performance test",
     action="append",
-)
-parser.add_argument(
-    "--instances",
-    required=False,
-    nargs="+",
-    default=DEFAULT_INSTANCES,
-)
-parser.add_argument(
-    "--platforms",
-    metavar="OS-KV",
-    required=False,
-    nargs="+",
-    default=[],
 )
 parser.add_argument("--retries", type=int, default=0)
 parser.add_argument(
@@ -87,12 +72,6 @@ parser.add_argument(
     default=[],
 )
 args = parser.parse_args()
-if not args.platforms:
-    args.platforms = DEFAULT_PLATFORMS
-else:
-    args.platforms = [
-        tuple(str(platform).split("-", maxsplit=1)) for platform in args.platforms
-    ]
 if args.extra:
     args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
