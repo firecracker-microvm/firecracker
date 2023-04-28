@@ -19,7 +19,6 @@ TEST_RESOURCES_DIR = Path(
 )
 
 
-# pylint: disable=too-few-public-methods
 class CpuTemplateHelper:
     """
     Class for CPU template helper tool.
@@ -54,6 +53,11 @@ class CpuTemplateHelper:
         )
         utils.run_cmd(cmd)
 
+    def verify(self, vm_config_path):
+        """Verify the specified CPU template by calling verify subcommand"""
+        cmd = f"{self.BINARY_PATH} verify --config {vm_config_path}"
+        utils.run_cmd(cmd)
+
 
 @pytest.fixture(scope="session", name="cpu_template_helper")
 def cpu_template_helper_fixture():
@@ -61,14 +65,23 @@ def cpu_template_helper_fixture():
     return CpuTemplateHelper()
 
 
-def save_vm_config(microvm, vm_config_path):
+def save_vm_config(microvm, tmp_path, custom_cpu_template=None):
     """
     Save VM config into JSON file.
     """
     config_json = microvm.full_cfg.get().json()
     config_json["boot-source"]["kernel_image_path"] = str(microvm.kernel_file)
     config_json["drives"][0]["path_on_host"] = str(microvm.rootfs_file)
+    if custom_cpu_template is not None:
+        custom_cpu_template_path = tmp_path / "template.json"
+        Path(custom_cpu_template_path).write_text(
+            json.dumps(custom_cpu_template), encoding="utf-8"
+        )
+        config_json["cpu-config"] = str(custom_cpu_template_path)
+
+    vm_config_path = tmp_path / "vm_config.json"
     Path(vm_config_path).write_text(json.dumps(config_json), encoding="utf-8")
+    return vm_config_path
 
 
 def build_cpu_config_dict(cpu_config_path):
@@ -223,8 +236,7 @@ def test_cpu_config_dump_vs_actual(
     microvm.spawn()
     microvm.basic_config()
     microvm.ssh_network_config(network_config, "1")
-    vm_config_path = tmp_path / "config.json"
-    save_vm_config(microvm, vm_config_path)
+    vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump CPU config with the helper tool.
     cpu_config_path = tmp_path / "cpu_config.json"
@@ -288,8 +300,7 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
     microvm = test_microvm_with_api
     microvm.spawn()
     microvm.basic_config()
-    vm_config_path = tmp_path / "vm_config.json"
-    save_vm_config(microvm, vm_config_path)
+    vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump CPU config with the generated VM config.
     cpu_config_path = tmp_path / "cpu_config.json"
@@ -302,3 +313,19 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
 
     # Compare with baseline
     utils.run_cmd(f"diff {cpu_config_path} {baseline_path} -C 10")
+
+
+def test_json_static_templates(
+    test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
+):
+    """
+    Verify that JSON static CPU templates are applied as intended
+    """
+    # Generate VM config with JSON static CPU template
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+    vm_config_path = save_vm_config(microvm, tmp_path, custom_cpu_template["template"])
+
+    # Verify the JSON static CPU template.
+    cpu_template_helper.verify(vm_config_path)
