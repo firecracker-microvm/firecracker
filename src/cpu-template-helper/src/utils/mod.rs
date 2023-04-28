@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::ffi::OsString;
+use std::fmt::{Binary, Display};
+use std::hash::Hash;
+use std::ops::{BitAnd, Shl};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -17,6 +20,64 @@ pub mod aarch64;
 pub mod x86_64;
 
 const CPU_TEMPLATE_HELPER_VERSION: &str = env!("FIRECRACKER_VERSION");
+
+/// Trait for key of `HashMap`-based modifier.
+///
+/// This is a wrapper trait of some traits required for a key of `HashMap` modifier.
+pub trait ModifierMapKey: Eq + PartialEq + Hash + Display {}
+
+/// Trait for value of `HashMap`-based modifier.
+pub trait ModifierMapValue {
+    // The data size of `Self::Type` varies depending on the target modifier.
+    // * x86_64 CPUID: `u32`
+    // * x86_64 MSR: `u64`
+    // * aarch64 registers: `u128`
+    //
+    // These trait bounds are required for the following reasons:
+    // * `PartialEq + Eq`: To compare `Self::Type` values (like `filter()` and `value()`).
+    // * `BitAnd<Output = Self::Type>`: To use AND operation (like `filter() & value()`).
+    // * `Binary`: To display in a bitwise format.
+    // * `From<bool> + Shl<usize, Output = Self::Type>`: To construct bit masks in
+    //   `to_diff_string()`.
+    type Type: PartialEq
+        + Eq
+        + Copy
+        + BitAnd<Output = Self::Type>
+        + Binary
+        + From<bool>
+        + Shl<usize, Output = Self::Type>;
+
+    // Return `filter` of arch-specific `RegisterValueFilter` in the size for the target.
+    fn filter(&self) -> Self::Type;
+
+    // Return `value` of arch-specific `RegisterValueFilter` in the size for the target.
+    fn value(&self) -> Self::Type;
+
+    // Generate a string to display difference of filtered values between CPU template and guest
+    // CPU config.
+    #[rustfmt::skip]
+    fn to_diff_string(template: Self::Type, config: Self::Type) -> String {
+        let nbits = std::mem::size_of::<Self::Type>() * 8;
+
+        let mut diff = String::new();
+        for i in (0..nbits).rev() {
+            let mask = Self::Type::from(true) << i;
+            let template_bit = template & mask;
+            let config_bit = config & mask;
+            diff.push(match template_bit == config_bit {
+                true => ' ',
+                false => '^',
+            });
+        }
+
+        format!(
+            "* CPU template     : 0b{template:0width$b}\n\
+             * CPU configuration: 0b{config:0width$b}\n\
+             * Diff             :   {diff}",
+            width = nbits,
+        )
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
