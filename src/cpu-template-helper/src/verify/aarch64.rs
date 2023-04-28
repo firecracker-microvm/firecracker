@@ -49,6 +49,11 @@ impl From<Vec<RegisterModifier>> for RegModifierMap {
     }
 }
 
+pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
+    // TODO: Add implementation for aarch64.
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
