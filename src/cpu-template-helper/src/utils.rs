@@ -75,6 +75,15 @@ pub mod aarch64 {
                 },
             }
         };
+        ($addr:expr, $value:expr, $filter:expr) => {
+            RegisterModifier {
+                addr: $addr,
+                bitmap: RegisterValueFilter {
+                    filter: $filter,
+                    value: $value,
+                },
+            }
+        };
     }
 
     pub(crate) use reg_modifier;
@@ -88,6 +97,15 @@ pub mod x86_64 {
                 register: $register,
                 bitmap: RegisterValueFilter {
                     filter: u32::MAX.into(),
+                    value: $value,
+                },
+            }
+        };
+        ($register:expr, $value:expr, $filter:expr) => {
+            CpuidRegisterModifier {
+                register: $register,
+                bitmap: RegisterValueFilter {
+                    filter: $filter,
                     value: $value,
                 },
             }
@@ -111,6 +129,15 @@ pub mod x86_64 {
                 addr: $addr,
                 bitmap: RegisterValueFilter {
                     filter: u64::MAX,
+                    value: $value,
+                },
+            }
+        };
+        ($addr:expr, $value:expr, $filter:expr) => {
+            RegisterModifier {
+                addr: $addr,
+                bitmap: RegisterValueFilter {
+                    filter: $filter,
                     value: $value,
                 },
             }
