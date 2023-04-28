@@ -252,7 +252,7 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid)?;
+        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid);
         self.msrs_to_save.extend(extra_msrs);
 
         // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
