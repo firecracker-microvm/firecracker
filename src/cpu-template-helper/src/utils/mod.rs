@@ -24,10 +24,10 @@ const CPU_TEMPLATE_HELPER_VERSION: &str = env!("FIRECRACKER_VERSION");
 /// Trait for key of `HashMap`-based modifier.
 ///
 /// This is a wrapper trait of some traits required for a key of `HashMap` modifier.
-pub trait ModifierMapKey: Eq + PartialEq + Hash + Display {}
+pub trait ModifierMapKey: Eq + PartialEq + Hash + Display + Clone {}
 
 /// Trait for value of `HashMap`-based modifier.
-pub trait ModifierMapValue {
+pub trait ModifierMapValue: Eq + PartialEq + Clone {
     // The data size of `Self::Type` varies depending on the target modifier.
     // * x86_64 CPUID: `u32`
     // * x86_64 MSR: `u64`
@@ -130,7 +130,9 @@ pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::fmt::Display;
+
     use utils::tempfile::TempFile;
     use vmm::utilities::mock_resources::kernel_image_path;
 
@@ -138,6 +140,48 @@ mod tests {
     use crate::tests::generate_config;
 
     const SUFFIX: &str = "_suffix";
+
+    #[derive(Debug, PartialEq, Eq, Hash, Clone)]
+    pub struct MockModifierMapKey(pub u8);
+
+    impl ModifierMapKey for MockModifierMapKey {}
+    impl Display for MockModifierMapKey {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "ID={:#x}", self.0)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub struct MockModifierMapValue {
+        pub filter: u8,
+        pub value: u8,
+    }
+
+    impl ModifierMapValue for MockModifierMapValue {
+        type Type = u8;
+
+        fn filter(&self) -> Self::Type {
+            self.filter
+        }
+
+        fn value(&self) -> Self::Type {
+            self.value
+        }
+    }
+
+    macro_rules! mock_modifier {
+        ($key:expr, ($filter:expr, $value:expr)) => {
+            (
+                MockModifierMapKey($key),
+                MockModifierMapValue {
+                    filter: $filter,
+                    value: $value,
+                },
+            )
+        };
+    }
+
+    pub(crate) use mock_modifier;
 
     #[test]
     fn test_build_microvm_from_valid_config() {

@@ -11,7 +11,7 @@ use vmm::guest_config::templates::x86_64::{
 
 use super::{ModifierMapKey, ModifierMapValue};
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct CpuidModifierMapKey {
     pub leaf: u32,
     pub subleaf: u32,
@@ -33,7 +33,7 @@ impl Display for CpuidModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct CpuidModifierMapValue(pub RegisterValueFilter);
 
 impl ModifierMapValue for CpuidModifierMapValue {
@@ -111,7 +111,7 @@ impl From<CpuidModifierMap> for Vec<CpuidLeafModifier> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct MsrModifierMapKey(pub u32);
 
 impl ModifierMapKey for MsrModifierMapKey {}
@@ -121,7 +121,7 @@ impl Display for MsrModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct MsrModifierMapValue(pub RegisterValueFilter);
 
 impl ModifierMapValue for MsrModifierMapValue {

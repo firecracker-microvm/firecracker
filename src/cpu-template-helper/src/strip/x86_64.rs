@@ -5,11 +5,12 @@ use std::collections::HashSet;
 
 use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterValueFilter,
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
 use vmm::guest_config::templates::CustomCpuTemplate;
 
 use crate::strip::strip_common;
+use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 struct CpuidModifier {
@@ -73,37 +74,29 @@ impl From<CpuidModifierSet> for Vec<CpuidLeafModifier> {
 
 #[allow(dead_code)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
-    // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashSet<_>>` of modifiers.
-    let (mut cpuid_modifiers_sets, mut msr_modifiers_sets): (Vec<_>, Vec<_>) = templates
+    // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
+    let (mut cpuid_modifiers_maps, mut msr_modifiers_maps): (Vec<_>, Vec<_>) = templates
         .into_iter()
         .map(|template| {
             (
-                CpuidModifierSet::from(template.cpuid_modifiers).0,
-                template.msr_modifiers.into_iter().collect::<HashSet<_>>(),
+                CpuidModifierMap::from(template.cpuid_modifiers).0,
+                MsrModifierMap::from(template.msr_modifiers).0,
             )
         })
         .unzip();
 
     // Remove common items.
-    strip_common(&mut cpuid_modifiers_sets);
-    strip_common(&mut msr_modifiers_sets);
+    strip_common(&mut cpuid_modifiers_maps);
+    strip_common(&mut msr_modifiers_maps);
 
     // Convert back to `Vec<CustomCpuTemplate>`.
-    cpuid_modifiers_sets
+    cpuid_modifiers_maps
         .into_iter()
-        .zip(msr_modifiers_sets.into_iter())
-        .map(|(cpuid_modifiers_set, msr_modifiers_set)| {
-            let mut cpuid_modifiers: Vec<CpuidLeafModifier> =
-                CpuidModifierSet(cpuid_modifiers_set).into();
-            let mut msr_modifiers = msr_modifiers_set.into_iter().collect::<Vec<_>>();
-
-            cpuid_modifiers.sort_by_key(|modifier| (modifier.leaf, modifier.subleaf));
-            cpuid_modifiers.iter_mut().for_each(|leaf_modifier| {
-                leaf_modifier
-                    .modifiers
-                    .sort_by_key(|modifier| modifier.register.clone())
-            });
-            msr_modifiers.sort_by_key(|modifier| modifier.addr);
+        .zip(msr_modifiers_maps.into_iter())
+        .map(|(cpuid_modifiers_map, msr_modifiers_map)| {
+            let cpuid_modifiers =
+                Vec::<CpuidLeafModifier>::from(CpuidModifierMap(cpuid_modifiers_map));
+            let msr_modifiers = Vec::<RegisterModifier>::from(MsrModifierMap(msr_modifiers_map));
 
             CustomCpuTemplate {
                 cpuid_modifiers,

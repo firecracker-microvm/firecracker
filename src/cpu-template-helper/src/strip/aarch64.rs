@@ -1,29 +1,28 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
-
+use vmm::guest_config::templates::aarch64::RegisterModifier;
 use vmm::guest_config::templates::CustomCpuTemplate;
 
 use crate::strip::strip_common;
+use crate::utils::aarch64::RegModifierMap;
 
 #[allow(dead_code)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
-    // Convert `Vec<CustomCpuTemplate>` to `Vec<HashSet<RegisterModifier>>`.
-    let mut reg_modifiers_sets = templates
+    // Convert `Vec<CustomCpuTemplate>` to `Vec<HashMap<_>>`.
+    let mut reg_modifiers_maps = templates
         .into_iter()
-        .map(|template| template.reg_modifiers.into_iter().collect::<HashSet<_>>())
+        .map(|template| RegModifierMap::from(template.reg_modifiers).0)
         .collect::<Vec<_>>();
 
     // Remove common items.
-    strip_common(&mut reg_modifiers_sets);
+    strip_common(&mut reg_modifiers_maps);
 
     // Convert back to `Vec<CustomCpuTemplate>`.
-    reg_modifiers_sets
+    reg_modifiers_maps
         .into_iter()
-        .map(|reg_modifiers_set| {
-            let mut reg_modifiers = reg_modifiers_set.into_iter().collect::<Vec<_>>();
-            reg_modifiers.sort_by_key(|modifier| modifier.addr);
+        .map(|reg_modifiers_map| {
+            let reg_modifiers = Vec::<RegisterModifier>::from(RegModifierMap(reg_modifiers_map));
             CustomCpuTemplate { reg_modifiers }
         })
         .collect()
