@@ -8,7 +8,7 @@ use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilte
 
 use super::{ModifierMapKey, ModifierMapValue};
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct RegModifierMapKey(pub u64);
 
 impl ModifierMapKey for RegModifierMapKey {}
@@ -18,7 +18,7 @@ impl Display for RegModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct RegModifierMapValue(pub RegisterValueFilter);
 
 impl ModifierMapValue for RegModifierMapValue {
