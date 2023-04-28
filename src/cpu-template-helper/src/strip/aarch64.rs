@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use vmm::guest_config::templates::CustomCpuTemplate;
 
-use crate::strip::remove_common;
+use crate::strip::strip_common;
 
 #[allow(dead_code)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
@@ -16,7 +16,7 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
         .collect::<Vec<_>>();
 
     // Remove common items.
-    remove_common(&mut reg_modifiers_sets);
+    strip_common(&mut reg_modifiers_sets);
 
     // Convert back to `Vec<CustomCpuTemplate>`.
     reg_modifiers_sets
