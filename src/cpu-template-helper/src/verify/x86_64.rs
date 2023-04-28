@@ -1,119 +1,10 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-use std::fmt::Display;
-
-use vmm::guest_config::cpuid::KvmCpuidFlags;
-use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, RegisterModifier, RegisterValueFilter,
-};
 use vmm::guest_config::templates::CustomCpuTemplate;
 
-use super::{verify_common, Error, ModifierMapKey, ModifierMapValue};
-
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct CpuidModifierMapKey {
-    leaf: u32,
-    subleaf: u32,
-    flags: KvmCpuidFlags,
-    register: CpuidRegister,
-}
-
-impl ModifierMapKey for CpuidModifierMapKey {}
-impl Display for CpuidModifierMapKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "leaf={:#x}, subleaf={:#x}, flags={:#b}, register={}",
-            self.leaf,
-            self.subleaf,
-            self.flags.0,
-            format!("{:?}", self.register).to_lowercase()
-        )
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct CpuidModifierMapValue(RegisterValueFilter);
-
-impl ModifierMapValue for CpuidModifierMapValue {
-    type Type = u32;
-
-    fn filter(&self) -> Self::Type {
-        // Filters of CPUID modifiers should fit in `u32`.
-        self.0.filter.try_into().unwrap()
-    }
-
-    fn value(&self) -> Self::Type {
-        // Values of CPUID modifiers should fit in `u32`.
-        self.0.value.try_into().unwrap()
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct CpuidModifierMap(HashMap<CpuidModifierMapKey, CpuidModifierMapValue>);
-
-impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
-    fn from(leaf_modifiers: Vec<CpuidLeafModifier>) -> Self {
-        let mut map = HashMap::new();
-        for leaf_modifier in leaf_modifiers {
-            for reg_modifier in leaf_modifier.modifiers {
-                map.insert(
-                    CpuidModifierMapKey {
-                        leaf: leaf_modifier.leaf,
-                        subleaf: leaf_modifier.subleaf,
-                        flags: leaf_modifier.flags,
-                        register: reg_modifier.register,
-                    },
-                    CpuidModifierMapValue(reg_modifier.bitmap),
-                );
-            }
-        }
-        CpuidModifierMap(map)
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct MsrModifierMapKey(u32);
-
-impl ModifierMapKey for MsrModifierMapKey {}
-impl Display for MsrModifierMapKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "index={:#x}", self.0)
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct MsrModifierMapValue(RegisterValueFilter);
-
-impl ModifierMapValue for MsrModifierMapValue {
-    type Type = u64;
-
-    fn filter(&self) -> Self::Type {
-        self.0.filter
-    }
-
-    fn value(&self) -> Self::Type {
-        self.0.value
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct MsrModifierMap(HashMap<MsrModifierMapKey, MsrModifierMapValue>);
-
-impl From<Vec<RegisterModifier>> for MsrModifierMap {
-    fn from(modifiers: Vec<RegisterModifier>) -> Self {
-        let mut map = HashMap::new();
-        for modifier in modifiers {
-            map.insert(
-                MsrModifierMapKey(modifier.addr),
-                MsrModifierMapValue(modifier.bitmap),
-            );
-        }
-        MsrModifierMap(map)
-    }
-}
+use super::{verify_common, Error};
+use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
     let cpuid_template = CpuidModifierMap::from(cpu_template.cpuid_modifiers);
@@ -129,11 +20,19 @@ pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) ->
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use vmm::guest_config::cpuid::KvmCpuidFlags;
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
-    use vmm::guest_config::templates::x86_64::CpuidRegisterModifier;
+    use vmm::guest_config::templates::x86_64::{
+        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+    };
 
     use super::*;
-    use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
+    use crate::utils::x86_64::{
+        cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier, CpuidModifierMapKey,
+        CpuidModifierMapValue, MsrModifierMapKey, MsrModifierMapValue,
+    };
 
     macro_rules! cpuid_modifier_map {
         ($leaf:expr, $subleaf:expr, $flags:expr, $register:expr, $value:expr) => {
