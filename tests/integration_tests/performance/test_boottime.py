@@ -4,6 +4,7 @@
 
 import platform
 import re
+import time
 
 from framework.properties import global_props
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
@@ -112,7 +113,12 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
-    timestamps = vm.find_log_message(TIMESTAMP_LOG_REGEX)
+    timestamps = []
+    for _ in range(10):
+        timestamps = re.findall(TIMESTAMP_LOG_REGEX, vm.log_data)
+        if timestamps:
+            break
+        time.sleep(0.1)
     if timestamps:
         boot_time_us = int(timestamps[0])
 
