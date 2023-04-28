@@ -8,18 +8,12 @@ use std::ops::{BitAnd, Shl};
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
+#[cfg(target_arch = "aarch64")]
+pub use aarch64::verify;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
-
-#[allow(unused_variables)]
-pub fn verify(
-    cpu_template: vmm::guest_config::templates::CustomCpuTemplate,
-    cpu_config: vmm::guest_config::templates::CustomCpuTemplate,
-) -> Result<(), Error> {
-    // This is a placeholder of `verify()`.
-    // TODO: Add arch-specific `verify()` under arch-specific module.
-    Ok(())
-}
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::verify;
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error)]

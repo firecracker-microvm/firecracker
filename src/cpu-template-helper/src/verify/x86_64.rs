@@ -8,8 +8,9 @@ use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, RegisterModifier, RegisterValueFilter,
 };
+use vmm::guest_config::templates::CustomCpuTemplate;
 
-use super::{ModifierMapKey, ModifierMapValue};
+use super::{verify_common, Error, ModifierMapKey, ModifierMapValue};
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct CpuidModifierMapKey {
@@ -114,6 +115,18 @@ impl From<Vec<RegisterModifier>> for MsrModifierMap {
     }
 }
 
+pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
+    let cpuid_template = CpuidModifierMap::from(cpu_template.cpuid_modifiers);
+    let cpuid_config = CpuidModifierMap::from(cpu_config.cpuid_modifiers);
+    verify_common(cpuid_template.0, cpuid_config.0)?;
+
+    let msr_template = MsrModifierMap::from(cpu_template.msr_modifiers);
+    let msr_config = MsrModifierMap::from(cpu_config.msr_modifiers);
+    verify_common(msr_template.0, msr_config.0)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
@@ -209,6 +222,102 @@ mod tests {
         assert_eq!(
             MsrModifierMap::from(modifier_vec),
             MsrModifierMap(modifier_map),
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_verify_non_existing_cpuid() {
+        // Test with a sample whose CPUID exists in template, but not in config.
+        let template = CustomCpuTemplate {
+            cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY, vec![
+                cpuid_reg_modifier!(Eax, 0b10101010, 0b11110000),
+                cpuid_reg_modifier!(Ebx, 0b01010101, 0b00001111),
+            ])],
+            msr_modifiers: vec![],
+        };
+        let config = CustomCpuTemplate {
+            cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY, vec![
+                cpuid_reg_modifier!(Eax, 0b10101010, 0b11111111),
+            ])],
+            msr_modifiers: vec![],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "leaf=0x0, subleaf=0x0, flags=0b0, register=ebx not found in CPU configuration."
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_verify_mismatched_cpuid() {
+        // Test with a sample whose CPUID value mismatches.
+        let template = CustomCpuTemplate {
+            cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY,
+                vec![cpuid_reg_modifier!(Eax, 0b10101010, 0b11110000)]
+            )],
+            msr_modifiers: vec![],
+        };
+        let config = CustomCpuTemplate {
+            cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY,
+                vec![cpuid_reg_modifier!(Eax, 0b11111111)]
+            )],
+            msr_modifiers: vec![],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "Value for leaf=0x0, subleaf=0x0, flags=0b0, register=eax mismatched.\n\
+             * CPU template     : 0b00000000000000000000000010100000\n\
+             * CPU configuration: 0b00000000000000000000000011110000\n\
+             * Diff             :                            ^ ^    ",
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_verify_non_existing_msr() {
+        // Test with a sample whose MSR exists in template, but not in config.
+        let template = CustomCpuTemplate {
+            cpuid_modifiers: vec![],
+            msr_modifiers: vec![
+                msr_modifier!(0x0, 0b00000000),
+                msr_modifier!(0x1, 0b11111111),
+            ],
+        };
+        let config = CustomCpuTemplate {
+            cpuid_modifiers: vec![],
+            msr_modifiers: vec![
+                msr_modifier!(0x0, 0b00000000),
+            ],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "index=0x1 not found in CPU configuration."
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_verify_mismatched_msr() {
+        // Test with a sample whose CPUID value mismatches.
+        let template = CustomCpuTemplate {
+            cpuid_modifiers: vec![],
+            msr_modifiers: vec![
+                msr_modifier!(0x0, 0b10101010, 0b11110000),
+            ],
+        };
+        let config = CustomCpuTemplate {
+            cpuid_modifiers: vec![],
+            msr_modifiers: vec![
+                msr_modifier!(0x0, 0b01010101, 0b11111111)
+            ],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "Value for index=0x0 mismatched.\n\
+             * CPU template     : 0b0000000000000000000000000000000000000000000000000000000010100000\n\
+             * CPU configuration: 0b0000000000000000000000000000000000000000000000000000000001010000\n\
+             * Diff             :                                                           ^^^^    ",
         );
     }
 }
