@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added support for the virtio-rng entropy device. The device is optional and
+  only one device is allowed per VM. Users can configure the device with a PUT
+  API call at the `/entropy` endpoint. Users can optionally configure a rate
+  limiter.
+
 ### Fixed
 
 - Fixed feature flags in T2S CPU template on Intel Ice Lake.
