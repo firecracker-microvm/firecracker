@@ -49,6 +49,21 @@ impl From<Vec<RegisterModifier>> for RegModifierMap {
     }
 }
 
+impl From<RegModifierMap> for Vec<RegisterModifier> {
+    fn from(modifier_map: RegModifierMap) -> Self {
+        let mut modifier_vec = modifier_map
+            .0
+            .into_iter()
+            .map(|(modifier_key, modifier_value)| RegisterModifier {
+                addr: modifier_key.0,
+                bitmap: modifier_value.0,
+            })
+            .collect::<Vec<_>>();
+        modifier_vec.sort_by_key(|modifier| modifier.addr);
+        modifier_vec
+    }
+}
+
 macro_rules! reg_modifier {
     ($addr:expr, $value:expr) => {
         RegisterModifier {
@@ -94,21 +109,33 @@ mod tests {
         assert_eq!(key.to_string(), "ID=0x1234");
     }
 
-    #[test]
-    fn test_reg_modifier_from_vec_to_map() {
-        let modifier_vec = vec![
-            reg_modifier!(0x1, 0x2),
+    fn build_sample_reg_modifier_vec() -> Vec<RegisterModifier> {
+        vec![
             reg_modifier!(0x0, 0x0),
+            reg_modifier!(0x1, 0x2),
             reg_modifier!(0x3, 0x2),
-        ];
-        let modifier_map = HashMap::from([
+        ]
+    }
+
+    fn build_sample_reg_modifier_map() -> RegModifierMap {
+        RegModifierMap(HashMap::from([
             reg_modifier_map!(0x0, 0x0),
             reg_modifier_map!(0x1, 0x2),
             reg_modifier_map!(0x3, 0x2),
-        ]);
-        assert_eq!(
-            RegModifierMap::from(modifier_vec),
-            RegModifierMap(modifier_map),
-        );
+        ]))
+    }
+
+    #[test]
+    fn test_reg_modifier_from_vec_to_map() {
+        let modifier_vec = build_sample_reg_modifier_vec();
+        let modifier_map = build_sample_reg_modifier_map();
+        assert_eq!(RegModifierMap::from(modifier_vec), modifier_map);
+    }
+
+    #[test]
+    fn test_reg_modifier_from_map_to_vec() {
+        let modifier_map = build_sample_reg_modifier_map();
+        let modifier_vec = build_sample_reg_modifier_vec();
+        assert_eq!(Vec::<RegisterModifier>::from(modifier_map), modifier_vec);
     }
 }
