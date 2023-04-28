@@ -9,7 +9,7 @@ use vmm::guest_config::templates::x86_64::{
 };
 use vmm::guest_config::templates::CustomCpuTemplate;
 
-use crate::strip::remove_common;
+use crate::strip::strip_common;
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 struct CpuidModifier {
@@ -85,8 +85,8 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
         .unzip();
 
     // Remove common items.
-    remove_common(&mut cpuid_modifiers_sets);
-    remove_common(&mut msr_modifiers_sets);
+    strip_common(&mut cpuid_modifiers_sets);
+    strip_common(&mut msr_modifiers_sets);
 
     // Convert back to `Vec<CustomCpuTemplate>`.
     cpuid_modifiers_sets

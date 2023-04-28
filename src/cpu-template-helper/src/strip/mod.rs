@@ -41,7 +41,7 @@ pub fn strip(input: Vec<String>) -> Result<Vec<String>, Error> {
     Ok(result)
 }
 
-pub fn remove_common<T>(sets: &mut [HashSet<T>])
+pub fn strip_common<T>(sets: &mut [HashSet<T>])
 where
     T: Clone + Hash + Eq + PartialEq,
 {
@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_remove_common() {
+    fn test_strip_common() {
         let mut input = vec![
             HashSet::from([0, 1, 2, 3]),
             HashSet::from([0, 2, 4]),
@@ -74,7 +74,7 @@ mod tests {
             HashSet::from([1, 5, 6]),
         ];
 
-        remove_common(&mut input);
+        strip_common(&mut input);
         assert_eq!(input, expected);
     }
 }
