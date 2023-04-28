@@ -55,48 +55,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-
     use super::*;
-
-    #[derive(PartialEq, Eq, Hash)]
-    struct MockModifierMapKey(u8);
-
-    impl ModifierMapKey for MockModifierMapKey {}
-    impl Display for MockModifierMapKey {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "ID={:#x}", self.0)
-        }
-    }
-
-    struct MockModifierMapValue {
-        filter: u8,
-        value: u8,
-    }
-
-    impl ModifierMapValue for MockModifierMapValue {
-        type Type = u8;
-
-        fn filter(&self) -> Self::Type {
-            self.filter
-        }
-
-        fn value(&self) -> Self::Type {
-            self.value
-        }
-    }
-
-    macro_rules! mock_modifier {
-        ($key:expr, ($filter:expr, $value:expr)) => {
-            (
-                MockModifierMapKey($key),
-                MockModifierMapValue {
-                    filter: $filter,
-                    value: $value,
-                },
-            )
-        };
-    }
+    use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
 
     #[test]
     fn test_verify_modifier_map_with_non_existing_key() {

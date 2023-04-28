@@ -1,8 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
-use std::hash::Hash;
+use std::collections::HashMap;
+
+use crate::utils::{ModifierMapKey, ModifierMapValue};
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
@@ -14,18 +15,19 @@ mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::strip;
 
-pub fn strip_common<T>(sets: &mut [HashSet<T>])
+pub fn strip_common<K, V>(maps: &mut [HashMap<K, V>])
 where
-    T: Clone + Hash + Eq + PartialEq,
+    K: ModifierMapKey,
+    V: ModifierMapValue,
 {
     // Get common items shared by all the sets.
-    let mut common = sets[0].clone();
-    common.retain(|item| sets[1..].iter().all(|set| set.contains(item)));
+    let mut common = maps[0].clone();
+    common.retain(|key, value| maps[1..].iter().all(|map| map.get(key) == Some(value)));
 
     // Remove the common items from all the sets.
-    for item in common {
-        for set in sets.iter_mut() {
-            set.remove(&item);
+    for key in common.keys() {
+        for map in maps.iter_mut() {
+            map.remove(key);
         }
     }
 }
@@ -33,18 +35,40 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
 
     #[test]
     fn test_strip_common() {
         let mut input = vec![
-            HashSet::from([0, 1, 2, 3]),
-            HashSet::from([0, 2, 4]),
-            HashSet::from([0, 1, 2, 5, 6]),
+            HashMap::from([
+                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
+                mock_modifier!(0x1, (0b1111_0000, 0b1111_1111)),
+                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+            ]),
+            HashMap::from([
+                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
+                mock_modifier!(0x1, (0b0000_1111, 0b1111_1111)),
+                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+            ]),
+            HashMap::from([
+                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
+                mock_modifier!(0x1, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x3, (0b1111_1111, 0b1111_1111)),
+            ]),
         ];
         let expected = vec![
-            HashSet::from([1, 3]),
-            HashSet::from([4]),
-            HashSet::from([1, 5, 6]),
+            HashMap::from([
+                mock_modifier!(0x1, (0b1111_0000, 0b1111_1111)),
+                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+            ]),
+            HashMap::from([
+                mock_modifier!(0x1, (0b0000_1111, 0b1111_1111)),
+                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+            ]),
+            HashMap::from([
+                mock_modifier!(0x1, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x3, (0b1111_1111, 0b1111_1111)),
+            ]),
         ];
 
         strip_common(&mut input);
