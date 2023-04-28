@@ -149,8 +149,41 @@ mod tests {
         )
     }
 
-    fn generate_config_file(kernel_image_path: &str, rootfs_path: &str) -> TempFile {
-        let config = generate_config(kernel_image_path, rootfs_path);
+    pub fn generate_config_with_template(
+        kernel_image_path: &str,
+        rootfs_path: &str,
+        cpu_template_path: &str,
+    ) -> String {
+        format!(
+            r#"{{
+                "boot-source": {{
+                    "kernel_image_path": "{}"
+                }},
+                "drives": [
+                    {{
+                        "drive_id": "rootfs",
+                        "path_on_host": "{}",
+                        "is_root_device": true,
+                        "is_read_only": false
+                    }}
+                ],
+                "cpu-config": "{}"
+            }}"#,
+            kernel_image_path, rootfs_path, cpu_template_path,
+        )
+    }
+
+    fn generate_config_file(
+        kernel_image_path: &str,
+        rootfs_path: &str,
+        cpu_template_path: Option<&str>,
+    ) -> TempFile {
+        let config = match cpu_template_path {
+            Some(cpu_template_path) => {
+                generate_config_with_template(kernel_image_path, rootfs_path, cpu_template_path)
+            }
+            None => generate_config(kernel_image_path, rootfs_path),
+        };
         let config_file = TempFile::new().unwrap();
         config_file.as_file().write_all(config.as_bytes()).unwrap();
         config_file
@@ -160,8 +193,11 @@ mod tests {
     fn test_dump_command() {
         let kernel_image_path = kernel_image_path(None);
         let rootfs_file = TempFile::new().unwrap();
-        let config_file =
-            generate_config_file(&kernel_image_path, rootfs_file.as_path().to_str().unwrap());
+        let config_file = generate_config_file(
+            &kernel_image_path,
+            rootfs_file.as_path().to_str().unwrap(),
+            None,
+        );
         let output_file = TempFile::new().unwrap();
 
         let args = vec![
@@ -281,6 +317,86 @@ mod tests {
             .map(|file| file.as_path().to_str().unwrap())
             .collect::<Vec<_>>();
         args.extend(paths);
+        let cli = Cli::parse_from(args);
+
+        run(cli).unwrap();
+    }
+
+    // Build a sample CPU template for x86_64 that should work correctly.
+    // * CPUID leaf 0x0 / subleaf 0x0 / register eax indicates the maximum input EAX value for basic
+    //   CPUID information.
+    // * MSR index 0x4b564d00 indicates MSR_KVM_WALL_CLOCK_NEW.
+    #[cfg(target_arch = "x86_64")]
+    fn build_sample_template() -> TempFile {
+        let template_file = TempFile::new().unwrap();
+        template_file
+            .as_file()
+            .write_all(
+                r#"{
+                    "cpuid_modifiers": [
+                        {
+                            "leaf": "0x0",
+                            "subleaf": "0x0",
+                            "flags": 0,
+                            "modifiers": [
+                                {
+                                    "register": "eax",
+                                    "bitmap": "0b00000000000000000000000000000001"
+                                }
+                            ]
+                        }
+                    ],
+                    "msr_modifiers": [
+                        {
+                            "addr": "0x4b564d00",
+                            "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000001"
+                        }
+                    ]
+                }"#
+                .as_bytes(),
+            )
+            .unwrap();
+        template_file
+    }
+
+    // Build a sample CPU template for aarch64 that should work correctly.
+    // * Register ID 0x6030000000100002 indicates X1 register.
+    #[cfg(target_arch = "aarch64")]
+    fn build_sample_template() -> TempFile {
+        let template_file = TempFile::new().unwrap();
+        template_file
+            .as_file()
+            .write_all(
+                r#"{
+                    "reg_modifiers": [
+                        {
+                            "addr": "0x6030000000100002",
+                            "bitmap": "0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+                        }
+                    ]
+                }"#
+            )
+            .unwrap();
+        template_file
+    }
+
+    #[test]
+    fn test_verify_command() {
+        let kernel_image_path = kernel_image_path(None);
+        let rootfs_file = TempFile::new().unwrap();
+        let template_file = build_sample_template();
+        let config_file = generate_config_file(
+            &kernel_image_path,
+            rootfs_file.as_path().to_str().unwrap(),
+            Some(template_file.as_path().to_str().unwrap()),
+        );
+
+        let args = vec![
+            "cpu-template-helper",
+            "verify",
+            "--config",
+            config_file.as_path().to_str().unwrap(),
+        ];
         let cli = Cli::parse_from(args);
 
         run(cli).unwrap();
