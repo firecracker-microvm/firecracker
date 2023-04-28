@@ -363,8 +363,8 @@ pub enum ValidateCpuVendorError {
     #[error("Failed to read host vendor: {0}")]
     Host(#[from] crate::guest_config::cpuid::common::GetCpuidError),
     /// Failed to read snapshot vendor.
-    #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(#[from] crate::guest_config::cpuid::common::Leaf0NotFoundInCpuid),
+    #[error("Failed to read snapshot vendor")]
+    Snapshot,
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -383,11 +383,7 @@ pub fn validate_cpu_vendor(
     let snapshot_vendor_id = microvm_state.vcpu_states[0]
         .cpuid
         .vendor_id()
-        .ok_or(crate::guest_config::cpuid::common::Leaf0NotFoundInCpuid)
-        .map_err(|err| {
-            error!("Snapshot CPU vendor is missing.");
-            err
-        })?;
+        .ok_or(ValidateCpuVendorError::Snapshot)?;
 
     if host_vendor_id == snapshot_vendor_id {
         info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
