@@ -1,76 +1,11 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
-
-use vmm::guest_config::cpuid::KvmCpuidFlags;
-use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
-};
+use vmm::guest_config::templates::x86_64::{CpuidLeafModifier, RegisterModifier};
 use vmm::guest_config::templates::CustomCpuTemplate;
 
 use crate::strip::strip_common;
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
-
-#[derive(Clone, Eq, PartialEq, Hash)]
-struct CpuidModifier {
-    leaf: u32,
-    subleaf: u32,
-    flags: KvmCpuidFlags,
-    register: CpuidRegister,
-    bitmap: RegisterValueFilter,
-}
-
-struct CpuidModifierSet(HashSet<CpuidModifier>);
-
-impl From<Vec<CpuidLeafModifier>> for CpuidModifierSet {
-    fn from(leaf_modifiers: Vec<CpuidLeafModifier>) -> Self {
-        let mut set = HashSet::new();
-        for leaf_modifier in leaf_modifiers {
-            for reg_modifier in leaf_modifier.modifiers {
-                set.insert(CpuidModifier {
-                    leaf: leaf_modifier.leaf,
-                    subleaf: leaf_modifier.subleaf,
-                    flags: leaf_modifier.flags,
-                    register: reg_modifier.register,
-                    bitmap: reg_modifier.bitmap,
-                });
-            }
-        }
-        CpuidModifierSet(set)
-    }
-}
-
-impl From<CpuidModifierSet> for Vec<CpuidLeafModifier> {
-    fn from(cpuid_modifiers: CpuidModifierSet) -> Self {
-        let mut leaf_modifiers = Vec::<CpuidLeafModifier>::new();
-        for modifier in cpuid_modifiers.0 {
-            let leaf_modifier = leaf_modifiers.iter_mut().find(|leaf_modifier| {
-                leaf_modifier.leaf == modifier.leaf
-                    && leaf_modifier.subleaf == modifier.subleaf
-                    && leaf_modifier.flags == modifier.flags
-            });
-
-            if let Some(leaf_modifier) = leaf_modifier {
-                leaf_modifier.modifiers.push(CpuidRegisterModifier {
-                    register: modifier.register,
-                    bitmap: modifier.bitmap,
-                });
-            } else {
-                leaf_modifiers.push(CpuidLeafModifier {
-                    leaf: modifier.leaf,
-                    subleaf: modifier.subleaf,
-                    flags: modifier.flags,
-                    modifiers: vec![CpuidRegisterModifier {
-                        register: modifier.register,
-                        bitmap: modifier.bitmap,
-                    }],
-                });
-            }
-        }
-        leaf_modifiers
-    }
-}
 
 #[allow(dead_code)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
