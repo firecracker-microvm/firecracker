@@ -157,8 +157,6 @@ pub enum KvmVcpuConfigureError {
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
-    #[error("Failed to get MSRs to save from CPUID: {0}")]
-    MsrsToSaveByCpuid(#[from] cpuid::common::Leaf0NotFoundInCpuid),
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(#[from] MsrError),
     #[error("Failed to setup registers: {0}")]
