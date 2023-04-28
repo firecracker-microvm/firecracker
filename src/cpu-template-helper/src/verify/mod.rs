@@ -6,6 +6,8 @@ use std::fmt::{Binary, Display};
 use std::hash::Hash;
 use std::ops::{BitAnd, Shl};
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
