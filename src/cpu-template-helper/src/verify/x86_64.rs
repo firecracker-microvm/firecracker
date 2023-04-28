@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use vmm::guest_config::cpuid::KvmCpuidFlags;
-use vmm::guest_config::templates::x86_64::{CpuidLeafModifier, CpuidRegister, RegisterValueFilter};
+use vmm::guest_config::templates::x86_64::{
+    CpuidLeafModifier, CpuidRegister, RegisterModifier, RegisterValueFilter,
+};
 
 use super::{ModifierMapKey, ModifierMapValue};
 
@@ -71,13 +73,54 @@ impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Hash)]
+struct MsrModifierMapKey(u32);
+
+impl ModifierMapKey for MsrModifierMapKey {}
+impl Display for MsrModifierMapKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "index={:#x}", self.0)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct MsrModifierMapValue(RegisterValueFilter);
+
+impl ModifierMapValue for MsrModifierMapValue {
+    type Type = u64;
+
+    fn filter(&self) -> Self::Type {
+        self.0.filter
+    }
+
+    fn value(&self) -> Self::Type {
+        self.0.value
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct MsrModifierMap(HashMap<MsrModifierMapKey, MsrModifierMapValue>);
+
+impl From<Vec<RegisterModifier>> for MsrModifierMap {
+    fn from(modifiers: Vec<RegisterModifier>) -> Self {
+        let mut map = HashMap::new();
+        for modifier in modifiers {
+            map.insert(
+                MsrModifierMapKey(modifier.addr),
+                MsrModifierMapValue(modifier.bitmap),
+            );
+        }
+        MsrModifierMap(map)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
     use vmm::guest_config::templates::x86_64::CpuidRegisterModifier;
 
     use super::*;
-    use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier};
+    use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
 
     macro_rules! cpuid_modifier_map {
         ($leaf:expr, $subleaf:expr, $flags:expr, $register:expr, $value:expr) => {
@@ -90,6 +133,18 @@ mod tests {
                 },
                 CpuidModifierMapValue(RegisterValueFilter {
                     filter: u32::MAX.into(),
+                    value: $value,
+                }),
+            )
+        };
+    }
+
+    macro_rules! msr_modifier_map {
+        ($addr:expr, $value:expr) => {
+            (
+                MsrModifierMapKey($addr),
+                MsrModifierMapValue(RegisterValueFilter {
+                    filter: u64::MAX.into(),
                     value: $value,
                 }),
             )
@@ -130,6 +185,30 @@ mod tests {
         assert_eq!(
             CpuidModifierMap::from(modifier_vec),
             CpuidModifierMap(modifier_map),
+        );
+    }
+
+    #[test]
+    fn test_format_msr_modifier_map_key() {
+        let key = MsrModifierMapKey(0x1234);
+        assert_eq!(key.to_string(), "index=0x1234");
+    }
+
+    #[test]
+    fn test_msr_modifier_from_vec_to_map() {
+        let modifier_vec = vec![
+            msr_modifier!(0x1, 0x2),
+            msr_modifier!(0x0, 0x0),
+            msr_modifier!(0x3, 0x2),
+        ];
+        let modifier_map = HashMap::from([
+            msr_modifier_map!(0x0, 0x0),
+            msr_modifier_map!(0x1, 0x2),
+            msr_modifier_map!(0x3, 0x2),
+        ]);
+        assert_eq!(
+            MsrModifierMap::from(modifier_vec),
+            MsrModifierMap(modifier_map),
         );
     }
 }
