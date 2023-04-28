@@ -5,6 +5,7 @@
 Common helpers to create Buildkite pipelines
 """
 
+import argparse
 import json
 
 DEFAULT_INSTANCES = [
@@ -54,3 +55,20 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
 def pipeline_to_json(pipeline):
     """Serialize a pipeline dictionary to JSON"""
     return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
+
+
+COMMON_PARSER = argparse.ArgumentParser()
+COMMON_PARSER.add_argument(
+    "--instances",
+    required=False,
+    nargs="+",
+    default=DEFAULT_INSTANCES,
+)
+COMMON_PARSER.add_argument(
+    "--platforms",
+    metavar="OS-KV",
+    required=False,
+    nargs="+",
+    default=DEFAULT_PLATFORMS,
+    type=lambda arg: tuple(arg.split("-", maxsplit=1)),
+)
