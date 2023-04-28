@@ -54,11 +54,6 @@ pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
     })
 }
 
-/// Error type for [`msrs_to_save_by_cpuid`].
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("Leaf 0 not found in given `CpuId`.")]
-pub struct Leaf0NotFoundInCpuid;
-
 /// Returns MSRs to be saved based on CPUID features that are enabled.
 pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collections::HashSet<u32> {
     /// Memory Protection Extensions
