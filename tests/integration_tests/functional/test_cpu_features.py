@@ -26,6 +26,7 @@ PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
 )
+DATA_FILES = Path("./data/msr")
 
 
 def clean_and_mkdir(dir_path):
@@ -302,7 +303,7 @@ def test_cpu_rdmsr(
         vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
     vm.start()
-    vm.ssh.scp_put("../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh")
+    vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/bin/msr_reader.sh")
     _, stdout, stderr = vm.ssh.run("/bin/msr_reader.sh")
     assert stderr == ""
 
@@ -316,7 +317,7 @@ def test_cpu_rdmsr(
     baseline_file_name = (
         f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
-    baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
+    baseline_file_path = DATA_FILES / baseline_file_name
     # We can use the following line when regathering baselines.
     # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
     baseline_df = pd.read_csv(baseline_file_path)
@@ -330,7 +331,7 @@ def test_cpu_rdmsr(
 SNAPSHOT_RESTORE_SHARED_NAMES = {
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
     "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
-    "msr_reader_host_fname":             "../resources/tests/msr/msr_reader.sh",
+    "msr_reader_host_fname":             DATA_FILES / "msr_reader.sh",
     "msr_reader_guest_fname":            "/bin/msr_reader.sh",
     "msrs_before_fname":                 "msrs_before.txt",
     "msrs_after_fname":                  "msrs_after.txt",
@@ -376,7 +377,7 @@ def test_cpu_wrmsr_snapshot(
     that MSRs retain their values after restoring from a snapshot.
 
     This function makes MSR value modifications according to the
-    ../resources/tests/msr/wrmsr_list.txt file.
+    ./data/msr/wrmsr_list.txt file.
 
     Before taking a snapshot, MSR values are dumped into a text file.
     After restoring from the snapshot on another instance, the MSRs are
@@ -402,11 +403,11 @@ def test_cpu_wrmsr_snapshot(
     vm.start()
 
     # Make MSR modifications
-    msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
+    msr_writer_host_fname = DATA_FILES / "msr_writer.sh"
     msr_writer_guest_fname = "/bin/msr_writer.sh"
     vm.ssh.scp_put(msr_writer_host_fname, msr_writer_guest_fname)
 
-    wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
+    wrmsr_input_host_fname = DATA_FILES / "wrmsr_list.txt"
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
     vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
