@@ -6,7 +6,7 @@ use std::fmt::Display;
 
 use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, RegisterModifier, RegisterValueFilter,
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
 
 use super::{ModifierMapKey, ModifierMapValue};
@@ -73,6 +73,44 @@ impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
     }
 }
 
+impl From<CpuidModifierMap> for Vec<CpuidLeafModifier> {
+    fn from(modifier_map: CpuidModifierMap) -> Self {
+        let mut leaf_modifiers = Vec::<CpuidLeafModifier>::new();
+        for (modifier_key, modifier_value) in modifier_map.0 {
+            let leaf_modifier = leaf_modifiers.iter_mut().find(|leaf_modifier| {
+                leaf_modifier.leaf == modifier_key.leaf
+                    && leaf_modifier.subleaf == modifier_key.subleaf
+                    && leaf_modifier.flags == modifier_key.flags
+            });
+
+            if let Some(leaf_modifier) = leaf_modifier {
+                leaf_modifier.modifiers.push(CpuidRegisterModifier {
+                    register: modifier_key.register,
+                    bitmap: modifier_value.0,
+                });
+            } else {
+                leaf_modifiers.push(CpuidLeafModifier {
+                    leaf: modifier_key.leaf,
+                    subleaf: modifier_key.subleaf,
+                    flags: modifier_key.flags,
+                    modifiers: vec![CpuidRegisterModifier {
+                        register: modifier_key.register,
+                        bitmap: modifier_value.0,
+                    }],
+                });
+            }
+        }
+
+        leaf_modifiers.sort_by_key(|leaf_modifier| (leaf_modifier.leaf, leaf_modifier.subleaf));
+        leaf_modifiers.iter_mut().for_each(|leaf_modifier| {
+            leaf_modifier
+                .modifiers
+                .sort_by_key(|reg_modifier| reg_modifier.register.clone())
+        });
+        leaf_modifiers
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct MsrModifierMapKey(pub u32);
 
@@ -111,6 +149,21 @@ impl From<Vec<RegisterModifier>> for MsrModifierMap {
             );
         }
         MsrModifierMap(map)
+    }
+}
+
+impl From<MsrModifierMap> for Vec<RegisterModifier> {
+    fn from(modifier_map: MsrModifierMap) -> Self {
+        let mut modifier_vec = modifier_map
+            .0
+            .into_iter()
+            .map(|(modifier_key, modifier_value)| RegisterModifier {
+                addr: modifier_key.0,
+                bitmap: modifier_value.0,
+            })
+            .collect::<Vec<_>>();
+        modifier_vec.sort_by_key(|modifier| modifier.addr);
+        modifier_vec
     }
 }
 
@@ -220,27 +273,40 @@ mod tests {
         )
     }
 
-    #[test]
     #[rustfmt::skip]
-    fn test_cpuid_modifier_from_vec_to_map() {
-        let modifier_vec = vec![
+    fn build_sample_cpuid_modifier_vec() -> Vec<CpuidLeafModifier> {
+        vec![
             cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY, vec![
                 cpuid_reg_modifier!(Eax, 0x0),
             ]),
             cpuid_leaf_modifier!(0x1, 0x2, KvmCpuidFlags::SIGNIFICANT_INDEX, vec![
-                cpuid_reg_modifier!(Ecx, 0x4),
                 cpuid_reg_modifier!(Ebx, 0x3),
+                cpuid_reg_modifier!(Ecx, 0x4),
             ]),
-        ];
-        let modifier_map = HashMap::from([
+        ]
+    }
+
+    #[rustfmt::skip]
+    fn build_sample_cpuid_modifier_map() -> CpuidModifierMap {
+        CpuidModifierMap(HashMap::from([
             cpuid_modifier_map!(0x0, 0x0, KvmCpuidFlags::EMPTY, Eax, 0x0),
             cpuid_modifier_map!(0x1, 0x2, KvmCpuidFlags::SIGNIFICANT_INDEX, Ebx, 0x3),
             cpuid_modifier_map!(0x1, 0x2, KvmCpuidFlags::SIGNIFICANT_INDEX, Ecx, 0x4),
-        ]);
-        assert_eq!(
-            CpuidModifierMap::from(modifier_vec),
-            CpuidModifierMap(modifier_map),
-        );
+        ]))
+    }
+
+    #[test]
+    fn test_cpuid_modifier_from_vec_to_map() {
+        let modifier_vec = build_sample_cpuid_modifier_vec();
+        let modifier_map = build_sample_cpuid_modifier_map();
+        assert_eq!(CpuidModifierMap::from(modifier_vec), modifier_map);
+    }
+
+    #[test]
+    fn test_cpuid_modifier_from_map_to_vec() {
+        let modifier_map = build_sample_cpuid_modifier_map();
+        let modifier_vec = build_sample_cpuid_modifier_vec();
+        assert_eq!(Vec::<CpuidLeafModifier>::from(modifier_map), modifier_vec);
     }
 
     #[test]
@@ -249,21 +315,33 @@ mod tests {
         assert_eq!(key.to_string(), "index=0x1234");
     }
 
-    #[test]
-    fn test_msr_modifier_from_vec_to_map() {
-        let modifier_vec = vec![
-            msr_modifier!(0x1, 0x2),
+    fn build_sample_msr_modifier_vec() -> Vec<RegisterModifier> {
+        vec![
             msr_modifier!(0x0, 0x0),
+            msr_modifier!(0x1, 0x2),
             msr_modifier!(0x3, 0x2),
-        ];
-        let modifier_map = HashMap::from([
+        ]
+    }
+
+    fn build_sample_msr_modifier_map() -> MsrModifierMap {
+        MsrModifierMap(HashMap::from([
             msr_modifier_map!(0x0, 0x0),
             msr_modifier_map!(0x1, 0x2),
             msr_modifier_map!(0x3, 0x2),
-        ]);
-        assert_eq!(
-            MsrModifierMap::from(modifier_vec),
-            MsrModifierMap(modifier_map),
-        );
+        ]))
+    }
+
+    #[test]
+    fn test_msr_modifier_from_vec_to_map() {
+        let modifier_vec = build_sample_msr_modifier_vec();
+        let modifier_map = build_sample_msr_modifier_map();
+        assert_eq!(MsrModifierMap::from(modifier_vec), modifier_map);
+    }
+
+    #[test]
+    fn test_msr_modifier_from_map_to_vec() {
+        let modifier_map = build_sample_msr_modifier_map();
+        let modifier_vec = build_sample_msr_modifier_vec();
+        assert_eq!(Vec::<RegisterModifier>::from(modifier_map), modifier_vec);
     }
 }
