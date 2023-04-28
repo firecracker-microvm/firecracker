@@ -6,6 +6,9 @@ use std::fmt::{Binary, Display};
 use std::hash::Hash;
 use std::ops::{BitAnd, Shl};
 
+#[cfg(target_arch = "x86_64")]
+mod x86_64;
+
 #[allow(unused_variables)]
 pub fn verify(
     cpu_template: vmm::guest_config::templates::CustomCpuTemplate,
