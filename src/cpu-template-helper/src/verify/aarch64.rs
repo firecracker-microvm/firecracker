@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
+use vmm::guest_config::templates::CustomCpuTemplate;
 
-use super::{ModifierMapKey, ModifierMapValue};
+use super::{verify_common, Error, ModifierMapKey, ModifierMapValue};
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct RegModifierMapKey(u64);
@@ -50,8 +51,9 @@ impl From<Vec<RegisterModifier>> for RegModifierMap {
 }
 
 pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
-    // TODO: Add implementation for aarch64.
-    Ok(())
+    let reg_template = RegModifierMap::from(cpu_template.reg_modifiers);
+    let reg_config = RegModifierMap::from(cpu_config.reg_modifiers);
+    verify_common(reg_template.0, reg_config.0)
 }
 
 #[cfg(test)]
@@ -93,5 +95,44 @@ mod tests {
             RegModifierMap::from(modifier_vec),
             RegModifierMap(modifier_map),
         );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_verify_non_existing_reg() {
+        // Test with a sample whose register exists in template, but not in config.
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![
+                reg_modifier!(0x0, 0b00000000),
+                reg_modifier!(0x1, 0b11111111),
+            ],
+        };
+        let config = CustomCpuTemplate {
+            reg_modifiers: vec![
+                reg_modifier!(0x0, 0b00000000),
+            ],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "ID=0x1 not found in CPU configuration."
+        );
+    }
+
+    #[test]
+    fn test_verify_mismatched_reg() {
+        // Test with a sample whose register value mismatches.
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![reg_modifier!(0x0, 0b10101010, 0b11110000)],
+        };
+        let config = CustomCpuTemplate {
+            reg_modifiers: vec![reg_modifier!(0x0, 0b01010101, 0b11111111)],
+        };
+        assert_eq!(
+            verify(template, config).unwrap_err().to_string(),
+            "Value for ID=0x0 mismatched.\n\
+             * CPU template     : 0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010100000\n\
+             * CPU configuration: 0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001010000\n\
+             * Diff             :                                                                                                                           ^^^^    "
+        )
     }
 }
