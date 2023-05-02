@@ -321,10 +321,10 @@ def test_cpu_rdmsr(
 
     # pylint: disable=C0121
     microvm_val_df = microvm_val_df[
-        microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
+        ~microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
     ]
     baseline_val_df = baseline_val_df[
-        baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
+        ~baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
     ]
 
     # Compare values
