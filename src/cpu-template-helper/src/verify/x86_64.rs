@@ -22,11 +22,11 @@ pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) ->
 mod tests {
     use std::collections::HashMap;
 
-    use vmm::guest_config::cpuid::KvmCpuidFlags;
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
     use vmm::guest_config::templates::x86_64::{
         CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
     };
+    use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
     use super::*;
     use crate::utils::x86_64::{

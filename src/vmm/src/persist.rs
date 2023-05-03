@@ -26,11 +26,11 @@ use vm_memory::{GuestMemory, GuestMemoryMmap};
 use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::cpuid::common::get_vendor_id_from_host;
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::cpuid::CpuidTrait;
 use crate::guest_config::templates::StaticCpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::cpuid::common::get_vendor_id_from_host;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::cpuid::CpuidTrait;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
@@ -361,7 +361,7 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(#[from] crate::guest_config::cpuid::common::GetCpuidError),
+    Host(#[from] crate::guest_config::x86_64::cpuid::common::GetCpuidError),
     /// Failed to read snapshot vendor.
     #[error("Failed to read snapshot vendor")]
     Snapshot,

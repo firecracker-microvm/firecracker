@@ -1,9 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(target_arch = "x86_64")]
-pub mod cpuid;
-
 /// Module for types used for custom CPU templates
 pub mod templates;
 
