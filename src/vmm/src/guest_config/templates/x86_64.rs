@@ -13,8 +13,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
 use crate::arch::x86_64::cpu_model::CpuModel;
-use crate::guest_config::cpuid::common::get_vendor_id_from_host;
-use crate::guest_config::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
+use crate::guest_config::x86_64::cpuid::common::get_vendor_id_from_host;
+use crate::guest_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::guest_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s};
 
 impl GetCpuTemplate for Option<CpuTemplateType> {

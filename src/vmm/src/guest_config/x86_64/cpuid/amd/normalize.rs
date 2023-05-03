@@ -1,9 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
-use crate::guest_config::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
-use crate::guest_config::cpuid::{
+use crate::guest_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::guest_config::x86_64::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
+use crate::guest_config::x86_64::cpuid::{
     cpuid, cpuid_count, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
 };
@@ -433,7 +433,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::guest_config::cpuid::AmdCpuid;
+    use crate::guest_config::x86_64::cpuid::AmdCpuid;
 
     #[test]
     fn test_update_structured_extended_entry_invalid() {
