@@ -959,7 +959,7 @@ pub mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            use crate::guest_config::cpuid::Cpuid;
+            use crate::guest_config::x86_64::cpuid::Cpuid;
             vcpu.kvm_vcpu
                 .configure(
                     &vm_mem,

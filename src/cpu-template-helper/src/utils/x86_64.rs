@@ -4,10 +4,10 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use vmm::guest_config::cpuid::KvmCpuidFlags;
 use vmm::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
+use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
 use super::{ModifierMapKey, ModifierMapValue};
 

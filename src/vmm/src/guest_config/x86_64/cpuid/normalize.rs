@@ -1,7 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::cpuid::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
+use crate::guest_config::x86_64::cpuid::{
+    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
+};
 
 /// Error type for [`Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -12,10 +14,10 @@ pub enum NormalizeCpuidError {
     CpuBits(u8),
     /// Failed to apply modifications to Intel CPUID.
     #[error("Failed to apply modifications to Intel CPUID: {0}")]
-    Intel(#[from] crate::guest_config::cpuid::intel::NormalizeCpuidError),
+    Intel(#[from] crate::guest_config::x86_64::cpuid::intel::NormalizeCpuidError),
     /// Failed to apply modifications to AMD CPUID.
     #[error("Failed to apply modifications to AMD CPUID: {0}")]
-    Amd(#[from] crate::guest_config::cpuid::amd::NormalizeCpuidError),
+    Amd(#[from] crate::guest_config::x86_64::cpuid::amd::NormalizeCpuidError),
     /// Failed to set feature information leaf.
     #[error("Failed to set feature information leaf: {0}")]
     FeatureInformation(#[from] FeatureInformationError),
@@ -428,7 +430,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::guest_config::cpuid::{AmdCpuid, Cpuid, IntelCpuid};
+    use crate::guest_config::x86_64::cpuid::{AmdCpuid, Cpuid, IntelCpuid};
 
     #[test]
     fn get_max_cpus_per_package_test() {

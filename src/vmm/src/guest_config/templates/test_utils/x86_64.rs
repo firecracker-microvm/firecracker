@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(target_arch = "x86_64")]
-use crate::guest_config::cpuid::KvmCpuidFlags;
-#[cfg(target_arch = "x86_64")]
 use crate::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
 use crate::guest_config::templates::CustomCpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
 /// Test CPU template in JSON format
 #[cfg(target_arch = "x86_64")]

@@ -43,11 +43,11 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::guest_config::cpuid::KvmCpuidFlags;
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
     use vmm::guest_config::templates::x86_64::{
         CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
     };
+    use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
     use super::*;
     use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
