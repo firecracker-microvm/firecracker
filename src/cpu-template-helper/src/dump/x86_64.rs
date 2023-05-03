@@ -3,11 +3,11 @@
 
 use std::collections::HashMap;
 
-use vmm::guest_config::cpuid::Cpuid;
 use vmm::guest_config::templates::x86_64::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
 };
 use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate};
+use vmm::guest_config::x86_64::cpuid::Cpuid;
 
 use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
 
@@ -52,7 +52,7 @@ fn msrs_to_modifier(msrs: &HashMap<u32, u64>) -> Vec<RegisterModifier> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use vmm::guest_config::cpuid::{
+    use vmm::guest_config::x86_64::cpuid::{
         CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
     };
 
