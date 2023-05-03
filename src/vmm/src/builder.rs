@@ -809,7 +809,7 @@ pub fn configure_system_for_boot(
     // Construct the base CpuConfiguration to apply CPU template onto.
     #[cfg(target_arch = "x86_64")]
     let cpu_config = {
-        use crate::guest_config::cpuid;
+        use crate::guest_config::x86_64::cpuid;
         let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msr_index_list = cpu_template.get_msr_index_list();

@@ -20,8 +20,7 @@ use versionize_derive::Versionize;
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, Error as MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use crate::guest_config::cpuid;
-use crate::guest_config::x86_64::CpuConfiguration;
+use crate::guest_config::x86_64::{cpuid, CpuConfiguration};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -646,11 +645,11 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::guest_config::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::guest_config::templates::{
         CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
         StaticCpuTemplate,
     };
+    use crate::guest_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 

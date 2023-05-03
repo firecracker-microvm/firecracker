@@ -1,15 +1,17 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/// Module for CPUID instruction related content
+pub mod cpuid;
+
 /// Module for static CPU templates for x86_64
 pub mod static_cpu_templates;
 
 use std::collections::HashMap;
 
-use super::cpuid::CpuidKey;
 use super::templates::x86_64::CpuidRegister;
 use super::templates::CustomCpuTemplate;
-use crate::guest_config::cpuid::Cpuid;
+use crate::guest_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -22,7 +24,7 @@ pub enum Error {
     MsrNotSupported(u32),
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
-    CpuidFromKvmCpuid(super::cpuid::CpuidTryFromKvmCpuid),
+    CpuidFromKvmCpuid(crate::guest_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctls failed.
     #[error("KVM vcpu ioctl failed: {0}")]
     VcpuIoctl(crate::vstate::vcpu::VcpuError),
@@ -106,10 +108,10 @@ mod tests {
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
 
     use super::*;
-    use crate::guest_config::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
     use crate::guest_config::templates::x86_64::{
         CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
     };
+    use crate::guest_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
 
     fn build_test_template() -> CustomCpuTemplate {
         CustomCpuTemplate {
