@@ -65,21 +65,13 @@ parser.add_argument(
     action="append",
 )
 parser.add_argument("--retries", type=int, default=0)
-parser.add_argument(
-    "--extra",
-    required=False,
-    action="append",
-    default=[],
-)
 args = parser.parse_args()
-if args.extra:
-    args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
 tests = [perf_test[test] for test in args.test]
 for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
-    test_data.update(args.extra)
+    test_data.update(args.step_param)
     if args.retries > 0:
         # retry if the step fails
         test_data.setdefault(

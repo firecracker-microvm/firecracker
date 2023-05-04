@@ -37,6 +37,7 @@ defaults = {
     "priority": DEFAULT_PRIORITY,
     "timeout_in_minutes": 30,
 }
+defaults.update(args.step_param)
 
 build_grp = group(
     "📦 Build",

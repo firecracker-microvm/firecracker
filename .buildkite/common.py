@@ -72,3 +72,12 @@ COMMON_PARSER.add_argument(
     default=DEFAULT_PLATFORMS,
     type=lambda arg: tuple(arg.split("-", maxsplit=1)),
 )
+COMMON_PARSER.add_argument(
+    "--step-param",
+    metavar="PARAM=VALUE",
+    help="parameters to add to each step",
+    required=False,
+    action="append",
+    default=[],
+    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
+)
