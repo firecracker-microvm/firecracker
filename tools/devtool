@@ -1041,7 +1041,7 @@ cmd_install() {
     profile="release"
     target="$TARGET_PREFIX""musl"
     install_path="/usr/local/bin"
-    binaries=("firecracker" "jailer" "seccompiler-bin" "rebase-snap")
+    binaries=("firecracker" "jailer" "seccompiler-bin" "rebase-snap" "cpu-template-helper")
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
