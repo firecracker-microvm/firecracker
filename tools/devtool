@@ -109,12 +109,6 @@ CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 
-# Full path to the seccompiler cargo target dir on the host.
-CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
-
-# Full path to the rebase-snap cargo target dir on the host.
-CARGO_REBASE_SNAP_TARGET_DIR="${FC_BUILD_DIR}/rebase-snap"
-
 # Full path to the Firecracker sources dir, as bind-mounted in the container.
 CTR_FC_ROOT_DIR="/firecracker"
 
@@ -123,12 +117,6 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
-
-# Full path to the seccompiler cargo target dir, as bind-mounted in the container.
-CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
-
-# Full path to the rebase-snap cargo target dir, as bind-mounted in the container.
-CTR_CARGO_REBASE_SNAP_TARGET_DIR="$CTR_FC_BUILD_DIR/rebase-snap"
 
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
@@ -246,13 +234,13 @@ build_jailer_bin_path() {
 build_seccomp_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+    echo "$CARGO_TARGET_DIR/$target/$profile/seccompiler-bin"
 }
 
 build_rebase_snap_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
+    echo "$CARGO_TARGET_DIR/$target/$profile/rebase-snap"
 }
 
 ensure_release_binaries_exist() {
