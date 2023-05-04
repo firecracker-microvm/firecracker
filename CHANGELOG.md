@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added support for custom CPU templates allowing users to adjust vCPU features
+  exposed to the guest via CPUID, MSRs and ARM registers.
+
 ### Fixed
 
 - Fixed feature flags in T2S CPU template on Intel Ice Lake.
