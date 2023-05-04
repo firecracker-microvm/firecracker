@@ -5,6 +5,8 @@
 use std::io::Write;
 use std::num::Wrapping;
 
+use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
+
 use super::{defs, Error, Result};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
@@ -42,7 +44,7 @@ impl TxBuf {
     ///
     /// Either the entire source slice will be pushed to the ring-buffer, or none of it, if
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
-    pub fn push(&mut self, src: &[u8]) -> Result<()> {
+    pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<()> {
         // Error out if there's no room to push the entire slice.
         if self.len() + src.len() > Self::SIZE {
             return Err(Error::TxBufFull);
@@ -61,12 +63,13 @@ impl TxBuf {
 
         // First copy length: we can only go from the head offset up to the total buffer size.
         let len = std::cmp::min(Self::SIZE - head_ofs, src.len());
-        data[head_ofs..(head_ofs + len)].copy_from_slice(&src[..len]);
+
+        let _ = src.read(&mut data[head_ofs..(head_ofs + len)], 0);
 
         // If the slice didn't fit, the buffer head will wrap around, and pushing continues
         // from the start of the buffer (`&self.data[0]`).
         if len < src.len() {
-            data[..(src.len() - len)].copy_from_slice(&src[len..]);
+            let _ = src.read(&mut data[..(src.len() - len)], len);
         }
 
         // Either way, we've just pushed exactly `src.len()` bytes, so that's the amount by
@@ -133,15 +136,14 @@ impl TxBuf {
     }
 }
 
-impl Write for TxBuf {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.push(buf)
-            .map(|()| buf.len())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+impl WriteVolatile for TxBuf {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> std::result::Result<usize, VolatileMemoryError> {
+        self.push(buf).map(|()| buf.len()).map_err(|err| {
+            VolatileMemoryError::IOError(std::io::Error::new(std::io::ErrorKind::Other, err))
+        })
     }
 }
 
@@ -205,14 +207,24 @@ mod tests {
         assert!(txbuf.is_empty());
 
         assert!(txbuf.data.is_none());
-        txbuf.push(&[1, 2, 3, 4]).unwrap();
-        txbuf.push(&[5, 6, 7, 8]).unwrap();
+
+        txbuf
+            .push(&VolatileSlice::from([1, 2, 3, 4].as_mut_slice()))
+            .unwrap();
+        txbuf
+            .push(&VolatileSlice::from([5, 6, 7, 8].as_mut_slice()))
+            .unwrap();
         txbuf.flush_to(&mut sink).unwrap();
         assert_eq!(sink.data, [1, 2, 3, 4, 5, 6, 7, 8]);
         sink.clear();
 
-        txbuf.write_all(&[10, 11, 12, 13]).unwrap();
-        txbuf.write_all(&[14, 15, 16, 17]).unwrap();
+        txbuf
+            .write_all_volatile(&VolatileSlice::from([10, 11, 12, 13].as_mut_slice()))
+            .unwrap();
+        txbuf
+            .write_all_volatile(&VolatileSlice::from([14, 15, 16, 17].as_mut_slice()))
+            .unwrap();
+
         txbuf.flush_to(&mut sink).unwrap();
         assert_eq!(sink.data, [10, 11, 12, 13, 14, 15, 16, 17]);
         sink.clear();
@@ -225,16 +237,23 @@ mod tests {
         let mut tmp: Vec<u8> = Vec::new();
 
         tmp.resize(TxBuf::SIZE - 2, 0);
-        txbuf.push(tmp.as_slice()).unwrap();
+        txbuf
+            .push(&VolatileSlice::from(tmp.as_mut_slice()))
+            .unwrap();
         txbuf.flush_to(&mut sink).unwrap();
         sink.clear();
 
-        txbuf.push(&[1, 2, 3, 4]).unwrap();
+        txbuf
+            .push(&VolatileSlice::from([1, 2, 3, 4].as_mut_slice()))
+            .unwrap();
         assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 4);
         assert_eq!(sink.data, [1, 2, 3, 4]);
+
         sink.clear();
 
-        txbuf.write_all(&[5, 6, 7, 8]).unwrap();
+        txbuf
+            .write_all_volatile(&VolatileSlice::from([5, 6, 7, 8].as_mut_slice()))
+            .unwrap();
         assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 4);
         assert_eq!(sink.data, [5, 6, 7, 8]);
     }
@@ -245,13 +264,14 @@ mod tests {
         let mut tmp = Vec::with_capacity(TxBuf::SIZE);
 
         tmp.resize(TxBuf::SIZE - 1, 0);
-        txbuf.push(tmp.as_slice()).unwrap();
-        match txbuf.push(&[1, 2]) {
+        txbuf
+            .push(&VolatileSlice::from(tmp.as_mut_slice()))
+            .unwrap();
+        match txbuf.push(&VolatileSlice::from([1, 2].as_mut_slice())) {
             Err(Error::TxBufFull) => (),
             other => panic!("Unexpected result: {:?}", other),
         }
-
-        match txbuf.write(&[1, 2]) {
+        match txbuf.write_volatile(&VolatileSlice::from([1, 2].as_mut_slice())) {
             Err(err) => {
                 assert_eq!(
                     format!("{}", err),
@@ -268,7 +288,9 @@ mod tests {
         let mut sink = TestSink::new();
 
         sink.set_capacity(2);
-        txbuf.push(&[1, 2, 3, 4]).unwrap();
+        txbuf
+            .push(&VolatileSlice::from([1, 2, 3, 4].as_mut_slice()))
+            .unwrap();
         assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 2);
         assert_eq!(txbuf.len(), 2);
         assert_eq!(sink.data, [1, 2]);
@@ -286,7 +308,9 @@ mod tests {
         let mut txbuf = TxBuf::new();
         let mut sink = TestSink::new();
 
-        txbuf.push(&[1, 2, 3, 4]).unwrap();
+        txbuf
+            .push(&VolatileSlice::from([1, 2, 3, 4].as_mut_slice()))
+            .unwrap();
         let io_err = IoError::from_raw_os_error(EACCESS);
         sink.set_err(io_err);
         match txbuf.flush_to(&mut sink) {
