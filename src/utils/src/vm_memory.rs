@@ -8,8 +8,7 @@
 use std::io::{Error as IoError, ErrorKind};
 use std::os::unix::io::AsRawFd;
 
-use vm_memory::bitmap::AtomicBitmap;
-pub use vm_memory::bitmap::{Bitmap, BitmapSlice};
+pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 use vm_memory::mmap::{check_file_offset, NewBitmap};
 pub use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
 pub use vm_memory::{
