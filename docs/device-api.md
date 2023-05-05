@@ -17,6 +17,7 @@ a call to one of the [API Endpoints](#api-endpoints) will fail with a
 | Endpoint                  | keyboard | serial console | virtio-block | virtio-net | virtio-vsock |
 | ------------------------- | :------: | :------------: | :----------: |:----------:| :----------: |
 | `boot-source`             |    O     |       O        |      O       |     O      |      O       |
+| `cpu-config`              |    O     |       O        |      O       |     O      |      O       |
 | `drives/{id}`             |    O     |       O        |    **R**     |     O      |      O       |
 | `logger`                  |    O     |       O        |      O       |     O      |      O       |
 | `machine-config`          |    O     |       O        |      O       |     O      |      O       |
@@ -39,6 +40,9 @@ specification: [firecracker.yaml](./../src/api_server/swagger/firecracker.yaml).
 | `BootSource`               | boot_args             |    O     |       O        |      O       |       O       |      O       |
 |                            | initrd_path           |    O     |       O        |      O       |       O       |      O       |
 |                            | kernel_image_path     |    O     |       O        |      O       |       O       |      O       |
+| `CpuConfig`                | cpuid_modifiers       |    O     |       O        |      O       |       O       |      O       |
+|                            | msr_modifiers         |    O     |       O        |      O       |       O       |      O       |
+|                            | reg_modifiers         |    O     |       O        |      O       |       O       |      O       |
 | `CpuTemplate`              | enum                  |    O     |       O        |      O       |       O       |      O       |
 | `CreateSnapshotParams`     | mem_file_path         |    O     |       O        |      O       |       O       |      O       |
 |                            | snapshot_path         |    O     |       O        |      O       |       O       |      O       |
