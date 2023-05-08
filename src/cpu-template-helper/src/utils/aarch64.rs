@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
+use vmm::guest_config::templates::aarch64::RegisterModifier;
+use vmm::guest_config::templates::RegisterValueFilter;
 
 use super::{ModifierMapKey, ModifierMapValue};
 
@@ -19,7 +20,7 @@ impl Display for RegModifierMapKey {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct RegModifierMapValue(pub RegisterValueFilter);
+pub struct RegModifierMapValue(pub RegisterValueFilter<u128>);
 
 impl ModifierMapValue for RegModifierMapValue {
     type Type = u128;
