@@ -1,8 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
-use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate};
+use vmm::guest_config::templates::aarch64::RegisterModifier;
+use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 
 use crate::utils::aarch64::reg_modifier;
 

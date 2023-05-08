@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(target_arch = "aarch64")]
-use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
-use crate::guest_config::templates::CustomCpuTemplate;
+use crate::guest_config::templates::aarch64::RegisterModifier;
+use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
 
 /// Test CPU template in JSON format
 #[cfg(target_arch = "aarch64")]
