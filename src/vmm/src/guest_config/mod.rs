@@ -3,6 +3,8 @@
 
 /// Module for types used for custom CPU templates
 pub mod templates;
+/// Module for types used for custom CPU templates
+pub mod templates_serde;
 
 /// Module containing type implementations needed for x86 CPU configuration
 #[cfg(target_arch = "x86_64")]

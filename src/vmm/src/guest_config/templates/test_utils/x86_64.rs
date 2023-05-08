@@ -3,9 +3,9 @@
 
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
-use crate::guest_config::templates::CustomCpuTemplate;
+use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
 #[cfg(target_arch = "x86_64")]
 use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 

@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
+use vmm::guest_config::templates::RegisterValueFilter;
 use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
 use super::{ModifierMapKey, ModifierMapValue};
@@ -34,19 +35,17 @@ impl Display for CpuidModifierMapKey {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct CpuidModifierMapValue(pub RegisterValueFilter);
+pub struct CpuidModifierMapValue(pub RegisterValueFilter<u32>);
 
 impl ModifierMapValue for CpuidModifierMapValue {
     type Type = u32;
 
     fn filter(&self) -> Self::Type {
-        // Filters of CPUID modifiers should fit in `u32`.
-        self.0.filter.try_into().unwrap()
+        self.0.filter
     }
 
     fn value(&self) -> Self::Type {
-        // Values of CPUID modifiers should fit in `u32`.
-        self.0.value.try_into().unwrap()
+        self.0.value
     }
 }
 
@@ -122,7 +121,7 @@ impl Display for MsrModifierMapKey {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct MsrModifierMapValue(pub RegisterValueFilter);
+pub struct MsrModifierMapValue(pub RegisterValueFilter<u64>);
 
 impl ModifierMapValue for MsrModifierMapValue {
     type Type = u64;
