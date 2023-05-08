@@ -134,11 +134,6 @@ def pytest_configure(config):
 
 def pytest_addoption(parser):
     """Pytest hook. Add command line options."""
-    parser.addoption(
-        "--dump-results-to-file",
-        action="store_true",
-        help="Flag to dump test results to the test_results folder.",
-    )
     parser.addoption("--nonci", action="store_true", help="run tests marked with nonci")
 
 
