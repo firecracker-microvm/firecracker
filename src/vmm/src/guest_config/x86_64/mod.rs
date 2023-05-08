@@ -64,20 +64,16 @@ impl CpuConfiguration {
                 for mod_reg in &mod_leaf.modifiers {
                     match mod_reg.register {
                         CpuidRegister::Eax => {
-                            entry.result.eax =
-                                mod_reg.bitmap.apply(u64::from(entry.result.eax)) as u32
+                            entry.result.eax = mod_reg.bitmap.apply(entry.result.eax)
                         }
                         CpuidRegister::Ebx => {
-                            entry.result.ebx =
-                                mod_reg.bitmap.apply(u64::from(entry.result.ebx)) as u32
+                            entry.result.ebx = mod_reg.bitmap.apply(entry.result.ebx)
                         }
                         CpuidRegister::Ecx => {
-                            entry.result.ecx =
-                                mod_reg.bitmap.apply(u64::from(entry.result.ecx)) as u32
+                            entry.result.ecx = mod_reg.bitmap.apply(entry.result.ecx)
                         }
                         CpuidRegister::Edx => {
-                            entry.result.edx =
-                                mod_reg.bitmap.apply(u64::from(entry.result.edx)) as u32
+                            entry.result.edx = mod_reg.bitmap.apply(entry.result.edx)
                         }
                     }
                 }
@@ -109,8 +105,9 @@ mod tests {
 
     use super::*;
     use crate::guest_config::templates::x86_64::{
-        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier,
     };
+    use crate::guest_config::templates::RegisterValueFilter;
     use crate::guest_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
 
     fn build_test_template() -> CustomCpuTemplate {

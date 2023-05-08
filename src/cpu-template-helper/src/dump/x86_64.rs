@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use vmm::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
-use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate};
+use vmm::guest_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::guest_config::x86_64::cpuid::Cpuid;
 
 use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
@@ -29,10 +29,10 @@ fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
                 key.subleaf,
                 entry.flags,
                 vec![
-                    cpuid_reg_modifier!(CpuidRegister::Eax, entry.result.eax.into()),
-                    cpuid_reg_modifier!(CpuidRegister::Ebx, entry.result.ebx.into()),
-                    cpuid_reg_modifier!(CpuidRegister::Ecx, entry.result.ecx.into()),
-                    cpuid_reg_modifier!(CpuidRegister::Edx, entry.result.edx.into()),
+                    cpuid_reg_modifier!(CpuidRegister::Eax, entry.result.eax),
+                    cpuid_reg_modifier!(CpuidRegister::Ebx, entry.result.ebx),
+                    cpuid_reg_modifier!(CpuidRegister::Ecx, entry.result.ecx),
+                    cpuid_reg_modifier!(CpuidRegister::Edx, entry.result.edx),
                 ]
             )
         })
