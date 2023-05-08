@@ -4,8 +4,8 @@
 use crate::arch::aarch64::regs::{
     ID_AA64ISAR0_EL1, ID_AA64ISAR1_EL1, ID_AA64MMFR2_EL1, ID_AA64PFR0_EL1,
 };
-use crate::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
-use crate::guest_config::templates::CustomCpuTemplate;
+use crate::guest_config::templates::aarch64::RegisterModifier;
+use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
 
 // Arm Armv8-A Architecture Registers documentation
 // https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers?lang=en

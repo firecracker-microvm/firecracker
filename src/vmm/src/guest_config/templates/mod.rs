@@ -1,9 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO: Refactor code to merge deserialize_* functions for modules x86_64 and aarch64
-/// Templates module to contain sub-modules for aarch64 and x86_64 templates
-
 /// Module with cpu templates for x86_64
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
@@ -79,5 +76,34 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
             Some(CpuTemplateType::Static(template)) => *template,
             Some(CpuTemplateType::Custom(_)) | None => StaticCpuTemplate::None,
         }
+    }
+}
+
+/// Bit-mapped value to adjust targeted bits of a register.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct RegisterValueFilter<V>
+where
+    V: Copy
+        + std::ops::Not<Output = V>
+        + std::ops::BitAnd<Output = V>
+        + std::ops::BitOr<Output = V>,
+{
+    /// Filter to be used when writing the value bits.
+    pub filter: V,
+    /// Value to be applied.
+    pub value: V,
+}
+
+impl<V> RegisterValueFilter<V>
+where
+    V: Copy
+        + std::ops::Not<Output = V>
+        + std::ops::BitAnd<Output = V>
+        + std::ops::BitOr<Output = V>,
+{
+    /// Applies filter to the value
+    #[inline]
+    pub fn apply(&self, value: V) -> V {
+        (value & !self.filter) | self.value
     }
 }
