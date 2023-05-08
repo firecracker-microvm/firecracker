@@ -19,6 +19,13 @@ DEFAULT_INSTANCES = [
 DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
 
 
+def field_fmt(field, args):
+    """If `field` is a string, interpolate variables in `args`"""
+    if not isinstance(field, str):
+        return field
+    return field.format(**args)
+
+
 def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     """
     Generate a group step with specified parameters, for each instance+kernel
@@ -37,15 +44,15 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     for instance in instances:
         for os, kv in platforms:
             # fill any templated variables
-            step_commands = [
-                cmd.format(instance=instance, os=os, kv=kv) for cmd in commands
-            ]
+            args = {"os": os, "kv": kv, "instance": instance}
+            step_commands = [cmd.format(**args) for cmd in commands]
+            step_kwargs = {key: field_fmt(val, args) for key, val in kwargs.items()}
             agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
             step = {
                 "command": step_commands,
                 "label": f"{label1} {instance} {os} {kv}",
                 "agents": agents,
-                **kwargs,
+                **step_kwargs,
             }
             steps.append(step)
 
