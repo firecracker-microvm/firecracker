@@ -81,10 +81,7 @@ for test_data in tests:
     group_steps.append(build_group(test_data))
 
 pipeline = {
-    "env": {
-        "AWS_EMF_SERVICE_NAME": "PerfTests",
-        "AWS_EMF_NAMESPACE": "PerfTests",
-    },
+    "env": {},
     "steps": group_steps,
 }
 print(pipeline_to_json(pipeline))
