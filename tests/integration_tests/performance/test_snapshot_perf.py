@@ -287,6 +287,11 @@ def test_older_snapshot_resume_latency(
 
     st_core.name = "older_snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["io_engine"] = io_engine
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
@@ -374,8 +379,12 @@ def test_snapshot_create_latency(
             idx_vcpu, current_cpu_id + idx_vcpu
         ), f"Failed to pin fc_vcpu {idx_vcpu} thread."
 
-    st_core.name = "snapshot_create_{snapshot_type}_latency"
+    st_core.name = f"snapshot_create_{snapshot_type}_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_create_producer,
@@ -460,6 +469,11 @@ def test_snapshot_resume_latency(
 
     st_core.name = "snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["io_engine"] = io_engine
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
