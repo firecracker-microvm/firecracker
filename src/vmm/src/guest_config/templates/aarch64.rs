@@ -60,10 +60,6 @@ pub struct RegisterModifier {
     pub addr: u64,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_reg_value_filter_u128",
-        serialize_with = "serialize_reg_value_filter_u128"
-    )]
     pub bitmap: RegisterValueFilter<u128>,
 }
 
