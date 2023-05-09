@@ -92,10 +92,6 @@ pub struct CpuidRegisterModifier {
     pub register: CpuidRegister,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_reg_value_filter_u32",
-        serialize_with = "serialize_reg_value_filter_u32"
-    )]
     pub bitmap: RegisterValueFilter<u32>,
 }
 
@@ -157,10 +153,6 @@ pub struct RegisterModifier {
     pub addr: u32,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_reg_value_filter_u64",
-        serialize_with = "serialize_reg_value_filter_u64"
-    )]
     pub bitmap: RegisterValueFilter<u64>,
 }
 
