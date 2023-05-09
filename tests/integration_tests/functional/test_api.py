@@ -486,6 +486,22 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
+def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
+    """
+    Test /cpu-config PUT scenarios.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    response = test_microvm.cpu_cfg.put("{}")
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.cpu_cfg.put(custom_cpu_template["template"])
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
 def test_api_put_update_post_boot(test_microvm_with_api):
     """
     Test that PUT updates are rejected after the microvm boots.
