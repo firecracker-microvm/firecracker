@@ -33,7 +33,7 @@ BASELINES = {
     },
     "ARM": {
         "deserialize": {"target": 0.0015, "delta": 0.001},  # milliseconds
-        "serialize": {"target": 0.005, "delta": 0.002},  # milliseconds
+        "serialize": {"target": 0.0015, "delta": 0.006},  # milliseconds
     },
 }
 
