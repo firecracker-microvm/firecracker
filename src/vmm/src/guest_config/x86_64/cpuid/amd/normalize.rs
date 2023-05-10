@@ -327,7 +327,7 @@ impl super::AmdCpuid {
                     1 | 2 => {
                         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
                         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
-                        set_range(&mut subleaf.result.eax, 14..28, sub)
+                        set_range(&mut subleaf.result.eax, 14..26, sub)
                             .map_err(ExtendedCacheTopologyError::NumSharingCache)?;
                     }
                     // L3 Cache
