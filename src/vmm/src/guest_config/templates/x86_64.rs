@@ -4,15 +4,16 @@
 /// Guest config sub-module specifically useful for
 /// config templates.
 use std::borrow::Cow;
-use std::num::ParseIntError;
 use std::result::Result;
-use std::str::FromStr;
 
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
+use super::{
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
+};
 use crate::arch::x86_64::cpu_model::CpuModel;
+use crate::guest_config::templates_serde::*;
 use crate::guest_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::guest_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::guest_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s};
@@ -91,11 +92,7 @@ pub struct CpuidRegisterModifier {
     pub register: CpuidRegister,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_u64_bitmap",
-        serialize_with = "serialize_u32_bitmap"
-    )]
-    pub bitmap: RegisterValueFilter,
+    pub bitmap: RegisterValueFilter<u32>,
 }
 
 /// Composite type that holistically provides
@@ -105,14 +102,14 @@ pub struct CpuidRegisterModifier {
 pub struct CpuidLeafModifier {
     /// Leaf value.
     #[serde(
-        deserialize_with = "deserialize_u32_from_str",
-        serialize_with = "serialize_u32_to_hex_str"
+        deserialize_with = "deserialize_from_str_u32",
+        serialize_with = "serialize_to_hex_str"
     )]
     pub leaf: u32,
     /// Sub-Leaf value.
     #[serde(
-        deserialize_with = "deserialize_u32_from_str",
-        serialize_with = "serialize_u32_to_hex_str"
+        deserialize_with = "deserialize_from_str_u32",
+        serialize_with = "serialize_to_hex_str"
     )]
     pub subleaf: u32,
     /// KVM feature flags for this leaf-subleaf.
@@ -134,27 +131,13 @@ pub struct CustomCpuTemplate {
     pub msr_modifiers: Vec<RegisterModifier>,
 }
 
-/// Bit-mapped value to adjust targeted bits of a register.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct RegisterValueFilter {
-    /// Filter to be used when writing the value bits.
-    pub filter: u64,
-    /// Value to be applied.
-    pub value: u64,
-}
-
-impl RegisterValueFilter {
-    /// Applies filter to the value
-    #[inline]
-    pub fn apply(&self, value: u64) -> u64 {
-        (value & !self.filter) | self.value
-    }
-
-    fn try_from(value_str: &str, filter_str: &str) -> Result<RegisterValueFilter, ParseIntError> {
-        Ok(RegisterValueFilter {
-            filter: u64::from_str_radix(filter_str, 2)?,
-            value: u64::from_str_radix(value_str, 2)?,
-        })
+impl CustomCpuTemplate {
+    /// Get a list of MSR indices that are modified by the CPU template.
+    pub fn get_msr_index_list(&self) -> Vec<u32> {
+        self.msr_modifiers
+            .iter()
+            .map(|modifier| modifier.addr)
+            .collect()
     }
 }
 
@@ -164,17 +147,13 @@ impl RegisterValueFilter {
 pub struct RegisterModifier {
     /// Pointer of the location to be bit mapped.
     #[serde(
-        deserialize_with = "deserialize_u32_from_str",
-        serialize_with = "serialize_u32_to_hex_str"
+        deserialize_with = "deserialize_from_str_u32",
+        serialize_with = "serialize_to_hex_str"
     )]
     pub addr: u32,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_u64_bitmap",
-        serialize_with = "serialize_u64_bitmap"
-    )]
-    pub bitmap: RegisterValueFilter,
+    pub bitmap: RegisterValueFilter<u64>,
 }
 
 fn deserialize_kvm_cpuid_flags<'de, D>(deserializer: D) -> Result<KvmCpuidFlags, D::Error>
@@ -204,35 +183,6 @@ where
     })
 }
 
-fn deserialize_u32_from_str<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let number_str = String::deserialize(deserializer)?;
-    let deserialized_number: u32 = if number_str.len() > 2 {
-        match &number_str[0..2] {
-            "0b" => u32::from_str_radix(&number_str[2..], 2),
-            "0x" => u32::from_str_radix(&number_str[2..], 16),
-            _ => u32::from_str(&number_str),
-        }
-        .map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    } else {
-        u32::from_str(&number_str).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a decimal number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    };
-
-    Ok(deserialized_number)
-}
-
 fn serialize_cpuid_register<S>(cpuid_reg: &CpuidRegister, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -242,101 +192,6 @@ where
         CpuidRegister::Ebx => serializer.serialize_str("ebx"),
         CpuidRegister::Ecx => serializer.serialize_str("ecx"),
         CpuidRegister::Edx => serializer.serialize_str("edx"),
-    }
-}
-
-fn serialize_u32_to_hex_str<S>(number: &u32, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(format!("0x{:x}", number).as_str())
-}
-/// Deserialize a composite bitmap string into a value pair
-/// input string: "010x"
-/// result: {
-///     filter: 1110
-///     value: 0100
-/// }
-pub fn deserialize_u64_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut bitmap_str = String::deserialize(deserializer)?;
-
-    if bitmap_str.starts_with("0b") {
-        bitmap_str = bitmap_str[2..].to_string();
-    }
-
-    let filter_str = bitmap_str.replace('0', "1");
-    let filter_str = filter_str.replace('x', "0");
-    let value_str = bitmap_str.replace('x', "0");
-
-    match RegisterValueFilter::try_from(value_str.as_str(), filter_str.as_str()) {
-        Ok(rvf) => Ok(rvf),
-        Err(err) => Err(D::Error::custom(format!(
-            "Failed to parse string [{}] as a bitmap - {:?}",
-            bitmap_str, err
-        ))),
-    }
-}
-
-/// Serialize a RegisterValueFilter (bitmap)
-/// into a composite string.
-/// RegisterValueFilter {
-///     filter: 1110
-///     value: 0100
-/// }
-/// Result string: "010x"
-fn serialize_u32_bitmap<S>(bitmap: &RegisterValueFilter, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let value_str = format!("{:032b}", bitmap.value);
-    let filter_str = format!("{:032b}", bitmap.filter);
-
-    let mut bitmap_str = String::from("0b");
-    for (idx, character) in filter_str.char_indices() {
-        match character {
-            '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
-            _ => bitmap_str.push('x'),
-        }
-    }
-
-    serializer.serialize_str(bitmap_str.as_str())
-}
-
-/// Serialize a RegisterValueFilter (bitmap)
-/// into a composite string.
-/// RegisterValueFilter {
-///     filter: 1110
-///     value: 0100
-/// }
-/// Result string: "010x"
-fn serialize_u64_bitmap<S>(bitmap: &RegisterValueFilter, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let value_str = format!("{:064b}", bitmap.value);
-    let filter_str = format!("{:064b}", bitmap.filter);
-
-    let mut bitmap_str = String::from("0b");
-    for (idx, character) in filter_str.char_indices() {
-        match character {
-            '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
-            _ => bitmap_str.push('x'),
-        }
-    }
-
-    serializer.serialize_str(bitmap_str.as_str())
-}
-
-impl CustomCpuTemplate {
-    /// Get a list of MSR indices that are modified by the CPU template.
-    pub fn get_msr_index_list(&self) -> Vec<u32> {
-        self.msr_modifiers
-            .iter()
-            .map(|modifier| modifier.addr)
-            .collect()
     }
 }
 
@@ -664,15 +519,5 @@ mod tests {
             msr_checked,
             "MSR bitmap width in a x86_64 template was not tested."
         );
-    }
-
-    #[test]
-    fn test_register_value_filter_from() {
-        // Test sane parameters
-        assert!(RegisterValueFilter::try_from("0001", "0001").is_ok());
-        // Test malformed value parameter
-        assert!(RegisterValueFilter::try_from("0ggP01", "0001").is_err());
-        // Test malformed filter parameter
-        assert!(RegisterValueFilter::try_from("0001", "0ggP01").is_err());
     }
 }

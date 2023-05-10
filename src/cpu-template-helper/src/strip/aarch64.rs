@@ -30,7 +30,8 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::guest_config::templates::aarch64::{RegisterModifier, RegisterValueFilter};
+    use vmm::guest_config::templates::aarch64::RegisterModifier;
+    use vmm::guest_config::templates::RegisterValueFilter;
 
     use super::*;
     use crate::utils::aarch64::reg_modifier;

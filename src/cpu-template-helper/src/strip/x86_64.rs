@@ -45,8 +45,9 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
 mod tests {
     use vmm::guest_config::templates::x86_64::CpuidRegister::*;
     use vmm::guest_config::templates::x86_64::{
-        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier, RegisterValueFilter,
+        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier,
     };
+    use vmm::guest_config::templates::RegisterValueFilter;
     use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
     use super::*;

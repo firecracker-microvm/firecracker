@@ -5,13 +5,13 @@
 /// config templates.
 use std::borrow::Cow;
 use std::result::Result;
-use std::str::FromStr;
 
-use serde::de::Error as SerdeError;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
 use crate::guest_config::aarch64::static_cpu_templates::v1n1;
+use crate::guest_config::templates::RegisterValueFilter;
+use crate::guest_config::templates_serde::*;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
@@ -38,137 +38,6 @@ pub struct CustomCpuTemplate {
     pub reg_modifiers: Vec<RegisterModifier>,
 }
 
-/// Wrapper of a mask defined as a bitmap to apply
-/// changes to a given register's value.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
-pub struct RegisterModifier {
-    /// Pointer of the location to be bit mapped.
-    #[serde(
-        deserialize_with = "deserialize_u64_from_str",
-        serialize_with = "serialize_u64_to_hex_str"
-    )]
-    pub addr: u64,
-    /// Bit mapping to be applied as a modifier to the
-    /// register's value at the address provided.
-    #[serde(
-        deserialize_with = "deserialize_u128_bitmap",
-        serialize_with = "serialize_u128_bitmap"
-    )]
-    pub bitmap: RegisterValueFilter,
-}
-
-/// Bit-mapped value to adjust targeted bits of a register.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct RegisterValueFilter {
-    /// Filter to be used when writing the value bits.
-    pub filter: u128,
-    /// Value to be applied.
-    pub value: u128,
-}
-
-impl RegisterValueFilter {
-    /// Applies filter to the value
-    #[inline]
-    pub fn apply(&self, value: u128) -> u128 {
-        (value & !self.filter) | self.value
-    }
-}
-
-/// Deserialize a composite bitmap string into a value pair
-/// input string: "010x"
-/// result: {
-///     filter: 1110
-///     value: 0100
-/// }
-pub fn deserialize_u128_bitmap<'de, D>(deserializer: D) -> Result<RegisterValueFilter, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut bitmap_str = String::deserialize(deserializer)?;
-
-    if bitmap_str.starts_with("0b") {
-        bitmap_str = bitmap_str[2..].to_string();
-    }
-
-    let filter_str = bitmap_str.replace('0', "1");
-    let filter_str = filter_str.replace('x', "0");
-    let value_str = bitmap_str.replace('x', "0");
-
-    Ok(RegisterValueFilter {
-        filter: u128::from_str_radix(filter_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?,
-        value: u128::from_str_radix(value_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?,
-    })
-}
-
-fn serialize_u64_to_hex_str<S>(number: &u64, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(format!("0x{:x}", number).as_str())
-}
-
-/// Serialize a RegisterValueFilter (bitmap) into a composite string
-/// RegisterValueFilter {
-///     filter: 1110
-///     value: 0100
-/// }
-/// Result string: "010x"
-fn serialize_u128_bitmap<S>(bitmap: &RegisterValueFilter, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let value_str = format!("{:0128b}", bitmap.value);
-    let filter_str = format!("{:0128b}", bitmap.filter);
-
-    let mut bitmap_str = String::from("0b");
-    for (idx, character) in filter_str.char_indices() {
-        match character {
-            '1' => bitmap_str.push(value_str.as_bytes()[idx] as char),
-            _ => bitmap_str.push('x'),
-        }
-    }
-
-    serializer.serialize_str(bitmap_str.as_str())
-}
-
-fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let number_str = String::deserialize(deserializer)?;
-    let deserialized_number: u64 = if number_str.len() > 2 {
-        match &number_str[0..2] {
-            "0b" => u64::from_str_radix(&number_str[2..], 2),
-            "0x" => u64::from_str_radix(&number_str[2..], 16),
-            _ => u64::from_str(&number_str),
-        }
-        .map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    } else {
-        u64::from_str(&number_str).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a decimal number for CPU template - {:?}",
-                number_str, err
-            ))
-        })?
-    };
-    Ok(deserialized_number)
-}
-
 impl CustomCpuTemplate {
     /// Get a list of register IDs that are modified by the CPU template.
     pub fn reg_list(&self) -> Vec<u64> {
@@ -177,6 +46,21 @@ impl CustomCpuTemplate {
             .map(|modifier| modifier.addr)
             .collect()
     }
+}
+
+/// Wrapper of a mask defined as a bitmap to apply
+/// changes to a given register's value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub struct RegisterModifier {
+    /// Pointer of the location to be bit mapped.
+    #[serde(
+        deserialize_with = "deserialize_from_str_u64",
+        serialize_with = "serialize_to_hex_str"
+    )]
+    pub addr: u64,
+    /// Bit mapping to be applied as a modifier to the
+    /// register's value at the address provided.
+    pub bitmap: RegisterValueFilter<u128>,
 }
 
 #[cfg(test)]
