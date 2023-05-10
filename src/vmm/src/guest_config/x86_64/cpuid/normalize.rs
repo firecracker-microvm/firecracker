@@ -119,6 +119,12 @@ pub fn set_range(
         33.. => Err(CheckedAssignError),
     }
 }
+/// Gets a given range within a given value.
+#[allow(clippy::integer_arithmetic, clippy::arithmetic_side_effects)]
+pub fn get_range(x: u32, range: std::ops::Range<u8>) -> u32 {
+    debug_assert!(range.end >= range.start);
+    (x & mask(range.clone())) >> range.start
+}
 
 /// Returns a mask where the given range is ones.
 #[allow(

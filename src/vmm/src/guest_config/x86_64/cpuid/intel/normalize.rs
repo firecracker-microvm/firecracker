@@ -1,7 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::x86_64::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
+use crate::guest_config::x86_64::cpuid::normalize::{
+    get_range, set_bit, set_range, CheckedAssignError,
+};
 use crate::guest_config::x86_64::cpuid::{
     host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
     BRAND_STRING_LENGTH,
@@ -108,15 +110,10 @@ impl super::IntelCpuid {
                     break;
                 }
 
-                // Cache Type Field.
-                // - 0 = Null - No more caches.
-                // - 1 = Data Cache.
-                // - 2 = Instruction Cache.
-                // - 3 = Unified Cache.
-                // - 4-31 = Reserved.
+                // Cache Level (Starts at 1)
                 //
-                // cache_type_field: 0..5,
-                let cache_level = subleaf.result.eax & 15;
+                // cache_level: 5..8
+                let cache_level = get_range(subleaf.result.eax, 5..8);
 
                 // Maximum number of addressable IDs for logical processors sharing this cache.
                 // - Add one to the return value to get the result.
