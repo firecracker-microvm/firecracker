@@ -19,7 +19,7 @@ use crate::arch::regs::{
     get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
     save_system_registers, set_mpstate, Error as ArchError,
 };
-use crate::guest_config::templates::CpuConfiguration;
+use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::VcpuConfig;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -258,7 +258,7 @@ mod tests {
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
-    use crate::guest_config::aarch64::CpuConfiguration;
+    use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::vcpu::VcpuConfig;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;

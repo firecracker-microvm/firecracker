@@ -1,10 +1,10 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::x86_64::cpuid::normalize::{
+use crate::cpu_config::x86_64::cpuid::normalize::{
     get_range, set_bit, set_range, CheckedAssignError,
 };
-use crate::guest_config::x86_64::cpuid::{
+use crate::cpu_config::x86_64::cpuid::{
     host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
     BRAND_STRING_LENGTH,
 };

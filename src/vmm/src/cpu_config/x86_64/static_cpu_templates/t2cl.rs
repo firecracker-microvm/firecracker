@@ -1,16 +1,17 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier,
+use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
+use crate::cpu_config::x86_64::custom_cpu_template::{
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
-use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
-use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
-/// T2A template
+/// T2CL template
 ///
-/// Provide instruction set feature partity with Intel Cascade Lake or later using T2CL template.
-pub fn t2a() -> CustomCpuTemplate {
+/// Mask CPUID to make exposed CPU features as close as possbile to Intel Cascade Lake and provide
+/// instruction set feature partity with AMD Milan using T2A template.
+pub fn t2cl() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![
             CpuidLeafModifier {
@@ -121,12 +122,18 @@ pub fn t2a() -> CustomCpuTemplate {
                 modifiers: vec![CpuidRegisterModifier {
                     register: CpuidRegister::Ebx,
                     bitmap: RegisterValueFilter {
-                        filter: 0b00000000000011000000001000000101,
-                        value: 0b00000000000011000000000000000000,
+                        filter: 0b00000000000000000000001000000000,
+                        value: 0b00000000000000000000000000000000,
                     },
                 }],
             },
         ],
-        msr_modifiers: vec![],
+        msr_modifiers: vec![RegisterModifier {
+            addr: 0x10a,
+            bitmap: RegisterValueFilter {
+                filter: 0b1111111111111111111111111111111111111111111111111111111111111111,
+                value: 0b0000000000000000000000000000000000000000000000000000000011101011,
+            },
+        }],
     }
 }

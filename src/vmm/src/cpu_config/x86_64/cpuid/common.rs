@@ -28,7 +28,7 @@ pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResu
         return Err(GetCpuidError::UnsupportedLeaf(leaf));
     }
 
-    let entry = crate::guest_config::x86_64::cpuid::cpuid_count(leaf, subleaf);
+    let entry = crate::cpu_config::x86_64::cpuid::cpuid_count(leaf, subleaf);
     if entry.eax == 0 && entry.ebx == 0 && entry.ecx == 0 && entry.edx == 0 {
         return Err(GetCpuidError::InvalidSubleaf(subleaf));
     }

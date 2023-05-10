@@ -4,7 +4,7 @@ use std::fmt;
 
 use serde::{de, Deserialize, Serialize};
 
-use crate::guest_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
+use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;

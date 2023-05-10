@@ -38,13 +38,13 @@ use vm_superio::Serial;
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
+use crate::cpu_config::templates::{
+    CpuConfiguration, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-use crate::guest_config::templates::{
-    CpuConfiguration, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
-};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -809,7 +809,7 @@ pub fn configure_system_for_boot(
     // Construct the base CpuConfiguration to apply CPU template onto.
     #[cfg(target_arch = "x86_64")]
     let cpu_config = {
-        use crate::guest_config::x86_64::cpuid;
+        use crate::cpu_config::x86_64::cpuid;
         let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msr_index_list = cpu_template.get_msr_index_list();

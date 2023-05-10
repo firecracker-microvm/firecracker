@@ -1,8 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::guest_config::templates::x86_64::{CpuidLeafModifier, RegisterModifier};
-use vmm::guest_config::templates::CustomCpuTemplate;
+use vmm::cpu_config::templates::CustomCpuTemplate;
+use vmm::cpu_config::x86_64::custom_cpu_template::{CpuidLeafModifier, RegisterModifier};
 
 use crate::strip::strip_common;
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
@@ -43,12 +43,12 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::guest_config::templates::x86_64::CpuidRegister::*;
-    use vmm::guest_config::templates::x86_64::{
+    use vmm::cpu_config::templates::RegisterValueFilter;
+    use vmm::cpu_config::x86_64::cpuid::KvmCpuidFlags;
+    use vmm::cpu_config::x86_64::custom_cpu_template::CpuidRegister::*;
+    use vmm::cpu_config::x86_64::custom_cpu_template::{
         CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier,
     };
-    use vmm::guest_config::templates::RegisterValueFilter;
-    use vmm::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
     use super::*;
     use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};

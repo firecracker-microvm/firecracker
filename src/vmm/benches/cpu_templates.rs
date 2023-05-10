@@ -9,8 +9,8 @@ use std::mem::size_of_val;
 use std::path::Path;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use vmm::guest_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
-use vmm::guest_config::templates::CustomCpuTemplate;
+use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
+use vmm::cpu_config::templates::CustomCpuTemplate;
 
 #[inline]
 pub fn bench_serialize_cpu_template(cpu_template: &CustomCpuTemplate) {

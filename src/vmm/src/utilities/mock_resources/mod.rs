@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use crate::guest_config::templates::CustomCpuTemplate;
+use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
