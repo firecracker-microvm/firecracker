@@ -53,8 +53,8 @@ def _check_statistics(directory, mean):
     # When using multiple data sets where the delta can
     # vary substantially, consider making use of the
     # 'rel' parameter for more flexibility.
-    assert target == pytest.approx(
-        mean,
+    assert mean == pytest.approx(
+        target,
         abs=delta,
     ), f"Benchmark result {directory} has changed!"
 
