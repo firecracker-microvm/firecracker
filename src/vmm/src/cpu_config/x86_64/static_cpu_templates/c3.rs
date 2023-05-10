@@ -1,11 +1,11 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::templates::x86_64::{
+use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
+use crate::cpu_config::x86_64::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier,
 };
-use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
-use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
 /// C3 CPU template.
 ///

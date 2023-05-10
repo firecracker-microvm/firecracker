@@ -8,7 +8,7 @@ mod x86_64;
 
 use std::sync::{Arc, Mutex};
 
-use vmm::guest_config::templates::CustomCpuTemplate;
+use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::{DumpCpuConfigError, Vmm};
 
 #[cfg(target_arch = "aarch64")]

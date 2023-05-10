@@ -315,7 +315,7 @@ pub mod tests {
 
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
-    use vmm::guest_config::templates::test_utils::build_test_template;
+    use vmm::cpu_config::templates::test_utils::build_test_template;
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};

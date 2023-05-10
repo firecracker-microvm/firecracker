@@ -23,7 +23,7 @@ use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 
-use crate::guest_config::templates::{CpuConfiguration, GuestConfigError};
+use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 use crate::vstate::vm::Vm;
 use crate::FcExitCode;
 
@@ -959,7 +959,7 @@ pub mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            use crate::guest_config::x86_64::cpuid::Cpuid;
+            use crate::cpu_config::x86_64::cpuid::Cpuid;
             vcpu.kvm_vcpu
                 .configure(
                     &vm_mem,
@@ -984,7 +984,7 @@ pub mod tests {
                 &VcpuConfig {
                     vcpu_count: 1,
                     smt: false,
-                    cpu_config: crate::guest_config::aarch64::CpuConfiguration::default(),
+                    cpu_config: crate::cpu_config::aarch64::CpuConfiguration::default(),
                 },
             )
             .expect("failed to configure vcpu");

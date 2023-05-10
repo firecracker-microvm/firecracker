@@ -1,16 +1,17 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier,
+use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
+use crate::cpu_config::x86_64::custom_cpu_template::{
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
-use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
-use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
-/// T2 template
+/// T2S template
 ///
-/// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance.
-pub fn t2() -> CustomCpuTemplate {
+/// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance and allow
+/// migrating snapshots between hosts with Intel Skylake and Cascade Lake securely.
+pub fn t2s() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![
             CpuidLeafModifier {
@@ -127,6 +128,12 @@ pub fn t2() -> CustomCpuTemplate {
                 }],
             },
         ],
-        msr_modifiers: vec![],
+        msr_modifiers: vec![RegisterModifier {
+            addr: 0x10a,
+            bitmap: RegisterValueFilter {
+                filter: 0b1111111111111111111111111111111111111111111111111111111111111111,
+                value: 0b0000000000000000000000000000000000000000000000000000110001001100,
+            },
+        }],
     }
 }

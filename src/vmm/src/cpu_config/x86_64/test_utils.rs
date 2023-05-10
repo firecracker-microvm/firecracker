@@ -1,16 +1,13 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::templates::x86_64::{
+use super::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
-use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
-#[cfg(target_arch = "x86_64")]
-use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
+use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
 
 /// Test CPU template in JSON format
-#[cfg(target_arch = "x86_64")]
 pub const TEST_TEMPLATE_JSON: &str = r#"{
     "cpuid_modifiers": [
         {
@@ -103,7 +100,6 @@ pub const TEST_TEMPLATE_JSON: &str = r#"{
 
 /// Test CPU template in JSON format but has an invalid field for the architecture.
 /// "reg_modifiers" is the field name for the registers for aarch64"
-#[cfg(target_arch = "x86_64")]
 pub const TEST_INVALID_TEMPLATE_JSON: &str = r#"{
     "reg_modifiers":  [
         {
@@ -114,7 +110,6 @@ pub const TEST_INVALID_TEMPLATE_JSON: &str = r#"{
 }"#;
 
 /// Builds a sample custom CPU template
-#[cfg(target_arch = "x86_64")]
 pub fn build_test_template() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![CpuidLeafModifier {

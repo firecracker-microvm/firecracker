@@ -5,7 +5,7 @@ use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use vmm::guest_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
+use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
 mod dump;
 mod strip;

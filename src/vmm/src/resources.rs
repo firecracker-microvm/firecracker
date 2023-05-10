@@ -11,8 +11,8 @@ use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
+use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::guest_config::templates::CustomCpuTemplate;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -473,7 +473,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::guest_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
