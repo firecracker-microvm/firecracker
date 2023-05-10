@@ -6,6 +6,8 @@
 
 - Added support for custom CPU templates allowing users to adjust vCPU features
   exposed to the guest via CPUID, MSRs and ARM registers.
+- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
+  as Neoverse N1.
 
 ### Fixed
 
