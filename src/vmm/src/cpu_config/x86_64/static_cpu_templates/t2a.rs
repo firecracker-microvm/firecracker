@@ -1,17 +1,16 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::guest_config::templates::x86_64::{
-    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
+use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
+use crate::cpu_config::x86_64::custom_cpu_template::{
+    CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier,
 };
-use crate::guest_config::templates::{CustomCpuTemplate, RegisterValueFilter};
-use crate::guest_config::x86_64::cpuid::KvmCpuidFlags;
 
-/// T2S template
+/// T2A template
 ///
-/// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance and allow
-/// migrating snapshots between hosts with Intel Skylake and Cascade Lake securely.
-pub fn t2s() -> CustomCpuTemplate {
+/// Provide instruction set feature partity with Intel Cascade Lake or later using T2CL template.
+pub fn t2a() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![
             CpuidLeafModifier {
@@ -102,14 +101,14 @@ pub fn t2s() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ecx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b00100000000000000000000100000000,
+                            filter: 0b00100000000000000000000111000000,
                             value: 0b00000000000000000000000000000000,
                         },
                     },
                     CpuidRegisterModifier {
                         register: CpuidRegister::Edx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b00000100000000000000000000000000,
+                            filter: 0b00000111110000000000000000000000,
                             value: 0b00000000000000000000000000000000,
                         },
                     },
@@ -122,18 +121,12 @@ pub fn t2s() -> CustomCpuTemplate {
                 modifiers: vec![CpuidRegisterModifier {
                     register: CpuidRegister::Ebx,
                     bitmap: RegisterValueFilter {
-                        filter: 0b00000000000000000000001000000000,
-                        value: 0b00000000000000000000000000000000,
+                        filter: 0b00000000000011000000001000000101,
+                        value: 0b00000000000011000000000000000000,
                     },
                 }],
             },
         ],
-        msr_modifiers: vec![RegisterModifier {
-            addr: 0x10a,
-            bitmap: RegisterValueFilter {
-                filter: 0b1111111111111111111111111111111111111111111111111111111111111111,
-                value: 0b0000000000000000000000000000000000000000000000000000110001001100,
-            },
-        }],
+        msr_modifiers: vec![],
     }
 }

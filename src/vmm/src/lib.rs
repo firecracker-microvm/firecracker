@@ -22,9 +22,9 @@ pub mod arch;
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
-pub(crate) mod device_manager;
 /// Types for guest configuration.
-pub mod guest_config;
+pub mod cpu_config;
+pub(crate) mod device_manager;
 pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;
@@ -70,10 +70,10 @@ use utils::vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
+use crate::cpu_config::templates::CpuConfiguration;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
-use crate::guest_config::templates::CpuConfiguration;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};

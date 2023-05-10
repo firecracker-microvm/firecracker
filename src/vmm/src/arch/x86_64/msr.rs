@@ -10,8 +10,8 @@ use crate::arch_gen::x86::hyperv::*;
 use crate::arch_gen::x86::hyperv_tlfs::*;
 use crate::arch_gen::x86::msr_index::*;
 use crate::arch_gen::x86::perf_event::*;
-use crate::guest_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
-use crate::guest_config::x86_64::cpuid::VENDOR_ID_AMD;
+use crate::cpu_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::cpu_config::x86_64::cpuid::VENDOR_ID_AMD;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.

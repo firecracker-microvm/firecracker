@@ -8,10 +8,11 @@ use std::result::Result;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, StaticCpuTemplate};
-use crate::guest_config::aarch64::static_cpu_templates::v1n1;
-use crate::guest_config::templates::RegisterValueFilter;
-use crate::guest_config::templates_serde::*;
+use crate::cpu_config::aarch64::static_cpu_templates::v1n1;
+use crate::cpu_config::templates::{
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
+};
+use crate::cpu_config::templates_serde::*;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
@@ -68,7 +69,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::guest_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
+    use crate::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
 
     #[test]
     fn test_get_cpu_template_with_no_template() {

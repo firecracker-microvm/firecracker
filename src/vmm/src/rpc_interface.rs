@@ -22,7 +22,7 @@ use super::{
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
-use crate::guest_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -844,8 +844,8 @@ mod tests {
     use seccompiler::BpfThreadMap;
 
     use super::*;
-    use crate::guest_config::templates::test_utils::build_test_template;
-    use crate::guest_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::cpu_config::templates::test_utils::build_test_template;
+    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
