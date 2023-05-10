@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use vmm::guest_config::templates::aarch64::RegisterModifier;
-use vmm::guest_config::templates::RegisterValueFilter;
+use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
+use vmm::cpu_config::templates::RegisterValueFilter;
 
 use super::{ModifierMapKey, ModifierMapValue};
 

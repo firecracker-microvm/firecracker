@@ -46,7 +46,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
-    use vmm::guest_config::templates::StaticCpuTemplate;
+    use vmm::cpu_config::templates::StaticCpuTemplate;
 
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;

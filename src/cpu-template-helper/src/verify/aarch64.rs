@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::guest_config::templates::CustomCpuTemplate;
+use vmm::cpu_config::templates::CustomCpuTemplate;
 
 use super::{verify_common, Error};
 use crate::utils::aarch64::RegModifierMap;
@@ -14,8 +14,8 @@ pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) ->
 
 #[cfg(test)]
 mod tests {
-    use vmm::guest_config::templates::aarch64::RegisterModifier;
-    use vmm::guest_config::templates::RegisterValueFilter;
+    use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
+    use vmm::cpu_config::templates::RegisterValueFilter;
 
     use super::*;
     use crate::utils::aarch64::reg_modifier;

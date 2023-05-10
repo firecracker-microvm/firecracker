@@ -9,14 +9,14 @@ use std::result::Result;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{
-    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
-};
 use crate::arch::x86_64::cpu_model::CpuModel;
-use crate::guest_config::templates_serde::*;
-use crate::guest_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use crate::guest_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
-use crate::guest_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s};
+use crate::cpu_config::templates::{
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter,
+};
+use crate::cpu_config::templates_serde::*;
+use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
+use crate::cpu_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
+use crate::cpu_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s, StaticCpuTemplate};
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
@@ -200,7 +200,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::guest_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
+    use crate::cpu_config::x86_64::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
 
     #[test]
     fn test_get_cpu_template_with_no_template() {

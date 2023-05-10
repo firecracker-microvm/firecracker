@@ -3,15 +3,18 @@
 
 /// Module for CPUID instruction related content
 pub mod cpuid;
-
-/// Module for static CPU templates for x86_64
+/// Module for custom CPU templates
+pub mod custom_cpu_template;
+/// Module for static CPU templates
 pub mod static_cpu_templates;
+/// Module with test utils for custom CPU templates
+pub mod test_utils;
 
 use std::collections::HashMap;
 
-use super::templates::x86_64::CpuidRegister;
+use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
-use crate::guest_config::x86_64::cpuid::{Cpuid, CpuidKey};
+use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -24,7 +27,7 @@ pub enum Error {
     MsrNotSupported(u32),
     /// Can create cpuid from raw.
     #[error("Can create cpuid from raw: {0}")]
-    CpuidFromKvmCpuid(crate::guest_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
+    CpuidFromKvmCpuid(crate::cpu_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctls failed.
     #[error("KVM vcpu ioctl failed: {0}")]
     VcpuIoctl(crate::vstate::vcpu::VcpuError),
@@ -103,12 +106,10 @@ mod tests {
 
     use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
 
+    use super::custom_cpu_template::{CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier};
     use super::*;
-    use crate::guest_config::templates::x86_64::{
-        CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier,
-    };
-    use crate::guest_config::templates::RegisterValueFilter;
-    use crate::guest_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+    use crate::cpu_config::templates::RegisterValueFilter;
+    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
 
     fn build_test_template() -> CustomCpuTemplate {
         CustomCpuTemplate {
@@ -200,32 +201,32 @@ mod tests {
     #[test]
     fn test_empty_template() {
         let host_configuration = empty_cpu_config();
-        let guest_config_result = host_configuration
+        let cpu_config_result = host_configuration
             .clone()
             .apply_template(&CustomCpuTemplate::default());
         assert!(
-            guest_config_result.is_ok(),
+            cpu_config_result.is_ok(),
             "{}",
-            guest_config_result.unwrap_err()
+            cpu_config_result.unwrap_err()
         );
         // CPUID will be comparable, but not MSRs.
         // The configuration will be configuration required by the template,
         // not a holistic view of all registers.
-        assert_eq!(guest_config_result.unwrap().cpuid, host_configuration.cpuid);
+        assert_eq!(cpu_config_result.unwrap().cpuid, host_configuration.cpuid);
     }
 
     #[test]
     fn test_apply_template() {
         let host_configuration = supported_cpu_config();
-        let guest_config_result = host_configuration
+        let cpu_config_result = host_configuration
             .clone()
             .apply_template(&build_test_template());
         assert!(
-            guest_config_result.is_ok(),
+            cpu_config_result.is_ok(),
             "{}",
-            guest_config_result.unwrap_err()
+            cpu_config_result.unwrap_err()
         );
-        assert_ne!(guest_config_result.unwrap(), host_configuration);
+        assert_ne!(cpu_config_result.unwrap(), host_configuration);
     }
 
     /// Invalid test in this context is when the template
@@ -235,14 +236,14 @@ mod tests {
         // Test CPUID validation
         let host_configuration = empty_cpu_config();
         let guest_template = build_test_template();
-        let guest_config_result = host_configuration.apply_template(&guest_template);
+        let cpu_config_result = host_configuration.apply_template(&guest_template);
         assert!(
-            guest_config_result.is_err(),
+            cpu_config_result.is_err(),
             "Expected an error as template should have failed to modify a CPUID entry that is not \
              supported by host configuration",
         );
         assert_eq!(
-            guest_config_result.unwrap_err(),
+            cpu_config_result.unwrap_err(),
             Error::CpuidFeatureNotSupported(
                 guest_template.cpuid_modifiers[0].leaf,
                 guest_template.cpuid_modifiers[0].subleaf
@@ -252,14 +253,14 @@ mod tests {
         // Test MSR validation
         let host_configuration = unsupported_cpu_config();
         let guest_template = build_test_template();
-        let guest_config_result = host_configuration.apply_template(&guest_template);
+        let cpu_config_result = host_configuration.apply_template(&guest_template);
         assert!(
-            guest_config_result.is_err(),
+            cpu_config_result.is_err(),
             "Expected an error as template should have failed to modify an MSR value that is not \
              supported by host configuration",
         );
         assert_eq!(
-            guest_config_result.unwrap_err(),
+            cpu_config_result.unwrap_err(),
             Error::MsrNotSupported(guest_template.msr_modifiers[0].addr)
         )
     }
