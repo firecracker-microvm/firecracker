@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::guest_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
-use crate::guest_config::x86_64::cpuid::normalize::{set_bit, set_range, CheckedAssignError};
+use crate::guest_config::x86_64::cpuid::normalize::{
+    get_range, set_bit, set_range, CheckedAssignError,
+};
 use crate::guest_config::x86_64::cpuid::{
     cpuid, cpuid_count, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
@@ -292,18 +294,19 @@ impl super::AmdCpuid {
     ) -> Result<(), ExtendedCacheTopologyError> {
         for i in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x8000001d, i)) {
-                // Cache type. Identifies the type of cache.
+                // Cache level. Identifies the level of this cache. Note that the enumeration value
+                // is not necessarily equal to the cache level.
                 // ```text
                 // Bits Description
-                // 00h Null; no more caches.
-                // 01h Data cache
-                // 02h Instruction cache
-                // 03h Unified cache
-                // 1Fh-04h Reserved.
+                // 000b Reserved.
+                // 001b Level 1
+                // 010b Level 2
+                // 011b Level 3
+                // 111b-100b Reserved.
                 // ```
                 //
-                // cache_type: 0..4,
-                let cache_level = 15 & subleaf.result.eax; // 15 == (2^4)-1
+                // cache_level: 5..8
+                let cache_level = get_range(subleaf.result.eax, 5..8);
 
                 // Specifies the number of logical processors sharing the cache enumerated by N,
                 // the value passed to the instruction in ECX. The number of logical processors
