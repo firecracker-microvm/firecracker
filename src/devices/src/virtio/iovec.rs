@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use libc::{c_void, iovec, size_t};
-use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
+use utils::vm_memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::DescriptorChain;
 
@@ -238,10 +238,14 @@ impl IoVecBufferMut {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let iov_base = mem
-                .get_slice(desc.addr, desc.len as usize)?
-                .as_ptr()
-                .cast::<c_void>();
+            let slice = mem.get_slice(desc.addr, desc.len as usize)?;
+
+            // We need to mark the area of guest memory that will be mutated through this
+            // IoVecBufferMut as dirty ahead of time, as we loose access to all
+            // vm-memory related information after converting down to iovecs.
+            slice.bitmap().mark_dirty(0, desc.len as usize);
+
+            let iov_base = slice.as_ptr().cast::<c_void>();
             vecs.push(iovec {
                 iov_base,
                 iov_len: desc.len as size_t,
