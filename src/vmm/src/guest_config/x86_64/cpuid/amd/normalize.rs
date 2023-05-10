@@ -405,11 +405,11 @@ impl super::AmdCpuid {
         // processor resides. Node in this context corresponds to a processor die.
         // Encoding is N-1, where N is the number of nodes present in the socket.
         //
-        // nodes_per_processor: 8..10,
+        // nodes_per_processor: 8..11,
         //
         // SAFETY: We know the value always fits within the range and thus is always safe.
         // Set nodes per processor.
-        set_range(&mut leaf_8000001e.result.ecx, 8..10, NODES_PER_PROCESSOR).unwrap();
+        set_range(&mut leaf_8000001e.result.ecx, 8..11, NODES_PER_PROCESSOR).unwrap();
 
         // Specifies the ID of the node containing the current logical processor. NodeId
         // values are unique across the system.
