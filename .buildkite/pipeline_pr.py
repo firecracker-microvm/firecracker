@@ -77,9 +77,12 @@ performance_grp = group(
 steps = [step_style]
 changed_files = get_changed_files("main")
 # run the whole test suite if either of:
-# - any file changed that is not documentation
+# - any file changed that is not documentation nor GitHub action config file
 # - no files changed
-if not changed_files or any(x.suffix != ".md" for x in changed_files):
+if not changed_files or any(
+    x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
+    for x in changed_files
+):
     steps += [
         build_grp,
         functional_1_grp,
