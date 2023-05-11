@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo" 
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels: 
+      - "Status: Awaiting review"
+    allow:
+      - dependency-type: "all"
