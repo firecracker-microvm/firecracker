@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use logger::{error, warn};
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
+use utils::vm_memory::GuestMemoryMmap;
 
 use super::{ActivateResult, Queue};
 use crate::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};

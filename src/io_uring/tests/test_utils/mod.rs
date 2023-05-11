@@ -3,7 +3,7 @@
 
 use io_uring::operation::{OpCode, Operation};
 use io_uring::{Error, IoUring, SQueueError};
-use vm_memory::{MmapRegion, VolatileMemory};
+use utils::vm_memory::{MmapRegion, VolatileMemory};
 
 fn drain_cqueue(ring: &mut IoUring) {
     while let Some(entry) = unsafe { ring.pop::<usize>().unwrap() } {

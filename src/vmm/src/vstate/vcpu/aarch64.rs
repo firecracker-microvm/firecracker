@@ -10,9 +10,9 @@ use std::result;
 
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
+use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::aarch64::regs::Aarch64Register;
 use crate::vstate::vcpu::VcpuEmulation;
@@ -194,7 +194,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
-    use vm_memory::GuestMemoryMmap;
+    use utils::vm_memory::GuestMemoryMmap;
 
     use super::*;
     use crate::vstate::vm::tests::setup_vm;

@@ -26,7 +26,7 @@ use std::sync::Arc;
 use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use vm_memory::{Bytes, GuestMemoryMmap};
+use utils::vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
 use super::defs::uapi;

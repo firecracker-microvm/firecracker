@@ -274,6 +274,34 @@ echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 **Note** There are some newer aarch64 CPUs that also implement SMT, however AWS Graviton
 processors do not implement it.
 
+#### Disable Unprivileged BPF
+
+Disabling BPF for unprivileged users protects against various transient
+execution attacks. See ["Spectre revisits
+BPF"](https://lwn.net/Articles/860597/) for one synopsis.
+
+Ensure unprivileged BPF remains disabled by setting `unprivileged_bpf_disable`
+to `1` as documented in the [kernel admin
+guide](https://docs.kernel.org/admin-guide/sysctl/kernel.html#unprivileged-bpf-disabled):
+
+```console
+echo "kernel.unprivileged_bpf_disabled = 1" >> /etc/sysctl.conf
+```
+
+The default setting is determined by the Linux kernel config
+`BPF_UNPRIV_DEFAULT_OFF` which defaults to `Y` starting with [this
+commit](https://github.com/torvalds/linux/commit/8a03e56b253e9691c90bc52ca199323d71b96204)
+first picked up in version 5.16. Amazon Linux kernel configs all use
+`BPF_UNPRIV_DEFAULT_OFF=Y`.
+
+Verification can be done by running:
+
+```bash
+cat /proc/sys/kernel/unprivileged_bpf_disabled
+```
+
+The output should be `1`
+
 #### [Intel and ARM only] Check Kernel Page-Table Isolation (KPTI) support
 
 KPTI is used to prevent certain side-channel issues that allow access to

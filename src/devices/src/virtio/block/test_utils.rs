@@ -11,7 +11,7 @@ use std::time::Duration;
 use rate_limiter::RateLimiter;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
-use vm_memory::{Bytes, GuestAddress};
+use utils::vm_memory::{Bytes, GuestAddress};
 
 use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]

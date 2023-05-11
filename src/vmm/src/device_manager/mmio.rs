@@ -21,11 +21,11 @@ use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
+#[cfg(target_arch = "x86_64")]
+use utils::vm_memory::GuestAddress;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
-#[cfg(target_arch = "x86_64")]
-use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::DeviceInfoForFDT;
@@ -460,7 +460,7 @@ mod tests {
 
     use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use utils::eventfd::EventFd;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder;
@@ -565,7 +565,7 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -594,7 +594,7 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -653,7 +653,7 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )

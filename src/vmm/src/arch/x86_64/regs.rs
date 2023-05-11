@@ -9,7 +9,7 @@ use std::{fmt, mem};
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 
@@ -263,7 +263,7 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
 #[cfg(test)]
 mod tests {
     use kvm_ioctls::Kvm;
-    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::*;
 
@@ -271,10 +271,13 @@ mod tests {
         let page_size = 0x10000usize;
         let mem_size = mem_size.unwrap_or(page_size as u64) as usize;
         if mem_size % page_size == 0 {
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
-                .unwrap()
+            utils::vm_memory::test_utils::create_anon_guest_memory(
+                &[(GuestAddress(0), mem_size)],
+                false,
+            )
+            .unwrap()
         } else {
-            vm_memory::test_utils::create_guest_memory_unguarded(
+            utils::vm_memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0), mem_size)],
                 false,
             )

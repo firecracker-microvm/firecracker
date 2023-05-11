@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::result::Result;
 
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum Error {

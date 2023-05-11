@@ -7,7 +7,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use crate::virtio::test_utils::{single_region_mem, VirtQueue as GuestQ};
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};

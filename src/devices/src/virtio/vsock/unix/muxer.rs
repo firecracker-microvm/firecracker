@@ -37,7 +37,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
-use vm_memory::GuestMemoryMmap;
+use utils::vm_memory::GuestMemoryMmap;
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
