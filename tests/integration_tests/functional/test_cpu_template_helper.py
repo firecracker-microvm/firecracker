@@ -59,6 +59,14 @@ class CpuTemplateHelper:
         cmd = f"{self.BINARY_PATH} template verify --config {vm_config_path}"
         utils.run_cmd(cmd)
 
+    def fingerprint_dump(self, vm_config_path, output_path):
+        """Dump a fingerprint"""
+        cmd = (
+            f"{self.BINARY_PATH} fingerprint dump"
+            f" --config {vm_config_path} --output {output_path}"
+        )
+        utils.run_cmd(cmd)
+
 
 @pytest.fixture(scope="session", name="cpu_template_helper")
 def cpu_template_helper_fixture():
@@ -295,7 +303,8 @@ def test_cpu_config_dump_vs_actual(
 
 def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
     """
-    Verify that CPU config has not changed since the baseline was gathered.
+    Verify that the current guest CPU config has not changed since the baseline
+    fingerprint was gathered.
     """
     # Generate VM config from test_microvm_with_api
     microvm = test_microvm_with_api
@@ -303,17 +312,26 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)
 
-    # Dump CPU config with the generated VM config.
-    cpu_config_path = tmp_path / "cpu_config.json"
-    cpu_template_helper.template_dump(vm_config_path, cpu_config_path)
+    # Dump a fingerprint with the generated VM config.
+    fingerprint_path = tmp_path / "fingerprint.json"
+    cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
 
-    # Baseline CPU config.
-    baseline_path = f"{TEST_RESOURCES_DIR}/cpu_config_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
-    # Use this code to generate baseline CPU config.
-    # cpu_template_helper.template_dump(vm_config_path, baseline_path)
+    # Baseline fingerprint.
+    baseline_path = Path(
+        f"{TEST_RESOURCES_DIR}/"
+        f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+    )
+    # Use this code to generate baseline fingerprint.
+    # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
 
     # Compare with baseline
-    utils.run_cmd(f"diff {cpu_config_path} {baseline_path} -C 10")
+    actual_cpu_config = json.loads(fingerprint_path.read_text(encoding="utf-8"))[
+        "guest_cpu_config"
+    ]
+    baseline_cpu_config = json.loads(baseline_path.read_text(encoding="utf-8"))[
+        "guest_cpu_config"
+    ]
+    assert actual_cpu_config == baseline_cpu_config
 
 
 def test_json_static_templates(
