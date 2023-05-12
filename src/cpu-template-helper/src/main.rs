@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
+mod fingerprint;
 mod template;
 mod utils;
 
@@ -16,6 +17,8 @@ const EXIT_CODE_ERROR: i32 = 1;
 enum Error {
     #[error("Failed to operate file: {0}")]
     FileIo(#[from] std::io::Error),
+    #[error("{0}")]
+    FingerprintDump(#[from] fingerprint::dump::Error),
     #[error("CPU template is not specified: {0}")]
     NoCpuTemplate(#[from] GetCpuTemplateError),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
@@ -76,7 +79,17 @@ enum TemplateOperation {
 }
 
 #[derive(Subcommand)]
-enum FingerprintOperation {}
+enum FingerprintOperation {
+    /// Dump fingerprint consisting of host-related information and guest CPU config.
+    Dump {
+        /// Path of fingerprint config file.
+        #[arg(short, long, value_name = "PATH")]
+        config: PathBuf,
+        /// Path of output file.
+        #[arg(short, long, value_name = "PATH", default_value = "fingerprint.json")]
+        output: PathBuf,
+    },
+}
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
@@ -120,7 +133,17 @@ fn run(cli: Cli) -> Result<()> {
                 template::verify::verify(cpu_template, cpu_config)?;
             }
         },
-        Command::Fingerprint(_) => {}
+        Command::Fingerprint(op) => match op {
+            FingerprintOperation::Dump { config, output } => {
+                let config = read_to_string(config)?;
+                let (vmm, _) = utils::build_microvm_from_config(&config)?;
+
+                let fingerprint = fingerprint::dump::dump(vmm)?;
+
+                let fingerprint_json = serde_json::to_string_pretty(&fingerprint)?;
+                write(output, fingerprint_json)?;
+            }
+        },
     }
 
     Ok(())
@@ -321,6 +344,31 @@ mod tests {
             "verify",
             "--config",
             config_file.as_path().to_str().unwrap(),
+        ];
+        let cli = Cli::parse_from(args);
+
+        run(cli).unwrap();
+    }
+
+    #[test]
+    fn test_fingerprint_dump_command() {
+        let kernel_image_path = kernel_image_path(None);
+        let rootfs_file = TempFile::new().unwrap();
+        let config_file = generate_config_file(
+            &kernel_image_path,
+            rootfs_file.as_path().to_str().unwrap(),
+            None,
+        );
+        let output_file = TempFile::new().unwrap();
+
+        let args = vec![
+            "cpu-template-helper",
+            "fingerprint",
+            "dump",
+            "--config",
+            config_file.as_path().to_str().unwrap(),
+            "--output",
+            output_file.as_path().to_str().unwrap(),
         ];
         let cli = Cli::parse_from(args);
 
