@@ -1,7 +1,6 @@
 name: Check no Cargo.lock files are dirty
 
-on:
-  [push, pull_request]
+on: pull_request
 
 jobs:
   no_dirty_cargo_locks_check:
