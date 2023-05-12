@@ -54,6 +54,12 @@ class CpuTemplateHelper:
         )
         utils.run_cmd(cmd)
 
+    def template_strip(self, paths, suffix=""):
+        """Strip entries shared between multiple CPU template files"""
+        paths = " ".join([str(path) for path in paths])
+        cmd = f"{self.BINARY_PATH} template strip --paths {paths} --suffix '{suffix}'"
+        utils.run_cmd(cmd)
+
     def template_verify(self, vm_config_path):
         """Verify the specified CPU template"""
         cmd = f"{self.BINARY_PATH} template verify --config {vm_config_path}"
@@ -338,7 +344,7 @@ def test_json_static_templates(
     test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
 ):
     """
-    Verify that JSON static CPU templates are applied as intended
+    Verify that JSON static CPU templates are applied as intended.
     """
     # Generate VM config with JSON static CPU template
     microvm = test_microvm_with_api
@@ -348,3 +354,37 @@ def test_json_static_templates(
 
     # Verify the JSON static CPU template.
     cpu_template_helper.template_verify(vm_config_path)
+
+
+def test_consecutive_cpu_config_consistency(
+    test_microvm_with_api, cpu_template_helper, tmp_path
+):
+    """
+    Verify that two dumped guest CPU configs obtained consecutively are
+    consistent. The dumped guest CPU config should not change without
+    any environmental changes (firecracker, kernel, microcode updates).
+    """
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+    vm_config_path = save_vm_config(microvm, tmp_path)
+
+    # Dump CPU config with the helper tool.
+    cpu_config_1 = tmp_path / "cpu_config_1.json"
+    cpu_template_helper.template_dump(vm_config_path, cpu_config_1)
+    cpu_config_2 = tmp_path / "cpu_config_2.json"
+    cpu_template_helper.template_dump(vm_config_path, cpu_config_2)
+
+    # Strip common entries.
+    cpu_template_helper.template_strip([cpu_config_1, cpu_config_2])
+
+    # Check the stripped result is empty.
+    if PLATFORM == "x86_64":
+        empty_cpu_config = {
+            "cpuid_modifiers": [],
+            "msr_modifiers": [],
+        }
+    elif PLATFORM == "aarch64":
+        empty_cpu_config = {"reg_modifiers": []}
+    assert json.loads(cpu_config_1.read_text(encoding="utf-8")) == empty_cpu_config
+    assert json.loads(cpu_config_2.read_text(encoding="utf-8")) == empty_cpu_config
