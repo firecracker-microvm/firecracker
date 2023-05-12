@@ -18,8 +18,6 @@ const EXIT_CODE_ERROR: i32 = 1;
 enum Error {
     #[error("Failed to operate file: {0}")]
     FileIo(#[from] std::io::Error),
-    #[error("{0}")]
-    DumpCpuConfig(#[from] dump::Error),
     #[error("CPU template is not specified: {0}")]
     NoCpuTemplate(#[from] GetCpuTemplateError),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
@@ -27,7 +25,9 @@ enum Error {
     #[error("{0}")]
     Utils(#[from] utils::Error),
     #[error("{0}")]
-    VerifyCpuTemplate(#[from] verify::Error),
+    TemplateDump(#[from] dump::Error),
+    #[error("{0}")]
+    TemplateVerify(#[from] verify::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -41,7 +41,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Dump CPU configuration in custom CPU template format.
+    /// Template-related operations
+    #[command(subcommand)]
+    Template(TemplateOperation),
+    /// Fingerprint-related operations
+    #[command(subcommand)]
+    Fingerprint(FingerprintOperation),
+}
+
+#[derive(Subcommand)]
+enum TemplateOperation {
+    /// Dump guest CPU configuration in the custom CPU template format.
     Dump {
         /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
@@ -50,7 +60,7 @@ enum Command {
         #[arg(short, long, value_name = "PATH", default_value = "cpu_config.json")]
         output: PathBuf,
     },
-    /// Strip items shared between multiple CPU configurations.
+    /// Strip entries shared between multiple CPU template files.
     Strip {
         /// List of paths of input CPU configuration files.
         #[arg(short, long, num_args = 2..)]
@@ -59,55 +69,61 @@ enum Command {
         #[arg(short, long, default_value = "_stripped")]
         suffix: String,
     },
-    /// Verify that the given CPU template is applied as intended.
+    /// Verify that the given CPU template file is applied as intended.
     Verify {
-        /// Path of firecracker config file specifying CPU template.
+        /// Path of firecracker config file specifying the target CPU template.
         #[arg(short, long, value_name = "PATH")]
         config: PathBuf,
     },
 }
 
+#[derive(Subcommand)]
+enum FingerprintOperation {}
+
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Dump { config, output } => {
-            let config = read_to_string(config)?;
-            let (vmm, _) = utils::build_microvm_from_config(&config)?;
+        Command::Template(op) => match op {
+            TemplateOperation::Dump { config, output } => {
+                let config = read_to_string(config)?;
+                let (vmm, _) = utils::build_microvm_from_config(&config)?;
 
-            let cpu_config = dump::dump(vmm)?;
+                let cpu_config = dump::dump(vmm)?;
 
-            let cpu_config_json = serde_json::to_string_pretty(&cpu_config)?;
-            write(output, cpu_config_json)?;
-        }
-        Command::Strip { paths, suffix } => {
-            let mut templates = Vec::with_capacity(paths.len());
-            for path in &paths {
-                let template_json = read_to_string(path)?;
-                let template: CustomCpuTemplate = serde_json::from_str(&template_json)?;
-                templates.push(template);
+                let cpu_config_json = serde_json::to_string_pretty(&cpu_config)?;
+                write(output, cpu_config_json)?;
             }
+            TemplateOperation::Strip { paths, suffix } => {
+                let mut templates = Vec::with_capacity(paths.len());
+                for path in &paths {
+                    let template_json = read_to_string(path)?;
+                    let template: CustomCpuTemplate = serde_json::from_str(&template_json)?;
+                    templates.push(template);
+                }
 
-            let stripped_templates = strip::strip(templates);
+                let stripped_templates = strip::strip(templates);
 
-            for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
-                let path = utils::add_suffix(&path, &suffix);
-                let template_json = serde_json::to_string_pretty(&template)?;
-                write(path, template_json)?;
+                for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
+                    let path = utils::add_suffix(&path, &suffix);
+                    let template_json = serde_json::to_string_pretty(&template)?;
+                    write(path, template_json)?;
+                }
             }
-        }
-        Command::Verify { config } => {
-            let config = read_to_string(config)?;
-            let (vmm, vm_resources) = utils::build_microvm_from_config(&config)?;
+            TemplateOperation::Verify { config } => {
+                let config = read_to_string(config)?;
+                let (vmm, vm_resources) = utils::build_microvm_from_config(&config)?;
 
-            let cpu_template = vm_resources
-                .vm_config
-                .cpu_template
-                .get_cpu_template()?
-                .into_owned();
-            let cpu_config = dump::dump(vmm)?;
+                let cpu_template = vm_resources
+                    .vm_config
+                    .cpu_template
+                    .get_cpu_template()?
+                    .into_owned();
+                let cpu_config = dump::dump(vmm)?;
 
-            verify::verify(cpu_template, cpu_config)?;
-        }
-    };
+                verify::verify(cpu_template, cpu_config)?;
+            }
+        },
+        Command::Fingerprint(_) => {}
+    }
 
     Ok(())
 }
@@ -263,6 +279,7 @@ mod tests {
 
         let args = vec![
             "cpu-template-helper",
+            "template",
             "dump",
             "--config",
             config_file.as_path().to_str().unwrap(),
@@ -278,7 +295,7 @@ mod tests {
     fn test_strip_command() {
         let files = vec![generate_sample_modifiers(), generate_sample_modifiers()];
 
-        let mut args = vec!["cpu-template-helper", "strip", "-p"];
+        let mut args = vec!["cpu-template-helper", "template", "strip", "-p"];
         let paths = files
             .iter()
             .map(|file| file.as_path().to_str().unwrap())
@@ -302,6 +319,7 @@ mod tests {
 
         let args = vec![
             "cpu-template-helper",
+            "template",
             "verify",
             "--config",
             config_file.as_path().to_str().unwrap(),
