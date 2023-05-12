@@ -12,9 +12,9 @@ use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::{DumpCpuConfigError, Vmm};
 
 #[cfg(target_arch = "aarch64")]
-use crate::dump::aarch64::config_to_template;
+use crate::template::dump::aarch64::config_to_template;
 #[cfg(target_arch = "x86_64")]
-use crate::dump::x86_64::config_to_template;
+use crate::template::dump::x86_64::config_to_template;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

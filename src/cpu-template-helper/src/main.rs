@@ -7,10 +7,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
-mod dump;
-mod strip;
+mod template;
 mod utils;
-mod verify;
 
 const EXIT_CODE_ERROR: i32 = 1;
 
@@ -25,9 +23,9 @@ enum Error {
     #[error("{0}")]
     Utils(#[from] utils::Error),
     #[error("{0}")]
-    TemplateDump(#[from] dump::Error),
+    TemplateDump(#[from] template::dump::Error),
     #[error("{0}")]
-    TemplateVerify(#[from] verify::Error),
+    TemplateVerify(#[from] template::verify::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -87,7 +85,7 @@ fn run(cli: Cli) -> Result<()> {
                 let config = read_to_string(config)?;
                 let (vmm, _) = utils::build_microvm_from_config(&config)?;
 
-                let cpu_config = dump::dump(vmm)?;
+                let cpu_config = template::dump::dump(vmm)?;
 
                 let cpu_config_json = serde_json::to_string_pretty(&cpu_config)?;
                 write(output, cpu_config_json)?;
@@ -100,7 +98,7 @@ fn run(cli: Cli) -> Result<()> {
                     templates.push(template);
                 }
 
-                let stripped_templates = strip::strip(templates);
+                let stripped_templates = template::strip::strip(templates);
 
                 for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
                     let path = utils::add_suffix(&path, &suffix);
@@ -117,9 +115,9 @@ fn run(cli: Cli) -> Result<()> {
                     .cpu_template
                     .get_cpu_template()?
                     .into_owned();
-                let cpu_config = dump::dump(vmm)?;
+                let cpu_config = template::dump::dump(vmm)?;
 
-                verify::verify(cpu_template, cpu_config)?;
+                template::verify::verify(cpu_template, cpu_config)?;
             }
         },
         Command::Fingerprint(_) => {}
@@ -267,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dump_command() {
+    fn test_template_dump_command() {
         let kernel_image_path = kernel_image_path(None);
         let rootfs_file = TempFile::new().unwrap();
         let config_file = generate_config_file(
@@ -292,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_command() {
+    fn test_template_strip_command() {
         let files = vec![generate_sample_modifiers(), generate_sample_modifiers()];
 
         let mut args = vec!["cpu-template-helper", "template", "strip", "-p"];
@@ -307,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_command() {
+    fn test_template_verify_command() {
         let kernel_image_path = kernel_image_path(None);
         let rootfs_file = TempFile::new().unwrap();
         let template_file = generate_sample_modifiers();
