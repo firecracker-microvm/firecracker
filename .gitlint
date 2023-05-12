@@ -1,6 +1,3 @@
-[general]
-ignore=body-is-missing
-
 [title-max-length]
 line-length=72
 
