@@ -4,7 +4,7 @@
 use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
 mod fingerprint;
@@ -17,6 +17,8 @@ const EXIT_CODE_ERROR: i32 = 1;
 enum Error {
     #[error("Failed to operate file: {0}")]
     FileIo(#[from] std::io::Error),
+    #[error("{0}")]
+    FingerprintCompare(#[from] fingerprint::compare::Error),
     #[error("{0}")]
     FingerprintDump(#[from] fingerprint::dump::Error),
     #[error("CPU template is not specified: {0}")]
@@ -89,6 +91,24 @@ enum FingerprintOperation {
         #[arg(short, long, value_name = "PATH", default_value = "fingerprint.json")]
         output: PathBuf,
     },
+    /// Compare two fingerprint files with queries.
+    Compare {
+        /// Path of fingerprint file that stores the previous state at CPU template creation.
+        #[arg(short, long, value_name = "PATH")]
+        prev: PathBuf,
+        /// Path of fingerprint file that stores the current state.
+        #[arg(short, long, value_name = "PATH")]
+        curr: PathBuf,
+        /// List of fields to be compared.
+        #[arg(
+            short,
+            long,
+            value_enum,
+            num_args = 1..,
+            default_values_t = fingerprint::FingerprintField::value_variants()
+        )]
+        filters: Vec<fingerprint::FingerprintField>,
+    },
 }
 
 fn run(cli: Cli) -> Result<()> {
@@ -142,6 +162,17 @@ fn run(cli: Cli) -> Result<()> {
 
                 let fingerprint_json = serde_json::to_string_pretty(&fingerprint)?;
                 write(output, fingerprint_json)?;
+            }
+            FingerprintOperation::Compare {
+                prev,
+                curr,
+                filters,
+            } => {
+                let prev_json = read_to_string(prev)?;
+                let prev: fingerprint::Fingerprint = serde_json::from_str(&prev_json)?;
+                let curr_json = read_to_string(curr)?;
+                let curr: fingerprint::Fingerprint = serde_json::from_str(&curr_json)?;
+                fingerprint::compare::compare(prev, curr, filters)?;
             }
         },
     }
