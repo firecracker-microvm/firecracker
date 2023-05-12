@@ -46,16 +46,17 @@ class CpuTemplateHelper:
                 cwd=defs.FC_WORKSPACE_DIR,
             )
 
-    def dump(self, vm_config_path, output_path):
-        """Dump CPU config in JSON format by calling dump subcommand"""
+    def template_dump(self, vm_config_path, output_path):
+        """Dump guest CPU config in the JSON custom CPU template format"""
         cmd = (
-            f"{self.BINARY_PATH} dump --config {vm_config_path} --output {output_path}"
+            f"{self.BINARY_PATH} template dump"
+            f" --config {vm_config_path} --output {output_path}"
         )
         utils.run_cmd(cmd)
 
-    def verify(self, vm_config_path):
-        """Verify the specified CPU template by calling verify subcommand"""
-        cmd = f"{self.BINARY_PATH} verify --config {vm_config_path}"
+    def template_verify(self, vm_config_path):
+        """Verify the specified CPU template"""
+        cmd = f"{self.BINARY_PATH} template verify --config {vm_config_path}"
         utils.run_cmd(cmd)
 
 
@@ -240,7 +241,7 @@ def test_cpu_config_dump_vs_actual(
 
     # Dump CPU config with the helper tool.
     cpu_config_path = tmp_path / "cpu_config.json"
-    cpu_template_helper.dump(vm_config_path, cpu_config_path)
+    cpu_template_helper.template_dump(vm_config_path, cpu_config_path)
     dump_cpu_config = build_cpu_config_dict(cpu_config_path)
 
     # Retrieve actual CPU config from guest
@@ -304,12 +305,12 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
 
     # Dump CPU config with the generated VM config.
     cpu_config_path = tmp_path / "cpu_config.json"
-    cpu_template_helper.dump(vm_config_path, cpu_config_path)
+    cpu_template_helper.template_dump(vm_config_path, cpu_config_path)
 
     # Baseline CPU config.
     baseline_path = f"{TEST_RESOURCES_DIR}/cpu_config_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
     # Use this code to generate baseline CPU config.
-    # cpu_template_helper.dump(vm_config_path, baseline_path)
+    # cpu_template_helper.template_dump(vm_config_path, baseline_path)
 
     # Compare with baseline
     utils.run_cmd(f"diff {cpu_config_path} {baseline_path} -C 10")
@@ -328,4 +329,4 @@ def test_json_static_templates(
     vm_config_path = save_vm_config(microvm, tmp_path, custom_cpu_template["template"])
 
     # Verify the JSON static CPU template.
-    cpu_template_helper.verify(vm_config_path)
+    cpu_template_helper.template_verify(vm_config_path)
