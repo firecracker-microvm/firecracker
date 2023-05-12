@@ -89,7 +89,6 @@ pub enum Error {
     BuildMicroVm(#[from] StartMicrovmError),
 }
 
-#[allow(dead_code)]
 pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmResources), Error> {
     // Prepare resources from the given config file.
     let instance_info = InstanceInfo {
