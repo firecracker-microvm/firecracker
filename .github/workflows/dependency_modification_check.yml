@@ -1,7 +1,6 @@
 name: Check no dependencies were modified
 
-on:
-  [push, pull_request]
+on: pull_request
 
 jobs:
   dependency_changed_check:
