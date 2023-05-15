@@ -104,7 +104,7 @@
             },
             {
               "syscall": "getrandom",
-              "comment": "getrandom is used by virtio-rng to initialize the rand crate"
+              "comment": "getrandom is used by aws-lc library which we consume in virtio-rng" 
             },
             {
                 "syscall": "accept4",
@@ -206,16 +206,7 @@
             },
             {
                 "syscall": "madvise",
-                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads",
-                "args": [
-                    {
-                        "index": 2,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 4,
-                        "comment": "libc::MADV_DONTNEED"
-                    }
-                ]
+                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms." 
             },
             {
                 "syscall": "mmap",
