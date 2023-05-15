@@ -309,6 +309,27 @@ mod tests {
         file
     }
 
+    // Build a sample fingerprint file.
+    fn generate_sample_fingerprint() -> TempFile {
+        let fingerprint = fingerprint::Fingerprint {
+            firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
+            kernel_version: "sample_kernel_version".to_string(),
+            microcode_version: "sample_microcode_version".to_string(),
+            bios_version: "sample_bios_version".to_string(),
+            bios_revision: "sample_bios_revision".to_string(),
+            guest_cpu_config: serde_json::from_slice(SAMPLE_MODIFIERS.as_bytes()).unwrap(),
+        };
+        let file = TempFile::new().unwrap();
+        file.as_file()
+            .write_all(
+                serde_json::to_string_pretty(&fingerprint)
+                    .unwrap()
+                    .as_bytes(),
+            )
+            .unwrap();
+        file
+    }
+
     #[test]
     fn test_template_dump_command() {
         let kernel_image_path = kernel_image_path(None);
@@ -392,6 +413,33 @@ mod tests {
             "--output",
             output_file.as_path().to_str().unwrap(),
         ];
+        let cli = Cli::parse_from(args);
+
+        run(cli).unwrap();
+    }
+
+    #[test]
+    fn test_fingerprint_compare_command() {
+        let fingerprint_file1 = generate_sample_fingerprint();
+        let fingerprint_file2 = generate_sample_fingerprint();
+        let filters = fingerprint::FingerprintField::value_variants()
+            .iter()
+            .map(|variant| variant.to_possible_value().unwrap().get_name().to_string())
+            .collect::<Vec<_>>();
+
+        let mut args = vec![
+            "cpu-template-helper",
+            "fingerprint",
+            "compare",
+            "--prev",
+            fingerprint_file1.as_path().to_str().unwrap(),
+            "--curr",
+            fingerprint_file2.as_path().to_str().unwrap(),
+            "--filters",
+        ];
+        for filter in &filters {
+            args.push(filter);
+        }
         let cli = Cli::parse_from(args);
 
         run(cli).unwrap();
