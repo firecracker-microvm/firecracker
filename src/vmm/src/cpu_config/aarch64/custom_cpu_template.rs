@@ -160,7 +160,7 @@ mod tests {
         assert!(cpu_config_result
             .unwrap_err()
             .to_string()
-            .contains("Failed to parse string [j] as a decimal number for CPU template"));
+            .contains("Failed to parse string [j] as a number for CPU template"));
 
         // Malformed address as binary
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
