@@ -17,17 +17,59 @@ PLATFORM = platform.machine()
 def _check_cpu_topology(
     test_microvm, expected_cpu_count, expected_threads_per_core, expected_cpus_list
 ):
-    expected_cpu_topology = {
-        "CPU(s)": str(expected_cpu_count),
-        "On-line CPU(s) list": expected_cpus_list,
-        "Thread(s) per core": str(expected_threads_per_core),
-        "Core(s) per socket": str(int(expected_cpu_count / expected_threads_per_core)),
-        "Socket(s)": "1",
-        "NUMA node(s)": "1",
-    }
+    expected_lscpu_output = {}
+    if PLATFORM == "x86_64":
+        expected_lscpu_output = {
+            "CPU(s)": str(expected_cpu_count),
+            "On-line CPU(s) list": expected_cpus_list,
+            "Thread(s) per core": str(expected_threads_per_core),
+            "Core(s) per socket": str(
+                int(expected_cpu_count / expected_threads_per_core)
+            ),
+            "Socket(s)": "1",
+            "NUMA node(s)": "1",
+        }
+    else:
+        expected_lscpu_output = {
+            "CPU(s)": str(expected_cpu_count),
+            "On-line CPU(s) list": expected_cpus_list,
+            "Thread(s) per core": "1",
+            "Core(s) per cluster": str(
+                int(expected_cpu_count / expected_threads_per_core)
+            ),
+            "Cluster(s)": "1",
+            "NUMA node(s)": "1",
+        }
 
     utils.check_guest_cpuid_output(
-        test_microvm, "lscpu", None, ":", expected_cpu_topology
+        test_microvm, "lscpu", None, ":", expected_lscpu_output
+    )
+
+    if PLATFORM == "x86_64":
+        expected_hwloc_output = {
+            "depth 0": "1 Machine (type #0)",
+            "depth 1": "1 Package (type #1)",
+            "depth 2": "1 L3Cache (type #6)",
+            "depth 3": f"{int(expected_cpu_count / expected_threads_per_core)} L2Cache (type #5)",
+            "depth 4": f"{int(expected_cpu_count / expected_threads_per_core)} L1dCache (type #4)",
+            "depth 5": f"{int(expected_cpu_count / expected_threads_per_core)} L1iCache (type #9)",
+            "depth 6": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
+            "depth 7": f"{expected_cpu_count} PU (type #3)",
+        }
+    else:
+        expected_hwloc_output = {
+            "depth 0": "1 Machine (type #0)",
+            "depth 1": "1 Package (type #1)",
+            "depth 2": "1 L3Cache (type #6)",
+            "depth 3": f"{expected_cpu_count} L2Cache (type #5)",
+            "depth 4": f"{expected_cpu_count} L1dCache (type #4)",
+            "depth 5": f"{expected_cpu_count} L1iCache (type #9)",
+            "depth 6": f"{expected_cpu_count} Core (type #2)",
+            "depth 7": f"{expected_cpu_count} PU (type #3)",
+        }
+
+    utils.check_guest_cpuid_output(
+        test_microvm, "hwloc-info", None, ":", expected_hwloc_output
     )
 
 
@@ -148,15 +190,14 @@ def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
         assert guest_slice == host_slice
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="Firecracker supports CPU topology only on x86_64."
-)
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
-@pytest.mark.parametrize("htt", [True, False])
+@pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
     """
+    if htt and PLATFORM == "aarch64":
+        pytest.skip("SMT is configurable only on x86.")
     vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
@@ -169,7 +210,7 @@ def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
 
 
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
-@pytest.mark.parametrize("htt", [True, False])
+@pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 def test_cache_topology(uvm_plain_any, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
