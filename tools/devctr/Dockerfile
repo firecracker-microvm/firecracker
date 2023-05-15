@@ -54,6 +54,10 @@ RUN apt-get update \
         flex \
         bison \
         bc \
+        # for cpu-template-helper
+        # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
+        # https://github.com/firecracker-microvm/firecracker/issues/3677
+        dmidecode \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
