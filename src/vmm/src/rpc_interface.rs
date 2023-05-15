@@ -11,17 +11,18 @@ use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
 use tests::{
-    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    build_and_boot_microvm, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
 
 use super::Error as VmmError;
 #[cfg(not(test))]
 use super::{
-    builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
+    builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
+use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -33,7 +34,7 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -46,7 +47,7 @@ use crate::{EventManager, FcExitCode};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted.
@@ -93,6 +94,8 @@ pub enum VmmAction {
     Pause,
     /// Repopulate the MMDS contents.
     PutMMDS(Value),
+    /// Configure the guest vCPU features.
+    PutCpuConfiguration(CustomCpuTemplate),
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
@@ -122,7 +125,7 @@ pub enum VmmAction {
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
-    UpdateVmConfiguration(VmUpdateConfig),
+    UpdateVmConfiguration(MachineConfigUpdate),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -134,6 +137,8 @@ pub enum VmmActionError {
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
     CreateSnapshot(CreateSnapshotError),
+    /// The action `ConfigureCpu` failed.
+    ConfigureCpu(GuestConfigError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
     DriveConfig(DriveError),
@@ -180,6 +185,7 @@ impl Display for VmmActionError {
             match self {
                 BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
+                ConfigureCpu(err) => err.to_string(),
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
@@ -221,7 +227,7 @@ pub enum VmmData {
     /// The complete microVM configuration in JSON format.
     FullVmConfig(VmmConfig),
     /// The microVM configuration represented by `VmConfig`.
-    MachineConfiguration(VmConfig),
+    MachineConfiguration(MachineConfig),
     /// Mmds contents.
     MmdsValue(serde_json::Value),
     /// The microVM instance information.
@@ -416,9 +422,9 @@ impl<'a> PrebootApiController<'a> {
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.vm_config().clone(),
-            )),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
+                &self.vm_resources.vm_config,
+            ))),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
@@ -427,6 +433,9 @@ impl<'a> PrebootApiController<'a> {
                 .load_snapshot(&config)
                 .map_err(VmmActionError::LoadSnapshot),
             PatchMMDS(value) => self.patch_mmds(value),
+            PutCpuConfiguration(custom_cpu_template) => {
+                self.set_custom_cpu_template(custom_cpu_template)
+            }
             PutMMDS(value) => self.put_mmds(value),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
@@ -496,12 +505,17 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MmdsConfig)
     }
 
-    fn update_vm_config(&mut self, cfg: VmUpdateConfig) -> ActionResult {
+    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
             .update_vm_config(&cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MachineConfig)
+    }
+
+    fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) -> ActionResult {
+        self.vm_resources.set_custom_cpu_template(cpu_template);
+        Ok(VmmData::Empty)
     }
 
     fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
@@ -515,7 +529,7 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> ActionResult {
-        build_microvm_for_boot(
+        build_and_boot_microvm(
             &self.instance_info,
             self.vm_resources,
             self.event_manager,
@@ -627,9 +641,9 @@ impl RuntimeApiController {
                 .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.vm_config().clone(),
-            )),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
+                &self.vm_resources.vm_config,
+            ))),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
             )),
@@ -666,6 +680,7 @@ impl RuntimeApiController {
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
+            | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
@@ -743,13 +758,7 @@ impl RuntimeApiController {
         }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
-        let vm_cfg = self.vm_resources.vm_config();
-        let vm_info = VmInfo {
-            mem_size_mib: vm_cfg.mem_size_mib as u64,
-            smt: vm_cfg.smt,
-            cpu_template: vm_cfg.cpu_template,
-            boot_source: self.vm_resources.boot_source_config().clone(),
-        };
+        let vm_info = VmInfo::from(&self.vm_resources);
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         create_snapshot(
@@ -835,9 +844,12 @@ mod tests {
     use seccompiler::BpfThreadMap;
 
     use super::*;
+    use crate::cpu_config::templates::test_utils::build_test_template;
+    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
@@ -872,7 +884,7 @@ mod tests {
     // Mock `VmResources` used for testing.
     #[derive(Default)]
     pub struct MockVmRes {
-        vm_config: VmConfig,
+        pub vm_config: VmConfig,
         pub balloon: BalloonBuilder,
         pub vsock: VsockBuilder,
         balloon_config_called: bool,
@@ -890,10 +902,6 @@ mod tests {
     }
 
     impl MockVmRes {
-        pub fn vm_config(&self) -> &VmConfig {
-            &self.vm_config
-        }
-
         pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
             if self.force_errors {
                 return Err(BalloonError::DeviceNotFound);
@@ -903,7 +911,7 @@ mod tests {
         }
 
         pub fn track_dirty_pages(&self) -> bool {
-            self.vm_config().track_dirty_pages
+            self.vm_config.track_dirty_pages
         }
 
         pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
@@ -912,17 +920,13 @@ mod tests {
 
         pub fn update_vm_config(
             &mut self,
-            machine_config: &VmUpdateConfig,
+            update: &MachineConfigUpdate,
         ) -> Result<(), VmConfigError> {
             if self.force_errors {
                 return Err(VmConfigError::InvalidVcpuCount);
             }
 
-            self.vm_config.vcpu_count = machine_config.vcpu_count.unwrap();
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib.unwrap();
-            self.vm_config.smt = machine_config.smt.unwrap();
-            self.vm_config.cpu_template = machine_config.cpu_template.unwrap();
-            self.vm_config.track_dirty_pages = machine_config.track_dirty_pages.unwrap();
+            self.vm_config.update(update)?;
 
             Ok(())
         }
@@ -952,7 +956,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn boot_source_config(&mut self) -> &BootSourceConfig {
+        pub fn boot_source_config(&self) -> &BootSourceConfig {
             &self.boot_src
         }
 
@@ -1013,11 +1017,27 @@ mod tests {
             let mmds = self.mmds_or_default();
             mmds.lock().expect("Poisoned lock")
         }
+
+        /// Update the CPU configuration for the guest.
+        pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
+            self.vm_config.set_custom_cpu_template(cpu_template);
+        }
     }
 
     impl From<&MockVmRes> for VmmConfig {
         fn from(_: &MockVmRes) -> Self {
             VmmConfig::default()
+        }
+    }
+
+    impl From<&MockVmRes> for VmInfo {
+        fn from(value: &MockVmRes) -> Self {
+            Self {
+                mem_size_mib: value.vm_config.mem_size_mib as u64,
+                smt: value.vm_config.smt,
+                cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+                boot_source: value.boot_source_config().clone(),
+            }
         }
     }
 
@@ -1145,7 +1165,7 @@ mod tests {
 
     // Need to redefine this since the non-test one uses real VmResources
     // and real Vmm instead of our mocks.
-    pub fn build_microvm_for_boot(
+    pub fn build_and_boot_microvm(
         _: &InstanceInfo,
         _: &VmResources,
         _: &mut EventManager,
@@ -1251,7 +1271,7 @@ mod tests {
     #[test]
     fn test_preboot_get_vm_config() {
         let req = VmmAction::GetVmMachineConfig;
-        let expected_cfg = VmConfig::default();
+        let expected_cfg = MachineConfig::default();
         check_preboot_request(req, |result, _| {
             assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
         });
@@ -1275,15 +1295,30 @@ mod tests {
     }
 
     #[test]
-    fn test_preboot_set_vm_config() {
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
-        let expected_cfg = VmConfig::default();
+    fn test_preboot_put_cpu_config() {
+        // Start testing - Provide VMM vCPU configuration in preparation for `InstanceStart`
+        let req = VmmAction::PutCpuConfiguration(build_test_template());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
-            assert_eq!(vm_res.vm_config, expected_cfg);
+            assert_eq!(
+                vm_res.vm_config.cpu_template,
+                Some(CpuTemplateType::Custom(build_test_template()))
+            );
+        });
+    }
+
+    #[test]
+    fn test_preboot_set_vm_config() {
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
+        let expected_cfg = MachineConfig::default();
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(MachineConfig::from(&vm_res.vm_config), expected_cfg);
         });
 
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
         check_preboot_request_err(
             req,
             VmmActionError::MachineConfig(VmConfigError::InvalidVcpuCount),
@@ -1832,7 +1867,7 @@ mod tests {
         check_runtime_request(req, |result, _| {
             assert_eq!(
                 result,
-                Ok(VmmData::MachineConfiguration(VmConfig::default()))
+                Ok(VmmData::MachineConfiguration(MachineConfig::default()))
             );
         });
     }
@@ -2067,7 +2102,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
-            VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default())),
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default())),
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
@@ -2150,7 +2185,8 @@ mod tests {
         });
         verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
         verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use logger::info;
@@ -10,6 +11,7 @@ use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
+use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
@@ -18,12 +20,13 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use crate::vmm_config::machine_config::{
+    MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::vcpu::VcpuConfig;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -36,6 +39,8 @@ pub enum Error {
     BlockDevice(DriveError),
     /// Boot source configuration error.
     BootSource(BootSourceConfigError),
+    /// File operation error.
+    File(std::io::Error),
     /// JSON is invalid.
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
@@ -60,6 +65,7 @@ impl std::fmt::Display for Error {
             Error::BalloonDevice(err) => write!(f, "Balloon device error: {}", err),
             Error::BlockDevice(err) => write!(f, "Block device error: {}", err),
             Error::BootSource(err) => write!(f, "Boot source error: {}", err),
+            Error::File(err) => write!(f, "File operation error: {}", err),
             Error::InvalidJson(err) => write!(f, "Invalid JSON: {}", err),
             Error::Logger(err) => write!(f, "Logger error: {}", err),
             Error::Metrics(err) => write!(f, "Metrics error: {}", err),
@@ -81,10 +87,12 @@ pub struct VmmConfig {
     block_devices: Vec<BlockDeviceConfig>,
     #[serde(rename = "boot-source")]
     boot_source: BootSourceConfig,
+    #[serde(rename = "cpu-config")]
+    cpu_config: Option<PathBuf>,
     #[serde(rename = "logger")]
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
-    machine_config: Option<VmConfig>,
+    machine_config: Option<MachineConfig>,
     #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
     #[serde(rename = "mmds-config")]
@@ -100,7 +108,7 @@ pub struct VmmConfig {
 #[derive(Default)]
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
-    vm_config: VmConfig,
+    pub vm_config: VmConfig,
     /// The boot source spec (contains both config and builder) for this microVM.
     boot_source: BootSource,
     /// The block devices.
@@ -144,8 +152,14 @@ impl VmResources {
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
-            let machine_config = VmUpdateConfig::from(machine_config);
+            let machine_config = MachineConfigUpdate::from(machine_config);
             resources.update_vm_config(&machine_config)?;
+        }
+
+        if let Some(cpu_config) = vmm_config.cpu_config {
+            let cpu_config_json = std::fs::read_to_string(cpu_config).map_err(Error::File)?;
+            let cpu_template: CustomCpuTemplate = serde_json::from_str(&cpu_config_json)?;
+            resources.set_custom_cpu_template(cpu_template);
         }
 
         resources.build_boot_source(vmm_config.boot_source)?;
@@ -217,20 +231,9 @@ impl VmResources {
         }
     }
 
-    /// Returns a VcpuConfig based on the vm config.
-    pub fn vcpu_config(&self) -> VcpuConfig {
-        // The unwraps are ok to use because the values are initialized using defaults if not
-        // supplied by the user.
-        VcpuConfig {
-            vcpu_count: self.vm_config().vcpu_count,
-            smt: self.vm_config().smt,
-            cpu_template: self.vm_config().cpu_template,
-        }
-    }
-
     /// Returns whether dirty page tracking is enabled or not.
     pub fn track_dirty_pages(&self) -> bool {
-        self.vm_config().track_dirty_pages
+        self.vm_config.track_dirty_pages
     }
 
     /// Configures the dirty page tracking functionality of the microVM.
@@ -238,47 +241,23 @@ impl VmResources {
         self.vm_config.track_dirty_pages = dirty_page_tracking;
     }
 
-    /// Returns the VmConfig.
-    pub fn vm_config(&self) -> &VmConfig {
-        &self.vm_config
+    /// Add a custom CPU template to the VM resources
+    /// to configure vCPUs.
+    pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
+        self.vm_config.set_custom_cpu_template(cpu_template);
     }
 
-    /// Update the machine configuration of the microVM.
+    /// Updates the configuration of the microVM.
     pub fn update_vm_config(
         &mut self,
-        machine_config: &VmUpdateConfig,
+        update: &MachineConfigUpdate,
     ) -> std::result::Result<(), VmConfigError> {
-        let vcpu_count = machine_config
-            .vcpu_count
-            .unwrap_or(self.vm_config.vcpu_count);
-
-        let smt = machine_config.smt.unwrap_or(self.vm_config.smt);
-
-        if vcpu_count == 0 {
-            return Err(VmConfigError::InvalidVcpuCount);
-        }
-
-        // If SMT is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even.
-        if smt && vcpu_count > 1 && vcpu_count % 2 == 1 {
-            return Err(VmConfigError::InvalidVcpuCount);
-        }
-
-        self.vm_config.vcpu_count = vcpu_count;
-        self.vm_config.smt = smt;
-
-        let mem_size_mib = machine_config
-            .mem_size_mib
-            .unwrap_or(self.vm_config.mem_size_mib);
-
-        if mem_size_mib == 0 {
-            return Err(VmConfigError::InvalidMemorySize);
-        }
+        self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
-            && mem_size_mib
+            && self.vm_config.mem_size_mib
                 < self
                     .balloon
                     .get_config()
@@ -286,18 +265,6 @@ impl VmResources {
                     .amount_mib as usize
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
-        }
-
-        self.vm_config.mem_size_mib = mem_size_mib;
-
-        // Update the CPU template
-        if let Some(cpu_template) = machine_config.cpu_template {
-            self.vm_config.cpu_template = cpu_template;
-        }
-
-        // Update dirty page tracking
-        if let Some(track_dirty_pages) = machine_config.track_dirty_pages {
-            self.vm_config.track_dirty_pages = track_dirty_pages;
         }
 
         Ok(())
@@ -482,8 +449,9 @@ impl From<&VmResources> for VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),
             boot_source: resources.boot_source_config().clone(),
+            cpu_config: None,
             logger: None,
-            machine_config: Some(resources.vm_config.clone()),
+            machine_config: Some(MachineConfig::from(&resources.vm_config)),
             metrics: None,
             mmds_config: resources.mmds_config(),
             net_devices: resources.net_builder.configs(),
@@ -495,6 +463,7 @@ impl From<&VmResources> for VmmConfig {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::io::Write;
     use std::os::linux::fs::MetadataExt;
 
     use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
@@ -504,16 +473,16 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
-    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
-    use crate::vstate::vcpu::VcpuConfig;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
@@ -1060,6 +1029,92 @@ mod tests {
     }
 
     #[test]
+    fn test_cpu_config_from_invalid_json() {
+        // Invalid cpu config file path.
+        // `VmResources::from_json()` should fail with `Error::File`.
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+        let default_instance_info = InstanceInfo::default();
+
+        let json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "cpu-config": "/invalid/path",
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        match VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        ) {
+            Err(Error::File(_)) => (),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_cpu_config_from_valid_json() {
+        // Valid cpu config file path.
+        // `VmResources::from_json()` should succeed and it should have a custom CPU template.
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+        let default_instance_info = InstanceInfo::default();
+        let cpu_config_file = TempFile::new().unwrap();
+        cpu_config_file
+            .as_file()
+            .write_all("{}".as_bytes())
+            .unwrap();
+
+        let json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "cpu-config": "{}",
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            cpu_config_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        let vm_resources = VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            vm_resources.vm_config.cpu_template,
+            Some(CpuTemplateType::Custom(CustomCpuTemplate::default()))
+        );
+    }
+
+    #[test]
     fn test_cast_to_vmm_config() {
         // No mmds config.
         {
@@ -1256,44 +1311,26 @@ mod tests {
     }
 
     #[test]
-    fn test_vcpu_config() {
-        let vm_resources = default_vm_resources();
-        let expected_vcpu_config = VcpuConfig {
-            vcpu_count: vm_resources.vm_config().vcpu_count,
-            smt: vm_resources.vm_config().smt,
-            cpu_template: vm_resources.vm_config().cpu_template,
-        };
-
-        let vcpu_config = vm_resources.vcpu_config();
-        assert_eq!(vcpu_config, expected_vcpu_config);
-    }
-
-    #[test]
-    fn test_vm_config() {
-        let vm_resources = default_vm_resources();
-        let expected_vm_cfg = VmConfig::default();
-
-        assert_eq!(vm_resources.vm_config(), &expected_vm_cfg);
-    }
-
-    #[test]
     fn test_update_vm_config() {
         let mut vm_resources = default_vm_resources();
-        let mut aux_vm_config = VmUpdateConfig {
+        let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(true),
-            cpu_template: Some(CpuFeaturesTemplate::T2),
+            #[cfg(target_arch = "x86_64")]
+            cpu_template: Some(StaticCpuTemplate::T2),
+            #[cfg(target_arch = "aarch64")]
+            cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
         };
 
         assert_ne!(
-            VmUpdateConfig::from(vm_resources.vm_config.clone()),
+            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
             aux_vm_config
         );
         vm_resources.update_vm_config(&aux_vm_config).unwrap();
         assert_eq!(
-            VmUpdateConfig::from(vm_resources.vm_config.clone()),
+            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
             aux_vm_config
         );
 
@@ -1511,6 +1548,13 @@ mod tests {
             format!(
                 "Boot source error: {}",
                 BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(21))
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::File(std::io::Error::from_raw_os_error(2))),
+            format!(
+                "File operation error: {}",
+                std::io::Error::from_raw_os_error(2)
             )
         );
         assert_eq!(

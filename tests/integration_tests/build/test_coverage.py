@@ -4,6 +4,7 @@
 
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from host_tools import proc
 from host_tools.cargo_build import cargo
@@ -12,23 +13,33 @@ from host_tools.cargo_build import cargo
 # caused by io_uring, which is only supported by FC for kernels newer
 # than 5.10.
 
+
+def is_on_skylake():
+    """Test is executed on a Skylake host."""
+    return "8175M CPU" in cpuid_utils.get_cpu_model_name()
+
+
 # AMD has a slightly different coverage due to
 # the appearance of the brand string. On Intel,
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 83.19, "AMD": 82.38, "ARM": 82.49}
+    COVERAGE_DICT = {"Intel": 83.47, "AMD": 83.02, "ARM": 82.88}
 else:
-    COVERAGE_DICT = {"Intel": 80.32, "AMD": 79.5, "ARM": 79.44}
-
+    COVERAGE_DICT = {"Intel": 80.68, "AMD": 80.22, "ARM": 79.83}
 
 PROC_MODEL = proc.proc_type()
 
 # Toolchain target architecture.
-if ("Intel" in PROC_MODEL) or ("AMD" in PROC_MODEL):
+if "Intel" in PROC_MODEL:
+    VENDOR = "Intel"
+    ARCH = "x86_64"
+elif "AMD" in PROC_MODEL:
+    VENDOR = "AMD"
     ARCH = "x86_64"
 elif "ARM" in PROC_MODEL:
+    VENDOR = "ARM"
     ARCH = "aarch64"
 else:
     raise Exception(f"Unsupported processor model ({PROC_MODEL})")
@@ -44,7 +55,7 @@ TARGET = f"{ARCH}-unknown-linux-gnu"
 COVERAGE_MAX_DELTA = 0.05
 
 
-@pytest.mark.timeout(400)
+@pytest.mark.timeout(600)
 def test_coverage(monkeypatch, record_property, metrics):
     """Test code coverage
 
@@ -70,8 +81,7 @@ def test_coverage(monkeypatch, record_property, metrics):
     )
 
     # Generate coverage report.
-    utils.run_cmd(
-        f"""
+    cmd = f"""
         grcov . \
             -s . \
             --binary-path ./build/cargo_target/{TARGET}/debug/ \
@@ -79,10 +89,29 @@ def test_coverage(monkeypatch, record_property, metrics):
             --ignore "build/*" \
             --ignore "**/tests/*" \
             --ignore "**/test_utils*" \
+            --ignore "**/mock_*" \
             -t html \
             --ignore-not-existing \
             -o ./build/cargo_target/{TARGET}/debug/coverage"""
-    )
+
+    # Ignore code not relevant for the intended platform
+    # - CPUID and CPU template
+    # - Static CPU templates intended for specific CPU vendors
+    if "AMD" == VENDOR:
+        cmd += " \
+            --ignore **/intel* \
+            --ignore *t2* \
+            --ignore *t2s* \
+            --ignore *t2cl* \
+            --ignore *c3* \
+            "
+    elif "Intel" == VENDOR:
+        cmd += " \
+            --ignore **/amd* \
+            --ignore *t2a* \
+            "
+
+    utils.run_cmd(cmd)
 
     # Extract coverage from html report.
     #

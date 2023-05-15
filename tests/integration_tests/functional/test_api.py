@@ -410,14 +410,6 @@ def test_api_machine_config(test_microvm_with_api):
             in response.text
         )
 
-    # Test that CPU template errors on ARM.
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
-    if platform.machine() == "x86_64":
-        assert test_microvm.api_session.is_status_no_content(response.status_code)
-    else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
-
     # Test invalid mem_size_mib < 0.
     response = test_microvm.machine_cfg.put(mem_size_mib="-2")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -465,21 +457,21 @@ def test_api_machine_config(test_microvm_with_api):
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Set the cpu template again
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
+    # Set the cpu template
     if platform.machine() == "x86_64":
+        response = test_microvm.machine_cfg.patch(cpu_template="C3")
         assert test_microvm.api_session.is_status_no_content(response.status_code)
     else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
+        # We test with "None" because this is the only option supported on
+        # all aarch64 instances. It still tests setting `cpu_template`,
+        # even though the values we set is "None".
+        response = test_microvm.machine_cfg.patch(cpu_template="None")
+        assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.actions.put(action_type="InstanceStart")
     if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
         # We shouldn't be able to apply Intel templates on AMD hosts
-        fail_msg = (
-            "Internal error while starting microVM: Error configuring the vcpu for boot: Failed to "
-            "set CPUID entries: The operation is not permitted for the current vendor."
-        )
+        fail_msg = "CPU vendor mismatched between actual CPU and CPU template"
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         assert fail_msg in response.text
     else:
@@ -492,6 +484,22 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["vcpu_count"] == 2
     assert json["machine-config"]["mem_size_mib"] == 256
     assert json["machine-config"]["smt"] is False
+
+
+def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
+    """
+    Test /cpu-config PUT scenarios.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    response = test_microvm.cpu_cfg.put("{}")
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.cpu_cfg.put(custom_cpu_template["template"])
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
@@ -1175,6 +1183,8 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 
     test_microvm.machine_cfg.patch(**setup_cfg["machine-config"])
 
+    setup_cfg["cpu-config"] = None
+
     setup_cfg["drives"] = [
         {
             "drive_id": "rootfs",
@@ -1288,6 +1298,7 @@ def test_get_full_config(test_microvm_with_api):
         "smt": False,
         "track_dirty_pages": False,
     }
+    expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {
         "kernel_image_path": "/vmlinux.bin",
         "initrd_path": None,

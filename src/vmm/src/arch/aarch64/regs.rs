@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::path::PathBuf;
-use std::{fmt, fs, mem, result, u32};
+use std::{fs, mem, result, u32};
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
@@ -34,50 +34,43 @@ pub struct Aarch64Register {
 }
 
 /// Errors thrown while setting aarch64 registers.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// Failed to get core register (PC, PSTATE or general purpose ones).
+    #[error("Failed to get {1} register: {0}")]
     GetCoreRegister(kvm_ioctls::Error, String),
-    /// Failed to get multiprocessor state.
-    GetMP(kvm_ioctls::Error),
-    /// Failed to get the register list.
-    GetRegList(kvm_ioctls::Error),
-    /// Failed to get a system register.
-    GetSysRegister(kvm_ioctls::Error),
-    /// A FamStructWrapper operation has failed.
-    Fam(utils::fam::Error),
     /// Failed to set core register (PC, PSTATE or general purpose ones).
+    #[error("Failed to set {1} register: {0}")]
     SetCoreRegister(kvm_ioctls::Error, String),
-    /// Failed to Set multiprocessor state.
-    SetMP(kvm_ioctls::Error),
     /// Failed to get a system register.
-    SetRegister(kvm_ioctls::Error),
+    #[error("Failed to get register: {0}: {1}")]
+    GetSysRegister(u64, kvm_ioctls::Error),
+    /// Failed to set a system register.
+    #[error("Failed to set register {0}: {1}")]
+    SetSysRegister(u64, kvm_ioctls::Error),
+    /// Failed to get a register value.
+    #[error("Failed to get register {0}: {1}")]
+    GetOneReg(u64, kvm_ioctls::Error),
+    /// Failed to set a register value.
+    #[error("Failed to set register {0}: {1}")]
+    SetOneReg(u64, kvm_ioctls::Error),
+    /// Failed to get the register list.
+    #[error("Failed to retrieve list of registers: {0}")]
+    GetRegList(kvm_ioctls::Error),
+    /// Failed to get multiprocessor state.
+    #[error("Failed to get multiprocessor state: {0}")]
+    GetMp(kvm_ioctls::Error),
+    /// Failed to Set multiprocessor state.
+    #[error("Failed to set multiprocessor state: {0}")]
+    SetMp(kvm_ioctls::Error),
+    /// A FamStructWrapper operation has failed.
+    #[error("Failed FamStructWrapper operation: {0:?}")]
+    Fam(utils::fam::Error),
     /// Failed to get midr_el1 from host.
+    #[error("{0}")]
     GetMidrEl1(String),
 }
 type Result<T> = result::Result<T, Error>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            GetCoreRegister(ref err, ref desc) => {
-                write!(f, "Failed to get {} register: {}", desc, err)
-            }
-            GetMP(ref err) => write!(f, "Failed to get multiprocessor state: {}", err),
-            GetRegList(ref err) => write!(f, "Failed to retrieve list of registers: {}", err),
-            GetSysRegister(ref err) => write!(f, "Failed to get system register: {}", err),
-            SetCoreRegister(ref err, ref desc) => {
-                write!(f, "Failed to set {} register: {}", desc, err)
-            }
-            SetMP(ref err) => write!(f, "Failed to set multiprocessor state: {}", err),
-            SetRegister(ref err) => write!(f, "Failed to set register: {}", err),
-            GetMidrEl1(ref err) => write!(f, "{}", err),
-            Fam(ref err) => write!(f, "Failed FamStructWrapper operation: {:?}", err),
-        }
-    }
-}
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.
@@ -168,10 +161,20 @@ macro_rules! arm64_sys_reg {
     };
 }
 
-// Constant imported from the Linux kernel:
+// Constants imported from the Linux kernel:
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/asm/sysreg.h#L135
 arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
+
+// ID registers that represent cpu capabilities.
+// Needed for static cpu templates.
+arm64_sys_reg!(ID_AA64PFR0_EL1, 3, 0, 0, 4, 0);
+arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
+arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
+arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
+
+// EL0 Virtual Timer Registers
+arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
 
 /// Extract the Manufacturer ID from a VCPU state's registers.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
@@ -277,19 +280,19 @@ pub fn is_system_register(regid: u64) -> bool {
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
     match vcpu.get_one_reg(MPIDR_EL1) {
-        Err(err) => Err(Error::GetSysRegister(err)),
+        Err(err) => Err(Error::GetSysRegister(MPIDR_EL1, err)),
         // MPIDR register is 64 bit wide on aarch64, this expect cannot fail
         // on supported architectures
         Ok(val) => Ok(val.try_into().expect("MPIDR register to be 64 bit")),
     }
 }
 
-/// Get the state of the core registers.
+/// Saves the states of the core registers into `state`.
 ///
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-/// * `state` - Structure for returning the state of the core registers.
+/// * `state` - Input/Output vector of registers states.
 pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
     let mut off = offset__of!(user_pt_regs, regs);
     // There are 31 user_pt_regs:
@@ -410,12 +413,12 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> R
     Ok(())
 }
 
-/// Get the state of the system registers.
+/// Saves the states of the system registers into `state`.
 ///
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-/// * `state` - Structure for returning the state of the system registers.
+/// * `state` - Input/Output vector of registers states.
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
@@ -432,11 +435,25 @@ pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) ->
 
     // Now, for the rest of the registers left in the previously fetched register list, we are
     // simply calling KVM_GET_ONE_REG.
-    let indices = reg_list.as_slice();
-    for index in indices.iter() {
+    save_registers(vcpu, reg_list.as_slice(), state)?;
+
+    Ok(())
+}
+
+/// Saves states of registers into `state`.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `ids` - Slice of registers ids to save.
+/// * `state` - Input/Output vector of registers states.
+pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Register>) -> Result<()> {
+    for id in ids.iter() {
         state.push(Aarch64Register {
-            id: *index,
-            value: vcpu.get_one_reg(*index).map_err(Error::GetSysRegister)?,
+            id: *id,
+            value: vcpu
+                .get_one_reg(*id)
+                .map_err(|e| Error::GetSysRegister(*id, e))?,
         });
     }
 
@@ -452,7 +469,7 @@ pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) ->
 pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<()> {
     for reg in state {
         vcpu.set_one_reg(reg.id, reg.value)
-            .map_err(Error::SetRegister)?;
+            .map_err(|e| Error::SetSysRegister(reg.id, e))?;
     }
     Ok(())
 }
@@ -463,7 +480,7 @@ pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<()>
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state> {
-    vcpu.get_mp_state().map_err(Error::GetMP)
+    vcpu.get_mp_state().map_err(Error::GetMp)
 }
 
 /// Set the state of the system registers.
@@ -473,7 +490,7 @@ pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state> {
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure for returning the state of the system registers.
 pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
-    vcpu.set_mp_state(state).map_err(Error::SetMP)
+    vcpu.set_mp_state(state).map_err(Error::SetMp)
 }
 
 #[cfg(test)]
@@ -494,10 +511,9 @@ mod tests {
             .expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
-        assert!(res.is_err());
         assert_eq!(
-            format!("{}", res.unwrap_err()),
-            "Failed to set processor state register: Exec format error (os error 8)"
+            res.unwrap_err(),
+            Error::SetCoreRegister(kvm_ioctls::Error::new(8), "processor state".to_string())
         );
 
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
@@ -516,10 +532,9 @@ mod tests {
 
         // Must fail when vcpu is not initialized yet.
         let res = read_mpidr(&vcpu);
-        assert!(res.is_err());
         assert_eq!(
-            format!("{}", res.unwrap_err()),
-            "Failed to get system register: Exec format error (os error 8)"
+            res.unwrap_err(),
+            Error::GetSysRegister(MPIDR_EL1, kvm_ioctls::Error::new(8))
         );
 
         vcpu.vcpu_init(&kvi).unwrap();
@@ -553,17 +568,15 @@ mod tests {
         // Must fail when vcpu is not initialized yet.
         let mut state = Vec::new();
         let res = save_core_registers(&vcpu, &mut state);
-        assert!(res.is_err());
         assert_eq!(
-            format!("{}", res.unwrap_err()),
-            "Failed to get X0 register: Exec format error (os error 8)"
+            res.unwrap_err(),
+            Error::GetCoreRegister(kvm_ioctls::Error::new(8), "X0".to_string())
         );
 
         let res = save_system_registers(&vcpu, &mut state);
-        assert!(res.is_err());
         assert_eq!(
-            format!("{}", res.unwrap_err()),
-            "Failed to retrieve list of registers: Exec format error (os error 8)"
+            res.unwrap_err(),
+            Error::GetRegList(kvm_ioctls::Error::new(8))
         );
 
         vcpu.vcpu_init(&kvi).unwrap();
@@ -596,17 +609,9 @@ mod tests {
         unsafe { libc::close(vcpu.as_raw_fd()) };
 
         let res = get_mpstate(&vcpu);
-        assert!(res.is_err());
-        assert_eq!(
-            res.unwrap_err().to_string(),
-            "Failed to get multiprocessor state: Bad file descriptor (os error 9)"
-        );
+        assert_eq!(res.unwrap_err(), Error::GetMp(kvm_ioctls::Error::new(9)));
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
-        assert!(res.is_err());
-        assert_eq!(
-            res.unwrap_err().to_string(),
-            "Failed to set multiprocessor state: Bad file descriptor (os error 9)"
-        );
+        assert_eq!(res.unwrap_err(), Error::SetMp(kvm_ioctls::Error::new(9)));
     }
 }

@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
 from host_tools import proc
-from host_tools.cargo_build import cargo
 
 BENCHMARK_DIRECTORY = "{}/src/vmm".format(FC_WORKSPACE_DIR)
 DEFAULT_BUILD_TARGET = "{}-unknown-linux-musl".format(platform.machine())
@@ -25,12 +25,12 @@ NSEC_IN_MSEC = 1000000
 BASELINES = {
     "Intel": {
         "serialize": {
-            "no-crc": {"target": 0.205, "delta": 0.050},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.195, "delta": 0.050},  # milliseconds  # milliseconds
             "crc": {"target": 0.244, "delta": 0.44},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.056, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.075, "delta": 0.030},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.050, "delta": 0.02},  # milliseconds  # milliseconds
+            "crc": {"target": 0.070, "delta": 0.030},  # milliseconds  # milliseconds
         },
     },
     "AMD": {
@@ -72,8 +72,8 @@ def _check_statistics(directory, mean):
 
     measure = BASELINES[proc_model[0]][bench][attribute]
     target, delta = measure["target"], measure["delta"]
-    assert target == pytest.approx(
-        mean, abs=delta, rel=1e-6
+    assert mean == pytest.approx(
+        target, abs=delta, rel=1e-6
     ), f"Benchmark result {directory} has changed!"
 
     return f"{target - delta} <= result <= {target + delta}"
@@ -91,12 +91,13 @@ def test_serialization_benchmark(monkeypatch, record_property):
     monkeypatch.chdir(BENCHMARK_DIRECTORY)
 
     # Run benchmark test
-    result = cargo("bench", f"--target {DEFAULT_BUILD_TARGET}")
+    cmd = "cargo bench --bench snapshots --target {}".format(DEFAULT_BUILD_TARGET)
+    result = utils.run_cmd_sync(cmd)
     assert result.returncode == 0
 
     # Parse each Criterion benchmark from the result folder and
     # check the results against a baseline
-    results_dir = Path(FC_WORKSPACE_DIR) / "build/vmm_benchmark"
+    results_dir = Path(FC_WORKSPACE_DIR) / "build/vmm_benchmark/snapshots"
     for directory in os.listdir(results_dir):
         # Ignore the 'report' directory as it is of no use to us
         if directory == "report":

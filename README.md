@@ -96,7 +96,7 @@ The **API endpoint** can be used to:
 - Configure the microvm by:
   - Setting the number of vCPUs (the default is 1).
   - Setting the memory size (the default is 128 MiB).
-  - [x86_64 only] Choosing a CPU template (currently, C3, T2 and T2S are available).
+  - Configuring a [CPU template](docs/cpu_templates/cpu-templates.md).
 - Add one or more network interfaces to the microVM.
 - Add one or more read-write or read-only disks to the microVM, each represented
   by a file-backed block device.
@@ -150,7 +150,6 @@ plans, check out our [kernel support policy](docs/kernel-policy.md).
 
 - The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
   is not supported for aarch64 enabled microVMs.
-- Configuring CPU templates is only supported for Intel enabled microVMs.
 - If a CPU template is not used on x86_64, overwrites of `MSR_IA32_TSX_CTRL` MSR
   value will not be preserved after restoring from a snapshot.
 - The `pl031` RTC device on aarch64 does not support interrupts, so guest

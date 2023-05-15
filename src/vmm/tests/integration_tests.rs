@@ -1,12 +1,13 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 use std::io::{Seek, SeekFrom};
 use std::time::Duration;
 use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
-use vmm::builder::{build_microvm_for_boot, build_microvm_from_snapshot, setup_serial_device};
+use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot, setup_serial_device};
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
@@ -14,11 +15,11 @@ use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
-use vmm::utilities::test_utils::{create_vmm, default_vmm};
+use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::version_map::VERSION_MAP;
-use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::{EventManager, FcExitCode};
+use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
 fn test_setup_serial_device() {
@@ -35,14 +36,14 @@ fn test_setup_serial_device() {
 }
 
 #[test]
-fn test_build_microvm() {
+fn test_build_and_boot_microvm() {
     // Error case: no boot source configured.
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
         let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
-        let vmm_ret = build_microvm_for_boot(
+        let vmm_ret = build_and_boot_microvm(
             &InstanceInfo::default(),
             &resources,
             &mut event_manager,
@@ -61,6 +62,26 @@ fn test_build_microvm() {
     #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
+    assert_eq!(
+        vmm.lock().unwrap().shutdown_exit_code(),
+        Some(FcExitCode::Ok)
+    );
+}
+
+#[test]
+fn test_build_microvm() {
+    // The built microVM should be in the `VmState::Paused` state here.
+    let (vmm, mut _evtmgr) = default_vmm_no_boot(None);
+    assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
+
+    // The microVM should be able to resume and exit successfully.
+    // On x86_64, the vmm should exit once its workload completes and signals the exit event.
+    // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
+    vmm.lock().unwrap().resume_vm().unwrap();
+    #[cfg(target_arch = "x86_64")]
+    _evtmgr.run_with_timeout(500).unwrap();
+    #[cfg(target_arch = "aarch64")]
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
         Some(FcExitCode::Ok)
@@ -142,11 +163,31 @@ fn test_disallow_snapshots_without_pausing() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
+#[test]
+fn test_disallow_dump_cpu_config_without_pausing() {
+    let (vmm, _) = default_vmm_no_boot(Some(NOISY_KERNEL_IMAGE));
+
+    // This call should succeed since the microVM is in the paused state before boot.
+    vmm.lock().unwrap().dump_cpu_config().unwrap();
+
+    // Boot the microVM.
+    vmm.lock().unwrap().resume_vm().unwrap();
+
+    // Verify this call is not allowed while running.
+    assert!(matches!(
+        vmm.lock().unwrap().dump_cpu_config(),
+        Err(DumpCpuConfigError::NotAllowed(_))
+    ));
+
+    // Stop the microVM.
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
+}
+
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
-    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff);
+    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true);
 
     // Be sure that the microVM is running.
     thread::sleep(Duration::from_millis(200));
@@ -377,9 +418,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
     // vendor not valid.
     assert_eq!(
         validate_cpu_vendor(&microvm_state),
-        Err(vmm::persist::ValidateCpuVendorError::Snapshot(
-            vmm::cpuid::common::Error::NotSupported
-        ))
+        Err(vmm::persist::ValidateCpuVendorError::Snapshot)
     );
 }
 

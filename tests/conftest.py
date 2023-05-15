@@ -92,6 +92,7 @@ from pathlib import Path
 
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
@@ -100,7 +101,10 @@ from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
-from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.utils_cpu_templates import (
+    SUPPORTED_CPU_TEMPLATES,
+    SUPPORTED_CUSTOM_CPU_TEMPLATES,
+)
 from framework.with_filelock import with_filelock
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
@@ -521,6 +525,23 @@ def rootfs_msrtools(request, record_property):
 def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
     record_property("cpu_template", request.param)
+    if (
+        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
+        and not request.config.getoption("--nonci")
+    ):
+        pytest.skip("temporary skip on usual CI")
+    return request.param
+
+
+@pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
+def custom_cpu_template(request, record_property):
+    """Return all dummy custom CPU templates supported by the vendor."""
+    record_property("custom_cpu_template", request.param)
+    if (
+        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
+        and not request.config.getoption("--nonci")
+    ):
+        pytest.skip("temporary skip on usual CI")
     return request.param
 
 

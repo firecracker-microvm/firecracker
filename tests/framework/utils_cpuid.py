@@ -10,8 +10,6 @@ from enum import Enum, auto
 from framework.utils import run_cmd
 from framework.utils_imdsv2 import imdsv2_get
 
-ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"}
-
 
 class CpuVendor(Enum):
     """CPU vendors enum."""
@@ -19,6 +17,19 @@ class CpuVendor(Enum):
     AMD = auto()
     INTEL = auto()
     ARM = auto()
+
+
+CPU_DICT = {
+    CpuVendor.INTEL: {
+        "Intel(R) Xeon(R) Platinum 8175M CPU": "INTEL_SKYLAKE",
+        "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
+        "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
+    },
+    CpuVendor.AMD: {
+        "AMD EPYC 7R13": "AMD_MILAN",
+    },
+    CpuVendor.ARM: {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"},
+}
 
 
 def get_cpu_vendor():
@@ -43,7 +54,24 @@ def get_cpu_model_name():
     raw_cpu_model = info[1].strip()
     if platform.machine() == "x86_64":
         return raw_cpu_model
-    return ARM_CPU_DICT[raw_cpu_model]
+    return CPU_DICT[CpuVendor.ARM].get(raw_cpu_model, "Unknown")
+
+
+def get_cpu_codename(default="Unknown"):
+    """Return the CPU codename."""
+    cpu_model = get_cpu_model_name()
+    vendor = get_cpu_vendor()
+    if vendor == CpuVendor.INTEL:
+        result = re.match(r"^(.*) @.*$", cpu_model)
+        if result:
+            return CPU_DICT[CpuVendor.INTEL].get(result.group(1), default)
+    if vendor == CpuVendor.AMD:
+        result = re.match(r"^(.*) [0-9]*-Core Processor$", cpu_model)
+        if result:
+            return CPU_DICT[CpuVendor.AMD].get(result.group(1), default)
+    if vendor == CpuVendor.ARM:
+        return cpu_model
+    return default
 
 
 def get_instance_type():
@@ -117,15 +145,19 @@ def build_cpuid_dict(raw_cpuid_output):
     return cpuid_dict
 
 
-def get_guest_cpuid(vm):
+def get_guest_cpuid(vm, leaf=None, subleaf=None):
     """
-    Return the guest CPUID in the form of a dictionary where the key is a tuple:
+    Return the guest CPUID of CPU 0 in the form of a dictionary where the key
+    is a tuple:
      - leaf (integer)
      - subleaf (integer)
      - register ("eax", "ebx", "ecx" or "edx")
     and the value is the register value (integer).
     """
-    read_cpuid_cmd = "cpuid -1 --raw | grep -v CPU"
+    if leaf is not None and subleaf is not None:
+        read_cpuid_cmd = f"cpuid -r -l {leaf} -s {subleaf} | head -n 2 | grep -v CPU"
+    else:
+        read_cpuid_cmd = "cpuid -r | sed '/CPU 1/q' | grep -v CPU"
     _, stdout, stderr = vm.ssh.execute_command(read_cpuid_cmd)
     assert stderr.read() == ""
 

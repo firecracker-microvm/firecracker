@@ -31,12 +31,15 @@ def download_spectre_meltdown_checker(tmp_path_factory):
     return path
 
 
-def run_microvm(microvm, network_config, cpu_template=None):
+def run_microvm(microvm, network_config, cpu_template=None, custom_cpu_template=None):
     """
-    Run a microVM with a template.
+    Run a microVM with a template (static or custom).
     """
     microvm.spawn()
     microvm.basic_config(cpu_template=cpu_template)
+    if custom_cpu_template:
+        microvm.cpu_config(custom_cpu_template)
+
     tap, host_ip, guest_ip = microvm.ssh_network_config(network_config, "1")
     microvm.start()
 
@@ -92,8 +95,8 @@ def run_spectre_meltdown_checker_on_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
@@ -105,8 +108,8 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_guest(
     spectre_meltdown_checker,
@@ -127,8 +130,8 @@ def test_spectre_meltdown_checker_on_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_restored_guest(
     spectre_meltdown_checker,
@@ -154,8 +157,8 @@ def test_spectre_meltdown_checker_on_restored_guest(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
@@ -179,8 +182,35 @@ def test_spectre_meltdown_checker_on_guest_with_template(
 
 
 @pytest.mark.skipif(
-    global_props.instance == "c7g.metal",
-    reason="spectre_meltdown_checker does not support c7g",
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
+)
+def test_spectre_meltdown_checker_on_guest_with_custom_template(
+    spectre_meltdown_checker,
+    test_microvm_with_spectre_meltdown,
+    network_config,
+    custom_cpu_template,
+):
+    """
+    Test with the spectre / meltdown checker on guest with a custom CPU template.
+
+    @type: security
+    """
+    microvm, _, _, _ = run_microvm(
+        test_microvm_with_spectre_meltdown,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
+    )
+
+    run_spectre_meltdown_checker_on_guest(
+        microvm,
+        spectre_meltdown_checker,
+    )
+
+
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
@@ -196,6 +226,36 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_spectre_meltdown, network_config, cpu_template
+    )
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    run_spectre_meltdown_checker_on_guest(
+        dst_vm,
+        spectre_meltdown_checker,
+    )
+
+
+@pytest.mark.skipif(
+    global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
+    reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
+)
+def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
+    spectre_meltdown_checker,
+    test_microvm_with_spectre_meltdown,
+    network_config,
+    custom_cpu_template,
+    microvm_factory,
+):
+    """
+    Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(
+        test_microvm_with_spectre_meltdown,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
@@ -265,6 +325,25 @@ def test_vulnerabilities_files_on_guest_with_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
+def test_vulnerabilities_files_on_guest_with_custom_template(
+    test_microvm_with_api,
+    network_config,
+    custom_cpu_template,
+):
+    """
+    Test vulnerabilities files on guest with a custom CPU template.
+
+    @type: security
+    """
+    microvm, _, _, _ = run_microvm(
+        test_microvm_with_api,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
+    )
+
+    check_vulnerabilities_files_on_guest(microvm)
+
+
 def test_vulnerabilities_files_on_restored_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -278,6 +357,28 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_api, network_config, cpu_template
+    )
+
+    dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)
+
+    check_vulnerabilities_files_on_guest(dst_vm)
+
+
+def test_vulnerabilities_files_on_restored_guest_with_custom_template(
+    test_microvm_with_api,
+    network_config,
+    custom_cpu_template,
+    microvm_factory,
+):
+    """
+    Test vulnerabilities files on a restored guest with a custom CPU template.
+
+    @type: security
+    """
+    src_vm, tap, host_ip, guest_ip = run_microvm(
+        test_microvm_with_api,
+        network_config,
+        custom_cpu_template=custom_cpu_template["template"],
     )
 
     dst_vm = take_snapshot_and_restore(microvm_factory, src_vm, tap, host_ip, guest_ip)

@@ -5,8 +5,6 @@
 This module defines `Microvm`, which can be used to create, test drive, and
 destroy microvms.
 
-# TODO
-
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
@@ -39,6 +37,7 @@ from framework.resources import (
     Actions,
     Balloon,
     BootSource,
+    CpuConfigure,
     DescribeInstance,
     Drive,
     FullConfig,
@@ -79,6 +78,7 @@ class Microvm:
         monitor_memory=True,
         bin_cloner_path=None,
     ):
+        # pylint: disable=too-many-statements
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
@@ -129,6 +129,7 @@ class Microvm:
         self.actions = None
         self.balloon = None
         self.boot = None
+        self.cpu_cfg = None
         self.desc_inst = None
         self.drive = None
         self.full_cfg = None
@@ -403,6 +404,7 @@ class Microvm:
         self.actions = Actions(self._api_socket, self._api_session)
         self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
+        self.cpu_cfg = CpuConfigure(self._api_socket, self._api_session)
         self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
@@ -583,6 +585,13 @@ class Microvm:
             assert self._api_session.is_status_no_content(
                 response.status_code
             ), response.text
+
+    def cpu_config(self, config):
+        """Set CPU configuration."""
+        response = self.cpu_cfg.put(config)
+        assert self._api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
     def daemonize_jailer(self, jailer_param_list):
         """Daemonize the jailer."""

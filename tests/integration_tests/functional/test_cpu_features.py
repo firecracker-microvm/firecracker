@@ -122,24 +122,6 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
 
 
 @pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="The CPU features on x86 are tested as part of the CPU templates.",
-)
-def test_cpu_features(test_microvm_with_api, network_config):
-    """
-    Check the CPU features for a microvm with the specified config.
-
-    @type: functional
-    """
-    vm = test_microvm_with_api
-    vm.spawn()
-    vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
-    vm.start()
-    _check_cpu_features_arm(vm)
-
-
-@pytest.mark.skipif(
     PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_api, network_config):
@@ -157,18 +139,6 @@ def test_brand_string(test_microvm_with_api, network_config):
 
     @type: functional
     """
-    cif = open("/proc/cpuinfo", "r", encoding="utf-8")
-    host_brand_string = None
-    while True:
-        line = cif.readline()
-        if line == "":
-            break
-        mo = re.search("^model name\\s+:\\s+(.+)$", line)
-        if mo:
-            host_brand_string = mo.group(1)
-    cif.close()
-    assert host_brand_string is not None
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -179,24 +149,34 @@ def test_brand_string(test_microvm_with_api, network_config):
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
     _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
     assert stderr.read() == ""
-
-    line = stdout.readline().rstrip()
-    mo = re.search("^model name\\s+:\\s+(.+)$", line)
-    assert mo
-    guest_brand_string = mo.group(1)
-    assert guest_brand_string
+    stdout = stdout.read()
 
     cpu_vendor = cpuid_utils.get_cpu_vendor()
-    expected_guest_brand_string = ""
     if cpu_vendor == cpuid_utils.CpuVendor.AMD:
-        expected_guest_brand_string += "AMD EPYC"
+        # Assert the model name matches "AMD EPYC"
+        mo = re.search("model name.*: AMD EPYC", stdout)
+        assert mo
     elif cpu_vendor == cpuid_utils.CpuVendor.INTEL:
-        expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
-        mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
-        if mo:
-            expected_guest_brand_string += " @ " + mo.group(0)
+        # Get host frequency
+        cif = open("/proc/cpuinfo", "r", encoding="utf-8")
+        cpu_info = cif.read()
+        mo = re.search("model name.*:.* ([0-9]*.[0-9]*[G|M|T]Hz)", cpu_info)
+        assert mo
+        host_frequency = mo.group(1)
 
-    assert guest_brand_string == expected_guest_brand_string
+        # Assert the model name matches "Intel(R) Xeon(R) Processor @ "
+        mo = re.search(
+            "model name.*: Intel\\(R\\) Xeon\\(R\\) Processor @ ([0-9]*.[0-9]*[T|G|M]Hz)",
+            stdout,
+        )
+        assert mo
+        # Get the frequency
+        guest_frequency = mo.group(1)
+
+        # Assert the guest frequency matches the host frequency
+        assert host_frequency == guest_frequency
+    else:
+        assert False
 
 
 # Some MSR values should not be checked since they can change at guest runtime

@@ -392,6 +392,10 @@ pub struct PutRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of PUTs for configuring a guest's vCPUs.
+    pub cpu_cfg_count: SharedIncMetric,
+    /// Number of failures in configuring a guest's vCPUs.
+    pub cpu_cfg_fails: SharedIncMetric,
     /// Number of PUTs for initializing the metrics system.
     pub metrics_count: SharedIncMetric,
     /// Number of failures in initializing the metrics system.
@@ -731,8 +735,6 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
-    /// Failures in configuring the CPUID.
-    pub filter_cpuid: SharedIncMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.
