@@ -68,7 +68,7 @@ enum TemplateOperation {
     /// Strip entries shared between multiple CPU template files.
     Strip {
         /// List of paths of input CPU configuration files.
-        #[arg(short, long, num_args = 2..)]
+        #[arg(short, long, value_name = "PATH", num_args = 2..)]
         paths: Vec<PathBuf>,
         /// Suffix of output files. To overwrite input files, specify an empty string ''.
         #[arg(short, long, default_value = "_stripped")]
