@@ -39,7 +39,8 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, Error> {
         // after the end of kernel 4.14 support.
         // https://github.com/firecracker-microvm/firecracker/issues/3677
         bios_revision: run_shell_command(
-            "dmidecode -t bios | grep \"BIOS Revision\" | cut -d':' -f2 | tr -d ' \\n'",
+            "set -o pipefail && dmidecode -t bios | grep \"BIOS Revision\" | cut -d':' -f2 | tr \
+             -d ' \\n'",
         )?,
         guest_cpu_config: crate::template::dump::dump(vmm)?,
     })
@@ -68,10 +69,11 @@ fn read_sysfs_file(path: &str) -> Result<String, Error> {
 }
 
 fn run_shell_command(cmd: &str) -> Result<String, Error> {
-    let output = std::process::Command::new("sh")
+    let output = std::process::Command::new("bash")
         .args(["-c", cmd])
         .output()
         .map_err(|err| Error::ShellCommand(cmd.to_string(), err.to_string()))?;
+    println!("{:?}", output.status.code());
     if !output.status.success() {
         return Err(Error::ShellCommand(
             cmd.to_string(),
