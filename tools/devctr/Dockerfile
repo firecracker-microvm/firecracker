@@ -58,6 +58,8 @@ RUN apt-get update \
         # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
         # https://github.com/firecracker-microvm/firecracker/issues/3677
         dmidecode \
+        # for aws-lc-rs
+        cmake \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
