@@ -6,6 +6,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+aws-lc-rs = "1.0.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 event-manager = "0.3.0"
 libc = "0.2.117"
@@ -14,7 +15,6 @@ timerfd = "1.2.0"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 vm-superio = "0.7.0"
-rand = "0.8.5"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }

@@ -5,9 +5,8 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
+use aws_lc_rs::rand;
 use logger::{debug, error, IncMetric, METRICS};
-use rand::rngs::OsRng;
-use rand::RngCore;
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
@@ -28,7 +27,7 @@ pub enum Error {
     #[error("Bad guest memory buffer: {0}")]
     GuestMemory(#[from] GuestMemoryError),
     #[error("Could not get random bytes: {0}")]
-    Random(#[from] rand::Error),
+    Random(#[from] aws_lc_rs::error::Unspecified),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -105,7 +104,7 @@ impl Entropy {
 
     fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32> {
         let mut rand_bytes = vec![0; iovec.len()];
-        OsRng.try_fill_bytes(&mut rand_bytes).map_err(|err| {
+        rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.entropy.host_rng_fails.inc();
             err
         })?;
