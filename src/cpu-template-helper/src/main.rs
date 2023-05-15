@@ -257,63 +257,54 @@ mod tests {
         config_file
     }
 
-    // Build modifiers for x86_64 that should work correctly with a sample CPU template and a sample
-    // guest CPU config.
+    // Sample modifiers for x86_64 that should work correctly as a CPU template and a guest CPU
+    // config.
     // * CPUID leaf 0x0 / subleaf 0x0 / register eax indicates the maximum input EAX value for basic
     //   CPUID information.
     // * MSR index 0x4b564d00 indicates MSR_KVM_WALL_CLOCK_NEW.
     #[cfg(target_arch = "x86_64")]
-    fn generate_sample_modifiers() -> TempFile {
-        let file = TempFile::new().unwrap();
-        file
-            .as_file()
-            .write_all(
-                r#"{
-                    "cpuid_modifiers": [
-                        {
-                            "leaf": "0x0",
-                            "subleaf": "0x0",
-                            "flags": 0,
-                            "modifiers": [
-                                {
-                                    "register": "eax",
-                                    "bitmap": "0b00000000000000000000000000000001"
-                                }
-                            ]
-                        }
-                    ],
-                    "msr_modifiers": [
-                        {
-                            "addr": "0x4b564d00",
-                            "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000001"
-                        }
-                    ]
-                }"#
-                .as_bytes(),
-            )
-            .unwrap();
-        file
-    }
+    const SAMPLE_MODIFIERS: &str = r#"
+    {
+        "cpuid_modifiers": [
+            {
+                "leaf": "0x0",
+                "subleaf": "0x0",
+                "flags": 0,
+                "modifiers": [
+                    {
+                        "register": "eax",
+                        "bitmap": "0b00000000000000000000000000000001"
+                    }
+                ]
+            }
+        ],
+        "msr_modifiers": [
+            {
+                "addr": "0x4b564d00",
+                "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000001"
+            }
+        ]
+    }"#;
 
-    // Build modifiers for aarch64 that should work correctly as a sample CPU template and a sample
-    // guest CPU config.
+    // Sample modifiers for aarch64 that should work correctly as a CPU template and a guest CPU
+    // config.
     // * Register ID 0x6030000000100002 indicates X1 register.
     #[cfg(target_arch = "aarch64")]
-    fn generate_sample_modifiers() -> TempFile {
+    const SAMPLE_MODIFIERS: &str = r#"
+    {
+        "reg_modifiers": [
+            {
+                "addr": "0x6030000000100002",
+                "bitmap": "0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+            }
+        ]
+    }"#;
+
+    // Build a sample custom CPU template.
+    fn generate_sample_template() -> TempFile {
         let file = TempFile::new().unwrap();
-        file
-            .as_file()
-            .write_all(
-                r#"{
-                    "reg_modifiers": [
-                        {
-                            "addr": "0x6030000000100002",
-                            "bitmap": "0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
-                        }
-                    ]
-                }"#
-                .as_bytes(),
-            )
+        file.as_file()
+            .write_all(SAMPLE_MODIFIERS.as_bytes())
             .unwrap();
         file
     }
@@ -345,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_template_strip_command() {
-        let files = vec![generate_sample_modifiers(), generate_sample_modifiers()];
+        let files = vec![generate_sample_template(), generate_sample_template()];
 
         let mut args = vec!["cpu-template-helper", "template", "strip", "-p"];
         let paths = files
@@ -362,7 +353,7 @@ mod tests {
     fn test_template_verify_command() {
         let kernel_image_path = kernel_image_path(None);
         let rootfs_file = TempFile::new().unwrap();
-        let template_file = generate_sample_modifiers();
+        let template_file = generate_sample_template();
         let config_file = generate_config_file(
             &kernel_image_path,
             rootfs_file.as_path().to_str().unwrap(),
