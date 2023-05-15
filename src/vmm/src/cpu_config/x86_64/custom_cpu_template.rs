@@ -417,7 +417,7 @@ mod tests {
         assert!(cpu_template_result
             .unwrap_err()
             .to_string()
-            .contains("Failed to parse string [k] as a decimal number for CPU template"));
+            .contains("Failed to parse string [k] as a number for CPU template"));
 
         // Malformed 64-bit bitmap - filter failed
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
