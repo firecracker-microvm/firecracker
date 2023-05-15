@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from framework import defs, utils
+from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
@@ -307,6 +308,10 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
+@pytest.mark.skipif(
+    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
+)
 def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
     """
     Verify that the current guest CPU config has not changed since the baseline
