@@ -4,11 +4,11 @@
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use crate::template::strip::strip_common;
+use crate::template::strip::{strip_common, Error};
 use crate::utils::aarch64::RegModifierMap;
 
 #[allow(dead_code)]
-pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
+pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
     // Convert `Vec<CustomCpuTemplate>` to `Vec<HashMap<_>>`.
     let mut reg_modifiers_maps = templates
         .into_iter()
@@ -16,16 +16,18 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
         .collect::<Vec<_>>();
 
     // Remove common items.
-    strip_common(&mut reg_modifiers_maps);
+    strip_common(&mut reg_modifiers_maps)?;
 
     // Convert back to `Vec<CustomCpuTemplate>`.
-    reg_modifiers_maps
+    let templates = reg_modifiers_maps
         .into_iter()
         .map(|reg_modifiers_map| {
             let reg_modifiers = Vec::<RegisterModifier>::from(RegModifierMap(reg_modifiers_map));
             CustomCpuTemplate { reg_modifiers }
         })
-        .collect()
+        .collect();
+
+    Ok(templates)
 }
 
 #[cfg(test)]
@@ -92,7 +94,7 @@ mod tests {
     #[test]
     fn test_strip_reg_modifiers() {
         let input = build_input_templates();
-        let result = strip(input);
+        let result = strip(input).unwrap();
         let expected = build_expected_templates();
         assert_eq!(result, expected);
     }

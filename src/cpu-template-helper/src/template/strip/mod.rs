@@ -15,11 +15,22 @@ mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::strip;
 
-pub fn strip_common<K, V>(maps: &mut [HashMap<K, V>])
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The number of inputs should be two or more.
+    #[error("The number of inputs should be two or more.")]
+    NumberOfInputs,
+}
+
+fn strip_common<K, V>(maps: &mut [HashMap<K, V>]) -> Result<(), Error>
 where
     K: ModifierMapKey,
     V: ModifierMapValue,
 {
+    if maps.len() < 2 {
+        return Err(Error::NumberOfInputs);
+    }
+
     // Get common items shared by all the sets.
     let mut common = maps[0].clone();
     common.retain(|key, value| maps[1..].iter().all(|map| map.get(key) == Some(value)));
@@ -30,12 +41,27 @@ where
             map.remove(key);
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
+
+    #[test]
+    fn test_strip_common_with_single_input() {
+        let mut input = vec![HashMap::from([mock_modifier!(
+            0x0,
+            (0b1111_1111, 0b0000_0000)
+        )])];
+
+        match strip_common(&mut input) {
+            Err(Error::NumberOfInputs) => (),
+            _ => panic!("Should fail with `Error::NumberOfInputs`."),
+        }
+    }
 
     #[test]
     fn test_strip_common() {
@@ -71,7 +97,7 @@ mod tests {
             ]),
         ];
 
-        strip_common(&mut input);
+        strip_common(&mut input).unwrap();
         assert_eq!(input, expected);
     }
 }
