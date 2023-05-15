@@ -112,8 +112,8 @@ This is user's responsibility to make sure that their custom CPU template
 is applied as expected even if Firecracker does not report an error.
 
 In order to assist with creation and usage of CPU templates, there exists
-a CPU template helper tool.
-TODO: add a link to the CPU template helper tool when it is available.
+a CPU template helper tool. More details can be found
+[here](cpu-template-helper.md).
 
 ### Configuring custom CPU templates
 
