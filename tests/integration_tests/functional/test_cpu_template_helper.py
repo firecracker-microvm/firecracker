@@ -74,6 +74,20 @@ class CpuTemplateHelper:
         )
         utils.run_cmd(cmd)
 
+    def fingerprint_compare(
+        self,
+        prev_path,
+        curr_path,
+        filters,
+    ):
+        """Compare two fingerprint files"""
+        cmd = (
+            f"{self.BINARY_PATH} fingerprint compare"
+            f" --prev {prev_path} -curr {curr_path}"
+            f" --filters {' '.join(filters)}"
+        )
+        utils.run_cmd(cmd)
+
 
 @pytest.fixture(scope="session", name="cpu_template_helper")
 def cpu_template_helper_fixture():
@@ -343,6 +357,43 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
         "guest_cpu_config"
     ]
     assert actual_cpu_config == baseline_cpu_config
+
+
+@pytest.mark.nonci
+def test_host_fingerprint_change(test_microvm_with_api, cpu_template_helper, tmp_path):
+    """
+    Verify that the host fingerprint has not changed since the baseline
+    fingerprint was gathered.
+    """
+    # Generate VM config from test_microvm_with_api
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+    vm_config_path = save_vm_config(microvm, tmp_path)
+
+    # Dump a fingerprint with the generated VM config.
+    fingerprint_path = tmp_path / "fingerprint.json"
+    cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
+
+    # Baseline fingerprint.
+    baseline_path = Path(
+        f"{TEST_RESOURCES_DIR}/"
+        f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+    )
+    # Use this code to generate baseline fingerprint.
+    # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
+
+    # Compare with baseline
+    cpu_template_helper.fingerprint_compare(
+        baseline_path,
+        fingerprint_path,
+        filters=[
+            "kernel_version",
+            "microcode_version",
+            "bios_version",
+            "bios_revision",
+        ],
+    )
 
 
 def test_json_static_templates(
