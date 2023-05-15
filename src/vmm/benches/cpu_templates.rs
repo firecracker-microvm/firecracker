@@ -14,12 +14,12 @@ use vmm::cpu_config::templates::CustomCpuTemplate;
 
 #[inline]
 pub fn bench_serialize_cpu_template(cpu_template: &CustomCpuTemplate) {
-    serde_json::to_string(cpu_template);
+    let _ = serde_json::to_string(cpu_template);
 }
 
 #[inline]
 pub fn bench_deserialize_cpu_template(cpu_template_str: &str) {
-    serde_json::from_str::<CustomCpuTemplate>(cpu_template_str);
+    let _ = serde_json::from_str::<CustomCpuTemplate>(cpu_template_str);
 }
 
 pub fn cpu_template_benchmark(c: &mut Criterion) {
