@@ -30,6 +30,8 @@ enum Error {
     #[error("{0}")]
     TemplateDump(#[from] template::dump::Error),
     #[error("{0}")]
+    TemplateStrip(#[from] template::strip::Error),
+    #[error("{0}")]
     TemplateVerify(#[from] template::verify::Error),
 }
 
@@ -131,7 +133,7 @@ fn run(cli: Cli) -> Result<()> {
                     templates.push(template);
                 }
 
-                let stripped_templates = template::strip::strip(templates);
+                let stripped_templates = template::strip::strip(templates)?;
 
                 for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
                     let path = utils::add_suffix(&path, &suffix);

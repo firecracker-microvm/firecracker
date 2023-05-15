@@ -4,11 +4,11 @@
 use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::cpu_config::x86_64::custom_cpu_template::{CpuidLeafModifier, RegisterModifier};
 
-use crate::template::strip::strip_common;
+use crate::template::strip::{strip_common, Error};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[allow(dead_code)]
-pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
+pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
     // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
     let (mut cpuid_modifiers_maps, mut msr_modifiers_maps): (Vec<_>, Vec<_>) = templates
         .into_iter()
@@ -21,11 +21,11 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
         .unzip();
 
     // Remove common items.
-    strip_common(&mut cpuid_modifiers_maps);
-    strip_common(&mut msr_modifiers_maps);
+    strip_common(&mut cpuid_modifiers_maps)?;
+    strip_common(&mut msr_modifiers_maps)?;
 
     // Convert back to `Vec<CustomCpuTemplate>`.
-    cpuid_modifiers_maps
+    let templates = cpuid_modifiers_maps
         .into_iter()
         .zip(msr_modifiers_maps.into_iter())
         .map(|(cpuid_modifiers_map, msr_modifiers_map)| {
@@ -38,7 +38,9 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Vec<CustomCpuTemplate> {
                 msr_modifiers,
             }
         })
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+
+    Ok(templates)
 }
 
 #[cfg(test)]
@@ -201,7 +203,7 @@ mod tests {
     #[test]
     fn test_strip_cpuid_modifiers() {
         let input = build_input_cpuid_templates();
-        let result = strip(input);
+        let result = strip(input).unwrap();
         let expected = build_expected_cpuid_templates();
         assert_eq!(result, expected);
     }
@@ -209,7 +211,7 @@ mod tests {
     #[test]
     fn test_strip_msr_modifiers() {
         let input = build_input_msr_templates();
-        let result = strip(input);
+        let result = strip(input).unwrap();
         let expected = build_expected_msr_templates();
         assert_eq!(result, expected);
     }
