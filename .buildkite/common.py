@@ -81,3 +81,12 @@ COMMON_PARSER.add_argument(
     default=[],
     type=lambda arg: tuple(arg.split("=", maxsplit=1)),
 )
+COMMON_PARSER.add_argument(
+    "--step-env",
+    metavar="KEY=VALUE",
+    help="environment to use in each step",
+    required=False,
+    action="append",
+    default=[],
+    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
+)
