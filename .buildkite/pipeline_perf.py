@@ -71,6 +71,7 @@ tests = [perf_test[test] for test in args.test]
 for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
+    test_data["env"] = dict(args.step_env)
     test_data.update(args.step_param)
     if args.retries > 0:
         # retry if the step fails
