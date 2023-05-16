@@ -33,6 +33,8 @@ pub const FC_V1_2_SNAP_VERSION: u16 = 6;
 pub const FC_V1_3_SNAP_VERSION: u16 = 7;
 /// Snap version for Firecracker v1.4
 pub const FC_V1_4_SNAP_VERSION: u16 = 8;
+/// Snap version for Firecracker v1.5
+pub const FC_V1_5_SNAP_VERSION: u16 = 9;
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -70,6 +72,11 @@ lazy_static! {
         // v1.4 state change mappings.
         version_map.new_version().set_type_version(DeviceStates::type_id(), 4);
 
+        // v1.5 - no changes introduced, but we need to bump as mapping
+        // between firecracker minor versions and snapshot versions needs
+        // to be 1-to-1 (see below)
+        version_map.new_version();
+
         version_map
     };
 
@@ -96,6 +103,7 @@ lazy_static! {
         mapping.insert(String::from("1.2.0"), FC_V1_2_SNAP_VERSION);
         mapping.insert(String::from("1.3.0"), FC_V1_3_SNAP_VERSION);
         mapping.insert(String::from("1.4.0"), FC_V1_4_SNAP_VERSION);
+        mapping.insert(String::from("1.5.0"), FC_V1_5_SNAP_VERSION);
 
         mapping
     };
