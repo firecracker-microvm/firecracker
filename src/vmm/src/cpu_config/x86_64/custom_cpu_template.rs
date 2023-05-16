@@ -390,10 +390,13 @@ mod tests {
                 }"#,
         );
         assert!(cpu_template_result.is_err());
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [0jj0] as a number for CPU template -"));
+        let error_msg: String = cpu_template_result.unwrap_err().to_string();
+        // Formatted error expected clarifying the number system prefix is missing
+        assert!(
+            error_msg.contains("No supported number system prefix found in value"),
+            "{}",
+            error_msg
+        );
 
         // Malformed CPUID leaf address
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -414,33 +417,38 @@ mod tests {
                 }"#,
         );
         assert!(cpu_template_result.is_err());
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [k] as a number for CPU template"));
-
+        let error_msg: String = cpu_template_result.unwrap_err().to_string();
+        // Formatted error expected clarifying the number system prefix is missing
+        assert!(
+            error_msg.contains("No supported number system prefix found in value"),
+            "{}",
+            error_msg
+        );
         // Malformed 64-bit bitmap - filter failed
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
                     "msr_modifiers":  [
                         {
-                            "addr": "200",
+                            "addr": "0x200",
                             "bitmap": "0bx0?100x?x1xxxx00xxx1xxxxxxxxxxx1"
                         },
                     ]
                 }"#,
         );
         assert!(cpu_template_result.is_err());
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [x0?100x?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"));
+        let err_msg = cpu_template_result.unwrap_err().to_string();
+        assert!(
+            err_msg
+                .contains("Failed to parse string [x0?100x?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"),
+            "Unexpected error message. Actual error message: {}",
+            err_msg
+        );
         // Malformed 64-bit bitmap - value failed
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
                     "msr_modifiers":  [
                         {
-                            "addr": "200",
+                            "addr": "0x200",
                             "bitmap": "0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1"
                         },
                     ]
