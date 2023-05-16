@@ -53,10 +53,8 @@ be achieved by adding a section like this:
 }
 ```
 
-On the host side, firecracker uses [`OsRng`][2] to get random bytes from the
-host kernel. The [implementation][3] of `OsRng` on Linux uses the
-`getrandom(2)` system call when available, otherwise it falls back to
-`/dev/urandom` after successfully polling `/dev/random`.
+On the host side, Firecracker relies on [`aws-lc-rs`][2] to retrieve the random bytes.
+`aws-lc-rs` uses the [`AWS-LC` cryptographic library][3].
 
 ## Prerequisites
 
@@ -66,5 +64,5 @@ kernel configuration option is `CONFIG_HW_RANDOM_VIRTIO` (which depends on
 `CONFIG_HW_RANDOM` and `CONFIG_VIRTIO`).
 
 [1]: https://docs.oasis-open.org/virtio/virtio/v1.2/cs01/virtio-v1.2-cs01.html#x1-3050004
-[2]: https://docs.rs/rand/latest/rand/rngs/struct.OsRng.html
-[3]: https://docs.rs/getrandom/latest/getrandom/
+[2]: https://docs.rs/aws-lc-rs/latest/aws_lc_rs/index.html
+[3]: https://github.com/aws/aws-lc
