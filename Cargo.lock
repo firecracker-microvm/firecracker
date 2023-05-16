@@ -336,7 +336,7 @@ checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
 name = "cpu-template-helper"
-version = "1.4.0-dev"
+version = "1.5.0-dev"
 dependencies = [
  "clap 4.2.7",
  "libc",
@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "1.4.0-dev"
+version = "1.5.0-dev"
 dependencies = [
  "api_server",
  "cargo_toml",
@@ -665,7 +665,7 @@ checksum = "453ad9f582a441959e5f0d088b02ce04cfe8d51a8eaf077f12ac6d3e94164ca6"
 
 [[package]]
 name = "jailer"
-version = "1.4.0-dev"
+version = "1.5.0-dev"
 dependencies = [
  "libc",
  "nix",
@@ -725,9 +725,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "348108ab3fba42ec82ff6e9564fc4ca0247bdccdc68dd8af9764bbc79c3c8ffb"
+checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
 
 [[package]]
 name = "linux-loader"
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "rebase-snap"
-version = "1.4.0-dev"
+version = "1.5.0-dev"
 dependencies = [
  "libc",
  "utils",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "seccompiler"
-version = "1.4.0-dev"
+version = "1.5.0-dev"
 dependencies = [
  "bincode",
  "libc",
