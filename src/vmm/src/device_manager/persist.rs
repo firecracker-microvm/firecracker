@@ -6,20 +6,6 @@
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
-use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
-use devices::virtio::balloon::{Balloon, Error as BalloonError};
-use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use devices::virtio::block::{Block, Error as BlockError};
-use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
-use devices::virtio::net::Net;
-use devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
-use devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState, Error as EntropyError};
-use devices::virtio::rng::Entropy;
-use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUdsConstructorArgs};
-use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use devices::virtio::{
-    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
-};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
 use logger::{error, warn};
@@ -33,6 +19,24 @@ use vm_allocator::AllocPolicy;
 use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
+use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
+use crate::devices::virtio::balloon::{Balloon, Error as BalloonError};
+use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
+use crate::devices::virtio::block::{Block, Error as BlockError};
+use crate::devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
+use crate::devices::virtio::rng::persist::{
+    EntropyConstructorArgs, EntropyState, Error as EntropyError,
+};
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::persist::{
+    VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
+};
+use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use crate::devices::virtio::{
+    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
+};
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::EventManager;
@@ -602,12 +606,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use devices::virtio::block::CacheType;
-    use devices::virtio::net::persist::NetConfigSpaceState;
     use utils::tempfile::TempFile;
 
     use super::*;
     use crate::builder::tests::*;
+    use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::net::persist::NetConfigSpaceState;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
