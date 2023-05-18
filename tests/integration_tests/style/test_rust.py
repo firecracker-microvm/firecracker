@@ -34,7 +34,7 @@ def test_ensure_mod_tests():
         "/tests/",
         "/test_utils",
         "build/",
-        "src/io_uring/src/bindings.rs",
+        "src/vmm/src/io_uring/bindings.rs",
     ]
 
     # Files with `#[test]` without `mod tests`.
