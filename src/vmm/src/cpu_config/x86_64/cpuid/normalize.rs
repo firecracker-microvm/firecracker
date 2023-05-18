@@ -213,7 +213,7 @@ impl super::Cpuid {
         const TSC_DEADLINE_BITINDEX: u8 = 24;
 
         /// CPU is running on a hypervisor.
-        pub const HYPERVISOR_BITINDEX: u8 = 31;
+        const HYPERVISOR_BITINDEX: u8 = 31;
 
         let leaf_1 = self
             .get_mut(&CpuidKey::leaf(0x1))
