@@ -132,7 +132,8 @@ impl TokenBucket {
         // refill_token_count = (delta_time * size) / (complete_refill_time_ms * 1_000_000)
         // In order to avoid overflows, simplify the fractions by computing greatest common divisor.
 
-        let complete_refill_time_ns = complete_refill_time_ms * NANOSEC_IN_ONE_MILLISEC;
+        let complete_refill_time_ns =
+            complete_refill_time_ms.checked_mul(NANOSEC_IN_ONE_MILLISEC)?;
         // Get the greatest common factor between `size` and `complete_refill_time_ns`.
         let common_factor = gcd(size, complete_refill_time_ns);
         // The division will be exact since `common_factor` is a factor of `size`.
