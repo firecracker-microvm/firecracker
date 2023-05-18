@@ -6,12 +6,12 @@ use std::ops::Deref;
 use std::result;
 use std::sync::{Arc, Mutex};
 
-use devices::virtio::net::TapError;
-use devices::virtio::Net;
 use serde::{Deserialize, Serialize};
 use utils::net::mac::MacAddr;
 
 use super::RateLimiterConfig;
+use crate::devices::virtio::net::TapError;
+use crate::devices::virtio::Net;
 use crate::Error as VmmError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
@@ -65,7 +65,7 @@ pub struct NetworkInterfaceUpdateConfig {
 pub enum NetworkInterfaceError {
     /// Could not create the network device.
     #[error("Could not create the network device: {0}")]
-    CreateNetworkDevice(#[from] devices::virtio::net::Error),
+    CreateNetworkDevice(#[from] crate::devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object
     #[error("Cannot create the rate limiter: {0}")]
     CreateRateLimiter(#[from] std::io::Error),
@@ -161,7 +161,7 @@ impl NetBuilder {
             .map_err(NetworkInterfaceError::CreateRateLimiter)?;
 
         // Create and return the Net device
-        devices::virtio::net::Net::new(
+        crate::devices::virtio::net::Net::new(
             cfg.iface_id,
             &cfg.host_dev_name,
             cfg.guest_mac,
@@ -278,12 +278,12 @@ mod tests {
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IfreqExecuteError(
+            NetworkInterfaceError::CreateNetworkDevice(
+                crate::devices::virtio::net::Error::TapOpen(TapError::IfreqExecuteError(
                     std::io::Error::from_raw_os_error(16),
                     host_dev_name_1.to_string()
-                )
-            ))
+                ))
+            )
             .to_string()
         );
         assert_eq!(net_builder.net_devices.len(), 1);
@@ -305,12 +305,12 @@ mod tests {
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
-            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::IfreqExecuteError(
+            NetworkInterfaceError::CreateNetworkDevice(
+                crate::devices::virtio::net::Error::TapOpen(TapError::IfreqExecuteError(
                     std::io::Error::from_raw_os_error(16),
                     host_dev_name_1.to_string()
-                )
-            ))
+                ))
+            )
             .to_string()
         );
     }

@@ -6,6 +6,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+aws-lc-rs = "1.0.2"
 bitflags = "2.0.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "display"] }
 event-manager = "0.3.0"
@@ -15,19 +16,23 @@ lazy_static = "1.4.0"
 libc = "0.2.117"
 linux-loader = "0.8.1"
 log = "0.4.17"
+rand = "0.8.5"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
+timerfd = "1.2.0"
 thiserror = "1.0.32"
 userfaultfd = "0.5.1"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 vm-allocator = "0.1.0"
-vm-superio = "0.7.0"
 vm-fdt = "0.2.0"
+vm-superio = "0.7.0"
 
-devices = { path = "../devices" }
+dumbo = { path = "../dumbo" }
+io_uring = { path = "../io_uring" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
+net_gen = { path = "../net_gen" }
 rate_limiter = { path = "../rate_limiter" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
@@ -37,6 +42,7 @@ virtio_gen = { path = "../virtio_gen" }
 [dev-dependencies]
 criterion = { version = "0.4.0", default-features = false }
 device_tree = "1.1.0"
+proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 
 [[bench]]
 name = "cpu_templates"

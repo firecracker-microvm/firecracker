@@ -224,7 +224,7 @@ impl Vcpu {
     }
 
     /// Sets a MMIO bus for this vcpu.
-    pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
+    pub fn set_mmio_bus(&mut self, mmio_bus: crate::devices::Bus) {
         self.kvm_vcpu.mmio_bus = Some(mmio_bus);
     }
 
@@ -738,7 +738,7 @@ pub mod tests {
     use crate::RECV_TIMEOUT_SEC;
 
     struct DummyDevice;
-    impl devices::BusDevice for DummyDevice {}
+    impl crate::devices::BusDevice for DummyDevice {}
 
     impl Vcpu {
         pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
@@ -850,7 +850,7 @@ pub mod tests {
             )
         );
 
-        let mut bus = devices::Bus::new();
+        let mut bus = crate::devices::Bus::new();
         let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         vcpu.set_mmio_bus(bus);
@@ -1004,7 +1004,7 @@ pub mod tests {
     fn test_set_mmio_bus() {
         let (_, mut vcpu, _) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.mmio_bus.is_none());
-        vcpu.set_mmio_bus(devices::Bus::new());
+        vcpu.set_mmio_bus(crate::devices::Bus::new());
         assert!(vcpu.kvm_vcpu.mmio_bus.is_some());
     }
 

@@ -498,32 +498,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18f717c5c7c2e3483feb64cccebd077245ad6d19007c2db0fd341d38595353c"
 
 [[package]]
-name = "devices"
-version = "0.1.0"
-dependencies = [
- "aws-lc-rs",
- "derive_more",
- "dumbo",
- "event-manager",
- "io_uring",
- "libc",
- "logger",
- "mmds",
- "net_gen",
- "proptest",
- "rate_limiter",
- "serde",
- "snapshot",
- "thiserror",
- "timerfd",
- "utils",
- "versionize",
- "versionize_derive",
- "virtio_gen",
- "vm-superio",
-]
-
-[[package]]
 name = "dumbo"
 version = "0.1.0"
 dependencies = [
@@ -1490,12 +1464,14 @@ checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
+ "aws-lc-rs",
  "bitflags 2.3.3",
  "criterion",
  "derive_more",
  "device_tree",
- "devices",
+ "dumbo",
  "event-manager",
+ "io_uring",
  "kvm-bindings",
  "kvm-ioctls",
  "lazy_static",
@@ -1504,12 +1480,16 @@ dependencies = [
  "log",
  "logger",
  "mmds",
+ "net_gen",
+ "proptest",
+ "rand",
  "rate_limiter",
  "seccompiler",
  "serde",
  "serde_json",
  "snapshot",
  "thiserror",
+ "timerfd",
  "userfaultfd",
  "utils",
  "versionize",
