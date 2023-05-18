@@ -150,13 +150,13 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use devices::pseudo::BootTimer;
-    use devices::BusDevice;
     use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 
     use super::*;
+    use crate::devices::pseudo::BootTimer;
+    use crate::devices::BusDevice;
 
     #[test]
     fn test_init_logger() {
