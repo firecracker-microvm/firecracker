@@ -8,16 +8,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::SerialDevice;
-use devices::pseudo::BootTimer;
-use devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_RNG, TYPE_VSOCK,
-};
-use devices::BusDevice;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
@@ -31,6 +21,16 @@ use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::RTCDevice;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::SerialDevice;
+use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::{
+    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
+    TYPE_RNG, TYPE_VSOCK,
+};
+use crate::devices::BusDevice;
 
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error)]
@@ -40,7 +40,7 @@ pub enum Error {
     Allocator(vm_allocator::Error),
     /// Failed to insert device on the bus.
     #[error("Failed to insert device on the bus: {0}")]
-    BusInsert(devices::BusError),
+    BusInsert(crate::devices::BusError),
     /// Appending to kernel command line failed.
     #[error("Failed to allocate requested resourc: {0}")]
     Cmdline(linux_loader::cmdline::Error),
@@ -86,7 +86,7 @@ pub struct MMIODeviceInfo {
 
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
-    pub(crate) bus: devices::Bus,
+    pub(crate) bus: crate::devices::Bus,
     pub(crate) irq_allocator: IdAllocator,
     pub(crate) address_allocator: AddressAllocator,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
@@ -103,7 +103,7 @@ impl MMIODeviceManager {
             irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::Allocator)?,
             address_allocator: AddressAllocator::new(mmio_base, mmio_size)
                 .map_err(Error::Allocator)?,
-            bus: devices::Bus::new(),
+            bus: crate::devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         })
     }
@@ -159,7 +159,7 @@ impl MMIODeviceManager {
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
-                    device_info.addr + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
+                    device_info.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
                 );
                 vm.register_ioevent(queue_evt, &io_addr, i as u32)
                     .map_err(Error::RegisterIoEvent)?;
@@ -465,12 +465,12 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
 
-    use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use utils::eventfd::EventFd;
     use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder;
+    use crate::devices::virtio::{ActivateResult, Queue, VirtioDevice};
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -479,7 +479,7 @@ mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
-            device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
+            device: Arc<Mutex<dyn crate::devices::virtio::VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64> {
@@ -509,7 +509,7 @@ mod tests {
         }
     }
 
-    impl devices::virtio::VirtioDevice for DummyDevice {
+    impl crate::devices::virtio::VirtioDevice for DummyDevice {
         fn avail_features(&self) -> u64 {
             0
         }

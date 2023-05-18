@@ -9,14 +9,6 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCDevice;
-use devices::legacy::{
-    EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
-};
-use devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
-};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
@@ -47,6 +39,14 @@ use crate::cpu_config::templates::{
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::{
+    EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
+};
+use crate::devices::virtio::{
+    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -71,7 +71,7 @@ pub enum StartMicrovmError {
     CreateGuestConfig(#[from] GuestConfigError),
     /// Internal errors are due to resource exhaustion.
     #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
-    CreateNetDevice(devices::virtio::net::Error),
+    CreateNetDevice(crate::devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
@@ -131,7 +131,7 @@ pub enum StartMicrovmError {
     SetVmResources(VmConfigError),
     /// Failed to create an Entropy device
     #[error("Cannot create the entropy device: {0}")]
-    CreateEntropyDevice(devices::virtio::rng::Error),
+    CreateEntropyDevice(crate::devices::virtio::rng::Error),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -925,7 +925,7 @@ pub(crate) fn attach_boot_timer_device(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    let boot_timer = devices::pseudo::BootTimer::new(request_ts);
+    let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
         .register_mmio_boot_timer(boot_timer)
@@ -1031,9 +1031,6 @@ pub(crate) fn set_stdout_nonblocking() {
 pub mod tests {
     use std::io::Cursor;
 
-    use devices::virtio::rng::device::ENTROPY_DEV_ID;
-    use devices::virtio::vsock::VSOCK_DEV_ID;
-    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
     use mmds::data_store::{Mmds, MmdsVersion};
     use mmds::ns::MmdsNetworkStack;
@@ -1042,6 +1039,9 @@ pub mod tests {
 
     use super::*;
     use crate::arch::DeviceType;
+    use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
+    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
@@ -1674,7 +1674,7 @@ pub mod tests {
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(devices::virtio::net::Error::EventFd(
+        let err = CreateNetDevice(crate::devices::virtio::net::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);
@@ -1705,7 +1705,7 @@ pub mod tests {
         let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateEntropyDevice(devices::virtio::rng::Error::EventFd(
+        let err = CreateEntropyDevice(crate::devices::virtio::rng::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{err}{err:?}");

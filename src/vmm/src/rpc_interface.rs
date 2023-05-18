@@ -833,15 +833,15 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::rng::Error as EntropyError;
-    use devices::virtio::VsockError;
     use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
     use super::*;
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use crate::devices::virtio::rng::Error as EntropyError;
+    use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
@@ -1090,7 +1090,7 @@ mod tests {
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::I8042Error(
-                    devices::legacy::I8042DeviceError::InternalBufferFull,
+                    crate::devices::legacy::I8042DeviceError::InternalBufferFull,
                 ));
             }
             self.send_ctrl_alt_del_called = true;
@@ -1929,7 +1929,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::InternalVmm(VmmError::I8042Error(
-                devices::legacy::I8042DeviceError::InternalBufferFull,
+                crate::devices::legacy::I8042DeviceError::InternalBufferFull,
             )),
         );
     }

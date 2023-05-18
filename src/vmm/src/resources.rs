@@ -483,7 +483,6 @@ mod tests {
     use std::io::Write;
     use std::os::linux::fs::MetadataExt;
 
-    use devices::virtio::vsock::VSOCK_DEV_ID;
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
@@ -491,6 +490,7 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
@@ -940,7 +940,7 @@ mod tests {
             None,
         ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                devices::virtio::net::Error::TapOpen { .. },
+                crate::devices::virtio::net::Error::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
         }
