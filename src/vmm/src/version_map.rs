@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 
-use devices::virtio::block::persist::BlockState;
-use devices::virtio::net::persist::NetConfigSpaceState;
-use devices::virtio::QueueState;
 use lazy_static::lazy_static;
 use versionize::{VersionMap, Versionize};
 
 use crate::device_manager::persist::DeviceStates;
+use crate::devices::virtio::block::persist::BlockState;
+use crate::devices::virtio::net::persist::NetConfigSpaceState;
+use crate::devices::virtio::QueueState;
 use crate::persist::VmInfo;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;

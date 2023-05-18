@@ -173,8 +173,8 @@ pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
 
-    pub pio_bus: Option<devices::Bus>,
-    pub mmio_bus: Option<devices::Bus>,
+    pub pio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<crate::devices::Bus>,
 
     msrs_to_save: HashSet<u32>,
 }
@@ -278,7 +278,7 @@ impl KvmVcpu {
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
-    pub fn set_pio_bus(&mut self, pio_bus: devices::Bus) {
+    pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.pio_bus = Some(pio_bus);
     }
 
