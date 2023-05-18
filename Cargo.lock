@@ -601,16 +601,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "io_uring"
-version = "0.1.0"
-dependencies = [
- "derive_more",
- "libc",
- "proptest",
- "utils",
-]
-
-[[package]]
 name = "is-terminal"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1359,7 +1349,6 @@ dependencies = [
  "device_tree",
  "dumbo",
  "event-manager",
- "io_uring",
  "kvm-bindings",
  "kvm-ioctls",
  "lazy_static",

@@ -28,7 +28,6 @@ vm-fdt = "0.2.0"
 vm-superio = "0.7.0"
 
 dumbo = { path = "../dumbo" }
-io_uring = { path = "../io_uring" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 net_gen = { path = "../net_gen" }

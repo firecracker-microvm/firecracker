@@ -5,15 +5,15 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use io_uring::operation::{Cqe, OpCode, Operation};
-use io_uring::restriction::Restriction;
-use io_uring::{Error as IoUringError, IoUring};
 use logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::devices::virtio::block::io::UserDataError;
 use crate::devices::virtio::block::IO_URING_NUM_ENTRIES;
+use crate::io_uring::operation::{Cqe, OpCode, Operation};
+use crate::io_uring::restriction::Restriction;
+use crate::io_uring::{Error as IoUringError, IoUring};
 
 #[derive(Debug)]
 pub enum Error {

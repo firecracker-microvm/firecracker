@@ -3,7 +3,7 @@
 
 use utils::vm_memory::ByteValued;
 
-use crate::bindings::io_uring_sqe;
+use crate::io_uring::bindings::io_uring_sqe;
 
 // SAFETY: Struct is POD and contains no references or niches.
 unsafe impl ByteValued for io_uring_sqe {}
