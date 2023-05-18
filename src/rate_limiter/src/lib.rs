@@ -262,10 +262,13 @@ impl TokenBucket {
         // budget which should now be replenished, but for performance and code-complexity
         // reasons we're just gonna let that slide since it's practically inconsequential.
         if self.one_time_burst > 0 {
-            self.one_time_burst += tokens;
+            self.one_time_burst = std::cmp::min(
+                self.one_time_burst.saturating_add(tokens),
+                self.initial_one_time_burst,
+            );
             return;
         }
-        self.budget = std::cmp::min(self.budget + tokens, self.size);
+        self.budget = std::cmp::min(self.budget.saturating_add(tokens), self.size);
     }
 
     /// Returns the capacity of the token bucket.
