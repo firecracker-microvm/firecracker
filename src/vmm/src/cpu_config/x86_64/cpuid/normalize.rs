@@ -209,6 +209,9 @@ impl super::Cpuid {
         // Flush a cache line size.
         const EBX_CLFLUSH_CACHELINE: u32 = 8;
 
+        // PDCM: Perfmon and Debug Capability.
+        const ECX_PDCM_BITINDEX: u8 = 15;
+
         // TSC-Deadline.
         const ECX_TSC_DEADLINE_BITINDEX: u8 = 24;
 
@@ -218,6 +221,12 @@ impl super::Cpuid {
         let leaf_1 = self
             .get_mut(&CpuidKey::leaf(0x1))
             .ok_or(FeatureInformationError::MissingLeaf1)?;
+
+        // A value of 1 indicates the processor supports the performance and debug feature
+        // indication MSR IA32_PERF_CAPABILITIES.
+        //
+        // pdcm: 15,
+        set_bit(&mut leaf_1.result.ecx, ECX_PDCM_BITINDEX, false);
 
         // A value of 1 indicates that the processor’s local APIC timer supports one-shot
         // operation using a TSC deadline value.

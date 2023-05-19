@@ -194,8 +194,6 @@ MSR_EXCEPTION_LIST = [
     0x174,
     0x175,
     0x176,
-    # MSR_IA32_PERF_CAPABILITIES is not available on AMD.
-    0x345,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
     # should occur and depends on the elapsed time.
     0x6E0,
