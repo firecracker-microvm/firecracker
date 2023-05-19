@@ -39,12 +39,12 @@ macro_rules! declare_fingerprint_struct_and_enum {
 // #[derive(clap::ValueEnum, Clone, Debug)]
 // #[value(rename_all = "snake_case")]
 // pub enum FingerprintField {
-//     FirecrackerVersion,
-//     KernelVersion,
-//     MicrocodeVersion,
-//     BiosVersion,
-//     BiosRevision,
-//     GuestCpuConfig,
+//     firecracker_version,
+//     kernel_version,
+//     microcode_version,
+//     bios_version,
+//     bios_revision,
+//     guest_cpu_config,
 // }
 // ```
 declare_fingerprint_struct_and_enum!(
