@@ -295,6 +295,16 @@ pub mod leaf_0x80000001 {
     }
 }
 
+pub mod leaf_0x80000006 {
+    pub const LEAF_NUM: u32 = 0x8000_0006;
+
+    pub mod edx {
+        use crate::bit_helper::BitRange;
+
+        pub const RESERVED_BITRANGE: BitRange = bit_range!(17, 16);
+    }
+}
+
 pub mod leaf_0x80000008 {
     pub const LEAF_NUM: u32 = 0x8000_0008;
 
