@@ -4,6 +4,7 @@
 use super::*;
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
+use crate::transformer::common::use_host_cpuid_function;
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
 // unique topology of the next level. This allows 128 logical processors/package.
@@ -139,6 +140,8 @@ impl CpuidTransformer for IntelCpuidTransformer {
                 .map_err(Error::Fam)?;
         }
 
+        use_host_cpuid_function(cpuid, leaf_0x80000006::LEAF_NUM, false)?;
+
         self.process_entries(cpuid, vm_spec)
     }
 
@@ -150,6 +153,7 @@ impl CpuidTransformer for IntelCpuidTransformer {
             leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
             leaf_0xb::LEAF_NUM => Some(intel::update_extended_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
+            leaf_0x80000006::LEAF_NUM => Some(common::update_cache_parameters_entry),
             _ => None,
         }
     }
