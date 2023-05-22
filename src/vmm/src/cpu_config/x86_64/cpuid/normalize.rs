@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::cpu_config::x86_64::cpuid::{
-    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
+    cpuid, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
 };
 
 /// Error type for [`Cpuid::normalize`].
@@ -24,6 +24,9 @@ pub enum NormalizeCpuidError {
     /// Failed to set extended topology leaf.
     #[error("Failed to set extended topology leaf: {0}")]
     ExtendedTopology(#[from] ExtendedTopologyError),
+    /// Failed to set extended cache features leaf.
+    #[error("Failed to set extended cache features leaf: {0}")]
+    ExtendedCacheFeatures(#[from] ExtendedCacheFeaturesError),
 }
 
 /// Error type for setting leaf 1 section of `IntelCpuid::normalize`.
@@ -79,6 +82,14 @@ pub enum ExtendedTopologyError {
     /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present.
     #[error("Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}")]
     Overflow(<u32 as TryFrom<usize>>::Error),
+}
+
+/// Error type for setting leaf 0x80000006 of Cpuid::normalize().
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum ExtendedCacheFeaturesError {
+    /// Leaf 0x80000006 is missing from CPUID.
+    #[error("Leaf 0x80000006 is missing from CPUID.")]
+    MissingLeaf0x80000006,
 }
 
 /// Error type for setting a bit range.
@@ -186,6 +197,8 @@ impl super::Cpuid {
             .map_err(NormalizeCpuidError::FeatureInformation)?;
         self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
             .map_err(NormalizeCpuidError::ExtendedTopology)?;
+        self.update_extended_cache_features()
+            .map_err(NormalizeCpuidError::ExtendedCacheFeatures)?;
 
         // Apply manufacturer specific modifications.
         match self {
@@ -422,6 +435,16 @@ impl super::Cpuid {
             }
         }
 
+        Ok(())
+    }
+
+    // Update extended cache features entry
+    fn update_extended_cache_features(&mut self) -> Result<(), ExtendedCacheFeaturesError> {
+        let guest_leaf_0x80000006 = self
+            .get_mut(&CpuidKey::leaf(0x80000006))
+            .ok_or(ExtendedCacheFeaturesError::MissingLeaf0x80000006)?;
+        guest_leaf_0x80000006.result = cpuid(0x80000006).into();
+        guest_leaf_0x80000006.result.edx &= !0x00030000; // bits [17:16] are reserved
         Ok(())
     }
 }
