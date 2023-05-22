@@ -8,6 +8,10 @@
   exposed to the guest via CPUID, MSRs and ARM registers.
 - Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
   as Neoverse N1.
+- Added a `cpu-template-helper` tool for assisting with creating and managing
+  custom CPU templates.
+- Added support for the `virtio-rng` entropy device. The device is optional. A
+  single device can be enabled per VM using the `/entropy` endpoint.
 
 ### Fixed
 
@@ -18,6 +22,7 @@
   [#3542](https://github.com/firecracker-microvm/firecracker/issues/3542).
 - A race condition that has been identified between the API thread and the VMM
   thread due to a misconfiguration of the `api_event_fd`.
+- Fixed CPUID leaf 0x1 to disable perfmon and debug feature on x86 host.
 
 ## [1.3.0]
 

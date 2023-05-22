@@ -18,9 +18,8 @@ The Linux kernel exposes three main `RNG` interfaces to userspace: the
 `/dev/random` and `/dev/urandom` special devices, and the `getrandom` syscall,
 which are described in the [random(7) man page][1]. Moreover, Firecracker
 supports the [`virtio-rng`](../entropy.md) device which can provide additional
-entropy to guest VMs. It draws its random bytes from the host kernel via
-`getrandom` or `/dev/urandom` after ensuring that the entropy pool has been
-initialized.
+entropy to guest VMs. It draws its random bytes from the [`aws-lc-rs`][8] crate
+which wraps the [`AWS-LC` cryptographic library][9].
 
 Traditionally, `/dev/random` has been considered a source of “true”
 randomness, with the downside that reads block when the pool of entropy
@@ -237,3 +236,5 @@ int main(int argc, char ** argv) {
 [5]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1355
 [6]: https://elixir.bootlin.com/linux/v5.10.147/source/drivers/char/random.c#L1360
 [7]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1351
+[8]: https://docs.rs/aws-lc-rs/latest/aws_lc_rs/index.html
+[9]: https://github.com/aws/aws-lc
