@@ -98,6 +98,19 @@ pub fn update_cache_parameters_entry(
     Ok(())
 }
 
+pub fn update_extended_cache_features_entry(
+    entry: &mut kvm_cpuid_entry2,
+    _vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use crate::cpu_leaf::leaf_0x80000006::*;
+
+    // This only zeroes reserved bits [17:16].
+    // The actual pass through is done by the `use_host_cpuid_function()` call.
+    entry.edx.write_bits_in_range(&edx::RESERVED_BITRANGE, 0);
+
+    Ok(())
+}
+
 /// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
 pub fn use_host_cpuid_function(
     cpuid: &mut CpuId,

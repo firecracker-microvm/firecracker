@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed passing through cache information from host in CPUID leaf 0x80000006.
+
 ## [1.3.2]
 
 ### Fixed
