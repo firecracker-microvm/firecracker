@@ -103,6 +103,11 @@ impl Entropy {
     }
 
     fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32> {
+        // If guest provided us with an empty buffer just return directly
+        if iovec.len() == 0 {
+            return Ok(0);
+        }
+
         let mut rand_bytes = vec![0; iovec.len()];
         rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.entropy.host_rng_fails.inc();
@@ -409,6 +414,9 @@ mod tests {
 
         // Add a write-only descriptor with 10 bytes
         th.add_desc_chain(RNG_QUEUE, 0, &[(1, 10, VIRTQ_DESC_F_WRITE)]);
+
+        // Add a write-only descriptor with 0 bytes. This should not fail.
+        th.add_desc_chain(RNG_QUEUE, 0, &[(2, 0, VIRTQ_DESC_F_WRITE)]);
 
         let mut entropy_dev = th.device();
 
