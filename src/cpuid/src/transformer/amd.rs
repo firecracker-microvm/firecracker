@@ -132,6 +132,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
         // Some versions of kernel may return the 0xB leaf for AMD even if this is an
         // Intel-specific leaf. Remove it.
         cpuid.retain(|entry| entry.function != leaf_0xb::LEAF_NUM);
+        use_host_cpuid_function(cpuid, leaf_0x80000006::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
         self.process_entries(cpuid, vm_spec)
@@ -143,6 +144,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
             leaf_0x80000000::LEAF_NUM => Some(amd::update_largest_extended_fn_entry),
             leaf_0x80000001::LEAF_NUM => Some(amd::update_extended_feature_info_entry),
+            leaf_0x80000006::LEAF_NUM => Some(common::update_extended_cache_features_entry),
             leaf_0x80000008::LEAF_NUM => Some(amd::update_amd_features_entry),
             leaf_0x8000001d::LEAF_NUM => Some(amd::update_extended_cache_topology_entry),
             leaf_0x8000001e::LEAF_NUM => Some(amd::update_extended_apic_id_entry),
