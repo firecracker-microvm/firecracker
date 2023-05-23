@@ -206,27 +206,36 @@ impl super::Cpuid {
         cpu_index: u8,
         cpu_count: u8,
     ) -> Result<(), FeatureInformationError> {
-        /// Flush a cache line size.
+        // Flush a cache line size.
         const EBX_CLFLUSH_CACHELINE: u32 = 8;
 
-        // TSC-Deadline.
-        const TSC_DEADLINE_BITINDEX: u8 = 24;
+        // PDCM: Perfmon and Debug Capability.
+        const ECX_PDCM_BITINDEX: u8 = 15;
 
-        /// CPU is running on a hypervisor.
-        pub const HYPERVISOR_BITINDEX: u8 = 31;
+        // TSC-Deadline.
+        const ECX_TSC_DEADLINE_BITINDEX: u8 = 24;
+
+        // CPU is running on a hypervisor.
+        const ECX_HYPERVISOR_BITINDEX: u8 = 31;
 
         let leaf_1 = self
             .get_mut(&CpuidKey::leaf(0x1))
             .ok_or(FeatureInformationError::MissingLeaf1)?;
 
+        // A value of 1 indicates the processor supports the performance and debug feature
+        // indication MSR IA32_PERF_CAPABILITIES.
+        //
+        // pdcm: 15,
+        set_bit(&mut leaf_1.result.ecx, ECX_PDCM_BITINDEX, false);
+
         // A value of 1 indicates that the processor’s local APIC timer supports one-shot
         // operation using a TSC deadline value.
         //
         // tsc_deadline: 24,
-        set_bit(&mut leaf_1.result.ecx, TSC_DEADLINE_BITINDEX, true);
+        set_bit(&mut leaf_1.result.ecx, ECX_TSC_DEADLINE_BITINDEX, true);
 
         // Hypervisor bit
-        set_bit(&mut leaf_1.result.ecx, HYPERVISOR_BITINDEX, true);
+        set_bit(&mut leaf_1.result.ecx, ECX_HYPERVISOR_BITINDEX, true);
 
         // Initial APIC ID.
         //
