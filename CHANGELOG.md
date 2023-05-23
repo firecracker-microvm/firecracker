@@ -23,6 +23,7 @@
 - A race condition that has been identified between the API thread and the VMM
   thread due to a misconfiguration of the `api_event_fd`.
 - Fixed CPUID leaf 0x1 to disable perfmon and debug feature on x86 host.
+- Fixed passing through cache information from host in CPUID leaf 0x80000006.
 
 ## [1.3.0]
 
