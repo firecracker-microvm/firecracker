@@ -319,7 +319,7 @@ pub mod leaf_0x80000006 {
     pub mod edx {
         use crate::bit_helper::BitRange;
 
-        pub const RESERVED_BITRANGE: BitRange = bit_range!(16, 17);
+        pub const RESERVED_BITRANGE: BitRange = bit_range!(17, 16);
     }
 }
 
