@@ -82,7 +82,6 @@ def run_fio(env_id, basevm, mode, bs):
         .with_arg(f"--numjobs={CONFIG['load_factor'] * basevm.vcpus_count}")
         .with_arg("--randrepeat=0")
         .with_arg(f"--runtime={CONFIG['time']}")
-        .with_arg(f"--write_iops_log={mode}{bs}")
         .with_arg(f"--write_bw_log={mode}{bs}")
         .with_arg("--log_avg_msec=1000")
         .with_arg("--output-format=json+")
@@ -238,7 +237,6 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
     cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_utilization_vmm)
     cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_utilization_vcpus)
 
-    read_values(cons, numjobs, env_id, mode, bs, "iops", logs_path)
     read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
