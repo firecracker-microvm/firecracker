@@ -16,6 +16,7 @@ See also: [boot protocol settings](boot-protocol.md)
 | Set CLFLUSH line size                                                                | 0x1  | -       | EBX      | 15:8  |
 | Set maximum number of addressable IDs for logical processors in the physical package | 0x1  | -       | EBX      | 23:16 |
 | Set initial APIC ID                                                                  | 0x1  | -       | EBX      | 31:24 |
+| Disable PDCM (Perfmon and Debug Capability)                                          | 0x1  | -       | ECX      | 15    |
 | Enable TSC_DEADLINE                                                                  | 0x1  | -       | ECX      | 24    |
 | Enable HYPERVISOR                                                                    | 0x1  | -       | ECX      | 31    |
 | Set HTT value if the microVM's CPU count is greater than 1                           | 0x1  | -       | EDX      | 28    |
