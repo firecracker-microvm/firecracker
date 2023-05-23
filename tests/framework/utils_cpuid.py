@@ -3,6 +3,7 @@
 """Helper functions for testing CPU identification functionality."""
 
 import platform
+import re
 import subprocess
 from enum import Enum, auto
 
@@ -101,3 +102,39 @@ def check_guest_cpuid_output(
         "some keys in dictionary have not been found in the output: %s"
         % expected_key_value_store
     )
+
+
+def build_cpuid_dict(raw_cpuid_output):
+    """Build CPUID dict based on raw cpuid output"""
+    cpuid_dict = {}
+    ptrn = re.compile("^ *(.*) (.*): eax=(.*) ebx=(.*) ecx=(.*) edx=(.*)$")
+    for line in raw_cpuid_output:
+        match = re.match(ptrn, line)
+        assert match, f"`{line}` does not match the regex pattern."
+        leaf, subleaf, eax, ebx, ecx, edx = [int(x, 16) for x in match.groups()]
+        cpuid_dict[(leaf, subleaf, "eax")] = eax
+        cpuid_dict[(leaf, subleaf, "ebx")] = ebx
+        cpuid_dict[(leaf, subleaf, "ecx")] = ecx
+        cpuid_dict[(leaf, subleaf, "edx")] = edx
+    return cpuid_dict
+
+
+def get_guest_cpuid(vm, leaf=None, subleaf=None):
+    """
+    Return the guest CPUID of CPU 0 in the form of a dictionary where the key
+    is a tuple:
+     - leaf (integer)
+     - subleaf (integer)
+     - register ("eax", "ebx", "ecx" or "edx")
+    and the value is the register value (integer).
+    """
+    if leaf is not None and subleaf is not None:
+        read_cpuid_cmd = f"cpuid -r -l {leaf} -s {subleaf} | head -n 2 | grep -v CPU"
+    else:
+        read_cpuid_cmd = "cpuid -r | sed '/CPU 1/q' | grep -v CPU"
+
+    ssh_conn = net_tools.SSHConnection(vm.ssh_config)
+    _, stdout, stderr = ssh_conn.execute_command(read_cpuid_cmd)
+    assert stderr.read() == ""
+
+    return build_cpuid_dict(stdout)
