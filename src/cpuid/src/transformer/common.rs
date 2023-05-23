@@ -105,7 +105,7 @@ pub fn update_extended_cache_features_entry(
     use crate::cpu_leaf::leaf_0x80000006::*;
 
     // This only zeroes reserved bits [17:16].
-    // The actual pass through is done by the `use_host_cpuid_function()` call.
+    // The actual passthrough is done by the `use_host_cpuid_function()` call.
     entry.edx.write_bits_in_range(&edx::RESERVED_BITRANGE, 0);
 
     Ok(())
