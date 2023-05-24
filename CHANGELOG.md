@@ -10,7 +10,7 @@
 
 ### Changed
 
-- Upgraded Rust toolchain from 1.64.0 to 1.66.1.
+- Upgraded Rust toolchain from 1.64.0 to 1.68.2.
 
 ### Fixed
 
