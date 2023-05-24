@@ -200,7 +200,7 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
         lines = file.readlines()
 
         direction_count = 1
-        if mode.endswith("readwrite") or mode.endswith("rw"):
+        if mode.endswith("rw"):
             direction_count = 2
 
         for idx in range(0, len(lines), direction_count):
