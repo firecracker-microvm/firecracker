@@ -4871,15 +4871,6 @@
             ],
             "unit": "seconds"
         },
-        "retransmits": {
-            "statistics": [
-                {
-                    "function": "Sum",
-                    "name": "total"
-                }
-            ],
-            "unit": "#"
-        },
         "throughput": {
             "statistics": [
                 {

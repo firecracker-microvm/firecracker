@@ -34,8 +34,6 @@ IPERF3 = "iperf3"
 THROUGHPUT = "throughput"
 THROUGHPUT_TOTAL = "total"
 DURATION = "duration"
-RETRANSMITS = "retransmits"
-RETRANSMITS_TOTAL = "total"
 BASE_PORT = 5000
 CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
 CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
@@ -187,10 +185,6 @@ def consume_iperf_tcp_output(cons, result, vcpus_count):
     total_received = result[IPERF3_END_RESULTS_TAG]["sum_received"]
     duration = float(total_received["seconds"])
     cons.consume_data(DURATION, duration)
-
-    total_sent = result[IPERF3_END_RESULTS_TAG]["sum_sent"]
-    retransmits = int(total_sent["retransmits"])
-    cons.consume_data(RETRANSMITS, retransmits)
 
     # Computed at the receiving end.
     total_recv_bytes = int(total_received["bytes"])
