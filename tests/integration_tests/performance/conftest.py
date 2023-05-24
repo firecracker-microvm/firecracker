@@ -56,11 +56,9 @@ class JsonFileDumper(ResultsDumperInterface):
 
 @pytest.fixture
 def results_file_dumper(request):
-    """Yield the custom --dump-results-to-file test flag."""
-    if request.config.getoption("--dump-results-to-file"):
-        # we want the test filename, like test_network_latency
-        return JsonFileDumper(request.node.parent.path.stem)
-    return NopResultsDumper()
+    """Dump results of performance test as a file"""
+    # we want the test filename, like test_network_latency
+    return JsonFileDumper(request.node.parent.path.stem)
 
 
 def send_metrics(metrics, stats: core.Core):
