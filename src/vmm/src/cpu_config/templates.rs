@@ -85,10 +85,7 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>,
+    V: Numeric,
 {
     /// Filter to be used when writing the value bits.
     pub filter: V,
@@ -98,10 +95,7 @@ where
 
 impl<V> RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>,
+    V: Numeric,
 {
     /// Applies filter to the value
     #[inline]
