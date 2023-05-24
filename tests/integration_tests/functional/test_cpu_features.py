@@ -39,6 +39,22 @@ def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     )
 
 
+def _check_extended_cache_features(vm):
+    l3_params = cpuid_utils.get_guest_cpuid(vm)[(0x80000006, 0, "edx")]
+
+    # fmt: off
+    line_size     = (l3_params >>  0) & 0xFF
+    lines_per_tag = (l3_params >>  8) & 0xF
+    assoc         = (l3_params >> 12) & 0xF
+    cache_size    = (l3_params >> 18) & 0x3FFF
+    # fmt: on
+
+    assert line_size > 0
+    assert lines_per_tag == 0x1  # This is hardcoded in the AMD spec
+    assert assoc == 0x9  # This is hardcoded in the AMD spec
+    assert cache_size > 0
+
+
 def _check_cpu_features_arm(test_microvm):
     if cpuid_utils.get_instance_type() == "m6g.metal":
         expected_cpu_features = {
@@ -78,6 +94,25 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     _tap, _, _ = vm.ssh_network_config(network_config, "1")
     vm.start()
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
+
+
+@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
+@pytest.mark.skipif(
+    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
+    reason="L3 cache info is only present in 0x80000006 for AMD",
+)
+def test_extended_cache_features(test_microvm_with_api, network_config):
+    """
+    Check extended cache features (leaf 0x80000006).
+
+    @type: functional
+    """
+    vm = test_microvm_with_api
+    vm.spawn()
+    vm.basic_config()
+    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.start()
+    _check_extended_cache_features(vm)
 
 
 @pytest.mark.skipif(
