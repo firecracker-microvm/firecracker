@@ -797,12 +797,13 @@ mod tests {
             ..Default::default()
         }])
         .unwrap();
-        assert!(vcpu.restore_state(&state).is_ok());
+        let result1 = vcpu.restore_state(&state);
+        assert!(result1.is_ok(), "{}", result1.unwrap_err());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
         let (_vm, vcpu, _) = setup_vcpu(0x1000);
-        assert!(vcpu.restore_state(&state).is_ok());
-
+        let result2 = vcpu.restore_state(&state);
+        assert!(result2.is_ok(), "{}", result2.unwrap_err());
         // Validate the mutated cpuid is saved.
         assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
     }
