@@ -8,6 +8,10 @@
 
 ## [1.3.2]
 
+### Changed
+
+- Upgraded Rust toolchain from 1.64.0 to 1.68.2.
+
 ### Fixed
 
 - A race condition that has been identified between the API thread and the VMM
