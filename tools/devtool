@@ -463,6 +463,9 @@ cmd_help() {
     echo "                            Running Firecracker via the jailer requires elevated"
     echo "                            privileges, though the build phase does not."
     echo ""
+    echo "    sh CMD..."
+    echo "        Launch the development container and run a command."
+    echo ""
     echo "    test [-- [<pytest args>]]"
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
@@ -771,6 +774,15 @@ cmd_shell() {
     return $ret
 }
 
+cmd_sh() {
+    run_devctr \
+        --privileged \
+        --ulimit nofile=4096:4096 \
+        --ulimit memlock=-1:-1 \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- \
+        bash --norc -c "$*"
+}
 
 cmd_create_snapshot_artifacts() {
     privileged=true
