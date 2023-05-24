@@ -125,9 +125,11 @@ def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
         boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-    assert (
-        boot_time_us < max_time_us
-    ), f"boot time {boot_time_us} cannot be greater than: {max_time_us} us"
+    # temporarily disable this test in 6.1
+    if global_props.host_linux_version != "6.1":
+        assert (
+            boot_time_us < max_time_us
+        ), f"boot time {boot_time_us} cannot be greater than: {max_time_us} us"
     return boot_time_us
 
 

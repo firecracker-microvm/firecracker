@@ -7,7 +7,7 @@
 import subprocess
 from pathlib import Path
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import COMMON_PARSER, group, pipeline_to_json
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -22,6 +22,8 @@ def get_changed_files(branch):
     return [Path(line) for line in stdout.decode().splitlines()]
 
 
+args = COMMON_PARSER.parse_args()
+
 step_style = {
     "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
     "label": "🪶 Style",
@@ -29,12 +31,14 @@ step_style = {
 }
 
 defaults = {
-    "instances": DEFAULT_INSTANCES,
-    "platforms": DEFAULT_PLATFORMS,
+    "instances": args.instances,
+    "platforms": args.platforms,
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
     "timeout_in_minutes": 30,
+    "env": dict(args.step_env),
 }
+defaults.update(args.step_param)
 
 build_grp = group(
     "📦 Build",
