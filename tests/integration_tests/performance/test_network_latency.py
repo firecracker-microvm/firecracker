@@ -22,7 +22,6 @@ CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 PING = "ping -c {} -i {} {}"
-PKT_LOSS = "pkt_loss"
 LATENCY = "latency"
 
 
@@ -82,13 +81,6 @@ def consume_ping_output(cons, raw_data, requests):
         cons.consume_stat(
             st_name=st_keys[index], ms_name=LATENCY, value=float(stat_value)
         )
-
-    # E.g: 4 packets transmitted, 4 received, 0% packet loss
-    packet_stats = output[-2]
-    pattern_packet = ".+ packet.+transmitted, .+ received," " (.+)% packet loss"
-    pkt_loss = re.findall(pattern_packet, packet_stats)[0]
-    assert len(pkt_loss) == 1
-    cons.consume_stat(st_name="Avg", ms_name=PKT_LOSS, value=float(pkt_loss[0]))
 
     # Compute percentiles.
     seqs = output[1 : requests + 1]
