@@ -7,16 +7,15 @@
 
 use std::result;
 
-use kvm_bindings::RegList;
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::arch::aarch64::regs::{Aarch64Register, KVM_REG_ARM_TIMER_CNT};
-use crate::arch::regs::{
-    get_mpstate, read_mpidr, restore_registers, save_all_registers, set_mpstate, Error as ArchError,
+use crate::arch::aarch64::regs::{
+    get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
+    set_registers, setup_boot_regs, Aarch64Register, Error as ArchError, KVM_REG_ARM_TIMER_CNT,
 };
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::VcpuConfig;
@@ -103,7 +102,7 @@ impl KvmVcpu {
                 .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(*id, err)))?;
         }
 
-        crate::arch::aarch64::regs::setup_boot_regs(
+        setup_boot_regs(
             &self.fd,
             self.index,
             kernel_load_addr.raw_value(),
@@ -111,8 +110,7 @@ impl KvmVcpu {
         )
         .map_err(Error::ConfigureRegisters)?;
 
-        self.mpidr =
-            crate::arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
+        self.mpidr = get_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
 
         Ok(())
     }
@@ -144,26 +142,21 @@ impl KvmVcpu {
             mp_state: get_mpstate(&self.fd).map_err(Error::SaveState)?,
             ..Default::default()
         };
-
-        save_all_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
-
-        state.mpidr = read_mpidr(&self.fd).map_err(Error::SaveState)?;
-
+        get_all_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
+        state.mpidr = get_mpidr(&self.fd).map_err(Error::SaveState)?;
         Ok(state)
     }
 
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
-        restore_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
-
+        set_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
         set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
-
         Ok(())
     }
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
-        let mut reg_list = self.get_reg_list().map_err(Error::DumpCpuConfig)?;
+        let mut reg_list = get_all_registers_ids(&self.fd).map_err(Error::DumpCpuConfig)?;
 
         // KVM_REG_ARM_TIMER_CNT should be removed, because it depends on the elapsed time and
         // the dumped CPU config is used to create custom CPU templates to modify CPU features
@@ -171,7 +164,8 @@ impl KvmVcpu {
         // BIOS.
         reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT);
 
-        let regs = self.get_regs(&reg_list).map_err(Error::DumpCpuConfig)?;
+        let mut regs = vec![];
+        get_registers(&self.fd, &reg_list, &mut regs).map_err(Error::DumpCpuConfig)?;
 
         Ok(CpuConfiguration { regs })
     }
@@ -185,33 +179,6 @@ impl KvmVcpu {
         // receiving a vm exit that is not necessarily an error?
         error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(super::Error::UnhandledKvmExit(format!("{:?}", exit)))
-    }
-
-    /// Get the list of registers supported in KVM_GET_ONE_REG/KVM_SET_ONE_REG.
-    pub fn get_reg_list(&self) -> std::result::Result<Vec<u64>, ArchError> {
-        // The max size of `kvm_bindings::RegList` is 500. See the following link.
-        // https://github.com/rust-vmm/kvm-bindings/blob/main/src/arm64/fam_wrappers.rs
-        let mut reg_list = RegList::new(500).map_err(ArchError::Fam)?;
-        self.fd
-            .get_reg_list(&mut reg_list)
-            .map_err(ArchError::GetRegList)?;
-        Ok(reg_list.as_slice().to_vec())
-    }
-
-    /// Get registers for the given register IDs.
-    pub fn get_regs(
-        &self,
-        reg_list: &[u64],
-    ) -> std::result::Result<Vec<Aarch64Register>, ArchError> {
-        reg_list
-            .iter()
-            .map(|id| {
-                self.fd
-                    .get_one_reg(*id)
-                    .map(|value| Aarch64Register { id: *id, value })
-                    .map_err(|err| ArchError::GetOneReg(*id, err))
-            })
-            .collect::<std::result::Result<Vec<_>, ArchError>>()
     }
 }
 
@@ -411,7 +378,7 @@ mod tests {
         // - X1: 0x6030 0000 0010 0002
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100000, 0x6030000000100002]);
-        assert!(vcpu.get_regs(&reg_list).is_ok());
+        assert!(get_registers(&vcpu.fd, &reg_list, &mut vec![]).is_ok());
     }
 
     #[test]
@@ -419,6 +386,6 @@ mod tests {
         // Test `get_regs()` with invalid register IDs.
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100001, 0x6030000000100003]);
-        assert!(vcpu.get_regs(&reg_list).is_err());
+        assert!(get_registers(&vcpu.fd, &reg_list, &mut vec![]).is_err());
     }
 }
