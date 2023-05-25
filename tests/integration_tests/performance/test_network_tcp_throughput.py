@@ -29,6 +29,8 @@ CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
+# Number of seconds to wait for the iperf3 server to start
+SERVER_STARTUP_TIME_SEC = 2
 DEBUG = False
 IPERF3 = "iperf3"
 THROUGHPUT = "throughput"
@@ -42,6 +44,18 @@ IPERF3_END_RESULTS_TAG = "end"
 DEBUG_CPU_UTILIZATION_VMM_SAMPLES_TAG = "cpu_utilization_vmm_samples"
 DELTA_PERCENTAGE_TAG = "delta_percentage"
 TARGET_TAG = "target"
+
+# How many clients/servers should be spawned per vcpu
+LOAD_FACTOR = 1
+
+# Time (in seconds) for which iperf "warms up"
+WARMUP_SEC = 5
+
+# Time (in seconds) for which iperf runs after warmup is done
+RUNTIME_SEC = 20
+
+# Dictionary mapping modes (guest-to-host, host-to-guest, bidirectional) to arguments passed to the iperf3 clients spawned
+MODE_MAP = {"bd": ["", "-R"], "g2h": [""], "h2g": ["-R"]}
 
 
 # pylint: disable=R0903
@@ -95,7 +109,7 @@ def produce_iperf_output(
         current_avail_cpu += 1
 
     # Wait for iperf3 server to start.
-    time.sleep(2)
+    time.sleep(SERVER_STARTUP_TIME_SEC)
 
     # Start `vcpus` iperf3 clients. We can not use iperf3 parallel streams
     # due to non deterministic results and lack of scaling.
@@ -217,75 +231,72 @@ def consume_iperf_tcp_output(cons, result, vcpus_count):
                 cons.consume_custom(fcvcpu_samples_tag, cpu_util_fc_vcpu_samples)
 
 
-def create_pipes_generator(basevm, mode, current_avail_cpu, protocol, host_ip, env_id):
+def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
     """Create producer/consumer pipes."""
-    for payload_length in protocol["payload_length"]:
-        iperf_guest_cmd_builder = (
-            CmdBuilder(IPERF3)
-            .with_arg("--verbose")
-            .with_arg("--client", host_ip)
-            .with_arg("--time", CONFIG_DICT["time"])
-            .with_arg("--json")
-            .with_arg("--omit", protocol["omit"])
+    iperf_guest_cmd_builder = (
+        CmdBuilder(IPERF3)
+        .with_arg("--verbose")
+        .with_arg("--client", host_ip)
+        .with_arg("--time", RUNTIME_SEC)
+        .with_arg("--json")
+        .with_arg("--omit", WARMUP_SEC)
+    )
+
+    if payload_length != "DEFAULT":
+        iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
+            "--len", f"{payload_length}"
         )
 
-        if payload_length != "DEFAULT":
-            iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
-                "--len", f"{payload_length}"
-            )
+    iperf3_id = f"tcp-p{payload_length}-wsDEFAULT-{mode}"
 
-        iperf3_id = f"tcp-p{payload_length}-wsDEFAULT-{mode}"
+    cons = consumer.LambdaConsumer(
+        metadata_provider=DictMetadataProvider(
+            measurements=CONFIG_DICT["measurements"],
+            baseline_provider=NetTCPThroughputBaselineProvider(env_id, iperf3_id),
+        ),
+        func=consume_iperf_tcp_output,
+        func_kwargs={"vcpus_count": basevm.vcpus_count},
+    )
 
-        cons = consumer.LambdaConsumer(
-            metadata_provider=DictMetadataProvider(
-                measurements=CONFIG_DICT["measurements"],
-                baseline_provider=NetTCPThroughputBaselineProvider(env_id, iperf3_id),
-            ),
-            func=consume_iperf_tcp_output,
-            func_kwargs={"vcpus_count": basevm.vcpus_count},
-        )
-
-        prod_kwargs = {
-            "guest_cmd_builder": iperf_guest_cmd_builder,
-            "basevm": basevm,
-            "current_avail_cpu": current_avail_cpu,
-            "runtime": CONFIG_DICT["time"],
-            "omit": protocol["omit"],
-            "load_factor": CONFIG_DICT["load_factor"],
-            "modes": CONFIG_DICT["modes"][mode],
-        }
-        prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
-        yield cons, prod, f"{env_id}/{iperf3_id}"
-
-
-def pipes(basevm, host_ip, current_avail_cpu, env_id):
-    """Pipes generator."""
-    for mode in CONFIG_DICT["modes"]:
-        # We run bi-directional tests only on uVM with more than 2 vCPus
-        # because we need to pin one iperf3/direction per vCPU, and since we
-        # have two directions, we need at least two vCPUs.
-        if mode == "bd" and basevm.vcpus_count < 2:
-            continue
-
-        for protocol in CONFIG_DICT["protocols"]:
-            # Distribute modes evenly between producers and consumers.
-            pipes_generator = create_pipes_generator(
-                basevm, mode, current_avail_cpu, protocol, host_ip, env_id
-            )
-
-            for cons, prod, pipe_tag in pipes_generator:
-                yield cons, prod, pipe_tag
+    prod_kwargs = {
+        "guest_cmd_builder": iperf_guest_cmd_builder,
+        "basevm": basevm,
+        "current_avail_cpu": current_avail_cpu,
+        "runtime": RUNTIME_SEC,
+        "omit": WARMUP_SEC,
+        "load_factor": LOAD_FACTOR,
+        "modes": MODE_MAP[mode],
+    }
+    prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
+    return cons, prod, f"{env_id}/{iperf3_id}"
 
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize("vcpus", [1, 2])
+@pytest.mark.parametrize(
+    "payload_length", ["DEFAULT", "1024K"], ids=["pDEFAULT", "p1024K"]
+)
+@pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_network_tcp_throughput(
-    microvm_factory, network_config, guest_kernel, rootfs, vcpus, st_core
+    microvm_factory,
+    network_config,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    payload_length,
+    mode,
+    st_core,
 ):
     """
     Iperf between guest and host in both directions for TCP workload.
     """
+
+    # We run bi-directional tests only on uVM with more than 2 vCPus
+    # because we need to pin one iperf3/direction per vCPU, and since we
+    # have two directions, we need at least two vCPUs.
+    if mode == "bd" and vcpus < 2:
+        pytest.skip("bidrectional test only done with at least 2 vcpus")
 
     guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
@@ -312,13 +323,15 @@ def test_network_tcp_throughput(
         current_avail_cpu += 1
         assert vm.pin_vcpu(i, current_avail_cpu), f"Failed to pin fc_vcpu {i} thread."
 
-    for cons, prod, tag in pipes(
+    cons, prod, tag = pipe(
         vm,
-        DEFAULT_HOST_IP,
+        mode,
+        payload_length,
         current_avail_cpu + 1,
+        DEFAULT_HOST_IP,
         f"{guest_kernel.name()}/{rootfs.name()}/{microvm_cfg}",
-    ):
-        st_core.add_pipe(prod, cons, tag)
+    )
+    st_core.add_pipe(prod, cons, tag)
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.

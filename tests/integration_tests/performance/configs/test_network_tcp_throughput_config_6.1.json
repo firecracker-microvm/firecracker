@@ -1961,7 +1961,6 @@
             }
         }
     },
-    "load_factor": 1,
     "measurements": {
         "cpu_utilization_vcpus_total": {
             "statistics": [
@@ -2001,28 +2000,5 @@
             ],
             "unit": "Mbps"
         }
-    },
-    "modes": {
-        "bd": [
-            "",
-            "-R"
-        ],
-        "g2h": [
-            ""
-        ],
-        "h2g": [
-            "-R"
-        ]
-    },
-    "protocols": [
-        {
-            "name": "tcp",
-            "omit": 5,
-            "payload_length": [
-                "1024K",
-                "DEFAULT"
-            ]
-        }
-    ],
-    "time": 20
+    }
 }
