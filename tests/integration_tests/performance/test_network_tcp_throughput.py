@@ -220,50 +220,42 @@ def consume_iperf_tcp_output(cons, result, vcpus_count):
 def create_pipes_generator(basevm, mode, current_avail_cpu, protocol, host_ip, env_id):
     """Create producer/consumer pipes."""
     for payload_length in protocol["payload_length"]:
-        for ws in protocol["window_size"]:
-            iperf_guest_cmd_builder = (
-                CmdBuilder(IPERF3)
-                .with_arg("--verbose")
-                .with_arg("--client", host_ip)
-                .with_arg("--time", CONFIG_DICT["time"])
-                .with_arg("--json")
-                .with_arg("--omit", protocol["omit"])
+        iperf_guest_cmd_builder = (
+            CmdBuilder(IPERF3)
+            .with_arg("--verbose")
+            .with_arg("--client", host_ip)
+            .with_arg("--time", CONFIG_DICT["time"])
+            .with_arg("--json")
+            .with_arg("--omit", protocol["omit"])
+        )
+
+        if payload_length != "DEFAULT":
+            iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
+                "--len", f"{payload_length}"
             )
 
-            if ws != "DEFAULT":
-                iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
-                    "--window", f"{ws}"
-                )
+        iperf3_id = f"tcp-p{payload_length}-wsDEFAULT-{mode}"
 
-            if payload_length != "DEFAULT":
-                iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
-                    "--len", f"{payload_length}"
-                )
+        cons = consumer.LambdaConsumer(
+            metadata_provider=DictMetadataProvider(
+                measurements=CONFIG_DICT["measurements"],
+                baseline_provider=NetTCPThroughputBaselineProvider(env_id, iperf3_id),
+            ),
+            func=consume_iperf_tcp_output,
+            func_kwargs={"vcpus_count": basevm.vcpus_count},
+        )
 
-            iperf3_id = f"tcp-p{payload_length}-ws{ws}-{mode}"
-
-            cons = consumer.LambdaConsumer(
-                metadata_provider=DictMetadataProvider(
-                    measurements=CONFIG_DICT["measurements"],
-                    baseline_provider=NetTCPThroughputBaselineProvider(
-                        env_id, iperf3_id
-                    ),
-                ),
-                func=consume_iperf_tcp_output,
-                func_kwargs={"vcpus_count": basevm.vcpus_count},
-            )
-
-            prod_kwargs = {
-                "guest_cmd_builder": iperf_guest_cmd_builder,
-                "basevm": basevm,
-                "current_avail_cpu": current_avail_cpu,
-                "runtime": CONFIG_DICT["time"],
-                "omit": protocol["omit"],
-                "load_factor": CONFIG_DICT["load_factor"],
-                "modes": CONFIG_DICT["modes"][mode],
-            }
-            prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
-            yield cons, prod, f"{env_id}/{iperf3_id}"
+        prod_kwargs = {
+            "guest_cmd_builder": iperf_guest_cmd_builder,
+            "basevm": basevm,
+            "current_avail_cpu": current_avail_cpu,
+            "runtime": CONFIG_DICT["time"],
+            "omit": protocol["omit"],
+            "load_factor": CONFIG_DICT["load_factor"],
+            "modes": CONFIG_DICT["modes"][mode],
+        }
+        prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
+        yield cons, prod, f"{env_id}/{iperf3_id}"
 
 
 def pipes(basevm, host_ip, current_avail_cpu, env_id):
