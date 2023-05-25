@@ -36,18 +36,6 @@ pub struct Aarch64Register {
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    /// Failed to get core register (PC, PSTATE or general purpose ones).
-    #[error("Failed to get {1} register: {0}")]
-    GetCoreRegister(kvm_ioctls::Error, String),
-    /// Failed to set core register (PC, PSTATE or general purpose ones).
-    #[error("Failed to set {1} register: {0}")]
-    SetCoreRegister(kvm_ioctls::Error, String),
-    /// Failed to get a system register.
-    #[error("Failed to get register: {0}: {1}")]
-    GetSysRegister(u64, kvm_ioctls::Error),
-    /// Failed to set a system register.
-    #[error("Failed to set register {0}: {1}")]
-    SetSysRegister(u64, kvm_ioctls::Error),
     /// Failed to get a register value.
     #[error("Failed to get register {0}: {1}")]
     GetOneReg(u64, kvm_ioctls::Error),
@@ -227,29 +215,26 @@ pub fn setup_boot_regs(
 
     // Get the register index of the PSTATE (Processor State) register.
     let pstate = offset__of!(user_pt_regs, pstate) + kreg_off;
-    vcpu.set_one_reg(
-        arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate),
-        PSTATE_FAULT_BITS_64.into(),
-    )
-    .map_err(|err| Error::SetCoreRegister(err, "processor state".to_string()))?;
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
+    vcpu.set_one_reg(id, PSTATE_FAULT_BITS_64.into())
+        .map_err(|err| Error::SetOneReg(id, err))?;
 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
         // Setting the PC (Processor Counter) to the current program address (kernel address).
         let pc = offset__of!(user_pt_regs, pc) + kreg_off;
-        vcpu.set_one_reg(arm64_core_reg_id!(KVM_REG_SIZE_U64, pc), boot_ip.into())
-            .map_err(|err| Error::SetCoreRegister(err, "program counter".to_string()))?;
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
+        vcpu.set_one_reg(id, boot_ip.into())
+            .map_err(|err| Error::SetOneReg(id, err))?;
 
         // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
         // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
         // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
         // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
         let regs0 = offset__of!(user_pt_regs, regs) + kreg_off;
-        vcpu.set_one_reg(
-            arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0),
-            get_fdt_addr(mem).into(),
-        )
-        .map_err(|err| Error::SetCoreRegister(err, "X0".to_string()))?;
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
+        vcpu.set_one_reg(id, get_fdt_addr(mem).into())
+            .map_err(|err| Error::SetOneReg(id, err))?;
     }
     Ok(())
 }
@@ -261,7 +246,7 @@ pub fn setup_boot_regs(
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
     match vcpu.get_one_reg(MPIDR_EL1) {
-        Err(err) => Err(Error::GetSysRegister(MPIDR_EL1, err)),
+        Err(err) => Err(Error::GetOneReg(MPIDR_EL1, err)),
         // MPIDR register is 64 bit wide on aarch64, this expect cannot fail
         // on supported architectures
         Ok(val) => Ok(val.try_into().expect("MPIDR register to be 64 bit")),
@@ -371,7 +356,7 @@ pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Registe
             id: *id,
             value: vcpu
                 .get_one_reg(*id)
-                .map_err(|e| Error::GetSysRegister(*id, e))?,
+                .map_err(|e| Error::GetOneReg(*id, e))?,
         });
     }
 
@@ -387,7 +372,7 @@ pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Registe
 pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<()> {
     for reg in state {
         vcpu.set_one_reg(reg.id, reg.value)
-            .map_err(|e| Error::SetSysRegister(reg.id, e))?;
+            .map_err(|e| Error::SetOneReg(reg.id, e))?;
     }
     Ok(())
 }
@@ -431,7 +416,7 @@ mod tests {
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert_eq!(
             res.unwrap_err(),
-            Error::SetCoreRegister(kvm_ioctls::Error::new(8), "processor state".to_string())
+            Error::SetOneReg(6931039826524241986, kvm_ioctls::Error::new(8))
         );
 
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
@@ -452,7 +437,7 @@ mod tests {
         let res = read_mpidr(&vcpu);
         assert_eq!(
             res.unwrap_err(),
-            Error::GetSysRegister(MPIDR_EL1, kvm_ioctls::Error::new(8))
+            Error::GetOneReg(MPIDR_EL1, kvm_ioctls::Error::new(8))
         );
 
         vcpu.vcpu_init(&kvi).unwrap();
@@ -472,7 +457,7 @@ mod tests {
         let res = save_core_registers(&vcpu, &mut state);
         assert_eq!(
             res.unwrap_err(),
-            Error::GetCoreRegister(kvm_ioctls::Error::new(8), "X0".to_string())
+            Error::GetOneReg(6931039826524241920, kvm_ioctls::Error::new(8))
         );
 
         let res = save_all_registers(&vcpu, &mut state);
