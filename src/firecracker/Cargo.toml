@@ -24,4 +24,4 @@ vmm = { path = "../vmm" }
 
 [dev-dependencies]
 cargo_toml = "0.15.2"
-regex = { version = "1.5.5", default-features = false, features = ["std"] }
+regex = { version = "1.8.2", default-features = false, features = ["std"] }
