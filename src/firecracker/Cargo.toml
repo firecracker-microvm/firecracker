@@ -18,7 +18,7 @@ api_server = { path = "../api_server" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot"}
+snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
