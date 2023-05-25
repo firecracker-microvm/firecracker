@@ -37,6 +37,18 @@ CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
 CPU_UTILIZATION_VMM_SAMPLES_TAG = "cpu_utilization_vmm_samples"
 CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
 
+# size of the block device used in the test, in MB
+BLOCK_DEVICE_SIZE_MB = 2048
+
+# How many fio workloads should be spawned per vcpu
+LOAD_FACTOR = 1
+
+# Time (in seconds) for which fio "warms up"
+WARMUP_SEC = 10
+
+# Time (in seconds) for which fio runs after warmup is done
+RUNTIME_SEC = 300
+
 
 # pylint: disable=R0903
 class BlockBaselinesProvider(BaselineProvider):
@@ -74,11 +86,11 @@ def run_fio(env_id, basevm, mode, bs):
         .with_arg(f"--bs={bs}")
         .with_arg("--filename=/dev/vdb")
         .with_arg("--time_base=1")
-        .with_arg(f"--size={CONFIG['block_device_size']}M")
+        .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
         .with_arg("--direct=1")
         .with_arg("--ioengine=libaio")
         .with_arg("--iodepth=32")
-        .with_arg(f"--ramp_time={CONFIG['omit']}")
+        .with_arg(f"--ramp_time={WARMUP_SEC}")
         .with_arg(f"--numjobs={basevm.vcpus_count}")
         # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
         .with_arg(
@@ -87,7 +99,7 @@ def run_fio(env_id, basevm, mode, bs):
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
         .with_arg("--randrepeat=0")
-        .with_arg(f"--runtime={CONFIG['time']}")
+        .with_arg(f"--runtime={RUNTIME_SEC}")
         .with_arg(f"--write_bw_log={mode}{bs}")
         .with_arg("--log_avg_msec=1000")
         .with_arg("--output-format=json+")
@@ -117,8 +129,8 @@ def run_fio(env_id, basevm, mode, bs):
         cpu_load_future = executor.submit(
             get_cpu_percent,
             basevm.jailer_clone_pid,
-            CONFIG["time"],
-            omit=CONFIG["omit"],
+            RUNTIME_SEC,
+            omit=WARMUP_SEC,
         )
 
         # Print the fio command in the log and run it
@@ -227,14 +239,18 @@ def consume_fio_output(cons, cpu_load, numjobs, mode, bs, env_id, logs_path):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
-@pytest.mark.parametrize("vcpus", [1, 2])
+@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_mode", ["randread", "randrw"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_block_performance(
     microvm_factory,
     network_config,
     guest_kernel,
     rootfs,
     vcpus,
+    fio_mode,
+    fio_block_size,
     io_engine,
     st_core,
 ):
@@ -248,7 +264,7 @@ def test_block_performance(
     vm.ssh_network_config(network_config, "1")
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
-        os.path.join(vm.fsfiles, "scratch"), CONFIG["block_device_size"]
+        os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
     )
     vm.add_drive("scratch", fs.path, io_engine=io_engine)
     vm.start()
@@ -274,33 +290,30 @@ def test_block_performance(
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{io_engine.lower()}_{microvm_cfg}"
 
-    for mode in CONFIG["fio_modes"]:
-        for bs in CONFIG["fio_blk_sizes"]:
-            fio_id = f"{mode}-bs{bs}"
-            st_prod = st.producer.LambdaProducer(
-                func=run_fio,
-                func_kwargs={
-                    "env_id": env_id,
-                    "basevm": vm,
-                    "mode": mode,
-                    "bs": bs,
-                },
-            )
-            st_cons = st.consumer.LambdaConsumer(
-                metadata_provider=DictMetadataProvider(
-                    CONFIG["measurements"],
-                    BlockBaselinesProvider(env_id, fio_id, CONFIG),
-                ),
-                func=consume_fio_output,
-                func_kwargs={
-                    "numjobs": vm.vcpus_count,
-                    "mode": mode,
-                    "bs": bs,
-                    "env_id": env_id,
-                    "logs_path": vm.jailer.chroot_base_with_id(),
-                },
-            )
-            st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
+    fio_id = f"{fio_mode}-bs{fio_block_size}"
+    st_prod = st.producer.LambdaProducer(
+        func=run_fio,
+        func_kwargs={
+            "env_id": env_id,
+            "basevm": vm,
+            "mode": fio_mode,
+            "bs": fio_block_size,
+        },
+    )
+    st_cons = st.consumer.LambdaConsumer(
+        metadata_provider=DictMetadataProvider(
+            CONFIG["measurements"], BlockBaselinesProvider(env_id, fio_id)
+        ),
+        func=consume_fio_output,
+        func_kwargs={
+            "numjobs": vm.vcpus_count,
+            "mode": fio_mode,
+            "bs": fio_block_size,
+            "env_id": env_id,
+            "logs_path": vm.jailer.chroot_base_with_id(),
+        },
+    )
+    st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
 
     # Gather results and verify pass criteria.
     st_core.run_exercise()
