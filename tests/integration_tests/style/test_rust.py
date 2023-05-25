@@ -7,6 +7,17 @@ import subprocess
 from framework import utils
 
 
+def test_rust_order():
+    """
+    Tests that `Cargo.toml` dependencies are alphabetically ordered.
+
+    @type: style
+    """
+
+    # Runs `cargo-sort` with the current working directory (`cwd`) as the repository root.
+    _, _, _ = utils.run_cmd(cmd="cargo-sort --workspace --check --grouped", cwd="..")
+
+
 def test_rust_style():
     """
     Test that rust code passes style checks.

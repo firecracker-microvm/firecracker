@@ -74,7 +74,7 @@ RUN cd /tmp/poetry && \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add $ARCH-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install cargo-audit cargo-deny grcov \
+    && cargo install cargo-audit cargo-deny grcov cargo-sort \
     && rm -rf "$CARGO_HOME/registry" \
     && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
     && rm -rf "$CARGO_HOME/git" \
