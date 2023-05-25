@@ -16,8 +16,7 @@ use versionize_derive::Versionize;
 
 use crate::arch::aarch64::regs::{Aarch64Register, KVM_REG_ARM_TIMER_CNT};
 use crate::arch::regs::{
-    get_mpstate, read_mpidr, restore_registers, save_core_registers, save_registers,
-    save_system_registers, set_mpstate, Error as ArchError,
+    get_mpstate, read_mpidr, restore_registers, save_all_registers, set_mpstate, Error as ArchError,
 };
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::VcpuConfig;
@@ -25,7 +24,7 @@ use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("Error configuring the vcpu registers: {0}")]
     ConfigureRegisters(ArchError),
@@ -57,7 +56,6 @@ pub struct KvmVcpu {
     pub mmio_bus: Option<crate::devices::Bus>,
 
     mpidr: u64,
-    additional_register_ids: Vec<u64>,
 }
 
 impl KvmVcpu {
@@ -78,7 +76,6 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             mmio_bus: None,
             mpidr: 0,
-            additional_register_ids: vec![],
         })
     }
 
@@ -105,7 +102,6 @@ impl KvmVcpu {
                 .set_one_reg(*id, *value)
                 .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(*id, err)))?;
         }
-        self.additional_register_ids = vcpu_config.cpu_config.register_ids();
 
         crate::arch::aarch64::regs::setup_boot_regs(
             &self.fd,
@@ -149,12 +145,7 @@ impl KvmVcpu {
             ..Default::default()
         };
 
-        save_core_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
-
-        save_system_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
-
-        save_registers(&self.fd, &self.additional_register_ids, &mut state.regs)
-            .map_err(Error::SaveState)?;
+        save_all_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
 
         state.mpidr = read_mpidr(&self.fd).map_err(Error::SaveState)?;
 
@@ -225,7 +216,7 @@ impl KvmVcpu {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Clone, Default, Versionize)]
+#[derive(Debug, Default, Clone, Versionize)]
 pub struct VcpuState {
     pub mp_state: kvm_bindings::kvm_mp_state,
     pub regs: Vec<Aarch64Register>,
@@ -347,10 +338,8 @@ mod tests {
         let res = vcpu.save_state();
         assert!(res.is_err());
         assert_eq!(
-            res.err().unwrap().to_string(),
-            "Failed to save the state of the vcpu: Failed to get X0 register: Exec format error \
-             (os error 8)"
-                .to_string()
+            res.unwrap_err(),
+            super::Error::SaveState(ArchError::GetRegList(kvm_ioctls::Error::new(8))),
         );
 
         // Try to restore the register using a faulty state.
@@ -362,10 +351,8 @@ mod tests {
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(res.is_err());
         assert_eq!(
-            res.err().unwrap().to_string(),
-            "Failed to restore the state of the vcpu: Failed to set register 0: Exec format error \
-             (os error 8)"
-                .to_string()
+            res.unwrap_err(),
+            super::Error::RestoreState(ArchError::SetSysRegister(0, kvm_ioctls::Error::new(8)))
         );
 
         init_vcpu(&vcpu.fd, vm.fd());
