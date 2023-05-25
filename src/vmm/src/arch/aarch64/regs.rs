@@ -268,6 +268,68 @@ pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
     }
 }
 
+/// Returns ids of core registers
+pub fn get_core_registers_ids() -> Vec<u64> {
+    let mut ids = vec![];
+    let mut off = offset__of!(user_pt_regs, regs);
+    // There are 31 user_pt_regs:
+    // https://elixir.free-electrons.com/linux/v4.14.174/source/arch/arm64/include/uapi/asm/ptrace.h#L72
+    // These actually are the general-purpose registers of the Armv8-a
+    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit
+    // register).
+    for _ in 0..NR_GP_REGS {
+        ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+        off += std::mem::size_of::<u64>();
+    }
+
+    // We are now entering the "Other register" section of the ARMv8-a architecture.
+    // First one, stack pointer.
+    let off = offset__of!(user_pt_regs, sp);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+
+    // Second one, the program counter.
+    let off = offset__of!(user_pt_regs, pc);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+
+    // Next is the processor state.
+    let off = offset__of!(user_pt_regs, pstate);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+
+    // The stack pointer associated with EL1.
+    let off = offset__of!(kvm_regs, sp_el1);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+
+    // Exception Link Register for EL1, when taking an exception to EL1, this register
+    // holds the address to which to return afterwards.
+    let off = offset__of!(kvm_regs, elr_el1);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+
+    // Saved Program Status Registers, there are 5 of them used in the kernel.
+    let mut off = offset__of!(kvm_regs, spsr);
+    for _ in 0..KVM_NR_SPSR {
+        ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U64, off));
+        off += std::mem::size_of::<u64>();
+    }
+
+    // Now moving on to floating point registers which are stored in the user_fpsimd_state in
+    // the kernel: https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
+    let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
+    for _ in 0..NR_FP_VREGS {
+        ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U128, off));
+        off += mem::size_of::<u128>();
+    }
+
+    // Floating-point Status Register.
+    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpsr);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U32, off));
+
+    // Floating-point Control Register.
+    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpcr);
+    ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U32, off));
+
+    ids
+}
+
 /// Saves the states of the core registers into `state`.
 ///
 /// # Arguments
@@ -275,123 +337,7 @@ pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Input/Output vector of registers states.
 pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
-    let mut off = offset__of!(user_pt_regs, regs);
-    // There are 31 user_pt_regs:
-    // https://elixir.free-electrons.com/linux/v4.14.174/source/arch/arm64/include/uapi/asm/ptrace.h#L72
-    // These actually are the general-purpose registers of the Armv8-a
-    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit
-    // register).
-    for i in 0..NR_GP_REGS {
-        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-        state.push(Aarch64Register {
-            id,
-            value: vcpu
-                .get_one_reg(id)
-                .map_err(|err| Error::GetCoreRegister(err, format!("X{}", i)))?,
-        });
-        off += std::mem::size_of::<u64>();
-    }
-
-    // We are now entering the "Other register" section of the ARMv8-a architecture.
-    // First one, stack pointer.
-    let off = offset__of!(user_pt_regs, sp);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "stack pointer".to_string()))?,
-    });
-
-    // Second one, the program counter.
-    let off = offset__of!(user_pt_regs, pc);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "program counter".to_string()))?,
-    });
-
-    // Next is the processor state.
-    let off = offset__of!(user_pt_regs, pstate);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "processor state".to_string()))?,
-    });
-
-    // The stack pointer associated with EL1.
-    let off = offset__of!(kvm_regs, sp_el1);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "SP_EL1".to_string()))?,
-    });
-
-    // Exception Link Register for EL1, when taking an exception to EL1, this register
-    // holds the address to which to return afterwards.
-    let off = offset__of!(kvm_regs, elr_el1);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "ELR_EL1".to_string()))?,
-    });
-
-    // Saved Program Status Registers, there are 5 of them used in the kernel.
-    let mut off = offset__of!(kvm_regs, spsr);
-    for i in 0..KVM_NR_SPSR {
-        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-        state.push(Aarch64Register {
-            id,
-            value: vcpu
-                .get_one_reg(id)
-                .map_err(|err| Error::GetCoreRegister(err, format!("SPSR{}", i)))?,
-        });
-        off += std::mem::size_of::<u64>();
-    }
-
-    // Now moving on to floating point registers which are stored in the user_fpsimd_state in the
-    // kernel: https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
-    let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
-    for i in 0..NR_FP_VREGS {
-        let id = arm64_core_reg_id!(KVM_REG_SIZE_U128, off);
-        state.push(Aarch64Register {
-            id,
-            value: vcpu
-                .get_one_reg(id)
-                .map_err(|err| Error::GetCoreRegister(err, format!("FP_VREG{}", i)))?,
-        });
-        off += mem::size_of::<u128>();
-    }
-
-    // Floating-point Status Register.
-    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpsr);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U32, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "FPSR".to_string()))?,
-    });
-
-    // Floating-point Control Register.
-    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpcr);
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U32, off);
-    state.push(Aarch64Register {
-        id,
-        value: vcpu
-            .get_one_reg(id)
-            .map_err(|err| Error::GetCoreRegister(err, "FPCR".to_string()))?,
-    });
-
-    Ok(())
+    save_registers(vcpu, &get_core_registers_ids(), state)
 }
 
 /// Saves the states of the system registers into `state`.
