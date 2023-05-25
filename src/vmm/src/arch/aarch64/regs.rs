@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::path::PathBuf;
-use std::{fs, mem, result, u32};
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
@@ -19,7 +18,7 @@ use super::get_fdt_addr;
 /// Struct describing a saved aarch64 register.
 ///
 /// Used for interacting with `KVM_GET/SET_ONE_REG`.
-#[derive(Debug, Clone, Versionize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Versionize)]
 pub struct Aarch64Register {
     /// The KVM register ID.
     ///
@@ -58,7 +57,6 @@ pub enum Error {
     #[error("{0}")]
     GetMidrEl1(String),
 }
-type Result<T> = result::Result<T, Error>;
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.
@@ -123,7 +121,7 @@ macro_rules! arm64_core_reg_id {
         KVM_REG_ARM64 as u64
             | u64::from(KVM_REG_ARM_CORE)
             | $size
-            | (($offset / mem::size_of::<u32>()) as u64)
+            | (($offset / std::mem::size_of::<u32>()) as u64)
     };
 }
 
@@ -171,7 +169,7 @@ arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
 ///
 /// * `state` - Array slice of [`Aarch64Register`] structures, representing the registers of a VCPU
 ///   state.
-pub fn get_manufacturer_id_from_state(state: &[Aarch64Register]) -> Result<u32> {
+pub fn get_manufacturer_id_from_state(state: &[Aarch64Register]) -> Result<u32, Error> {
     let midr_el1 = state.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
         Some(register) => Ok(register.value as u32 >> 24),
@@ -183,11 +181,11 @@ pub fn get_manufacturer_id_from_state(state: &[Aarch64Register]) -> Result<u32> 
 
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
-pub fn get_manufacturer_id_from_host() -> Result<u32> {
+pub fn get_manufacturer_id_from_host() -> Result<u32, Error> {
     let midr_el1_path =
         &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
 
-    let midr_el1 = fs::read_to_string(midr_el1_path).map_err(|err| {
+    let midr_el1 = std::fs::read_to_string(midr_el1_path).map_err(|err| {
         Error::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
     let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
@@ -210,7 +208,7 @@ pub fn setup_boot_regs(
     cpu_id: u8,
     boot_ip: u64,
     mem: &GuestMemoryMmap,
-) -> Result<()> {
+) -> Result<(), Error> {
     let kreg_off = offset__of!(kvm_regs, regs);
 
     // Get the register index of the PSTATE (Processor State) register.
@@ -244,7 +242,7 @@ pub fn setup_boot_regs(
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
+pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64, Error> {
     match vcpu.get_one_reg(MPIDR_EL1) {
         Err(err) => Err(Error::GetOneReg(MPIDR_EL1, err)),
         // MPIDR register is 64 bit wide on aarch64, this expect cannot fail
@@ -301,7 +299,7 @@ pub fn get_core_registers_ids() -> Vec<u64> {
     let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
     for _ in 0..NR_FP_VREGS {
         ids.push(arm64_core_reg_id!(KVM_REG_SIZE_U128, off));
-        off += mem::size_of::<u128>();
+        off += std::mem::size_of::<u128>();
     }
 
     // Floating-point Status Register.
@@ -321,7 +319,7 @@ pub fn get_core_registers_ids() -> Vec<u64> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Input/Output vector of registers states.
-pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
+pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<(), Error> {
     save_registers(vcpu, &get_core_registers_ids(), state)
 }
 
@@ -331,7 +329,7 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> R
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Input/Output vector of registers states.
-pub fn save_all_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
+pub fn save_all_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<(), Error> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
     let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
@@ -350,7 +348,11 @@ pub fn save_all_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Re
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `ids` - Slice of registers ids to save.
 /// * `state` - Input/Output vector of registers states.
-pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Register>) -> Result<()> {
+pub fn save_registers(
+    vcpu: &VcpuFd,
+    ids: &[u64],
+    state: &mut Vec<Aarch64Register>,
+) -> Result<(), Error> {
     for id in ids.iter() {
         state.push(Aarch64Register {
             id: *id,
@@ -369,7 +371,7 @@ pub fn save_registers(vcpu: &VcpuFd, ids: &[u64], state: &mut Vec<Aarch64Registe
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure containing the state of the system registers.
-pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<()> {
+pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<(), Error> {
     for reg in state {
         vcpu.set_one_reg(reg.id, reg.value)
             .map_err(|e| Error::SetOneReg(reg.id, e))?;
@@ -382,7 +384,7 @@ pub fn restore_registers(vcpu: &VcpuFd, state: &[Aarch64Register]) -> Result<()>
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state> {
+pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state, Error> {
     vcpu.get_mp_state().map_err(Error::GetMp)
 }
 
@@ -392,7 +394,7 @@ pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure for returning the state of the system registers.
-pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
+pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<(), Error> {
     vcpu.set_mp_state(state).map_err(Error::SetMp)
 }
 
