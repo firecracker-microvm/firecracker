@@ -1,12 +1,4 @@
 {
-    "block_device_size": 2048,
-    "fio_blk_sizes": [
-        4096
-    ],
-    "fio_modes": [
-        "randrw",
-        "randread"
-    ],
     "hosts": {
         "instances": {
             "c7g.metal": {
@@ -1402,7 +1394,5 @@
             ],
             "unit": "percentage"
         }
-    },
-    "omit": 10,
-    "time": 300
+    }
 }
