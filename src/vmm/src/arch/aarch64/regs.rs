@@ -254,25 +254,6 @@ pub fn setup_boot_regs(
     Ok(())
 }
 
-/// Specifies whether a particular register is a system register or not.
-/// The kernel splits the registers on aarch64 in core registers and system registers.
-/// So, below we get the system registers by checking that they are not core registers.
-///
-/// # Arguments
-///
-/// * `regid` - The index of the register we are checking.
-pub fn is_system_register(regid: u64) -> bool {
-    if (regid & u64::from(KVM_REG_ARM_COPROC_MASK)) == u64::from(KVM_REG_ARM_CORE) {
-        return false;
-    }
-
-    let size = regid & KVM_REG_SIZE_MASK;
-    if size != KVM_REG_SIZE_U32 && size != KVM_REG_SIZE_U64 {
-        panic!("Unexpected register size for system register {}", size);
-    }
-    true
-}
-
 /// Read the MPIDR - Multiprocessor Affinity Register.
 ///
 /// # Arguments
@@ -419,22 +400,13 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> R
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Input/Output vector of registers states.
-pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
+pub fn save_all_registers(vcpu: &VcpuFd, state: &mut Vec<Aarch64Register>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
     let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 
-    // At this point reg_list should contain: core registers and system registers.
-    // The register list contains the number of registers and their ids. We will be needing to
-    // call KVM_GET_ONE_REG on each id in order to save all of them. We carve out from the list
-    // the core registers which are represented in the kernel by kvm_regs structure and for which
-    // we can calculate the id based on the offset in the structure.
-    reg_list.retain(|regid| is_system_register(*regid));
-
-    // Now, for the rest of the registers left in the previously fetched register list, we are
-    // simply calling KVM_GET_ONE_REG.
     save_registers(vcpu, reg_list.as_slice(), state)?;
 
     Ok(())
@@ -542,22 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_system_register() {
-        let offset = offset__of!(user_pt_regs, pc);
-        let regid = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset);
-        assert!(!is_system_register(regid));
-        let regid =
-            KVM_REG_ARM64 | KVM_REG_SIZE_U64 | u64::from(kvm_bindings::KVM_REG_ARM64_SYSREG);
-        assert!(is_system_register(regid));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_is_not_system_register() {
-        assert!(is_system_register(0));
-    }
-
-    #[test]
     fn test_save_restore_regs() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
@@ -573,7 +529,7 @@ mod tests {
             Error::GetCoreRegister(kvm_ioctls::Error::new(8), "X0".to_string())
         );
 
-        let res = save_system_registers(&vcpu, &mut state);
+        let res = save_all_registers(&vcpu, &mut state);
         assert_eq!(
             res.unwrap_err(),
             Error::GetRegList(kvm_ioctls::Error::new(8))
@@ -581,7 +537,7 @@ mod tests {
 
         vcpu.vcpu_init(&kvi).unwrap();
         save_core_registers(&vcpu, &mut state).unwrap();
-        save_system_registers(&vcpu, &mut state).unwrap();
+        save_all_registers(&vcpu, &mut state).unwrap();
 
         restore_registers(&vcpu, &state).unwrap();
         let off = offset__of!(user_pt_regs, pstate);
