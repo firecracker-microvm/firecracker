@@ -294,10 +294,11 @@ mod tests {
         );
         assert!(err.is_err());
         assert_eq!(
-            err.err().unwrap().to_string(),
-            "Error configuring the vcpu registers: Failed to set processor state register: Bad \
-             file descriptor (os error 9)"
-                .to_string()
+            err.unwrap_err(),
+            super::Error::ConfigureRegisters(ArchError::SetOneReg(
+                6931039826524241986,
+                kvm_ioctls::Error::new(9)
+            ))
         );
 
         let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
@@ -307,12 +308,12 @@ mod tests {
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
         );
-        assert!(err.is_err());
         assert_eq!(
-            err.err().unwrap().to_string(),
-            "Error configuring the vcpu registers: Failed to set processor state register: Bad \
-             file descriptor (os error 9)"
-                .to_string()
+            err.unwrap_err(),
+            super::Error::ConfigureRegisters(ArchError::SetOneReg(
+                6931039826524241986,
+                kvm_ioctls::Error::new(9)
+            ))
         );
     }
 
@@ -352,7 +353,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             res.unwrap_err(),
-            super::Error::RestoreState(ArchError::SetSysRegister(0, kvm_ioctls::Error::new(8)))
+            super::Error::RestoreState(ArchError::SetOneReg(0, kvm_ioctls::Error::new(8)))
         );
 
         init_vcpu(&vcpu.fd, vm.fd());
