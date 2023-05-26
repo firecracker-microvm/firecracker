@@ -96,6 +96,18 @@ pub fn v1n1() -> CustomCpuTemplate {
                     value: 0x0000000000000000,
                 },
             },
+            // TODO: Uncomment this modifier once kernel version 6.3+ is supported by Firecracker.
+            // RegisterModifier {
+            // Disable nested virtualization (NV) CPU feature. Setting to 0b0000.
+            // NV enabled/disabled with zeroth bit in SYS_ICH_HCR_EL2.
+            // Occupies bits aarch32 system register ICH_HCR[31:0].
+            // https://developer.arm.com/documentation/ddi0601/2020-12/AArch64-Registers/ICH-HCR-EL2--Interrupt-Controller-Hyp-Control-Register
+            // addr: SYS_ICH_HCR_EL2,
+            // bitmap: RegisterValueFilter {
+            //     filter: 0x000000000000000F,
+            //     value: 0x0000000000000000,
+            // },
+            // },
         ],
     }
 }

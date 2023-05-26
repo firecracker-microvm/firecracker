@@ -173,6 +173,12 @@ arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
 arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
 arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
+// TODO: When kernel versions that support ARM's nested virtualization become supported we will need
+// to disable NV forcefully in vended templates. See the static template v1n1 for use of the HCR
+// register. See Linux kernel def for the hypervisor control register:
+// https://elixir.bootlin.com/linux/v5.10.179/source/arch/arm64/include/asm/sysreg.h
+// arm64_sys_reg!(SYS_ICH_HCR_EL2, 3, 4, 12, 11, 0);
+
 // EL0 Virtual Timer Registers
 arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
 
