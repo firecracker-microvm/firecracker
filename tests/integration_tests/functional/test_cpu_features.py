@@ -241,7 +241,7 @@ MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
 
 @pytest.fixture(
     name="msr_cpu_template",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES),
+    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES)),
 )
 def msr_cpu_template_fxt(request):
     """CPU template fixture for MSR read/write supported CPU templates"""
