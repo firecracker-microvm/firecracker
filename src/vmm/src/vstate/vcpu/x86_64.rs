@@ -564,17 +564,17 @@ impl KvmVcpu {
 pub struct VcpuState {
     pub cpuid: CpuId,
     #[version(end = 3, default_fn = "default_msrs")]
-    msrs: Msrs,
+    pub msrs: Msrs,
     #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
-    saved_msrs: Vec<Msrs>,
-    debug_regs: kvm_debugregs,
-    lapic: kvm_lapic_state,
-    mp_state: kvm_mp_state,
-    regs: kvm_regs,
-    sregs: kvm_sregs,
-    vcpu_events: kvm_vcpu_events,
-    xcrs: kvm_xcrs,
-    xsave: kvm_xsave,
+    pub saved_msrs: Vec<Msrs>,
+    pub debug_regs: kvm_debugregs,
+    pub lapic: kvm_lapic_state,
+    pub mp_state: kvm_mp_state,
+    pub regs: kvm_regs,
+    pub sregs: kvm_sregs,
+    pub vcpu_events: kvm_vcpu_events,
+    pub xcrs: kvm_xcrs,
+    pub xsave: kvm_xsave,
     #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
     pub tsc_khz: Option<u32>,
 }
