@@ -155,7 +155,6 @@ def test_snapshot_create_latency(
     microvm_factory,
     guest_kernel,
     rootfs,
-    firecracker_release,
     st_core,
 ):
     """
@@ -220,7 +219,7 @@ def test_snapshot_create_latency(
             "vm": vm,
             "disks": [vm.rootfs_file],
             "ssh_key": rootfs.ssh_key(),
-            "target_version": firecracker_release.snapshot_version,
+            "target_version": None,
             "metrics_fifo": metrics_fifo,
         },
     )
