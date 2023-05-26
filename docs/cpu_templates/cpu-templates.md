@@ -186,6 +186,10 @@ This CPU templates will do the following with the ARM register `0x603000000013c0
 The full description of the custom CPU templates language can be found
 [here](schema.json).
 
+> **Note**
+You can also use `_` to visually separate parts of a bitmap.
+So instead of writing: `0b0000xxxx`, it can be `0b0000_xxxx`.
+
 #### Expansion of contracted bitmaps
 
 If a contracted version of a bitmap is given, for example, `0b101` where
