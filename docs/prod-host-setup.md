@@ -240,262 +240,7 @@ process via the following tools:
                  See the [block device documentation](api_requests/patch-block.md)
                  for examples of calling the API to configure rate limiting.
 
-### Mitigating Side-Channel Issues
-
-When deploying Firecracker microVMs to handle multi-tenant workloads, the
-following host environment configurations are strongly recommended to guard
-against side-channel security issues.
-
-Some of the mitigations are platform specific. When applicable, this
-information will be specified between brackets.
-
-#### Disable Simultaneous Multithreading (SMT)
-
-Disabling SMT will help mitigate side-channels issues between sibling
-threads on the same physical core.
-
-SMT can be disabled by adding the following Kernel boot parameter to the host:
-
-```console
-nosmt=force
-````
-
-Verification can be done by running:
-
-```bash
-(grep -q "^forceoff$" /sys/devices/system/cpu/smt/control && \
-echo "Hyperthreading: DISABLED (OK)") || \
-(grep -q "^notsupported$\|^notimplemented$" \
-/sys/devices/system/cpu/smt/control && \
-echo "Hyperthreading: Not Supported (OK)") || \
-echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
-```
-
-**Note** There are some newer aarch64 CPUs that also implement SMT, however AWS Graviton
-processors do not implement it.
-
-#### Disable Unprivileged BPF
-
-Disabling BPF for unprivileged users protects against various transient
-execution attacks. See ["Spectre revisits
-BPF"](https://lwn.net/Articles/860597/) for one synopsis.
-
-Ensure unprivileged BPF remains disabled by setting `unprivileged_bpf_disable`
-to `1` as documented in the [kernel admin
-guide](https://docs.kernel.org/admin-guide/sysctl/kernel.html#unprivileged-bpf-disabled):
-
-```console
-echo "kernel.unprivileged_bpf_disabled = 1" >> /etc/sysctl.conf
-```
-
-The default setting is determined by the Linux kernel config
-`BPF_UNPRIV_DEFAULT_OFF` which defaults to `Y` starting with [this
-commit](https://github.com/torvalds/linux/commit/8a03e56b253e9691c90bc52ca199323d71b96204)
-first picked up in version 5.16. Amazon Linux kernel configs all use
-`BPF_UNPRIV_DEFAULT_OFF=Y`.
-
-Verification can be done by running:
-
-```bash
-cat /proc/sys/kernel/unprivileged_bpf_disabled
-```
-
-The output should be `1`
-
-#### [Intel and ARM only] Check Kernel Page-Table Isolation (KPTI) support
-
-KPTI is used to prevent certain side-channel issues that allow access to
-protected kernel memory pages that are normally inaccessible to guests. Some
-variants of Meltdown can be mitigated by enabling this feature.
-
-Verification can be done by running:
-
-```bash
-(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown \
-&& echo "KPTI: SUPPORTED (OK)") || \
-(grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/meltdown \
-&& echo "KPTI: Not Affected (OK)") || \
-echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
-```
-
-A full list of the ARM processors that are vulnerable to side-channel attacks and
-the mechanisms of these attacks can be found
-[here](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
-KPTI is implemented for ARM in version 4.16 and later of the Linux kernel.
-
-**Note** Graviton-enabled hardware is not affected by this.
-
-#### Disable Kernel Same-page Merging (KSM)
-
-Disabling KSM mitigates side-channel issues which rely on de-duplication to
-reveal what memory line was accessed by another process.
-
-KSM can be disabled by executing the following as root:
-
-```console
-echo "0" > /sys/kernel/mm/ksm/run
-```
-
-Verification can be done by running:
-
-```bash
-(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || \
-echo "KSM: ENABLED (Recommendation: DISABLED)"
-```
-
-#### Check for mitigations against Spectre Side Channels
-
-In development we use an integration test to check for spectre vulnerability on
-the host.
-
-The script we run in this test can be downloaded and executed like:
-
-```bash
-# Read https://meltdown.ovh before running it.
-wget -O - https://meltdown.ovh | bash
-```
-
-##### Branch Target Injection mitigation (Spectre V2, including Spectre-BHB)
-
-###### Intel and AMD
-
-We recommend using a kernel compiled with eIBRS or IBRS, together with microcode
-supporting conditional Indirect Branch Prediction Barriers (IBPB).
-
-Verification can be done by running:
-
-```bash
-cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
-```
-
-The output should mention the following mitigations being in use:
-
-- One of Retpolines (pre-Skylake CPU), IBRS (Skylake), or Enhanced IBRS (Cascade
-  Lake and later)
-- `IBPB` at least `conditional`
-
-###### ARM64
-
-We recommend using a kernel compiled with `MITIGATE_SPECTRE_BRANCH_HISTORY`.
-
-More information on the processors vulnerable to this type
-of attack and detailed information on the mitigations can be found in the
-[ARM security documentation](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
-
-Verification can be done by running:
-
-```bash
-grep -q "^(Mitigation: CSV2, BHB|Not affected)$" \
-/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
-echo "SPECTRE V2 -> OK" || echo "SPECTRE V2 -> NOT OK"
-```
-
-##### Bounds Check Bypass Store (Spectre V1)
-
-Verification for mitigation against Spectre V1 can be done:
-
-```bash
-grep -q "^(Mitigation:|Not affected)$" \
-/sys/devices/system/cpu/vulnerabilities/spectre_v1 && \
-echo "SPECTRE V1 -> OK" || echo "SPECTRE V1 -> NOT OK"
-```
-
-##### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
-
-These features provide mitigation for Foreshadow/L1TF side-channel issue on
-affected hardware.
-They can be enabled by adding the following Linux kernel boot parameter:
-
-```console
-l1tf=full,force
-```
-
-which will also implicitly disable SMT.  This will apply the mitigation when
-execution context switches into microVMs.
-Verification can be done by running:
-
-```bash
-declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-for cond in "${CONDITIONS[@]}"; \
-do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && \
-echo "$cond: ENABLED (OK)") || \
-echo "$cond: DISABLED (Recommendation: ENABLED)"; done
-```
-
-See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html#guest-mitigation-mechanisms).
-
-##### Apply Speculative Store Bypass (SSBD) mitigation
-
-This will mitigate variants of Spectre side-channel issues such as
-Speculative Store Bypass (Spectre v4) and SpectreNG.
-
-We recommend applying SSBD to Firecracker and the host kernel.
-
-###### X86_64
-
-On x86_64 systems, this can be done using the following kernel cmdline
-parameter:
-
-```console
-spec_store_bypass_disable=on
-```
-
-Unfortunately, this applies SSBD to all the other processes running on the
-host as well.
-
-###### ARM64
-
-On aarch64 systems, SSBD can be applied to the kernel by using the following
-kernel cmdline parameter:
-
-```console
-ssbd=kernel
-```
-
-SSBD is applied to Firecracker by [using the `prctl` interface][3].
-However, this is only available on host kernels Linux >=4.17 and also Amazon
-Linux 4.14. Alternatively, a global mitigation can be enabled by adding the
-following Linux kernel cmdline parameter:
-
-```console
-ssbd=force-on
-```
-
-The following command can be used to check if SSBD is applied to Firecracker:
-
-```bash
-cat /proc/$(pgrep firecracker | head -n1)/status | grep Speculation_Store_Bypass
-```
-
-Output shows one of the following:
-
-- vulnerable
-- not vulnerable
-- thread mitigated
-- thread force mitigated
-- globally mitigated
-
-##### Hardening other processes
-
-For any process running on the host that communicates with Firecracker
-and handles sensitive data, we recommend hardening it against spectre-like
-attacks by:
-
-- compiling it with speculative load hardening
-- compiling it with retpolines
-- applying SSBD to it
-
-#### Use memory with Rowhammer mitigation support
-
-Rowhammer is a memory side-channel issue that can lead to unauthorized cross-
-process memory changes.
-
-Using DDR4 memory that supports Target Row Refresh (TRR) with error-correcting
-code (ECC) is recommended. Use of pseudo target row refresh (pTRR) for systems
-with pTRR-compliant DDR3 memory can help mitigate the issue, but it also
-incurs a performance penalty.
-
-#### Disable swapping to disk or enable secure swap
+### Disabling swapping to disk or enabling secure swap
 
 Memory pressure on a host can cause memory to be written to drive storage when
 swapping is enabled. Disabling swap mitigates data remanence issues related to
@@ -507,6 +252,67 @@ Verify that swap is disabled by running:
 grep -q "/dev" /proc/swaps && \
 echo "swap partitions present (Recommendation: no swap)" \
 || echo "no swap partitions (OK)"
+```
+
+### Mitigating hardware vulnerabilities
+
+> **Note** Firecracker is not able to mitigate host's hardware vulnerabilities.
+Adequate mitigations need to be put in place when configuring the host.
+
+> **Note** Firecracker is designed to provide isolation boundaries between
+microVMs running in different Firecracker processes. It is strongly recommended
+that each Firecracker process corresponds to a workload of a single tenant.
+
+> **Note** For security and stability reasons it is highly recommended to load
+updated microcode as soon as possible. Aside from keeping the system firmware
+up-to-date, when the kernel is used to load updated microcode of the CPU this
+should be done as early as possible in the boot process.
+
+#### Side channel attacks
+
+It is strongly recommended that users follow the
+[Linux kernel documentation on hardware vulnerabilities](https://docs.kernel.org/admin-guide/hw-vuln/index.html)
+when configuring mitigations against side channel attacks including "Spectre"
+and "Meltdown" attacks
+(see [Page Table Isolation](https://docs.kernel.org/arch/x86/pti.html)
+and [Speculation Control](https://docs.kernel.org/userspace-api/spec_ctrl.html)).
+
+Additionally users should consider disabling
+[Kernel Samepage Merging](https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html)
+to mitigate [side channel issues](https://eprint.iacr.org/2013/448.pdf)
+relying on the page deduplication for revealing what memory pages are
+accessed by another process.
+
+##### Use memory with Rowhammer mitigation support
+
+Rowhammer is a memory side-channel issue that can lead to unauthorized cross-
+process memory changes.
+
+Using DDR4 memory that supports Target Row Refresh (TRR) with error-correcting
+code (ECC) is recommended. Use of pseudo target row refresh (pTRR) for systems
+with pTRR-compliant DDR3 memory can help mitigate the issue, but it also
+incurs a performance penalty.
+
+##### Vendor-specific recommendations
+
+For vendor-specific recommendations, please consult the resources below:
+
+- Intel: [Software Security Guidance](https://www.intel.com/content/www/us/en/developer/topic-technology/software-security-guidance/overview.html)
+- AMD: [AMD Product Security](https://www.amd.com/en/resources/product-security.html)
+- ARM: [Speculative Processor Vulnerability](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability)
+
+##### Verification
+
+[spectre-meltdown-checker script](https://github.com/speed47/spectre-meltdown-checker)
+can be used to assess host's resilience against several transient execution
+CVEs and receive guidance on how to mitigate them.
+
+The script is used in integration tests by the Firecracker team. It can be
+downloaded and executed like:
+
+```bash
+# Read https://meltdown.ovh before running it.
+wget -O - https://meltdown.ovh | bash
 ```
 
 ### Known kernel issues
