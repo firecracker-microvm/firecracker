@@ -1391,6 +1391,7 @@ dependencies = [
  "mmds",
  "net_gen",
  "proptest",
+ "rand",
  "rate_limiter",
  "seccompiler",
  "serde",

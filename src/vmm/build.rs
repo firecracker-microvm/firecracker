@@ -127,4 +127,9 @@ fn cpuid() {
         all(target_arch = "x86_64", not(target_env = "sgx"))
     ))]
     println!("cargo:rustc-cfg=cpuid");
+
+    #[cfg(
+        not(any(feature="rng-aws-lc-rs", feature="rng-rand")) // If neither are enabled
+    )]
+    compile_error!("Please enable the feature \"rng-aws-lc-rs\" OR the feature \"rng-rand\".");
 }

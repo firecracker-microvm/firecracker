@@ -5,8 +5,11 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use aws_lc_rs::rand;
+#[cfg(feature = "rng-aws-lc-rs")]
+use aws_lc_rs::{error::Unspecified as RandomError, rand};
 use logger::{debug, error, IncMetric, METRICS};
+#[cfg(all(feature = "rng-rand", not(feature = "rng-aws-lc-rs")))]
+use rand::{rngs::OsRng, Error as RandomError, RngCore};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
@@ -27,7 +30,7 @@ pub enum Error {
     #[error("Bad guest memory buffer: {0}")]
     GuestMemory(#[from] GuestMemoryError),
     #[error("Could not get random bytes: {0}")]
-    Random(#[from] aws_lc_rs::error::Unspecified),
+    Random(#[from] RandomError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -109,7 +112,14 @@ impl Entropy {
         }
 
         let mut rand_bytes = vec![0; iovec.len()];
+
+        #[cfg(feature = "rng-aws-lc-rs")]
         rand::fill(&mut rand_bytes).map_err(|err| {
+            METRICS.entropy.host_rng_fails.inc();
+            err
+        })?;
+        #[cfg(all(feature = "rng-rand", not(feature = "rng-aws-lc-rs")))]
+        OsRng.try_fill_bytes(&mut rand_bytes).map_err(|err| {
             METRICS.entropy.host_rng_fails.inc();
             err
         })?;

@@ -8,8 +8,14 @@ license = "Apache-2.0"
 [lib]
 bench = false
 
+[features]
+default = []
+rng-aws-lc-rs = ["dep:aws-lc-rs"]
+rng-rand = ["dep:rand"]
+
 [dependencies]
-aws-lc-rs = "1.0.2"
+aws-lc-rs = { version = "1.0.2", optional = true }
+rand = { version = "0.8.5", optional = true }
 bitflags = "2.0.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "display"] }
 event-manager = "0.3.0"

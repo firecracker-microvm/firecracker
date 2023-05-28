@@ -12,6 +12,11 @@ license = "Apache-2.0"
 name = "firecracker"
 bench = false
 
+[features]
+default = ["rng-aws-lc-rs"]
+rng-aws-lc-rs = ["vmm/rng-aws-lc-rs"]
+rng-rand = ["vmm/rng-rand"]
+
 [dependencies]
 event-manager = "0.3.0"
 libc = "0.2.117"
@@ -24,7 +29,7 @@ mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
-vmm = { path = "../vmm" }
+vmm = { path = "../vmm", default-features = false }
 
 [dev-dependencies]
 cargo_toml = "0.15.2"

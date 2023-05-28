@@ -18,7 +18,7 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
 
-vmm = { path = "../vmm" }
+vmm = { path = "../vmm", features = ["rng-rand"] }
 
 [dev-dependencies]
 utils = { path = "../utils" }
