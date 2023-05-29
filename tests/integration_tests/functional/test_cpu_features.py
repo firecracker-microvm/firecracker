@@ -65,24 +65,6 @@ def _check_extended_cache_features(vm):
     assert cache_size > 0
 
 
-def _check_cpu_features_arm(test_microvm):
-    if cpuid_utils.get_instance_type() == "m6g.metal":
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
-        }
-    else:
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-            "sha512 asimdfhm dit uscat ilrcpc flagm ssbs",
-        }
-
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "lscpu", None, ":", expected_cpu_features
-    )
-
-
 def get_cpu_template_dir(cpu_template):
     """
     Utility function to return a valid string which will be used as
