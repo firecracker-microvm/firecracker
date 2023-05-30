@@ -7,7 +7,7 @@
 
 use std::result;
 
-use kvm_bindings::{RegList, KVM_REG_ARM_COPROC_MASK, KVM_REG_ARM_CORE};
+use kvm_bindings::RegList;
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
@@ -178,24 +178,9 @@ impl KvmVcpu {
         // the dumped CPU config is used to create custom CPU templates to modify CPU features
         // exposed to guests or ot detect CPU configuration changes caused by firecracker/KVM/
         // BIOS.
-        //
-        // Core registers need to be removed here, because kernel 4.14 has a bug in
-        // KVM_GET_REG_LIST as described in the following link.
-        // https://github.com/torvalds/linux/commit/df205b5c63281e4f32caac22adda18fd68795e80
-        // TODO: Remove this core register removal after the following backport patch comes to
-        // downstream.
-        // https://lore.kernel.org/all/20230404103050.27202-1-itazur@amazon.com/
-        // https://github.com/firecracker-microvm/firecracker/issues/3606
-        reg_list.retain(|&reg_id| {
-            reg_id != KVM_REG_ARM_TIMER_CNT
-                && (reg_id & u64::from(KVM_REG_ARM_COPROC_MASK)) != u64::from(KVM_REG_ARM_CORE)
-        });
+        reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT);
 
-        let mut regs = self.get_regs(&reg_list).map_err(Error::DumpCpuConfig)?;
-
-        // Add valid core registers for the above temporal mitigation of KVM_GET_REG_LIST bug.
-        // TODO: Remove this core register addition along with the above TODO removal.
-        save_core_registers(&self.fd, &mut regs).map_err(Error::DumpCpuConfig)?;
+        let regs = self.get_regs(&reg_list).map_err(Error::DumpCpuConfig)?;
 
         Ok(CpuConfiguration { regs })
     }
