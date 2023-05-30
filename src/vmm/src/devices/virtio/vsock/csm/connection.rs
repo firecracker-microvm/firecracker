@@ -78,14 +78,14 @@
 //          2. The receiver can be proactive, and send VSOCK_OP_CREDIT_UPDATE packet, whenever
 //             it thinks its peer's information is out of date.
 //          Our implementation uses the proactive approach.
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Write};
 use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
-use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
@@ -93,9 +93,15 @@ use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, Vsoc
 use super::txbuf::TxBuf;
 use super::{defs, ConnState, Error, PendingRx, PendingRxSet, Result};
 
+/// Trait that vsock connection backends need to implement.
+///
+/// Used as an alias for `Read + ReadVolatile + Write + WriteVolatile + AsRawFd` (sadly, trait
+/// aliases are not supported, https://github.com/rust-lang/rfcs/pull/1733#issuecomment-243840014).
+pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd {}
+
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
-/// socket and a host-side `Read + Write + AsRawFd` stream.
-pub struct VsockConnection<S: Read + Write + AsRawFd> {
+/// socket and a host-side `ReadVolatile + Write + WriteVolatile + AsRawFd` stream.
+pub struct VsockConnection<S: VsockConnectionBackend> {
     /// The current connection state.
     state: ConnState,
     /// The local CID. Most of the time this will be the constant `2` (the vsock host CID).
@@ -132,7 +138,7 @@ pub struct VsockConnection<S: Read + Write + AsRawFd> {
 
 impl<S> VsockChannel for VsockConnection<S>
 where
-    S: Read + Write + AsRawFd,
+    S: VsockConnectionBackend,
 {
     /// Fill in a vsock packet, to be delivered to our peer (the guest driver).
     ///
@@ -394,7 +400,7 @@ where
 
 impl<S> AsRawFd for VsockConnection<S>
 where
-    S: Read + Write + AsRawFd,
+    S: VsockConnectionBackend,
 {
     /// Get the file descriptor that this connection wants polled.
     ///
@@ -407,7 +413,7 @@ where
 
 impl<S> VsockEpollListener for VsockConnection<S>
 where
-    S: Read + Write + AsRawFd,
+    S: VsockConnectionBackend,
 {
     /// Get the event set that this connection is interested in.
     ///
@@ -484,7 +490,7 @@ where
 
 impl<S> VsockConnection<S>
 where
-    S: Read + Write + AsRawFd,
+    S: VsockConnectionBackend,
 {
     /// Create a new guest-initiated connection object.
     pub fn new_peer_init(
@@ -672,11 +678,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use utils::eventfd::EventFd;
+    use utils::vm_memory::{BitmapSlice, Bytes, VolatileSlice};
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
     use super::*;
     use crate::devices::virtio::vsock::device::RXQ_INDEX;
+    use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
 
     const LOCAL_CID: u64 = 2;
@@ -742,6 +750,16 @@ mod tests {
         }
     }
 
+    impl ReadVolatile for TestStream {
+        fn read_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &mut VolatileSlice<B>,
+        ) -> std::result::Result<usize, utils::vm_memory::VolatileMemoryError> {
+            // Test code, the additional copy incurred by read_from is fine
+            buf.read_from(0, self, buf.len())
+        }
+    }
+
     impl Write for TestStream {
         fn write(&mut self, data: &[u8]) -> IoResult<usize> {
             match self.write_state {
@@ -759,9 +777,21 @@ mod tests {
         }
     }
 
+    impl WriteVolatile for TestStream {
+        fn write_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &VolatileSlice<B>,
+        ) -> std::result::Result<usize, utils::vm_memory::VolatileMemoryError> {
+            // Test code, the additional copy incurred by write_to is fine
+            buf.write_to(0, self, buf.len())
+        }
+    }
+
+    impl VsockConnectionBackend for TestStream {}
+
     impl<S> VsockConnection<S>
     where
-        S: Read + Write + AsRawFd,
+        S: VsockConnectionBackend,
     {
         /// Get the fwd_cnt value from the connection.
         pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
@@ -887,16 +917,13 @@ mod tests {
             init_pkt(&mut self.pkt, op, len)
         }
 
-        fn init_data_pkt(&mut self, data: &[u8]) -> &VsockPacket {
+        fn init_data_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);
+
+            let len = data.len();
             self.pkt
-                .read_at_offset_from(
-                    &self._vsock_test_ctx.mem,
-                    0,
-                    &mut std::io::Cursor::new(data.to_vec()),
-                    data.len(),
-                )
+                .read_at_offset_from(&self._vsock_test_ctx.mem, 0, &mut data, len)
                 .unwrap();
             &self.pkt
         }
@@ -966,15 +993,7 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
         assert_eq!(ctx.pkt.len() as usize, data.len());
 
-        let mut buf = vec![];
-        ctx.pkt
-            .write_from_offset_to(
-                &ctx._vsock_test_ctx.mem,
-                0,
-                &mut buf,
-                ctx.pkt.len() as usize,
-            )
-            .unwrap();
+        let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
         assert_eq!(&buf, data);
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
@@ -1046,15 +1065,7 @@ mod tests {
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
 
-            let mut buf = vec![];
-            ctx.pkt
-                .write_from_offset_to(
-                    &ctx._vsock_test_ctx.mem,
-                    0,
-                    &mut buf,
-                    ctx.pkt.len() as usize,
-                )
-                .unwrap();
+            let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
             assert_eq!(&buf, data);
 
             ctx.init_data_pkt(data);

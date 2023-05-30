@@ -13,6 +13,8 @@ mod muxer_rxq;
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
 
+use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
+
 mod defs {
     /// Maximum number of established connections that we can handle.
     pub const MAX_CONNECTIONS: usize = 1023;
@@ -46,3 +48,5 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
+
+impl VsockConnectionBackend for std::os::unix::net::UnixStream {}
