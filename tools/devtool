@@ -820,12 +820,12 @@ check_kernver () {
 check_KPTI () {
     (grep -q "^Mitigation: PTI$" \
       /sys/devices/system/cpu/vulnerabilities/meltdown) || \
-    say_warn "WARNING: KPTI NOT SUPPORTED"
+    say_warn "WARNING: KPTI NOT SUPPORTED."
 }
 
 check_KSM () {
     (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
-    say_warn "WARNING: KSM ENABLED"
+    say_warn "WARNING: KSM ENABLED."
 }
 
 check_vulns () {
@@ -838,7 +838,7 @@ check_vulns () {
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-    say_warn "WARNING: SWAP ENABLED"
+    say_warn "WARNING: SWAP ENABLED."
 }
 
 check_EPT() {
