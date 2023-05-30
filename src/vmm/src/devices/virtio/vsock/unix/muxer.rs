@@ -781,6 +781,7 @@ mod tests {
     use super::super::super::csm::defs as csm_defs;
     use super::*;
     use crate::devices::virtio::vsock::device::RXQ_INDEX;
+    use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext as VsockTestContext;
 
     const PEER_CID: u64 = 3;
@@ -843,18 +844,15 @@ mod tests {
             &mut self,
             local_port: u32,
             peer_port: u32,
-            data: &[u8],
+            mut data: &[u8],
         ) -> &mut VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
                 .set_len(data.len() as u32);
+
+            let data_len = data.len(); // store in tmp var to make borrow checker happy.
             self.pkt
-                .read_at_offset_from(
-                    &self._vsock_test_ctx.mem,
-                    0,
-                    &mut std::io::Cursor::new(data.to_vec()),
-                    data.len(),
-                )
+                .read_at_offset_from(&self._vsock_test_ctx.mem, 0, &mut data, data_len)
                 .unwrap();
             &mut self.pkt
         }
@@ -1106,15 +1104,7 @@ mod tests {
         assert_eq!(ctx.pkt.src_port(), LOCAL_PORT);
         assert_eq!(ctx.pkt.dst_port(), PEER_PORT);
 
-        let mut buf = vec![];
-        ctx.pkt
-            .write_from_offset_to(
-                &ctx._vsock_test_ctx.mem,
-                0,
-                &mut buf,
-                ctx.pkt.len() as usize,
-            )
-            .unwrap();
+        let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
         assert_eq!(&buf, &data);
 
         assert!(!ctx.muxer.has_pending_rx());
@@ -1146,15 +1136,7 @@ mod tests {
         assert_eq!(ctx.pkt.src_port(), local_port);
         assert_eq!(ctx.pkt.dst_port(), peer_port);
 
-        let mut buf = vec![];
-        ctx.pkt
-            .write_from_offset_to(
-                &ctx._vsock_test_ctx.mem,
-                0,
-                &mut buf,
-                ctx.pkt.len() as usize,
-            )
-            .unwrap();
+        let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
         assert_eq!(&buf, &data);
     }
 

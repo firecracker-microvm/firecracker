@@ -6,7 +6,7 @@
 mod connection;
 mod txbuf;
 
-pub use connection::VsockConnection;
+pub use connection::{VsockConnection, VsockConnectionBackend};
 
 pub mod defs {
     /// Vsock connection TX buffer capacity.

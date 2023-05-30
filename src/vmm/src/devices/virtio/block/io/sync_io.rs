@@ -5,7 +5,9 @@ use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::result::Result;
 
-use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use utils::vm_memory::{
+    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile,
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -42,9 +44,10 @@ impl SyncFileEngine {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(Error::Seek)?;
-        mem.read_from(addr, &mut self.file, count as usize)
-            .map(|count| count as u32)
-            .map_err(Error::Transfer)
+        mem.get_slice(addr, count as usize)
+            .and_then(|mut slice| Ok(self.file.read_exact_volatile(&mut slice)?))
+            .map_err(Error::Transfer)?;
+        Ok(count)
     }
 
     pub fn write(
@@ -57,9 +60,10 @@ impl SyncFileEngine {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(Error::Seek)?;
-        mem.write_to(addr, &mut self.file, count as usize)
-            .map(|count| count as u32)
-            .map_err(Error::Transfer)
+        mem.get_slice(addr, count as usize)
+            .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
+            .map_err(Error::Transfer)?;
+        Ok(count)
     }
 
     pub fn flush(&mut self) -> Result<(), Error> {

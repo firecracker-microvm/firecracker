@@ -2,23 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-/// `VsockPacket` provides a thin wrapper over the buffers exchanged via virtio queues.
-/// There are two components to a vsock packet, each using its own descriptor in a
-/// virtio queue:
-/// - the packet header; and
-/// - the packet data/buffer.
-/// There is a 1:1 relation between descriptor chains and packets: the first (chain head) holds
-/// the header, and an optional second descriptor holds the data. The second descriptor is only
-/// present for data packets (VSOCK_OP_RW).
-///
-/// `VsockPacket` wraps these two buffers and provides direct access to the data stored
-/// in guest memory. This is done to avoid unnecessarily copying data from guest memory
-/// to temporary buffers, before passing it on to the vsock backend.
-use std::io::{Read, Write};
+//! `VsockPacket` provides a thin wrapper over the buffers exchanged via virtio queues.
+//! There are two components to a vsock packet, each using its own descriptor in a
+//! virtio queue:
+//! - the packet header; and
+//! - the packet data/buffer.
+//! There is a 1:1 relation between descriptor chains and packets: the first (chain head) holds
+//! the header, and an optional second descriptor holds the data. The second descriptor is only
+//! present for data packets (VSOCK_OP_RW).
+//!
+//! `VsockPacket` wraps these two buffers and provides direct access to the data stored
+//! in guest memory. This is done to avoid unnecessarily copying data from guest memory
+//! to temporary buffers, before passing it on to the vsock backend.
+
+use std::io::ErrorKind;
 
 use utils::vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
-    GuestRegionMmap, MemoryRegionAddress,
+    Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestMemoryMmap, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile, BS,
 };
 
 use super::super::DescriptorChain;
@@ -239,71 +240,83 @@ impl VsockPacket {
         self.buf_size
     }
 
-    /// Gets the GuestRegion and the MemoryRegionAddress where the buf starts.
+    /// Verifies that it is legal to write `count` bytes into the data descriptor of this
+    /// [`VsockPacket`] at offset `buf_offset`.
     ///
-    /// As they are currently implemented, `GuestMemory::write_to()` and `GuestMemory::read_from()`
-    /// have 2 significant disadvantages:
-    /// 1. Performance: They process chunks of length 4K and they copy data to an auxiliary buffer.
-    /// 2. Error handling: They don't handle `EWOULDBLOCK` correctly. So for example if it manages
-    /// to    write 1K bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
-    ///    `GuestMemory::IoError`. On the Rx path we read from a stream, but we don't know its
-    ///    length. We just try to write as much as possible. This is guaranteed to lead to an
-    ///    `EWOULDBLOCK` error eventually.
-    /// This makes them unusable. But the entire buffer should be placed inside a single
-    /// `GuestRegion`. Also `GuestRegion::write_to()` and `GuestRegion::read_from()` don't have
-    /// the problems mentioned above. So we will read/write directly to/from the `GuestRegion`.
-    ///
-    /// TODO: use `GuestMemory::write_to()` and `GuestMemory::read_from()` when they are stable
-    /// enough:
-    /// 1. https://github.com/rust-vmm/vm-memory/pull/125 should be merged.
-    /// 2. The `EWOULDBLOCK` scenario should be fixed.
-    fn buf_region_addr<'a>(
-        &self,
+    /// Returns a [`VolatileSlice`͘] of length `count` starting at offset `buf_offset` to the
+    /// [`GuestMemoryMmap`] backing the data descriptor of this [`VsockPacket`].
+    fn check_bounds_for_buffer_access<'a>(
+        &'a self,
         mem: &'a GuestMemoryMmap,
-        offset: usize,
+        buf_offset: usize,
         count: usize,
-    ) -> Result<(&'a GuestRegionMmap, MemoryRegionAddress)> {
+    ) -> Result<VolatileSlice<'a, BS<Option<AtomicBitmap>>>> {
         // Check that the desired slice is inside the buf.
         self.buf_size
-            .checked_sub(offset)
+            .checked_sub(buf_offset)
             .and_then(|remaining_size| remaining_size.checked_sub(count))
             .ok_or(VsockError::GuestMemoryBounds)?;
 
         let buf_addr = self.buf_addr.ok_or(VsockError::PktBufMissing)?;
+
         buf_addr
-            .checked_add(offset as u64)
-            .and_then(|offset_addr| mem.to_region_addr(offset_addr))
-            .and_then(|(region, region_addr)| {
-                region.checked_offset(region_addr, count.checked_sub(1)?)?;
-                Some((region, region_addr))
+            .checked_add(buf_offset as u64)
+            .and_then(|offset_addr| mem.get_slice(offset_addr, count).ok())
+            .and_then(|slice| {
+                // This rejects the scenario where buf_offset == buf_size and count == 0, which
+                // vm-memory would consider a valid subslice.
+                let _ = slice.offset(count.checked_sub(1)?).ok()?;
+                Some(slice)
             })
             .ok_or(VsockError::GuestMemoryBounds)
     }
 
-    pub fn read_at_offset_from<F: Read>(
+    pub fn read_at_offset_from(
         &mut self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        src: &mut F,
+        src: &mut impl ReadVolatile,
         count: usize,
     ) -> Result<usize> {
-        let (region, region_addr) = self.buf_region_addr(mem, offset, count)?;
-        region
-            .read_from(region_addr, src, count)
-            .map_err(VsockError::GuestMemoryMmap)
+        let mut dst = self.check_bounds_for_buffer_access(mem, offset, count)?;
+
+        loop {
+            match src.read_volatile(&mut dst) {
+                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {
+                    continue
+                }
+                Ok(bytes_read) => return Ok(bytes_read),
+                Err(volatile_memory_error) => {
+                    return Err(VsockError::GuestMemoryMmap(GuestMemoryError::from(
+                        volatile_memory_error,
+                    )))
+                }
+            }
+        }
     }
 
-    pub fn write_from_offset_to<F: Write>(
+    pub fn write_from_offset_to(
         &self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        dst: &mut F,
+        dst: &mut impl WriteVolatile,
         count: usize,
     ) -> Result<usize> {
-        let (region, region_addr) = self.buf_region_addr(mem, offset, count)?;
-        region
-            .write_to(region_addr, dst, count)
-            .map_err(VsockError::GuestMemoryMmap)
+        let src = self.check_bounds_for_buffer_access(mem, offset, count)?;
+
+        loop {
+            match dst.write_volatile(&src) {
+                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {
+                    continue
+                }
+                Ok(bytes_written) => return Ok(bytes_written),
+                Err(volatile_memory_error) => {
+                    return Err(VsockError::GuestMemoryMmap(GuestMemoryError::from(
+                        volatile_memory_error,
+                    )))
+                }
+            }
+        }
     }
 
     pub fn src_cid(&self) -> u64 {
@@ -404,9 +417,6 @@ impl VsockPacket {
 
 #[cfg(test)]
 mod tests {
-
-    use std::io::Cursor;
-
     use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
@@ -675,7 +685,6 @@ mod tests {
         assert_eq!(pkt.buf_size(), buf_desc.len.get() as usize);
         assert_eq!(pkt.buf_addr.unwrap().raw_value(), buf_desc.addr.get());
 
-        let mut buf = vec![];
         let zeros = vec![0_u8; pkt.buf_size()];
         let data: Vec<u8> = (0..pkt.buf_size()).map(|i| (i % 0x100) as u8).collect();
         for offset in 0..pkt.buf_size() {
@@ -687,16 +696,22 @@ mod tests {
             pkt.read_at_offset_from(
                 &test_ctx.mem,
                 offset,
-                &mut Cursor::new(data.clone()),
+                &mut data.as_slice(),
                 pkt.buf_size() - offset,
             )
             .unwrap();
+
             buf_desc.check_data(&expected_data);
 
-            buf.clear();
-            pkt.write_from_offset_to(&test_ctx.mem, offset, &mut buf, pkt.buf_size() - offset)
-                .unwrap();
-            assert_eq!(buf.as_slice(), &expected_data[offset..]);
+            let mut buf = vec![0; pkt.buf_size()];
+            pkt.write_from_offset_to(
+                &test_ctx.mem,
+                offset,
+                &mut buf.as_mut_slice(),
+                pkt.buf_size() - offset,
+            )
+            .unwrap();
+            assert_eq!(&buf[..pkt.buf_size() - offset], &expected_data[offset..]);
         }
 
         let oob_cases = vec![
@@ -705,18 +720,19 @@ mod tests {
             (usize::MAX, 1),
             (1, usize::MAX),
         ];
+        let mut buf = vec![0; pkt.buf_size()];
         for (offset, count) in oob_cases {
             assert!(pkt
-                .read_at_offset_from(&test_ctx.mem, offset, &mut Cursor::new(data.clone()), count,)
+                .read_at_offset_from(&test_ctx.mem, offset, &mut data.as_slice(), count)
                 .is_err());
             assert!(pkt
-                .write_from_offset_to(&test_ctx.mem, offset, &mut buf, count)
+                .write_from_offset_to(&test_ctx.mem, offset, &mut buf.as_mut_slice(), count)
                 .is_err());
         }
     }
 
     #[test]
-    fn test_buf_region_addr_edge_cases() {
+    fn test_check_bounds_for_buffer_access_edge_cases() {
         let mut test_ctx = TestContext::new();
 
         test_ctx.mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
@@ -748,7 +764,9 @@ mod tests {
                 buf_addr: Some(buf_addr),
                 buf_size,
             };
-            assert!(pkt.buf_region_addr(&test_ctx.mem, offset, count).is_err());
+            assert!(pkt
+                .check_bounds_for_buffer_access(&test_ctx.mem, offset, count)
+                .is_err());
         }
     }
 }
