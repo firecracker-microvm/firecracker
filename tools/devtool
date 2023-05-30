@@ -842,8 +842,8 @@ check_swap () {
 }
 
 check_EPT() {
-    if [ "$arch" = "x86_64" ]; then
-        (grep -q "Y" /sys/module/kvm_intel/parameters/ept) || \
+    if [ "$(uname --machine)" = "x86_64" ]; then
+        (grep -q "Y" /sys/module/kvm_intel/parameters/ept ; [ $? -ne 1 ]) || \
         say_warn "WARNING: EPT DISABLED. Performance will be affected."
     fi
 }
