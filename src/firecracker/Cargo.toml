@@ -18,10 +18,10 @@ api_server = { path = "../api_server" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot"}
+snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-cargo_toml = "0.13.0"
-regex = { version = "1.5.5", default-features = false, features = ["std"] }
+cargo_toml = "0.15.2"
+regex = { version = "1.8.3", default-features = false, features = ["std"] }

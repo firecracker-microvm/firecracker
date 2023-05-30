@@ -27,7 +27,6 @@ mod common_types {
 }
 
 use std::borrow::Cow;
-use std::num::ParseIntError;
 use std::result::Result;
 
 pub use common_types::*;
@@ -86,10 +85,7 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>,
+    V: Numeric,
 {
     /// Filter to be used when writing the value bits.
     pub filter: V,
@@ -99,10 +95,7 @@ where
 
 impl<V> RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>,
+    V: Numeric,
 {
     /// Applies filter to the value
     #[inline]
@@ -112,24 +105,39 @@ where
 }
 
 /// Trait for numeric types
-pub trait Numeric: Sized {
+pub trait Numeric:
+    Sized
+    + Copy
+    + PartialEq<Self>
+    + std::ops::Not<Output = Self>
+    + std::ops::BitAnd<Output = Self>
+    + std::ops::BitOr<Output = Self>
+    + std::ops::BitOrAssign<Self>
+    + std::ops::Shl<Output = Self>
+    + std::ops::AddAssign<Self>
+{
     /// Number of bits for type
     const BITS: u32;
-    /// Parse numeric type from string with given radix
-    fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseIntError>;
     /// Value of bit at pos
     fn bit(&self, pos: u32) -> bool;
+    /// Returns 0 of the type
+    fn zero() -> Self;
+    /// Returns 1 of the type
+    fn one() -> Self;
 }
 
 macro_rules! impl_numeric {
     ($type:tt) => {
         impl Numeric for $type {
             const BITS: u32 = $type::BITS;
-            fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseIntError> {
-                $type::from_str_radix(s, radix)
-            }
             fn bit(&self, pos: u32) -> bool {
                 (self & (1 << pos)) != 0
+            }
+            fn zero() -> Self {
+                0
+            }
+            fn one() -> Self {
+                1
             }
         }
     };
@@ -143,12 +151,7 @@ impl_numeric!(u128);
 
 impl<V> Serialize for RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>
-        + PartialEq<V>
-        + Numeric,
+    V: Numeric,
 {
     /// Serialize combination of value and filter into a single tri state string
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -179,11 +182,7 @@ where
 
 impl<'de, V> Deserialize<'de> for RegisterValueFilter<V>
 where
-    V: Copy
-        + std::ops::Not<Output = V>
-        + std::ops::BitAnd<Output = V>
-        + std::ops::BitOr<Output = V>
-        + Numeric,
+    V: Numeric,
 {
     /// Deserialize a composite bitmap string into a value pair
     /// input string: "010x"
@@ -195,29 +194,32 @@ where
     where
         D: Deserializer<'de>,
     {
-        let mut bitmap_str = String::deserialize(deserializer)?;
+        let original_str = String::deserialize(deserializer)?;
 
-        if bitmap_str.starts_with("0b") {
-            bitmap_str = bitmap_str[2..].to_string();
+        let stripped_str = original_str.strip_prefix("0b").unwrap_or(&original_str);
+
+        let (mut filter, mut value) = (V::zero(), V::zero());
+        let mut i = V::zero();
+        for s in stripped_str.as_bytes().iter().rev() {
+            match s {
+                b'_' => continue,
+                b'x' => {}
+                b'0' => {
+                    filter |= V::one() << i;
+                }
+                b'1' => {
+                    filter |= V::one() << i;
+                    value |= V::one() << i;
+                }
+                c => {
+                    return Err(D::Error::custom(format!(
+                        "Failed to parse string [{}] as a bitmap - unknown character: {}",
+                        original_str, c
+                    )))
+                }
+            }
+            i += V::one();
         }
-
-        let filter_str = bitmap_str.replace('0', "1");
-        let filter_str = filter_str.replace('x', "0");
-        let value_str = bitmap_str.replace('x', "0");
-
-        let filter = V::from_str_radix(filter_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?;
-        let value = V::from_str_radix(value_str.as_str(), 2).map_err(|err| {
-            D::Error::custom(format!(
-                "Failed to parse string [{}] as a bitmap - {:?}",
-                bitmap_str, err
-            ))
-        })?;
-
         Ok(RegisterValueFilter { filter, value })
     }
 }
@@ -243,5 +245,13 @@ mod tests {
         };
         let deserialized: RegisterValueFilter<u8> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, expected_rvf);
+
+        let serialized = "\"0b0_101_xx_xx\"";
+        let deserialized: RegisterValueFilter<u8> = serde_json::from_str(serialized).unwrap();
+        assert_eq!(deserialized, expected_rvf);
+
+        let serialized = "\"0b0_xϽ1_xx_xx\"";
+        let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
+        assert!(deserialized.is_err());
     }
 }

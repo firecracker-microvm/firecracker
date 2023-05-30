@@ -13,6 +13,11 @@
 - Added support for the `virtio-rng` entropy device. The device is optional. A
   single device can be enabled per VM using the `/entropy` endpoint.
 
+### Changed
+
+- Updated deserialization of `bitmap` for custom CPU templates to allow usage
+  of '_' as a separator.
+
 ### Fixed
 
 - Fixed feature flags in T2S CPU template on Intel Ice Lake.

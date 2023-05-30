@@ -425,16 +425,15 @@ mod tests {
                     "msr_modifiers":  [
                         {
                             "addr": "200",
-                            "bitmap": "0bx0?100x?x1xxxx00xxx1xxxxxxxxxxx1"
+                            "bitmap": "0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1"
                         },
                     ]
                 }"#,
         );
         assert!(cpu_template_result.is_err());
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [x0?100x?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"));
+        assert!(cpu_template_result.unwrap_err().to_string().contains(
+            "Failed to parse string [0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"
+        ));
         // Malformed 64-bit bitmap - value failed
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
@@ -450,7 +449,7 @@ mod tests {
         assert!(cpu_template_result
             .unwrap_err()
             .to_string()
-            .contains("Failed to parse string [x00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"));
+            .contains("Failed to parse string [0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"));
     }
 
     #[test]

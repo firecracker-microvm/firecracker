@@ -28,11 +28,11 @@ BASELINES = {
         "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
     },
     "AMD": {
-        "deserialize": {"target": 0.025, "delta": 0.02},  # milliseconds
+        "deserialize": {"target": 0.0037, "delta": 0.002},  # milliseconds
         "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
     },
     "ARM": {
-        "deserialize": {"target": 0.0015, "delta": 0.001},  # milliseconds
+        "deserialize": {"target": 0.00037, "delta": 0.0006},  # milliseconds
         "serialize": {"target": 0.0015, "delta": 0.006},  # milliseconds
     },
 }
