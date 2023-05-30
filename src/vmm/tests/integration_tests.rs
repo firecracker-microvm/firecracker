@@ -327,7 +327,7 @@ fn test_snapshot_load_sanity_checks() {
     );
 
     // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
-    for _ in 0..f64::from(MAX_SUPPORTED_VCPUS).log2() as usize {
+    for _ in 0..MAX_SUPPORTED_VCPUS.ilog2() {
         microvm_state
             .vcpu_states
             .append(&mut microvm_state.vcpu_states.clone());
