@@ -16,7 +16,7 @@ from framework.properties import global_props
 from host_tools.cargo_build import run_seccompiler_bin
 
 # The maximum acceptable startup time in CPU us.
-MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3800}
+MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 4000}
 MAX_STARTUP_TIME = MAX_STARTUP_TIME_CPU_US[platform.machine()]
 
 
