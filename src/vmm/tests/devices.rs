@@ -17,7 +17,7 @@ mod serial_utils {
                 return Err(io::Error::last_os_error());
             }
 
-            Ok(count as usize)
+            Ok(count.try_into().unwrap())
         }
     }
 
@@ -87,7 +87,7 @@ fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
             dummy_data.len(),
         ) as i32
     };
-    assert!(dummy_data.len() == rc as usize);
+    assert!(dummy_data.len() == usize::try_from(rc).unwrap());
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
@@ -129,7 +129,7 @@ fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
             dummy_data.len(),
         ) as i32
     };
-    assert!(dummy_data.len() == rc as usize);
+    assert!(dummy_data.len() == usize::try_from(rc).unwrap());
 
     // Writing to the other end of the pipe triggers handling a stdin event.
     // Now, 63 bytes will be read from stdin, filling up the buffer.
@@ -235,7 +235,7 @@ fn test_issue_serial_hangup_anon_pipe_while_unregistered_stdin() {
             dummy_data.len(),
         ) as i32
     };
-    assert!(dummy_data.len() == rc as usize);
+    assert!(dummy_data.len() == usize::try_from(rc).unwrap());
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
@@ -277,7 +277,7 @@ fn test_issue_serial_hangup_anon_pipe_while_unregistered_stdin() {
             dummy_data.len(),
         ) as i32
     };
-    assert!(dummy_data.len() == rc as usize);
+    assert!(dummy_data.len() == usize::try_from(rc).unwrap());
 
     // Writing to the other end of the pipe triggers handling an stdin event.
     // Now, 63 bytes will be read from stdin, filling up the buffer.
