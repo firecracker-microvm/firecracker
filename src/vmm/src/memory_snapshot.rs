@@ -7,8 +7,8 @@ use std::fs::File;
 use std::io::SeekFrom;
 
 use utils::vm_memory::{
-    Bitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-    GuestMemoryRegion, MemoryRegionAddress,
+    Bitmap, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    GuestMemoryRegion, MemoryRegionAddress, WriteVolatile,
 };
 use utils::{errno, get_page_size};
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -46,9 +46,9 @@ where
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
     fn describe(&self) -> GuestMemoryState;
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: std::io::Write>(&self, writer: &mut T) -> std::result::Result<(), Error>;
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> std::result::Result<(), Error>;
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
-    fn dump_dirty<T: std::io::Write + std::io::Seek>(
+    fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
@@ -100,16 +100,14 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: std::io::Write>(&self, writer: &mut T) -> std::result::Result<(), Error> {
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> std::result::Result<(), Error> {
         self.iter()
-            .try_for_each(|region| {
-                region.write_all_to(MemoryRegionAddress(0), writer, region.len() as usize)
-            })
+            .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
             .map_err(Error::WriteMemory)
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
-    fn dump_dirty<T: std::io::Write + std::io::Seek>(
+    fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
@@ -142,21 +140,21 @@ impl SnapshotMemory for GuestMemoryMmap {
                             write_size += page_size;
                         } else if write_size > 0 {
                             // We are at the end of a batch of dirty pages.
-                            region.write_all_to(
-                                MemoryRegionAddress(dirty_batch_start),
-                                writer,
-                                write_size,
+                            writer.write_all_volatile(
+                                &region.get_slice(
+                                    MemoryRegionAddress(dirty_batch_start),
+                                    write_size,
+                                )?,
                             )?;
+
                             write_size = 0;
                         }
                     }
                 }
 
                 if write_size > 0 {
-                    region.write_all_to(
-                        MemoryRegionAddress(dirty_batch_start),
-                        writer,
-                        write_size,
+                    writer.write_all_volatile(
+                        &region.get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
                     )?;
                 }
                 writer_offset += region.len();
@@ -198,7 +196,7 @@ mod tests {
 
     use utils::get_page_size;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::GuestAddress;
+    use utils::vm_memory::{Bytes, GuestAddress};
 
     use super::*;
 
@@ -289,12 +287,11 @@ mod tests {
 
         // Case 1: dump the full memory.
         {
-            let memory_file = TempFile::new().unwrap();
-            guest_memory.dump(&mut memory_file.as_file()).unwrap();
+            let mut memory_file = TempFile::new().unwrap().into_file();
+            guest_memory.dump(&mut memory_file).unwrap();
 
             let restored_guest_memory =
-                GuestMemoryMmap::restore(Some(memory_file.as_file()), &memory_state, false)
-                    .unwrap();
+                GuestMemoryMmap::restore(Some(&memory_file), &memory_state, false).unwrap();
 
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
@@ -321,14 +318,12 @@ mod tests {
             dirty_bitmap.insert(0, vec![0b01; 1]);
             dirty_bitmap.insert(1, vec![0b10; 1]);
 
-            let file = TempFile::new().unwrap();
-            guest_memory
-                .dump_dirty(&mut file.as_file(), &dirty_bitmap)
-                .unwrap();
+            let mut file = TempFile::new().unwrap().into_file();
+            guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
 
             // We can restore from this because this is the first dirty dump.
             let restored_guest_memory =
-                GuestMemoryMmap::restore(Some(file.as_file()), &memory_state, false).unwrap();
+                GuestMemoryMmap::restore(Some(&file), &memory_state, false).unwrap();
 
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
@@ -347,7 +342,7 @@ mod tests {
 
             // Dirty the memory and dump again
             let file = TempFile::new().unwrap();
-            let mut reader = file.as_file();
+            let mut reader = file.into_file();
             let zeros = vec![0u8; page_size];
             let ones = vec![1u8; page_size];
             let twos = vec![2u8; page_size];

@@ -7,12 +7,11 @@ from pathlib import Path
 import pytest
 
 from framework.artifacts import NetIfaceConfig
-from framework.properties import get_kernel_version
-from framework.utils import check_entropy
+from framework.utils import check_entropy, get_kernel_version
 from framework.utils_cpuid import get_instance_type
 
 INSTANCE_TYPE = get_instance_type()
-HOST_KERNEL = get_kernel_version(level=2)
+HOST_KERNEL = get_kernel_version(level=1)
 
 
 def _microvm_basic_config(microvm):

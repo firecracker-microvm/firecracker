@@ -32,11 +32,8 @@ mod test_utils {
         opcode: OpCode,
         num_bytes: usize,
     ) {
-        let mut left_at: usize = 0;
-        loop {
-            // left_at is only increased if the iteration succeeds, if the iteration fails it will
-            // be retried
-            for i in left_at..num_bytes {
+        for i in 0..num_bytes {
+            loop {
                 let operation = match opcode {
                     OpCode::Read => Operation::read(
                         0,
@@ -64,26 +61,16 @@ mod test_utils {
                 };
 
                 match unsafe { ring.push(operation) } {
-                    Ok(()) => {}
-                    Err(err_tuple)
-                        if matches!(err_tuple.0, Error::SQueue(SQueueError::FullQueue)) =>
-                    {
+                    Ok(()) => break,
+                    Err((Error::SQueue(SQueueError::FullQueue), _)) => {
                         // Stop and wait.
                         ring.submit_and_wait_all().unwrap();
                         drain_cqueue(ring);
 
-                        // Do not increment the left_at because we need to retry this op.
-                        break;
+                        // Retry this OP
                     }
                     Err(_) => panic!("Unexpected error."),
                 }
-
-                // Increment the left_at since this iteration was successful
-                left_at = i;
-            }
-
-            if left_at == (num_bytes - 1) {
-                break;
             }
         }
 
