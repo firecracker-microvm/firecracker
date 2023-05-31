@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(test)]
 #![doc(hidden)]
 
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -69,7 +70,7 @@ impl VsockChannel for TestBackend {
                     let buf: Vec<u8> = (0..buf_size)
                         .map(|i| cool_buf[i % cool_buf.len()])
                         .collect();
-                    pkt.read_at_offset_from(mem, 0, &mut std::io::Cursor::new(buf), buf_size)
+                    pkt.read_at_offset_from(mem, 0, &mut buf.as_slice(), buf_size)
                         .unwrap();
                 }
                 self.rx_ok_cnt += 1;
@@ -195,6 +196,14 @@ impl<'a> EventHandlerContext<'a> {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
         self.device.handle_rxq_event(EventSet::IN);
     }
+}
+
+#[cfg(test)]
+pub fn read_packet_data(pkt: &VsockPacket, mem: &GuestMemoryMmap, how_much: usize) -> Vec<u8> {
+    let mut buf = vec![0; how_much];
+    pkt.write_from_offset_to(mem, 0, &mut buf.as_mut_slice(), how_much)
+        .unwrap();
+    buf
 }
 
 impl<B> Vsock<B>

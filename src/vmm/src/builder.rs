@@ -5,7 +5,7 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +24,7 @@ use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -640,7 +640,7 @@ fn load_initrd<F>(
     image: &mut F,
 ) -> std::result::Result<InitrdConfig, StartMicrovmError>
 where
-    F: Read + Seek,
+    F: ReadVolatile + Seek,
 {
     use self::StartMicrovmError::{InitrdLoad, InitrdRead};
 
@@ -663,8 +663,12 @@ where
     let address = crate::arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
 
     // Load the image into memory
-    vm_memory
-        .read_from(GuestAddress(address), image, size)
+    let mut slice = vm_memory
+        .get_slice(GuestAddress(address), size)
+        .map_err(|_| InitrdLoad)?;
+
+    image
+        .read_exact_volatile(&mut slice)
         .map_err(|_| InitrdLoad)?;
 
     Ok(InitrdConfig {
@@ -1029,7 +1033,7 @@ pub(crate) fn set_stdout_nonblocking() {
 
 #[cfg(test)]
 pub mod tests {
-    use std::io::Cursor;
+    use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
     use mmds::data_store::{Mmds, MmdsVersion};
@@ -1314,13 +1318,17 @@ pub mod tests {
 
         let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;
 
+        let tempfile = TempFile::new().unwrap();
+        let mut tempfile = tempfile.into_file();
+        tempfile.write_all(&image).unwrap();
+
         #[cfg(target_arch = "x86_64")]
         let gm = create_guest_mem_with_size(mem_size);
 
         #[cfg(target_arch = "aarch64")]
         let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
-        let res = load_initrd(&gm, &mut Cursor::new(&image));
+        let res = load_initrd(&gm, &mut tempfile);
         assert!(res.is_ok());
         let initrd = res.unwrap();
         assert!(gm.address_in_range(initrd.address));
@@ -1331,7 +1339,10 @@ pub mod tests {
     fn test_load_initrd_no_memory() {
         let gm = create_guest_mem_with_size(79);
         let image = make_test_bin();
-        let res = load_initrd(&gm, &mut Cursor::new(&image));
+        let tempfile = TempFile::new().unwrap();
+        let mut tempfile = tempfile.into_file();
+        tempfile.write_all(&image).unwrap();
+        let res = load_initrd(&gm, &mut tempfile);
         assert!(res.is_err());
         assert_eq!(
             StartMicrovmError::InitrdLoad.to_string(),
@@ -1342,12 +1353,15 @@ pub mod tests {
     #[test]
     fn test_load_initrd_unaligned() {
         let image = vec![1, 2, 3, 4];
+        let tempfile = TempFile::new().unwrap();
+        let mut tempfile = tempfile.into_file();
+        tempfile.write_all(&image).unwrap();
         let gm = create_guest_mem_at(
             GuestAddress(crate::arch::PAGE_SIZE as u64 + 1),
             image.len() * 2,
         );
 
-        let res = load_initrd(&gm, &mut Cursor::new(&image));
+        let res = load_initrd(&gm, &mut tempfile);
         assert!(res.is_err());
         assert_eq!(
             StartMicrovmError::InitrdLoad.to_string(),

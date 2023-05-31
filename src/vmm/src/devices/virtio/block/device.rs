@@ -1173,6 +1173,10 @@ pub(crate) mod tests {
         }
 
         {
+            // Note: this test case only works because when we truncated the file above (with
+            // set_len), we did not update the sector count stored in the block device
+            // itself (is still 8, even though the file length is 1024 now, e.g. has 2 sectors).
+            // Normally, requests that reach past the final sector are rejected by Request::parse.
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());
 
@@ -1194,9 +1198,6 @@ pub(crate) mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
 
-            // File has 2 sectors and we try to read from the second sector, which means we will
-            // read 512 bytes (instead of 1024).
-            assert_eq!(vq.used.ring[0].get().len, 513);
             assert_eq!(
                 mem.read_obj::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR

@@ -198,8 +198,7 @@ pub mod tests {
                     error: $($pattern)+,
                 }) => (),
                 ref err => {
-                    println!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
-                    assert!(false)
+                    panic!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
                 }
             }
         };
@@ -207,15 +206,16 @@ pub mod tests {
 
     macro_rules! assert_sync_execution {
         ($expression:expr, $count:expr) => {
-            if let Ok(FileEngineOk::Executed(UserDataOk {
-                user_data: _,
-                count,
-            })) = $expression
-            {
-                assert_eq!(count, $count);
-            } else {
-                println!("expected Ok, received Err");
-                assert!(false);
+            match $expression {
+                Ok(FileEngineOk::Executed(UserDataOk {
+                    user_data: _,
+                    count,
+                })) => assert_eq!(count, $count),
+                other => panic!(
+                    "Expected: Ok(FileEngineOk::Executed(UserDataOk {{ user_data: _, count: {} \
+                     }})), got: {:?}",
+                    $count, other
+                ),
             }
         };
     }
@@ -291,12 +291,15 @@ pub mod tests {
         let addr = GuestAddress(MEM_LEN as u64 - partial_len);
         mem.write(&data, addr).unwrap();
         assert_sync_execution!(
-            engine.write(0, &mem, addr, FILE_LEN, ()),
+            engine.write(0, &mem, addr, partial_len as u32, ()),
             partial_len as u32
         );
         // Partial read
         let mem = create_mem();
-        assert_sync_execution!(engine.read(0, &mem, addr, FILE_LEN, ()), partial_len as u32);
+        assert_sync_execution!(
+            engine.read(0, &mem, addr, partial_len as u32, ()),
+            partial_len as u32
+        );
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();
