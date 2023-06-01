@@ -1,7 +1,5 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-use std::fmt::{Display, Formatter, Result};
 use std::net::Ipv4Addr;
 
 use mmds::data_store;
@@ -40,46 +38,22 @@ impl MmdsConfig {
 }
 
 /// MMDS configuration related errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MmdsConfigError {
     /// The network interfaces list provided is empty.
+    #[error("The list of network interface IDs that allow forwarding MMDS requests is empty.")]
     EmptyNetworkIfaceList,
     /// The provided IPv4 address is not link-local valid.
+    #[error("The MMDS IPv4 address is not link local.")]
     InvalidIpv4Addr,
     /// The network interfaces list provided contains IDs that
     /// does not correspond to any existing network interface.
+    #[error(
+        "The list of network interface IDs provided contains at least one ID that does not \
+         correspond to any existing network interface."
+    )]
     InvalidNetworkInterfaceId,
     /// MMDS version could not be configured.
+    #[error("The MMDS could not be configured to version {0}: {1}")]
     MmdsVersion(MmdsVersion, data_store::Error),
-}
-
-impl Display for MmdsConfigError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            MmdsConfigError::EmptyNetworkIfaceList => {
-                write!(
-                    f,
-                    "The list of network interface IDs that allow forwarding MMDS requests is \
-                     empty."
-                )
-            }
-            MmdsConfigError::InvalidIpv4Addr => {
-                write!(f, "The MMDS IPv4 address is not link local.")
-            }
-            MmdsConfigError::InvalidNetworkInterfaceId => {
-                write!(
-                    f,
-                    "The list of network interface IDs provided contains at least one ID that \
-                     does not correspond to any existing network interface."
-                )
-            }
-            MmdsConfigError::MmdsVersion(version, err) => {
-                write!(
-                    f,
-                    "The MMDS could not be configured to version {}: {}",
-                    version, err
-                )
-            }
-        }
-    }
 }
