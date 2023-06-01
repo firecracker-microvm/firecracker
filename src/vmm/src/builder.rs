@@ -836,9 +836,9 @@ pub fn configure_system_for_boot(
 
     #[cfg(target_arch = "aarch64")]
     let cpu_config = {
-        let regs = vcpus[0]
-            .kvm_vcpu
-            .get_regs(&cpu_template.reg_list())
+        use crate::arch::aarch64::regs::get_registers;
+        let mut regs = vec![];
+        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
             .map_err(GuestConfigError)?;
         CpuConfiguration { regs }
     };
