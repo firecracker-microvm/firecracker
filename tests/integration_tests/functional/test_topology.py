@@ -2,10 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ensuring correctness of CPU and cache topology in the guest."""
 
-import json
-import os
 import platform
-from ast import literal_eval
+import subprocess
 
 import pytest
 
@@ -90,31 +88,24 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
     # There are 2 types of L1 cache (instruction and data) that is why the
     # "cache_info" variable below has 4 items.
 
-    path = "/sys/devices/system/cpu/"
+    sys_cpu = "/sys/devices/system/cpu"
+    fields = ["level", "type", "size", "coherency_line_size", "number_of_sets"]
 
-    cache_files = ["level", "type", "size", "coherency_line_size", "number_of_sets"]
+    cmd = f"grep . {sys_cpu}/cpu{{0..{no_cpus-1}}}/cache/index*/{{{','.join(fields)}}} |sort"
 
-    _, stdout, stderr = test_microvm.ssh.execute_command(
-        "/usr/local/bin/get_cache_info.sh"
+    _, guest_stdout, guest_stderr = test_microvm.ssh.execute_command(cmd)
+    assert guest_stderr == ""
+
+    res = subprocess.run(
+        cmd,
+        shell=True,
+        executable="/bin/bash",
+        capture_output=True,
+        check=True,
+        encoding="ascii",
     )
-    assert stderr == ""
-
-    guest_dict = json.loads(literal_eval(stdout.strip()))
-    host_dict = {}
-    for i in range(no_cpus):
-        cpu_path = os.path.join(os.path.join(path, "cpu{}".format(i)), "cache")
-        dirs = os.listdir(cpu_path)
-        for cache_level in dirs:
-            if "index" not in os.path.basename(cache_level):
-                continue
-            cache_path = os.path.join(cpu_path, cache_level)
-
-            for cache_file in cache_files:
-                absolute_cache_file = os.path.join(cache_path, cache_file)
-                with open(absolute_cache_file, "r", encoding="utf-8") as file:
-                    host_val = file.readline().strip()
-                    host_dict[str(absolute_cache_file)] = str(host_val)
-    assert guest_dict == host_dict
+    assert res.stderr == ""
+    assert res.stdout == guest_stdout
 
 
 @pytest.mark.skipif(
