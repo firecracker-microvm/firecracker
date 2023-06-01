@@ -213,7 +213,7 @@ def test_snapshot_scaling(
         pytest.skip()
 
     guest_config = f"{vcpus}vcpu_{mem}mb"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
+    env_id = f"{st_core.env_id_prefix}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
@@ -244,7 +244,7 @@ def test_snapshot_all_devices(
         pytest.skip()
 
     guest_config = "all_dev"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
+    env_id = f"{st_core.env_id_prefix}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
