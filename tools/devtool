@@ -817,66 +817,33 @@ check_kernver () {
 # Check Production Host Setup
 # ../docs/prod-host-setup.md
 
-check_SMT () {
-    (grep -q "^forceoff$\|^notsupported$" \
-      /sys/devices/system/cpu/smt/control) ||
-    say_warn "WARNING: Hyperthreading ENABLED."
-}
-
 check_KPTI () {
     (grep -q "^Mitigation: PTI$" \
       /sys/devices/system/cpu/vulnerabilities/meltdown) || \
-    say_warn "WARNING: KPTI NOT SUPPORTED"
+    say_warn "WARNING: KPTI NOT SUPPORTED."
 }
 
 check_KSM () {
     (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
-    say_warn "WARNING: KSM ENABLED"
+    say_warn "WARNING: KSM ENABLED."
 }
 
-check_IBPB_IBRS () {
-    (grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$"\
-      /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
-    say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
-}
-
-check_L1TF () {
-    declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-    for cond in "${CONDITIONS[@]}";
-    do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf) ||
-       say_warn "WARNING: $cond: DISABLED";
+check_vulns () {
+    for f in /sys/devices/system/cpu/vulnerabilities/* ; do
+        if $(grep -q "Vulnerable" ${f}) ; then
+            say_warn "WARNING: `basename $f`: VULNERABLE.";
+        fi
     done
 }
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-    say_warn "WARNING: SWAP ENABLED"
-}
-
-check_SSBD () {
-    arch=$(uname -m)
-    if [ "$arch" = "aarch64" ]; then
-        local param="ssbd=force-on"
-    elif [ "$arch" = "x86_64" ]; then
-        local param="spec_store_bypass_disable=on"
-    fi
-
-    ssbd_sysfs_file="/sys/devices/system/cpu/vulnerabilities/spec_store_bypass"
-
-    if [ -f "$ssbd_sysfs_file" ]; then
-        (grep -q "^Vulnerable" $ssbd_sysfs_file) && \
-        say_warn "WARNING: SSBD mitigation is either globally disabled or"\
-            "system does not support mitigation via prctl or seccomp. Try"\
-            "enabling it system-wide, using the \`${param}\` boot parameter."
-    else
-        say_warn "WARNING: SSBD mitigation not supported on this kernel."\
-            "View the prod-host-setup.md for more details."
-    fi
+    say_warn "WARNING: SWAP ENABLED."
 }
 
 check_EPT() {
-    if [ "$arch" = "x86_64" ]; then
-        (grep -q "Y" /sys/module/kvm_intel/parameters/ept) || \
+    if [ "$(uname --machine)" = "x86_64" ]; then
+        (grep -q "Y" /sys/module/kvm_intel/parameters/ept ; [ $? -ne 1 ]) || \
         say_warn "WARNING: EPT DISABLED. Performance will be affected."
     fi
 }
@@ -909,12 +876,9 @@ cmd_checkenv() {
     say "Checking Host Security Configuration."
     say "Please check $PROD_DOC in case of any error."
     check_KSM
-    check_IBPB_IBRS
-    check_L1TF
-    check_SMT
     check_swap
-    check_SSBD
     check_EPT
+    check_vulns
 }
 
 generate_syscall_table_x86_64() {
