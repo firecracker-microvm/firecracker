@@ -13,7 +13,6 @@ from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import CpuMap, DictQuery, get_kernel_version
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.configs import defs
 
 TEST_ID = "network_latency"
@@ -36,18 +35,8 @@ class NetLatencyBaselineProvider(BaselineProvider):
 
     def __init__(self, env_id):
         """Network latency baseline provider initialization."""
-        cpu_model_name = get_cpu_model_name()
-        baselines = list(
-            filter(
-                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-                CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"],
-            )
-        )
-
-        super().__init__(DictQuery({}))
-        if len(baselines) > 0:
-            super().__init__(DictQuery(baselines[0]))
-
+        baseline = self.read_baseline(CONFIG_DICT)
+        super().__init__(DictQuery(baseline))
         self._tag = "baselines/{}/" + env_id + "/{}/ping"
 
     def get(self, ms_name: str, st_name: str) -> dict:
