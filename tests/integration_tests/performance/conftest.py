@@ -85,13 +85,15 @@ def send_metrics(metrics, stats: core.Core):
 def st_core(metrics, results_file_dumper, guest_kernel, rootfs, request):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
+    guest_kernel_ver = guest_kernel.prop
     stats.check_baseline = request.config.getoption("--perf-fail")
+    stats.env_id_prefix = f"{guest_kernel_ver}/{rootfs.name()}"
     stats.iterations = 1
     stats.custom = {
         "instance": global_props.instance,
         "cpu_model": global_props.cpu_model,
         "host_kernel": "linux-" + global_props.host_linux_version,
-        "guest_kernel": guest_kernel.prop,
+        "guest_kernel": guest_kernel_ver,
         "rootfs": rootfs.name(),
     }
     stats.metrics = metrics

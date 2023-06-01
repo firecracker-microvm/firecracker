@@ -159,7 +159,7 @@ def test_network_tcp_throughput(
         payload_length,
         current_avail_cpu + 1,
         DEFAULT_HOST_IP,
-        f"{guest_kernel.name()}/{rootfs.name()}/{microvm_cfg}",
+        f"{st_core.env_id_prefix}/{microvm_cfg}",
     )
     st_core.add_pipe(prod, cons, tag)
 

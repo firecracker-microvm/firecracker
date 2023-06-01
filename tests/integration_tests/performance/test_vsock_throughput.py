@@ -175,7 +175,7 @@ def test_vsock_throughput(
     cons, prod, tag = pipe(
         vm,
         current_avail_cpu + 1,
-        f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}",
+        f"{st_core.env_id_prefix}/{guest_config}",
         mode,
         payload_length,
     )
