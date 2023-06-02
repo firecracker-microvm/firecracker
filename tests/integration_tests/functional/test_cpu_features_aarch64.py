@@ -9,6 +9,7 @@ import platform
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
+from framework.utils_cpu_templates import nonci_on_arm
 
 PLATFORM = platform.machine()
 
@@ -95,6 +96,7 @@ def test_default_cpu_features(test_microvm_with_api, network_config):
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
+@nonci_on_arm
 def test_cpu_features_with_static_template(
     test_microvm_with_api, network_config, cpu_template
 ):
@@ -113,6 +115,7 @@ def test_cpu_features_with_static_template(
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
+@nonci_on_arm
 def test_cpu_features_with_custom_template(
     test_microvm_with_api, network_config, custom_cpu_template
 ):
