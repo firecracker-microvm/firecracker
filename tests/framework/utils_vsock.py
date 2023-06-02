@@ -235,12 +235,13 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
-    ecode, _, _ = vm.ssh.run(cmd)
+    ecode, stdout, stderr = vm.ssh.run(cmd)
 
     echo_server.exit()
     assert echo_server.error is None
 
-    assert ecode == 0, ecode
+    print(stdout.read())
+    assert ecode == 0, stderr.read()
 
 
 def make_host_port_path(uds_path, port):
