@@ -7,11 +7,11 @@ from framework.microvm import Serial
 INITRD_FILESYSTEM = "rootfs"
 
 
-def test_microvm_initrd_with_serial(test_microvm_with_initrd):
+def test_microvm_initrd_with_serial(uvm_with_initrd):
     """
     Test that a boot using initrd successfully loads the root filesystem.
     """
-    vm = test_microvm_with_initrd
+    vm = uvm_with_initrd
     vm.jailer.daemonize = False
     vm.spawn()
     vm.memory_monitor = None
@@ -26,13 +26,6 @@ def test_microvm_initrd_with_serial(test_microvm_with_initrd):
     vm.start()
     serial = Serial(vm)
     serial.open()
-    serial.rx(token="login: ")
-    serial.tx("root")
-
-    serial.rx(token="Password: ")
-    serial.tx("root")
-
     serial.rx(token="# ")
-
-    serial.tx("findmnt /")
-    serial.rx(token=f"/      {INITRD_FILESYSTEM} {INITRD_FILESYSTEM}")
+    serial.tx("mount |grep rootfs")
+    serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")

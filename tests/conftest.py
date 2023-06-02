@@ -440,13 +440,15 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_with_initrd(microvm_factory, guest_kernel_linux_4_14, record_property):
+def uvm_with_initrd(
+    microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
+):
     """
     See file:../docs/initrd.md
     """
-    fs = defs.ARTIFACT_DIR / "minimal_with_initrd/initrd.img"
+    fs = artifact_dir / "initramfs.cpio"
     record_property("rootfs", fs.name)
-    uvm = microvm_factory.build(guest_kernel_linux_4_14)
+    uvm = microvm_factory.build(guest_kernel_linux_5_10)
     uvm.initrd_file = fs
     yield uvm
 
@@ -463,4 +465,3 @@ def uvm_legacy(microvm_factory, record_property, artifact_dir):
 
 # backwards compatibility
 test_microvm_with_api = uvm_plain
-test_microvm_with_initrd = uvm_with_initrd

@@ -100,11 +100,11 @@ def test_boottime_with_network(fast_microvm, record_property, metrics):
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
-def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
+def test_initrd_boottime(uvm_with_initrd, record_property, metrics):
     """
     Check boot time of microVM when using an initrd.
     """
-    vm = test_microvm_with_initrd
+    vm = uvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
     _configure_and_run_vm(vm, initrd=True)
     boottime_us = _get_microvm_boottime(vm)
