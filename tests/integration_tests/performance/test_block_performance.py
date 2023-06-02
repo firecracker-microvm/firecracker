@@ -21,7 +21,6 @@ from framework.utils import (
     get_kernel_version,
     run_cmd,
 )
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.configs import defs
 
 TEST_ID = "block_performance"
@@ -45,18 +44,8 @@ class BlockBaselinesProvider(BaselineProvider):
 
     def __init__(self, env_id, fio_id):
         """Block baseline provider initialization."""
-        cpu_model_name = get_cpu_model_name()
-        baselines = list(
-            filter(
-                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-                CONFIG["hosts"]["instances"][get_instance_type()]["cpus"],
-            )
-        )
-
-        super().__init__(DictQuery({}))
-        if len(baselines) > 0:
-            super().__init__(DictQuery(baselines[0]))
-
+        baseline = self.read_baseline(CONFIG)
+        super().__init__(DictQuery(baseline))
         self._tag = "baselines/{}/" + env_id + "/{}/" + fio_id
 
     def get(self, ms_name: str, st_name: str) -> dict:
@@ -267,8 +256,6 @@ def test_block_performance(
 ):
     """
     Execute block device emulation benchmarking scenarios.
-
-    @type: performance
     """
     guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)

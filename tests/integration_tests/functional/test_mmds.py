@@ -158,8 +158,6 @@ def _validate_mmds_snapshot(
 def test_custom_ipv4(test_microvm_with_api, network_config, version):
     """
     Test the API for MMDS custom ipv4 support.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -249,8 +247,6 @@ def test_custom_ipv4(test_microvm_with_api, network_config, version):
 def test_json_response(test_microvm_with_api, network_config, version):
     """
     Test the MMDS json response.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -312,8 +308,6 @@ def test_json_response(test_microvm_with_api, network_config, version):
 def test_mmds_response(test_microvm_with_api, network_config, version):
     """
     Test MMDS responses to various datastore requests.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -394,8 +388,6 @@ def test_mmds_response(test_microvm_with_api, network_config, version):
 def test_larger_than_mss_payloads(test_microvm_with_api, network_config, version):
     """
     Test MMDS content for payloads larger than MSS.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -467,8 +459,6 @@ def test_larger_than_mss_payloads(test_microvm_with_api, network_config, version
 def test_mmds_dummy(test_microvm_with_api, network_config, version):
     """
     Test the API and guest facing features of the microVM MetaData Service.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -522,8 +512,6 @@ def test_mmds_dummy(test_microvm_with_api, network_config, version):
 def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
     """
     Test the MMDS json endpoint when Content-Length larger than actual length.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -577,8 +565,6 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config, version):
 def test_mmds_limit_scenario(test_microvm_with_api, network_config, version):
     """
     Test the MMDS json endpoint when data store size reaches the limit.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     # Set a large enough limit for the API so that requests actually reach the
@@ -653,8 +639,6 @@ def test_mmds_snapshot(bin_cloner_path, version, firecracker_release):
 
     Ensures that the version is persisted or initialised with the default if
     the firecracker version does not support it.
-
-    @type: functional
     """
 
     # 1.2.0 and above snapshots are incompatible with any past release due to
@@ -691,8 +675,6 @@ def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
 
     Ensures that the MMDS version is persisted or initialised with the default
     if the FC version does not support this feature.
-
-    @type: functional
     """
     net_iface = NetIfaceConfig()
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -715,8 +697,6 @@ def test_mmds_older_snapshot(bin_cloner_path, firecracker_release):
 def test_mmds_v2_negative(test_microvm_with_api, network_config):
     """
     Test invalid MMDS GET/PUT requests when using V2.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -822,8 +802,6 @@ def test_mmds_v2_negative(test_microvm_with_api, network_config):
 def test_deprecated_mmds_config(test_microvm_with_api, network_config):
     """
     Test deprecated Mmds configs.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

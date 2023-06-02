@@ -22,8 +22,6 @@ def test_net_change_mac_address(
 ):
     """
     Test changing the MAC address of the network device.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

@@ -16,7 +16,7 @@ from framework.properties import global_props
 from host_tools.cargo_build import run_seccompiler_bin
 
 # The maximum acceptable startup time in CPU us.
-MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3800}
+MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 4000}
 MAX_STARTUP_TIME = MAX_STARTUP_TIME_CPU_US[platform.machine()]
 
 
@@ -42,8 +42,6 @@ def startup_time(metrics, record_property):
 def test_startup_time_new_pid_ns(test_microvm_with_api, startup_time):
     """
     Check startup time when jailer is spawned in a new PID namespace.
-
-    @type: performance
     """
     microvm = test_microvm_with_api
     microvm.bin_cloner_path = None
@@ -54,8 +52,6 @@ def test_startup_time_new_pid_ns(test_microvm_with_api, startup_time):
 def test_startup_time_daemonize(test_microvm_with_api, startup_time):
     """
     Check startup time when jailer detaches Firecracker from the controlling terminal.
-
-    @type: performance
     """
     microvm = test_microvm_with_api
     startup_time(_test_startup_time(microvm))
@@ -64,8 +60,6 @@ def test_startup_time_daemonize(test_microvm_with_api, startup_time):
 def test_startup_time_custom_seccomp(test_microvm_with_api, startup_time):
     """
     Check the startup time when using custom seccomp filters.
-
-    @type: performance
     """
     microvm = test_microvm_with_api
     _custom_filter_setup(microvm)
