@@ -107,8 +107,8 @@ def test_vsock_epipe(
 
     vm.start()
 
-    # Generate the random data blob file.
-    blob_path, blob_hash = make_blob(test_fc_session_root_path)
+    # Generate the random data blob file, 20MB
+    blob_path, blob_hash = make_blob(test_fc_session_root_path, 20 * 2**20)
     vm_blob_path = "/tmp/vsock/test.blob"
 
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
