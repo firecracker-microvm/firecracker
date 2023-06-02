@@ -51,8 +51,6 @@ class TestFinished(TestState):  # pylint: disable=too-few-public-methods
 def test_serial_after_snapshot(bin_cloner_path):
     """
     Serial I/O after restoring from a snapshot.
-
-    @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano(
@@ -102,8 +100,6 @@ def test_serial_after_snapshot(bin_cloner_path):
 def test_serial_console_login(test_microvm_with_api):
     """
     Test serial console login.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
@@ -152,8 +148,6 @@ def send_bytes(tty, bytes_count, timeout=60):
 def test_serial_dos(test_microvm_with_api):
     """
     Test serial console behavior under DoS.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
@@ -186,8 +180,6 @@ def test_serial_dos(test_microvm_with_api):
 def test_serial_block(test_microvm_with_api, network_config):
     """
     Test that writing to stdout never blocks the vCPU thread.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False

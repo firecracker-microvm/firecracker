@@ -82,8 +82,6 @@ def get_cpu_template_dir(cpu_template):
 def test_default_cpu_features(test_microvm_with_api, network_config):
     """
     Check the CPU features for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -102,8 +100,6 @@ def test_cpu_features_with_static_template(
 ):
     """
     Check the CPU features for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -122,8 +118,6 @@ def test_cpu_features_with_custom_template(
 ):
     """
     Check the CPU features for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()

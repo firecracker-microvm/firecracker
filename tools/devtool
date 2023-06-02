@@ -590,7 +590,6 @@ cmd_test() {
     ensure_build_dir
 
     # If we got to here, we've got all we need to continue.
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Kernel version: $(uname -r)"
     say "Starting test run ..."
 
@@ -622,7 +621,6 @@ cmd_test() {
 
     ret=$?
 
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Finished test run ..."
 
     if [[ $ramdisk = true ]]; then

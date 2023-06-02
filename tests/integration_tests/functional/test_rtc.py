@@ -17,8 +17,6 @@ DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 def test_rtc(test_microvm_with_api, network_config):
     """
     Test RTC functionality on aarch64.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()

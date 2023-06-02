@@ -11,7 +11,6 @@ destroy microvms.
 import json
 import logging
 import os
-import re
 import select
 import shutil
 import time
@@ -255,7 +254,7 @@ class Microvm:
         """Return the log data.
 
         !!!!OBS!!!!: Do not use this to check for message existence and
-        rather use self.check_log_message or self.find_log_message.
+        rather use self.check_log_message.
         """
         with data_lock:
             log_data = self.__log_data
@@ -503,13 +502,6 @@ class Microvm:
         raise AssertionError(
             f"`{messages}` were not found in this log: {self.log_data}"
         )
-
-    @retry(delay=0.1, tries=5)
-    def find_log_message(self, regex):
-        """Wait until `regex` appears in logging output and return it."""
-        reg_res = re.findall(regex, self.log_data)
-        assert reg_res
-        return reg_res
 
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
