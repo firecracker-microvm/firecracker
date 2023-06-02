@@ -181,6 +181,9 @@ This CPU templates will do the following with the ARM register `0x603000000013c0
 - will leave bits `0b11111111111111111111111111111111111111111111111111111111111111111111111111110000111111111111000011111111111111111111111111111111`
   intact.
 
+Information on how the ARM register addresses are constructed can be found
+in the [KVM API documentation](https://docs.kernel.org/virt/kvm/api.html#kvm-set-one-reg).
+
 ### Custom CPU templates language schema
 
 The full description of the custom CPU templates language can be found
