@@ -4,6 +4,7 @@
 
 import platform
 import re
+import time
 
 from framework.properties import global_props
 from framework.utils_cpuid import get_cpu_model_name, get_instance_type
@@ -51,8 +52,6 @@ DIMENSIONS = {
 def test_no_boottime(test_microvm_with_api):
     """
     Check that boot timer device is not present by default.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     _ = _configure_and_run_vm(vm)
@@ -65,8 +64,6 @@ def test_no_boottime(test_microvm_with_api):
 def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     """
     Check boot time of microVM without a network device.
-
-    @type: performance
     """
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
@@ -83,8 +80,6 @@ def test_boottime_with_network(
 ):
     """
     Check boot time of microVM with a network device.
-
-    @type: performance
     """
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
@@ -101,8 +96,6 @@ def test_boottime_with_network(
 def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
     """
     Check boot time of microVM when using an initrd.
-
-    @type: performance
     """
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
@@ -120,7 +113,12 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
 def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
-    timestamps = vm.find_log_message(TIMESTAMP_LOG_REGEX)
+    timestamps = []
+    for _ in range(10):
+        timestamps = re.findall(TIMESTAMP_LOG_REGEX, vm.log_data)
+        if timestamps:
+            break
+        time.sleep(0.1)
     if timestamps:
         boot_time_us = int(timestamps[0])
 

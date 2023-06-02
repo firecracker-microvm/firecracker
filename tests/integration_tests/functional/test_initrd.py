@@ -10,8 +10,6 @@ INITRD_FILESYSTEM = "rootfs"
 def test_microvm_initrd_with_serial(test_microvm_with_initrd):
     """
     Test that a boot using initrd successfully loads the root filesystem.
-
-    @type: functional
     """
     vm = test_microvm_with_initrd
     vm.jailer.daemonize = False

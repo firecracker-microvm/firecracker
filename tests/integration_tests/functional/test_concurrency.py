@@ -12,8 +12,6 @@ def test_run_concurrency_with_mmds(
 ):
     """
     Spawn multiple firecracker processes to run concurrently with MMDS
-
-    @type: functional
     """
 
     data_store = {
@@ -82,8 +80,6 @@ def test_run_concurrency_with_mmds(
 def test_run_concurrency(microvm_factory, network_config, guest_kernel, rootfs):
     """
     Check we can spawn multiple microvms.
-
-    @type: functional
     """
 
     for i in range(NO_OF_MICROVMS):

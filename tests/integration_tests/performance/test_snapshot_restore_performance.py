@@ -16,7 +16,6 @@ from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import DictQuery, get_kernel_version
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.configs import defs
 
 TEST_ID = "snapshot_restore_performance"
@@ -44,18 +43,8 @@ class SnapRestoreBaselinesProvider(BaselineProvider):
 
     def __init__(self, env_id, workload):
         """Snapshot baseline provider initialization."""
-        cpu_model_name = get_cpu_model_name()
-        baselines = list(
-            filter(
-                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-                CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"],
-            )
-        )
-
-        super().__init__(DictQuery({}))
-        if len(baselines) > 0:
-            super().__init__(DictQuery(baselines[0]))
-
+        baseline = self.read_baseline(CONFIG_DICT)
+        super().__init__(DictQuery(baseline))
         self._tag = "baselines/{}/" + env_id + "/{}/" + workload
 
     def get(self, ms_name: str, st_name: str) -> dict:

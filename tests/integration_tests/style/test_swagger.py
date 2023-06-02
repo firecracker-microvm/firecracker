@@ -17,8 +17,6 @@ def validate_swagger(swagger_spec):
 def test_firecracker_swagger():
     """
     Test that Firecracker swagger specification is valid.
-
-    @type: style
     """
     swagger_spec = Path("../src/api_server/swagger/firecracker.yaml")
     validate_swagger(swagger_spec)
