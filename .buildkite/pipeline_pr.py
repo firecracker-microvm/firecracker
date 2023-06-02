@@ -33,7 +33,7 @@ defaults = {
     "platforms": DEFAULT_PLATFORMS,
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
-    "timeout_in_minutes": 30,
+    "timeout_in_minutes": 45,
 }
 
 build_grp = group(
