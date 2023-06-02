@@ -256,7 +256,13 @@ class JailerContext:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
-            utils.run_cmd("ip netns del {}".format(self.netns))
+            try:
+                utils.run_cmd("ip netns del {}".format(self.netns))
+            except ChildProcessError:
+                # Sometimes, a race condition in pytest causes this destructor to run twice.
+                # Long-term, we'll want to do cleanup properly, but for now we ignore
+                # the exception
+                pass
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
