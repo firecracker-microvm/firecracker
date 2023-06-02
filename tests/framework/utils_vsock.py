@@ -14,7 +14,7 @@ from threading import Thread
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
 TEST_CONNECTION_COUNT = 50
-BLOB_SIZE = 20 * 1024 * 1024
+BLOB_SIZE = 1 * 1024 * 1024
 BUF_SIZE = 64 * 1024
 VSOCK_UDS_PATH = "v.sock"
 
@@ -77,12 +77,12 @@ class HostEchoWorker(Thread):
             self.hash = hash_obj.hexdigest()
 
 
-def make_blob(dst_dir):
+def make_blob(dst_dir, size=BLOB_SIZE):
     """Generate a random data file."""
     blob_path = os.path.join(dst_dir, "vsock-test.blob")
 
     with open(blob_path, "wb") as blob_file:
-        left = BLOB_SIZE
+        left = size
         blob_hash = hashlib.md5()
         while left > 0:
             count = min(left, 4096)
@@ -205,10 +205,8 @@ def _vsock_connect_to_guest(uds_path, port):
 
 def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_helper):
     # Copy the data file and a vsock helper to the guest.
+
     cmd = "mkdir -p /tmp/vsock"
-    cmd += " && mount -t tmpfs tmpfs -o size={} /tmp/vsock".format(
-        BLOB_SIZE + 1024 * 1024
-    )
     ecode, _, _ = ssh_connection.execute_command(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
