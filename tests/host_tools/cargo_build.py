@@ -7,12 +7,7 @@ import platform
 from pathlib import Path
 
 from framework import defs, utils
-from framework.defs import (
-    FC_BINARY_NAME,
-    FC_WORKSPACE_DIR,
-    FC_WORKSPACE_TARGET_DIR,
-    JAILER_BINARY_NAME,
-)
+from framework.defs import FC_WORKSPACE_DIR, FC_WORKSPACE_TARGET_DIR
 from framework.with_filelock import with_filelock
 
 CARGO_BUILD_REL_PATH = "firecracker_binaries"
@@ -46,6 +41,14 @@ def cargo(
     return utils.run_cmd(cmd, cwd=cwd)
 
 
+def get_rustflags():
+    """Get the relevant rustflags for building/unit testing."""
+    rustflags = "-D warnings"
+    if platform.machine() == "aarch64":
+        rustflags += " -C link-arg=-lgcc -C link-arg=-lfdt "
+    return rustflags
+
+
 @with_filelock
 def cargo_build(path, extra_args="", src_dir=""):
     """Trigger build depending on flags provided."""
@@ -64,40 +67,32 @@ def cargo_test(path, extra_args=""):
 
 
 @with_filelock
+def get_binary(name):
+    """Build a binary"""
+    target = DEFAULT_BUILD_TARGET
+    target_dir = FC_WORKSPACE_TARGET_DIR
+    out_dir = Path(f"{target_dir}/{target}/release")
+    bin_path = out_dir / name
+    if not bin_path.exists():
+        env = {"RUSTFLAGS": get_rustflags()}
+        cargo(
+            "build",
+            f"-p {name} --release --target {target}",
+            env=env,
+            cwd=FC_WORKSPACE_DIR,
+        )
+        utils.run_cmd(f"strip --strip-debug {bin_path}")
+    return bin_path
+
+
+@with_filelock
 def get_firecracker_binaries():
     """Build the Firecracker and Jailer binaries if they don't exist.
 
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
-    target = DEFAULT_BUILD_TARGET
-    target_dir = FC_WORKSPACE_TARGET_DIR
-    out_dir = Path(f"{target_dir}/{target}/release")
-    fc_bin_path = out_dir / FC_BINARY_NAME
-    jailer_bin_path = out_dir / JAILER_BINARY_NAME
-
-    if not fc_bin_path.exists():
-        env = {"RUSTFLAGS": get_rustflags()}
-
-        cargo("build", f"--release --target {target}", env=env, cwd=FC_WORKSPACE_DIR)
-        cargo(
-            "build",
-            f"-p jailer --release --target {target}",
-            env=env,
-            cwd=FC_WORKSPACE_DIR,
-        )
-
-        utils.run_cmd(f"strip --strip-debug {fc_bin_path} {jailer_bin_path}")
-
-    return fc_bin_path, jailer_bin_path
-
-
-def get_rustflags():
-    """Get the relevant rustflags for building/unit testing."""
-    rustflags = "-D warnings"
-    if platform.machine() == "aarch64":
-        rustflags += " -C link-arg=-lgcc -C link-arg=-lfdt "
-    return rustflags
+    return get_binary("firecracker"), get_binary("jailer")
 
 
 @with_filelock
