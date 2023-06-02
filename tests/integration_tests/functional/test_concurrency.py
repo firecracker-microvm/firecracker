@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ensure multiple microVMs work correctly when spawned simultaneously."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 from framework.utils import configure_mmds, populate_data_store
 
 NO_OF_MICROVMS = 20
@@ -76,7 +78,7 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
     Check we can spawn multiple microvms.
     """
 
-    for _ in range(NO_OF_MICROVMS):
+    def launch1():
         microvm = microvm_factory.build(guest_kernel, rootfs)
         microvm.spawn()
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
@@ -86,3 +88,7 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
         # We check that the vm is running by testing that the ssh does
         # not time out.
         microvm.ssh.run("true")
+
+    with ThreadPoolExecutor(max_workers=NO_OF_MICROVMS) as tpe:
+        for _ in range(NO_OF_MICROVMS):
+            tpe.submit(launch1)
