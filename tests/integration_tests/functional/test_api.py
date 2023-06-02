@@ -18,6 +18,7 @@ from framework import utils_cpuid
 from framework.artifacts import NetIfaceConfig, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
+from framework.utils_cpu_templates import nonci_on_arm
 
 MEM_LIMIT = 1000000000
 
@@ -474,6 +475,7 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
+@nonci_on_arm
 def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.

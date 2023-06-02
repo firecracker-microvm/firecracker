@@ -26,7 +26,7 @@ def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
         "command": [
             f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
             f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
-            f"./tools/devtool -y test -- --nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+            f"./tools/devtool -y test -- -m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
         ],
         "label": label,
         "timeout": 30,

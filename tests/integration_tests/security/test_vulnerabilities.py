@@ -14,6 +14,7 @@ import requests
 from framework import utils
 from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
+from framework.utils_cpu_templates import nonci_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -154,6 +155,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -177,6 +179,7 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -202,6 +205,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -228,6 +232,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -292,6 +297,7 @@ def test_vulnerabilities_files_on_restored_guest(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -305,6 +311,7 @@ def test_vulnerabilities_files_on_guest_with_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_custom_template(
     test_microvm_with_api,
     network_config,
@@ -322,6 +329,7 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -340,6 +348,7 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     test_microvm_with_api,
     network_config,

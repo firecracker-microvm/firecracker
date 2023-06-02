@@ -394,6 +394,7 @@ def test_host_fingerprint_change(test_microvm_with_api, cpu_template_helper, tmp
     )
 
 
+@nonci_on_arm
 def test_json_static_templates(
     test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
 ):

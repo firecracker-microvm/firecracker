@@ -92,7 +92,6 @@ from pathlib import Path
 
 import pytest
 
-import framework.utils_cpuid as cpuid_utils
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
@@ -124,32 +123,6 @@ if os.geteuid() != 0:
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 METRICS = get_metrics_logger()
-
-
-def pytest_configure(config):
-    """Pytest hook - initialization"""
-    config.addinivalue_line("markers", "nonci: mark test as nonci.")
-
-
-def pytest_addoption(parser):
-    """Pytest hook. Add command line options."""
-    parser.addoption("--nonci", action="store_true", help="run tests marked with nonci")
-
-
-def pytest_collection_modifyitems(config, items):
-    """Pytest hook. Skip some tests."""
-    skip_markers = {}
-
-    for skip_marker_name in ["nonci"]:
-        if not config.getoption(f"--{skip_marker_name}"):
-            skip_markers[skip_marker_name] = pytest.mark.skip(
-                reason=f"Skipping {skip_marker_name} test"
-            )
-
-    for item in items:
-        for skip_marker_name, skip_marker in skip_markers.items():
-            if skip_marker_name in item.keywords:
-                item.add_marker(skip_marker)
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -511,11 +484,6 @@ def rootfs_msrtools(request, record_property):
 def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
     record_property("cpu_template", request.param)
-    if (
-        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
-        and not request.config.getoption("--nonci")
-    ):
-        pytest.skip("temporary skip on usual CI")
     return request.param
 
 
@@ -523,11 +491,6 @@ def cpu_template(request, record_property):
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
     record_property("custom_cpu_template", request.param)
-    if (
-        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
-        and not request.config.getoption("--nonci")
-    ):
-        pytest.skip("temporary skip on usual CI")
     return request.param
 
 
