@@ -94,6 +94,45 @@ EOF
 }
 
 
+# https://wiki.gentoo.org/wiki/Custom_Initramfs#Busybox
+function build_initramfs {
+    INITRAMFS_BUILD=initramfs
+    mkdir -p $INITRAMFS_BUILD
+    pushd $INITRAMFS_BUILD
+    mkdir bin dev proc sys
+    cp /bin/busybox bin/sh
+    ln bin/sh bin/mount
+
+    # Report guest boot time back to Firecracker via MMIO
+    # See arch/src/lib.rs and the BootTimer device
+    MAGIC_BOOT_ADDRESS=0xd0000000
+    if [ $ARCH = "aarch64" ]; then
+        MAGIC_BOOT_ADDRESS=0x40000000
+    fi
+    MAGIC_BOOT_VALUE=123
+    cat > init <<EOF
+#!/bin/sh
+mount -t devtmpfs devtmpfs /dev
+mount -t proc none /proc
+devmem $MAGIC_BOOT_ADDRESS 8 $MAGIC_BOOT_VALUE
+mount -t sysfs none /sys
+exec 0</dev/console
+exec 1>/dev/console
+exec 2>/dev/console
+
+echo Boot took $(cut -d' ' -f1 /proc/uptime) seconds
+echo ">>> Welcome to fcinitrd <<<"
+
+exec /bin/sh
+EOF
+    chmod +x init
+
+    find . -print0 |cpio --null -ov --format=newc -R 0:0 > $OUTPUT_DIR/initramfs.cpio
+    popd
+    rm -rf $INITRAMFS_BUILD
+}
+
+
 function get_linux_git {
     # git clone -s -b v$KV ../../linux
     # --depth 1
@@ -174,6 +213,8 @@ fi
 # build_rootfs ubuntu-18.04 bionic
 # build_rootfs ubuntu-20.04 focal
 build_rootfs ubuntu-22.04 jammy
+
+build_initramfs
 
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
