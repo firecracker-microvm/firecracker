@@ -10,9 +10,9 @@ use std::{fmt, fs, mem, result, u32};
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
+use utils::vm_memory::GuestMemoryMmap;
 use versionize::*;
 use versionize_derive::Versionize;
-use vm_memory::GuestMemoryMmap;
 
 use super::get_fdt_addr;
 
@@ -477,7 +477,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
