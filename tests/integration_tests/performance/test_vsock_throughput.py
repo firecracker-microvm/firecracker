@@ -155,7 +155,7 @@ def test_vsock_throughput(
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()
     # Create a vsock device
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
 
     guest_config = f"{vcpus}vcpu_{mem_size_mib}mb.json"

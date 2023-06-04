@@ -231,7 +231,7 @@ def test_feat_parity_msr_arch_cap(vm):
     rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"
     _, stdout, stderr = vm.ssh.execute_command(rdmsr_cmd)
 
-    cpu_template = vm.full_cfg.get().json()["machine-config"]["cpu_template"]
+    cpu_template = vm.api.vm_config.get().json()["machine-config"]["cpu_template"]
 
     if cpu_template == "T2CL":
         assert stderr == ""

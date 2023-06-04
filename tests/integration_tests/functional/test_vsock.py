@@ -46,8 +46,7 @@ def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path)
 
     vm.basic_config()
     vm.add_net_iface()
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
-
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
     vm.start()
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
@@ -93,13 +92,12 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
 
     # Configure metrics to assert against `sigpipe` count.
     metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
 
     vm.start()
 
@@ -149,9 +147,7 @@ def test_vsock_transport_reset(
     """
     test_vm = uvm_nano
     test_vm.add_net_iface()
-    test_vm.vsock.put(
-        vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
+    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
     test_vm.start()
 
     # Generate the random data blob file.

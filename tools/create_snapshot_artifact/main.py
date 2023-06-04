@@ -57,17 +57,14 @@ def compile_file(file_name, dest_path, bin_name):
 def populate_mmds(microvm, data_store):
     """Populate MMDS contents with json data provided."""
     # MMDS should be empty.
-    response = microvm.mmds.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    response = microvm.api.mmds.get()
     assert response.json() == {}
 
     # Populate MMDS with data.
-    response = microvm.mmds.put(json=data_store)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.mmds.put(**data_store)
 
     # Ensure data is persistent inside the data store.
-    response = microvm.mmds.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    response = microvm.api.mmds.get()
     assert response.json() == data_store
 
 

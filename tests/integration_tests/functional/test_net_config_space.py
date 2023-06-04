@@ -21,6 +21,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     """
     Test changing the MAC address of the network device.
     """
+
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")
@@ -33,10 +34,9 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     # Configure metrics, to get later the `tx_spoofed_mac_count`.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
+    test_microvm.api.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 

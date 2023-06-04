@@ -5,6 +5,8 @@
 import platform
 from pathlib import Path
 
+import pytest
+
 import host_tools.logging as log_tools
 from framework.utils import run_cmd
 from host_tools.cargo_build import get_firecracker_binaries
@@ -101,15 +103,12 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_ap
     # Then try to configure it with PUT /metrics
     metrics2_path = Path(microvm.path) / "metrics2.ndjson"
     metrics2_path.touch()
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics2_path)
-    )
 
-    # It should fail with HTTP 400 because it's already configured
-    assert response.status_code == 400
-    assert response.json() == {
-        "fault_message": "Reinitialization of metrics not allowed."
-    }
+    # It should fail with because it's already configured
+    with pytest.raises(RuntimeError, match="Reinitialization of metrics not allowed."):
+        microvm.api.metrics.put(
+            metrics_path=microvm.create_jailed_resource(metrics2_path)
+        )
 
 
 def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):

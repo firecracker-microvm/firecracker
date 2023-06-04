@@ -163,7 +163,7 @@ def test_cpu_features_with_custom_template(
     vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
     vm.spawn()
     vm.basic_config()
-    vm.cpu_config(custom_cpu_template["template"])
+    vm.api.cpu_config.put(**custom_cpu_template["template"])
     vm.add_net_iface()
     vm.start()
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)

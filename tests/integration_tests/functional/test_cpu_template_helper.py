@@ -83,7 +83,7 @@ def save_vm_config(microvm, tmp_path, custom_cpu_template=None):
     """
     Save VM config into JSON file.
     """
-    config_json = microvm.full_cfg.get().json()
+    config_json = microvm.api.vm_config.get().json()
     config_json["boot-source"]["kernel_image_path"] = str(microvm.kernel_file)
     config_json["drives"][0]["path_on_host"] = str(microvm.rootfs_file)
     if custom_cpu_template is not None:
