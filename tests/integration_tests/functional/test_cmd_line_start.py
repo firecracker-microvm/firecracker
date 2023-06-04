@@ -117,13 +117,10 @@ def test_config_start_with_api(uvm_plain, vm_config_file):
     vm_config = _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.spawn()
 
-    response = test_microvm.machine_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Running"
 
     # Validate full vm configuration.
-    response = test_microvm.full_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.vm_config.get()
     assert response.json() == vm_config
 
 
@@ -230,11 +227,9 @@ def test_config_start_with_limit(test_microvm_with_api, vm_config_file):
     test_microvm.jailer.extra_args.update({"http-api-max-payload-size": "250"})
     test_microvm.spawn()
 
-    response = test_microvm.machine_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Running"
 
-    cmd = "curl --unix-socket {} -i".format(test_microvm.api_socket)
+    cmd = "curl --unix-socket {} -i".format(test_microvm.api.socket)
     cmd += ' -X PUT "http://localhost/mmds/config"'
     cmd += ' -H  "Content-Length: 260"'
     cmd += ' -H "Accept: application/json"'
@@ -262,16 +257,13 @@ def test_config_with_default_limit(test_microvm_with_api, vm_config_file):
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.spawn()
 
-    response = test_microvm.machine_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Running"
 
     data_store = {"latest": {"meta-data": {}}}
     data_store["latest"]["meta-data"]["ami-id"] = "abc"
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.api.mmds.put(json=data_store)
 
-    cmd_err = "curl --unix-socket {} -i".format(test_microvm.api_socket)
+    cmd_err = "curl --unix-socket {} -i".format(test_microvm.api.socket)
     cmd_err += ' -X PUT "http://localhost/mmds/config"'
     cmd_err += ' -H  "Content-Length: 51201"'
     cmd_err += ' -H "Accept: application/json"'
@@ -301,12 +293,9 @@ def test_start_with_metadata(test_microvm_with_api):
 
     test_microvm.check_log_message("Successfully added metadata to mmds from file")
 
-    response = test_microvm.machine_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Not started"
 
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
 
     with open(metadata_file, encoding="utf-8") as json_file:
         assert response.json() == json.load(json_file)
@@ -401,8 +390,6 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     # Network namespace has already been created.
     test_microvm.spawn()
 
-    response = test_microvm.machine_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Running"
 
     data_store = {
@@ -412,17 +399,14 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     }
 
     # MMDS should be empty by default.
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
     assert response.json() == {}
 
     # Populate MMDS with data.
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    response = test_microvm.api.mmds.put(**data_store)
 
     # Ensure the MMDS contents have been successfully updated.
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
     assert response.json() == data_store
 
     # Get MMDS version and IPv4 address configured from the file.
@@ -439,8 +423,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     assert json.loads(stdout) == data_store["latest"]["meta-data"]
 
     # Validate MMDS configuration.
-    response = test_microvm.full_cfg.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.vm_config.get()
     assert response.json()["mmds-config"] == {
         "network_interfaces": ["1"],
         "ipv4_address": ipv4_address,

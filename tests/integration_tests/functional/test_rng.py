@@ -18,10 +18,7 @@ def uvm_with_rng(uvm_nano, request):
     """Fixture of a microvm with virtio-rng configured"""
     rate_limiter = request.param
     uvm_nano.add_net_iface()
-    response = uvm_nano.entropy.put(rate_limiter=rate_limiter)
-    assert uvm_nano.api_session.is_status_no_content(
-        response.status_code
-    ), response.text
+    uvm_nano.api.entropy.put(rate_limiter=rate_limiter)
     uvm_nano.start()
     # Just stuff it in the microvm so we can look at it later
     uvm_nano.rng_rate_limiter = rate_limiter

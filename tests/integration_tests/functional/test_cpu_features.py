@@ -647,13 +647,14 @@ def test_cpu_template(test_microvm_with_api, cpu_template):
     )
     test_microvm.add_net_iface()
 
-    response = test_microvm.actions.put(action_type="InstanceStart")
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
         # We shouldn't be able to apply Intel templates on AMD hosts
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
+        with pytest.raises(RuntimeError):
+            test_microvm.start()
         return
 
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.start()
+
     check_masked_features(test_microvm, cpu_template)
     check_enabled_features(test_microvm, cpu_template)
 

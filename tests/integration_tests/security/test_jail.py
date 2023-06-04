@@ -566,7 +566,7 @@ def test_negative_file_size_limit(uvm_plain):
 
     # Attempt to create a snapshot.
     try:
-        test_microvm.snapshot.create(
+        test_microvm.api.snapshot_create.put(
             mem_file_path="/vm.mem",
             snapshot_path="/vm.vmstate",
         )

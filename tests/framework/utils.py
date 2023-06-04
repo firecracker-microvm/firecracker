@@ -672,23 +672,17 @@ def configure_mmds(
     if ipv4_address:
         mmds_config["ipv4_address"] = ipv4_address
 
-    response = test_microvm.mmds.put_config(json=mmds_config)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
+    response = test_microvm.api.mmds_config.put(**mmds_config)
     return response
 
 
 def populate_data_store(test_microvm, data_store):
     """Populate the MMDS data store of the microvm with the provided data"""
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
     assert response.json() == {}
 
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    test_microvm.api.mmds.put(**data_store)
+    response = test_microvm.api.mmds.get()
     assert response.json() == data_store
 
 

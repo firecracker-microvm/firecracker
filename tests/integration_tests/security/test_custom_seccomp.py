@@ -184,14 +184,13 @@ def test_failing_filter(test_microvm_with_api):
 
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
+    test_microvm.api.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Try to start the VM with error checking off, because it will fail.
     try:
-        test_microvm.start(check=False)
+        test_microvm.start()
     except requests.exceptions.ConnectionError:
         pass
 
