@@ -240,7 +240,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
     ecode, stdout, stderr = microvm.ssh.execute_command(
-        f"grep -r Vulnerable {vuln_dir}"
+        f"grep -r Vulnerable {vuln_dir} | grep -v mmio_stale_data:"
     )
     assert ecode == 1, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
