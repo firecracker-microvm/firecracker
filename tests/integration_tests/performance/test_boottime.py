@@ -5,6 +5,8 @@
 import re
 import time
 
+import pytest
+
 from framework.properties import global_props
 
 # The maximum acceptable boot time in us.
@@ -32,6 +34,11 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
+# temporarily disable this test in 6.1
+@pytest.mark.xfail(
+    global_props.host_linux_version == "6.1",
+    reason="perf regression under investigation",
+)
 def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -46,6 +53,11 @@ def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
 
 
+# temporarily disable this test in 6.1
+@pytest.mark.xfail(
+    global_props.host_linux_version == "6.1",
+    reason="perf regression under investigation",
+)
 def test_boottime_with_network(
     test_microvm_with_api, network_config, record_property, metrics
 ):
@@ -91,6 +103,7 @@ def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
         boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
+
     if max_time_us is not None:
         assert (
             boot_time_us < max_time_us
