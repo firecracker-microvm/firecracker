@@ -16,7 +16,6 @@ from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
     CmdBuilder,
-    DictQuery,
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
@@ -43,10 +42,10 @@ CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
 class BlockBaselinesProvider(BaselineProvider):
     """Implementation of a baseline provider for the block performance test."""
 
-    def __init__(self, env_id, fio_id):
+    def __init__(self, env_id, fio_id, raw_baselines):
         """Block baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baselines)
+
         self._tag = "baselines/{}/" + env_id + "/{}/" + fio_id
 
     def get(self, metric_name: str, statistic_name: str) -> dict:
@@ -279,7 +278,8 @@ def test_block_performance(
             )
             st_cons = st.consumer.LambdaConsumer(
                 metadata_provider=DictMetadataProvider(
-                    CONFIG["measurements"], BlockBaselinesProvider(env_id, fio_id)
+                    CONFIG["measurements"],
+                    BlockBaselinesProvider(env_id, fio_id, CONFIG),
                 ),
                 func=consume_fio_output,
                 func_kwargs={

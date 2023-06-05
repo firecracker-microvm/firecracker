@@ -12,14 +12,13 @@ from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import CpuMap, DictQuery, get_kernel_version
+from framework.utils import CpuMap, get_kernel_version
 from integration_tests.performance.configs import defs
 
 TEST_ID = "network_latency"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 PING = "ping -c {} -i {} {}"
 LATENCY = "latency"
@@ -32,10 +31,10 @@ class NetLatencyBaselineProvider(BaselineProvider):
     ...performance test.
     """
 
-    def __init__(self, env_id):
+    def __init__(self, env_id, raw_baseline):
         """Network latency baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG_DICT)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baseline)
+
         self._tag = "baselines/{}/" + env_id + "/{}/ping"
 
     def get(self, metric_name: str, statistic_name: str) -> dict:
@@ -150,11 +149,12 @@ def test_network_latency(
     st_core.iterations = 30
     st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
+    raw_baselines = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            measurements=CONFIG_DICT["measurements"],
-            baseline_provider=NetLatencyBaselineProvider(env_id),
+            measurements=raw_baselines["measurements"],
+            baseline_provider=NetLatencyBaselineProvider(env_id, raw_baselines),
         ),
         func=consume_ping_output,
         func_kwargs={"requests": requests},
