@@ -22,7 +22,7 @@ use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 #[cfg(target_arch = "aarch64")]
-use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::cpu_config::templates::StaticCpuTemplate;
 #[cfg(target_arch = "x86_64")]
@@ -426,7 +426,7 @@ pub fn validate_cpu_manufacturer_id(
         .map_err(|err| ValidateCpuManufacturerIdError::Host(err.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
-        let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
+        let state_man_id = get_manufacturer_id_from_state(&state.regs)
             .map_err(|err| ValidateCpuManufacturerIdError::Snapshot(err.to_string()))?;
 
         if host_man_id != state_man_id {

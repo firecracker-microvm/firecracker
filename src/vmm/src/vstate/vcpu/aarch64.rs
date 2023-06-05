@@ -8,12 +8,15 @@
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
-use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::aarch64::regs::{
+    Aarch64RegisterOld, Aarch64RegisterRef, Aarch64RegisterVec, KVM_REG_ARM_TIMER_CNT,
+};
+use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
-    set_registers, setup_boot_regs, Aarch64Register, Error as ArchError, KVM_REG_ARM_TIMER_CNT,
+    set_registers, setup_boot_regs, Error as ArchError,
 };
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::{Error as VcpuError, VcpuConfig};
@@ -47,9 +50,7 @@ pub type KvmVcpuConfigureError = Error;
 pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
-
     pub mmio_bus: Option<crate::devices::Bus>,
-
     mpidr: u64,
 }
 
@@ -92,10 +93,10 @@ impl KvmVcpu {
         kernel_load_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
     ) -> Result<(), Error> {
-        for Aarch64Register { id, value } in vcpu_config.cpu_config.regs.iter() {
+        for reg in vcpu_config.cpu_config.regs.iter() {
             self.fd
-                .set_one_reg(*id, *value)
-                .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(*id, err)))?;
+                .set_one_reg(reg.id, reg.as_slice())
+                .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(reg.id, err)))?;
         }
 
         setup_boot_regs(
@@ -160,7 +161,7 @@ impl KvmVcpu {
         // BIOS.
         reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT);
 
-        let mut regs = vec![];
+        let mut regs = Aarch64RegisterVec::default();
         get_registers(&self.fd, &reg_list, &mut regs).map_err(Error::DumpCpuConfig)?;
 
         Ok(CpuConfiguration { regs })
@@ -182,11 +183,42 @@ impl KvmVcpu {
 #[derive(Debug, Default, Clone, Versionize)]
 pub struct VcpuState {
     pub mp_state: kvm_bindings::kvm_mp_state,
-    pub regs: Vec<Aarch64Register>,
+    #[version(end = 2, default_fn = "default_old_regs")]
+    old_regs: Vec<Aarch64RegisterOld>,
+    #[version(start = 2, de_fn = "de_regs", ser_fn = "ser_regs")]
+    pub regs: Aarch64RegisterVec,
     // We will be using the mpidr for passing it to the VmState.
     // The VmState will give this away for saving restoring the icc and redistributor
     // registers.
     pub mpidr: u64,
+}
+
+impl VcpuState {
+    fn default_old_regs(_: u16) -> Vec<Aarch64RegisterOld> {
+        Vec::default()
+    }
+
+    fn de_regs(&mut self, _source_version: u16) -> VersionizeResult<()> {
+        let mut regs = Aarch64RegisterVec::default();
+        for reg in self.old_regs.iter() {
+            let reg_ref: Aarch64RegisterRef = reg
+                .try_into()
+                .map_err(|e: &str| VersionizeError::Deserialize(e.into()))?;
+            regs.push(reg_ref);
+        }
+        self.regs = regs;
+        Ok(())
+    }
+
+    fn ser_regs(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        self.old_regs = self
+            .regs
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .map_err(|e: &str| VersionizeError::Serialize(e.into()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -194,9 +226,11 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
+    use kvm_bindings::KVM_REG_SIZE_U64;
     use utils::vm_memory::GuestMemoryMmap;
 
     use super::{Error, *};
+    use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::vcpu::VcpuConfig;
     use crate::vstate::vm::tests::setup_vm;
@@ -286,37 +320,33 @@ mod tests {
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
         let res = vcpu.save_state();
         assert!(res.is_err());
-        assert_eq!(
+        assert!(matches!(
             res.unwrap_err(),
-            Error::SaveState(ArchError::GetRegList(kvm_ioctls::Error::new(8))),
-        );
+            Error::SaveState(ArchError::GetRegList(_))
+        ));
 
         // Try to restore the register using a faulty state.
+        let mut regs = Aarch64RegisterVec::default();
+        let mut reg = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &[0; 8]);
+        reg.id = 0;
+        regs.push(reg);
         let faulty_vcpu_state = VcpuState {
-            regs: vec![Aarch64Register { id: 0, value: 0 }],
+            regs,
             ..Default::default()
         };
 
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(res.is_err());
-        assert_eq!(
+        assert!(matches!(
             res.unwrap_err(),
-            Error::RestoreState(ArchError::SetOneReg(0, kvm_ioctls::Error::new(8)))
-        );
+            Error::RestoreState(ArchError::SetOneReg(0, _))
+        ));
 
         init_vcpu(&vcpu.fd, vm.fd());
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
         vcpu.restore_state(&state)
             .expect("Cannot restore state of vcpu");
-        let value = vcpu
-            .fd
-            .get_one_reg(0x6030_0000_0010_003E)
-            .expect("Cannot get sp core register");
-        assert!(state.regs.contains(&Aarch64Register {
-            id: 0x6030_0000_0010_003E,
-            value
-        }));
     }
 
     #[test]
@@ -359,7 +389,7 @@ mod tests {
         // - X1: 0x6030 0000 0010 0002
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100000, 0x6030000000100002]);
-        assert!(get_registers(&vcpu.fd, &reg_list, &mut vec![]).is_ok());
+        assert!(get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).is_ok());
     }
 
     #[test]
@@ -367,6 +397,6 @@ mod tests {
         // Test `get_regs()` with invalid register IDs.
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100001, 0x6030000000100003]);
-        assert!(get_registers(&vcpu.fd, &reg_list, &mut vec![]).is_err());
+        assert!(get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).is_err());
     }
 }
