@@ -9,6 +9,7 @@ Assumes all the releases are in the current path.
 """
 
 import argparse
+import re
 import subprocess
 import tarfile
 from pathlib import Path
@@ -84,10 +85,21 @@ def github_release(tag_version, repo, github_token):
     print(f"Draft release created successful. Check it out at {release_url}")
 
 
+def version(version_str: str):
+    """Validate version parameter"""
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", version_str):
+        raise ValueError("version does not match vX.Y.Z")
+    return version_str
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--version", required=True, help="Firecracker version. (v1.2.3)"
+        "--version",
+        required=True,
+        metavar="vX.Y.Z",
+        help="Firecracker version.",
+        type=version,
     )
     parser.add_argument(
         "--repository", required=False, default="firecracker-microvm/firecracker"
