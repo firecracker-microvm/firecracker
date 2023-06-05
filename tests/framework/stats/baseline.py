@@ -34,4 +34,7 @@ class Provider(ABC):
                 cpu_model = cpu["model"]
                 for baseline, val in cpu["baselines"].items():
                     baselines[instance, cpu_model][baseline] = val
-        return baselines.get((global_props.instance, global_props.cpu_model))
+        return {
+            "baselines": baselines.get((global_props.instance, global_props.cpu_model)),
+            "model": global_props.cpu_model,
+        }
