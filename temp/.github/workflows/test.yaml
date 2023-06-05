@@ -1,0 +1,11 @@
+on:
+  push:
+
+jobs:
+  testing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: test a
+        run: echo "test msg"
