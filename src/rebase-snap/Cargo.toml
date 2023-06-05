@@ -7,6 +7,6 @@ build = "../../build.rs"
 license = "Apache-2.0"
 
 [dependencies]
-libc = "0.2.117"
+libc = "0.2.145"
 
 utils = { path = "../utils" }
