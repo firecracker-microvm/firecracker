@@ -15,14 +15,13 @@ from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import DictQuery, get_kernel_version
+from framework.utils import get_kernel_version
 from integration_tests.performance.configs import defs
 
 TEST_ID = "snapshot_restore_performance"
 WORKLOAD = "restore"
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, get_kernel_version(level=1))
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 BASE_VCPU_COUNT = 1
 BASE_MEM_SIZE_MIB = 128
@@ -41,10 +40,10 @@ net_ifaces = create_net_devices_configuration(4)
 class SnapRestoreBaselinesProvider(BaselineProvider):
     """Baselines provider for snapshot restore latency."""
 
-    def __init__(self, env_id, workload):
+    def __init__(self, env_id, workload, raw_baselines):
         """Snapshot baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG_DICT)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baselines)
+
         self._tag = "baselines/{}/" + env_id + "/{}/" + workload
 
     def get(self, metric_name: str, statistic_name: str) -> dict:
@@ -73,9 +72,11 @@ def get_scratch_drives():
 
 def default_lambda_consumer(env_id, workload):
     """Create a default lambda consumer for the snapshot restore test."""
+    raw_baselines = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
     return st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG_DICT["measurements"], SnapRestoreBaselinesProvider(env_id, workload)
+            raw_baselines["measurements"],
+            SnapRestoreBaselinesProvider(env_id, workload, raw_baselines),
         ),
         func=consume_output,
         func_kwargs={},

@@ -15,7 +15,6 @@ from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
     CmdBuilder,
     CpuMap,
-    DictQuery,
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
@@ -28,7 +27,6 @@ TEST_ID = "vsock_throughput"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 # Number of seconds to wait for the iperf3 server to start
 SERVER_STARTUP_TIME_SEC = 2
@@ -66,10 +64,10 @@ class VsockThroughputBaselineProvider(BaselineProvider):
     ...performance test.
     """
 
-    def __init__(self, env_id, iperf_id):
+    def __init__(self, env_id, iperf_id, raw_baselines):
         """Vsock throughput baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG_DICT)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baselines)
+
         self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
     def get(self, metric_name: str, statistic_name: str) -> dict:
@@ -218,10 +216,11 @@ def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
 
     iperf3_id = f"vsock-p{payload_length}-{mode}"
 
+    raw_baselines = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG_DICT["measurements"],
-            VsockThroughputBaselineProvider(env_id, iperf3_id),
+            raw_baselines["measurements"],
+            VsockThroughputBaselineProvider(env_id, iperf3_id, raw_baselines),
         ),
         func=consume_iperf_output,
     )
