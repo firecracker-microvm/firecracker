@@ -529,6 +529,43 @@ mod tests {
     }
 
     #[test]
+    fn test_update_vendor_id() {
+        // Check `update_vendor_id()` passes through the vendor ID from the host correctly.
+
+        // Pseudo CPUID with invalid vendor ID.
+        let mut guest_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::EMPTY,
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0x0123_4567,
+                    ecx: 0x89ab_cdef,
+                    edx: 0x55aa_55aa,
+                },
+            },
+        )])));
+
+        // Pass through vendor ID from host.
+        guest_cpuid.update_vendor_id().unwrap();
+
+        // Check if the guest vendor ID matches the host one.
+        let guest_leaf_0 = guest_cpuid
+            .get(&CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            })
+            .unwrap();
+        let host_leaf_0 = cpuid(0x0);
+        assert_eq!(guest_leaf_0.result.ebx, host_leaf_0.ebx);
+        assert_eq!(guest_leaf_0.result.ecx, host_leaf_0.ecx);
+        assert_eq!(guest_leaf_0.result.edx, host_leaf_0.edx);
+    }
+
+    #[test]
     fn check_leaf_0xb_subleaf_0x1_added() {
         // Check leaf 0xb / subleaf 0x1 is added in `update_extended_topology_entry()` even when it
         // isn't included.
