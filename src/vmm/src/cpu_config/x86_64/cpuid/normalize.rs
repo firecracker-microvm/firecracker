@@ -205,24 +205,21 @@ impl super::Cpuid {
             .checked_shl(u32::from(cpu_bits))
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
         self.update_vendor_id()?;
-        self.update_feature_info_entry(cpu_index, cpu_count)
-            .map_err(NormalizeCpuidError::FeatureInformation)?;
-        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
-            .map_err(NormalizeCpuidError::ExtendedTopology)?;
-        self.update_extended_cache_features()
-            .map_err(NormalizeCpuidError::ExtendedCacheFeatures)?;
+        self.update_feature_info_entry(cpu_index, cpu_count)?;
+        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)?;
+        self.update_extended_cache_features()?;
 
         // Apply manufacturer specific modifications.
         match self {
             // Apply Intel specific modifications.
-            Self::Intel(intel_cpuid) => intel_cpuid
-                .normalize(cpu_index, cpu_count, cpus_per_core)
-                .map_err(NormalizeCpuidError::Intel),
+            Self::Intel(intel_cpuid) => {
+                intel_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?;
+            }
             // Apply AMD specific modifications.
-            Self::Amd(amd_cpuid) => amd_cpuid
-                .normalize(cpu_index, cpu_count, cpus_per_core)
-                .map_err(NormalizeCpuidError::Amd),
+            Self::Amd(amd_cpuid) => amd_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?,
         }
+
+        Ok(())
     }
 
     /// Pass-through the vendor ID from the host. This is used to prevent modification of the vendor
