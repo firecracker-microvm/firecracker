@@ -27,6 +27,17 @@ pub enum NormalizeCpuidError {
     /// Failed to set extended cache features leaf.
     #[error("Failed to set extended cache features leaf: {0}")]
     ExtendedCacheFeatures(#[from] ExtendedCacheFeaturesError),
+    /// Failed to set vendor ID in leaf 0x0.
+    #[error("Failed to set vendor ID in leaf 0x0: {0}")]
+    VendorId(#[from] VendorIdError),
+}
+
+/// Error type for setting leaf 0 section.
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum VendorIdError {
+    /// Leaf 0x0 is missing from CPUID.
+    #[error("Leaf 0x0 is missing from CPUID.")]
+    MissingLeaf0,
 }
 
 /// Error type for setting leaf 1 section of `IntelCpuid::normalize`.
@@ -193,6 +204,7 @@ impl super::Cpuid {
         let cpus_per_core = 1u8
             .checked_shl(u32::from(cpu_bits))
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
+        self.update_vendor_id()?;
         self.update_feature_info_entry(cpu_index, cpu_count)
             .map_err(NormalizeCpuidError::FeatureInformation)?;
         self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
@@ -211,6 +223,22 @@ impl super::Cpuid {
                 .normalize(cpu_index, cpu_count, cpus_per_core)
                 .map_err(NormalizeCpuidError::Amd),
         }
+    }
+
+    /// Pass-through the vendor ID from the host. This is used to prevent modification of the vendor
+    /// ID via custom CPU templates.
+    fn update_vendor_id(&mut self) -> Result<(), VendorIdError> {
+        let leaf_0 = self
+            .get_mut(&CpuidKey::leaf(0x0))
+            .ok_or(VendorIdError::MissingLeaf0)?;
+
+        let host_leaf_0 = cpuid(0x0);
+
+        leaf_0.result.ebx = host_leaf_0.ebx;
+        leaf_0.result.ecx = host_leaf_0.ecx;
+        leaf_0.result.edx = host_leaf_0.edx;
+
+        Ok(())
     }
 
     // Update feature information entry
