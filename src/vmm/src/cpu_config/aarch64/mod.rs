@@ -9,7 +9,8 @@ pub mod static_cpu_templates;
 pub mod test_utils;
 
 use super::templates::CustomCpuTemplate;
-use crate::arch::regs::{Aarch64Register, Error as ArchError};
+use crate::arch::aarch64::regs::{Aarch64RegisterVec, RegSize};
+use crate::arch::aarch64::vcpu::Error as ArchError;
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -20,14 +21,25 @@ pub struct Error(#[from] pub ArchError);
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CpuConfiguration {
     /// Vector of CPU registers
-    pub regs: Vec<Aarch64Register>,
+    pub regs: Aarch64RegisterVec,
 }
 
 impl CpuConfiguration {
     /// Creates new guest CPU config based on the provided template
     pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Result<Self, Error> {
-        for (modifier, reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
-            reg.value = modifier.bitmap.apply(reg.value);
+        for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
+            match reg.size() {
+                RegSize::U32 => {
+                    reg.set_value(modifier.bitmap.apply(u128::from(reg.value::<u32, 4>())) as u32);
+                }
+                RegSize::U64 => {
+                    reg.set_value(modifier.bitmap.apply(u128::from(reg.value::<u64, 8>())) as u64);
+                }
+                RegSize::U128 => {
+                    reg.set_value(modifier.bitmap.apply(reg.value::<u128, 16>()));
+                }
+                _ => unreachable!("Only 32, 64 and 128 bit wide registers are supported"),
+            }
         }
         Ok(self)
     }

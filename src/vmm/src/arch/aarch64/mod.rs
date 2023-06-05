@@ -9,6 +9,8 @@ pub mod gic;
 pub mod layout;
 /// Logic for configuring aarch64 registers.
 pub mod regs;
+/// Helper methods for VcpuFd.
+pub mod vcpu;
 
 use std::cmp::min;
 use std::collections::HashMap;

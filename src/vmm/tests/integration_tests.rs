@@ -458,7 +458,7 @@ fn test_snapshot_cpu_vendor() {
 #[cfg(target_arch = "aarch64")]
 #[test]
 fn test_snapshot_cpu_vendor_missing() {
-    use vmm::arch::regs::MIDR_EL1;
+    use vmm::arch::aarch64::regs::{Aarch64RegisterVec, MIDR_EL1};
     use vmm::persist::{validate_cpu_manufacturer_id, ValidateCpuManufacturerIdError};
 
     let mut microvm_state = get_microvm_state_from_snapshot();
@@ -467,13 +467,17 @@ fn test_snapshot_cpu_vendor_missing() {
     // the snapshot was created locally.
     assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(true));
 
-    // Remove the MIDR_EL1 value from the VCPU states, by setting it to 0
-    for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
-        for reg in state.regs.as_mut_slice().iter_mut() {
-            if reg.id == MIDR_EL1 {
-                reg.id = 0;
+    // Manufacturer id is stored in the MIDR_EL1 register. For this test we
+    // remove it from the state.
+    for state in microvm_state.vcpu_states.iter_mut() {
+        let mut new_regs = Aarch64RegisterVec::default();
+        // Removing MIDR_EL1 register.
+        for reg in state.regs.iter() {
+            if reg.id != MIDR_EL1 {
+                new_regs.push(reg);
             }
         }
+        state.regs = new_regs;
     }
     assert!(matches!(
         validate_cpu_manufacturer_id(&microvm_state),
@@ -484,7 +488,7 @@ fn test_snapshot_cpu_vendor_missing() {
 #[cfg(target_arch = "aarch64")]
 #[test]
 fn test_snapshot_cpu_vendor_mismatch() {
-    use vmm::arch::regs::MIDR_EL1;
+    use vmm::arch::aarch64::regs::MIDR_EL1;
     use vmm::persist::validate_cpu_manufacturer_id;
 
     let mut microvm_state = get_microvm_state_from_snapshot();
@@ -496,9 +500,9 @@ fn test_snapshot_cpu_vendor_mismatch() {
     // Change the MIDR_EL1 value from the VCPU states, to contain an
     // invalid manufacturer ID
     for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
-        for reg in state.regs.as_mut_slice().iter_mut() {
+        for mut reg in state.regs.iter_mut() {
             if reg.id == MIDR_EL1 {
-                reg.value = 0x710FD081;
+                reg.set_value::<u64, 8>(0x710FD081);
             }
         }
     }
