@@ -177,12 +177,9 @@ class LambdaConsumer(Consumer):
         """Initialize the LambdaConsumer."""
         super().__init__(metadata_provider)
         self._func = func
-        self._func_kwargs = func_kwargs
+        self._func_kwargs = func_kwargs or {}
 
     def ingest(self, iteration, raw_data):
-        """Execute the function with or without arguments."""
+        """Execute the function."""
         self._iteration = iteration
-        if self._func_kwargs:
-            self._func(self, raw_data, **self._func_kwargs)
-        else:
-            self._func(self, raw_data)
+        return self._func(self, raw_data, **self._func_kwargs)

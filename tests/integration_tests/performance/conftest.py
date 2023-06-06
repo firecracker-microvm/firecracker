@@ -98,7 +98,7 @@ def send_metrics(metrics, stats: core.Core):
 
 
 @pytest.fixture
-def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
+def st_core(metrics, results_file_dumper, guest_kernel, rootfs, request):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
     stats.iterations = 1
@@ -109,6 +109,8 @@ def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
         "guest_kernel": guest_kernel.prop,
         "rootfs": rootfs.name(),
     }
+    stats.metrics = metrics
+    stats.metrics_test = request.function.__name__
     yield stats
     # If the test is skipped, there will be no results, so only dump if there
     # is some.
