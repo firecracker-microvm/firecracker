@@ -91,16 +91,19 @@ def consume_ping_output(cons, raw_data, requests):
         assert len(time) == 1
         times.append(time[0])
 
-    times.sort()
+    sorted_times = sorted(times)
     cons.consume_stat(
-        st_name="Percentile50", ms_name=LATENCY, value=times[int(requests * 0.5)]
+        st_name="Percentile50", ms_name=LATENCY, value=sorted_times[int(requests * 0.5)]
     )
     cons.consume_stat(
-        st_name="Percentile90", ms_name=LATENCY, value=times[int(requests * 0.9)]
+        st_name="Percentile90", ms_name=LATENCY, value=sorted_times[int(requests * 0.9)]
     )
     cons.consume_stat(
-        st_name="Percentile99", ms_name=LATENCY, value=times[int(requests * 0.99)]
+        st_name="Percentile99",
+        ms_name=LATENCY,
+        value=sorted_times[int(requests * 0.99)],
     )
+    return [("ping_latency", float(x), "Milliseconds") for x in times]
 
 
 @pytest.mark.nonci
@@ -113,7 +116,10 @@ def test_network_latency(
 
     Send a ping from the guest to the host.
     """
-    requests = 1000
+
+    # each iteration is 6 seconds
+    # * 30 iterations = 5 minutes
+    requests = 30
     interval = 0.2  # Seconds
 
     # Create a microvm from artifacts
@@ -141,6 +147,7 @@ def test_network_latency(
     # is this actually needed, beyond baselines?
     guest_config = f"{guest_vcpus}vcpu_{guest_mem_mib}mb.json"
     st_core.name = TEST_ID
+    st_core.iterations = 30
     st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
