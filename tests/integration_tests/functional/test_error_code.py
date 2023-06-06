@@ -14,25 +14,20 @@ from framework.utils import wait_process_termination
     reason="The error code returned on aarch64 will not be returned on x86 "
     "under the same conditions.",
 )
-def test_enosys_error_code(uvm_plain, artifact_dir):
+def test_enosys_error_code(uvm_plain):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.
     """
-    # On aarch64 we trigger this error by adding to initrd a C program that
+    # On aarch64 we trigger this error by running a C program that
     # maps a file into memory and then tries to load the content from an
     # offset in the file bigger than its length into a register asm volatile
     # ("ldr %0, [%1], 4" : "=r" (ret), "+r" (buf));
     vm = uvm_plain
-    vm.jailer.daemonize = False
     vm.spawn()
     vm.memory_monitor = None
-
-    vm.initrd_file = artifact_dir / "initrd_enosys.img"
     vm.basic_config(
-        add_root_device=False,
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
-        use_initrd=True,
+        boot_args="reboot=k panic=1 pci=off init=/usr/local/bin/devmemread",
     )
     vm.start()
 
@@ -40,6 +35,6 @@ def test_enosys_error_code(uvm_plain, artifact_dir):
     wait_process_termination(vm.jailer_clone_pid)
 
     vm.check_log_message(
-        "Received ENOSYS error because KVM failed to" " emulate an instruction."
+        "Received ENOSYS error because KVM failed to emulate an instruction."
     )
     vm.check_log_message("Vmm is stopping.")
