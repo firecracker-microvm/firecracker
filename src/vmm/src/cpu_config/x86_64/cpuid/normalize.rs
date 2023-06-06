@@ -27,6 +27,17 @@ pub enum NormalizeCpuidError {
     /// Failed to set extended cache features leaf.
     #[error("Failed to set extended cache features leaf: {0}")]
     ExtendedCacheFeatures(#[from] ExtendedCacheFeaturesError),
+    /// Failed to set vendor ID in leaf 0x0.
+    #[error("Failed to set vendor ID in leaf 0x0: {0}")]
+    VendorId(#[from] VendorIdError),
+}
+
+/// Error type for setting leaf 0 section.
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum VendorIdError {
+    /// Leaf 0x0 is missing from CPUID.
+    #[error("Leaf 0x0 is missing from CPUID.")]
+    MissingLeaf0,
 }
 
 /// Error type for setting leaf 1 section of `IntelCpuid::normalize`.
@@ -193,24 +204,38 @@ impl super::Cpuid {
         let cpus_per_core = 1u8
             .checked_shl(u32::from(cpu_bits))
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
-        self.update_feature_info_entry(cpu_index, cpu_count)
-            .map_err(NormalizeCpuidError::FeatureInformation)?;
-        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
-            .map_err(NormalizeCpuidError::ExtendedTopology)?;
-        self.update_extended_cache_features()
-            .map_err(NormalizeCpuidError::ExtendedCacheFeatures)?;
+        self.update_vendor_id()?;
+        self.update_feature_info_entry(cpu_index, cpu_count)?;
+        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)?;
+        self.update_extended_cache_features()?;
 
         // Apply manufacturer specific modifications.
         match self {
             // Apply Intel specific modifications.
-            Self::Intel(intel_cpuid) => intel_cpuid
-                .normalize(cpu_index, cpu_count, cpus_per_core)
-                .map_err(NormalizeCpuidError::Intel),
+            Self::Intel(intel_cpuid) => {
+                intel_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?;
+            }
             // Apply AMD specific modifications.
-            Self::Amd(amd_cpuid) => amd_cpuid
-                .normalize(cpu_index, cpu_count, cpus_per_core)
-                .map_err(NormalizeCpuidError::Amd),
+            Self::Amd(amd_cpuid) => amd_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?,
         }
+
+        Ok(())
+    }
+
+    /// Pass-through the vendor ID from the host. This is used to prevent modification of the vendor
+    /// ID via custom CPU templates.
+    fn update_vendor_id(&mut self) -> Result<(), VendorIdError> {
+        let leaf_0 = self
+            .get_mut(&CpuidKey::leaf(0x0))
+            .ok_or(VendorIdError::MissingLeaf0)?;
+
+        let host_leaf_0 = cpuid(0x0);
+
+        leaf_0.result.ebx = host_leaf_0.ebx;
+        leaf_0.result.ecx = host_leaf_0.ecx;
+        leaf_0.result.edx = host_leaf_0.edx;
+
+        Ok(())
     }
 
     // Update feature information entry
@@ -498,6 +523,43 @@ mod tests {
             get_max_cpus_per_package(u8::MAX),
             Err(GetMaxCpusPerPackageError::Overflow)
         );
+    }
+
+    #[test]
+    fn test_update_vendor_id() {
+        // Check `update_vendor_id()` passes through the vendor ID from the host correctly.
+
+        // Pseudo CPUID with invalid vendor ID.
+        let mut guest_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::EMPTY,
+                result: CpuidRegisters {
+                    eax: 0,
+                    ebx: 0x0123_4567,
+                    ecx: 0x89ab_cdef,
+                    edx: 0x55aa_55aa,
+                },
+            },
+        )])));
+
+        // Pass through vendor ID from host.
+        guest_cpuid.update_vendor_id().unwrap();
+
+        // Check if the guest vendor ID matches the host one.
+        let guest_leaf_0 = guest_cpuid
+            .get(&CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            })
+            .unwrap();
+        let host_leaf_0 = cpuid(0x0);
+        assert_eq!(guest_leaf_0.result.ebx, host_leaf_0.ebx);
+        assert_eq!(guest_leaf_0.result.ecx, host_leaf_0.ecx);
+        assert_eq!(guest_leaf_0.result.edx, host_leaf_0.edx);
     }
 
     #[test]
