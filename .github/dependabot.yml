@@ -5,8 +5,6 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    labels: 
-      - "Status: Awaiting review"
     allow:
       - dependency-type: "all"
     open-pull-request-limit: 100
