@@ -1,9 +1,1 @@
 [advisories]
-# atty is an unmaintained dependency introduced by criterion.
-# It has a security advisory about illegal memory access on
-# windows.
-# We are using criterion only for benchmarks, so we can ignore
-# this vulnerability until criterion releases a new version
-# that replaces atty.
-# See https://github.com/bheisler/criterion.rs/issues/628.
-ignore = ["RUSTSEC-2021-0145"]
