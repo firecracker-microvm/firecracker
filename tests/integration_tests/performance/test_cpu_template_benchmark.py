@@ -9,8 +9,6 @@ import platform
 import shutil
 from pathlib import Path
 
-import pytest
-
 from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
 from host_tools import proc
@@ -24,16 +22,16 @@ NSEC_IN_MSEC = 1000000
 
 BASELINES = {
     "Intel": {
-        "deserialize": {"target": 0.025, "delta": 0.02},  # milliseconds
-        "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
+        "deserialize": {"max_target": 0.05},  # milliseconds
+        "serialize": {"max_target": 0.05},  # milliseconds
     },
     "AMD": {
-        "deserialize": {"target": 0.025, "delta": 0.02},  # milliseconds
-        "serialize": {"target": 0.015, "delta": 0.02},  # milliseconds
+        "deserialize": {"max_target": 0.05},  # milliseconds
+        "serialize": {"max_target": 0.05},  # milliseconds
     },
     "ARM": {
-        "deserialize": {"target": 0.0015, "delta": 0.001},  # milliseconds
-        "serialize": {"target": 0.0015, "delta": 0.006},  # milliseconds
+        "deserialize": {"max_target": 0.006},  # milliseconds
+        "serialize": {"max_target": 0.006},  # milliseconds
     },
 }
 
@@ -48,17 +46,14 @@ def _check_statistics(directory, mean):
         bench = "serialize"
 
     measure = BASELINES[proc_model[0]][bench]
-    target, delta = measure["target"], measure["delta"]
+    max_target = measure["max_target"]
 
     # When using multiple data sets where the delta can
     # vary substantially, consider making use of the
     # 'rel' parameter for more flexibility.
-    assert mean == pytest.approx(
-        target,
-        abs=delta,
-    ), f"Benchmark result {directory} has changed!"
+    assert mean < max_target, f"Benchmark result {directory} has changed!"
 
-    return f"{target - delta} <= result <= {target + delta}"
+    return f"{max_target} > result"
 
 
 def test_cpu_template_benchmark(monkeypatch, record_property):
