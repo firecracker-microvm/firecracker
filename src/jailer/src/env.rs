@@ -103,6 +103,33 @@ pub struct Env {
     resource_limits: ResourceLimits,
 }
 
+impl std::fmt::Debug for Env {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Env")
+            .field("id", &self.id)
+            .field("chroot_dir", &self.chroot_dir)
+            .field("exec_file_path", &self.exec_file_path)
+            .field("uid", &self.uid)
+            .field("gid", &self.gid)
+            .field("netns", &self.netns)
+            .field("daemonize", &self.daemonize)
+            .field("new_pid_ns", &self.new_pid_ns)
+            .field("start_time_us", &self.start_time_us)
+            .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
+            .field("extra_args", &self.extra_args)
+            .field(
+                "cgroups",
+                &self
+                    .cgroups
+                    .iter()
+                    .map(|b| b as *const _)
+                    .collect::<Vec<_>>(),
+            )
+            .field("resource_limits", &self.resource_limits)
+            .finish()
+    }
+}
+
 impl Env {
     pub fn new(
         arguments: &arg_parser::Arguments,
@@ -621,7 +648,7 @@ mod tests {
 
     const PSEUDO_EXEC_FILE_PATH: &str = "/tmp/pseudo_firecracker_exec_file";
 
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     struct ArgVals<'a> {
         pub id: &'a str,
         pub exec_file: &'a str,

@@ -11,8 +11,8 @@ use crate::devices::BusDevice;
 pub type RTCDevice = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
 // Implements Bus functions for AMBA PL031 RTC device
-impl BusDevice for RTCDevice {
-    fn read(&mut self, offset: u64, data: &mut [u8]) {
+impl RTCDevice {
+    fn bread(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() == 4 {
             // read() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data lengt
@@ -26,7 +26,7 @@ impl BusDevice for RTCDevice {
         }
     }
 
-    fn write(&mut self, offset: u64, data: &[u8]) {
+    fn bwrite(&mut self, offset: u64, data: &[u8]) {
         if data.len() == 4 {
             // write() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data length
@@ -60,7 +60,7 @@ mod tests {
         // function should fail.
         let invalid_writes_before = metrics.missed_write_count.count();
         let error_count_before = metrics.error_count.count();
-        <dyn BusDevice>::write(&mut rtc_pl031, 0x000, &data);
+        rtc_pl031.bwrite(&mut rtc_pl031, 0x000, &data);
         let invalid_writes_after = metrics.missed_write_count.count();
         let error_count_after = metrics.error_count.count();
         assert_eq!(invalid_writes_after - invalid_writes_before, 1);
@@ -75,10 +75,10 @@ mod tests {
         let mut data_bad = [0; 2];
         let mut read_data_good = [0; 4];
 
-        <dyn BusDevice>::write(&mut rtc_pl031, 0x008, &write_data_good);
-        <dyn BusDevice>::write(&mut rtc_pl031, 0x008, &data_bad);
-        <dyn BusDevice>::read(&mut rtc_pl031, 0x008, &mut read_data_good);
-        <dyn BusDevice>::read(&mut rtc_pl031, 0x008, &mut data_bad);
+        rtc_pl031.bwrite(&mut rtc_pl031, 0x008, &write_data_good);
+        rtc_pl031.bwrite(&mut rtc_pl031, 0x008, &data_bad);
+        rtc_pl031.bread(&mut rtc_pl031, 0x008, &mut read_data_good);
+        rtc_pl031.bread(&mut rtc_pl031, 0x008, &mut data_bad);
         assert_eq!(u32::from_le_bytes(read_data_good), 123);
         assert_eq!(u16::from_le_bytes(data_bad), 0);
     }

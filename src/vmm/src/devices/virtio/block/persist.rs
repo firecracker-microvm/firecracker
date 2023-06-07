@@ -6,11 +6,10 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::warn;
+use log::warn;
 use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
-use utils::kernel_version::min_kernel_version_for_io_uring;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -74,7 +73,7 @@ impl From<FileEngineTypeState> for FileEngineType {
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BlockState {
     id: String,
@@ -113,6 +112,7 @@ impl BlockState {
     }
 }
 
+#[derive(Debug)]
 pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
 }
@@ -160,7 +160,7 @@ impl Persist<'_> for Block {
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \
                      Defaulting to \"Sync\" mode.",
-                    min_kernel_version_for_io_uring()
+                    utils::kernel_version::min_kernel_version_for_io_uring()
                 );
 
                 let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)

@@ -1,7 +1,9 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{error, info};
+use std::fmt::Debug;
+
+use log::{error, info};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
@@ -27,14 +29,13 @@ use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
-#[derive(Default)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct ParsingInfo {
     deprecation_message: Option<String>,
 }
@@ -52,7 +53,7 @@ impl ParsingInfo {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(crate) struct ParsedRequest {
     action: RequestAction,
     parsing_info: ParsingInfo,
@@ -141,7 +142,7 @@ impl ParsedRequest {
 
     pub(crate) fn success_response_with_data<T>(body_data: &T) -> Response
     where
-        T: ?Sized + Serialize,
+        T: ?Sized + Serialize + Debug,
     {
         info!("The request was executed successfully. Status code: 200 OK.");
         let mut response = Response::new(Version::Http11, StatusCode::OK);
@@ -755,7 +756,7 @@ pub mod tests {
     fn test_try_from_put_logger() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \"log_path\": \"string\", \"level\": \"Warning\", \"show_level\": false, \
+        let body = "{ \"log_path\": \"string\", \"level\": \"Warn\", \"show_level\": false, \
                     \"show_log_origin\": false }";
         sender
             .write_all(http_request("PUT", "/logger", Some(body)).as_bytes())

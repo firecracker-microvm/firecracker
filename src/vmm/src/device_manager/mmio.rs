@@ -6,11 +6,12 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
-use logger::info;
+use log::info;
 #[cfg(target_arch = "x86_64")]
 use utils::vm_memory::GuestAddress;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -85,6 +86,7 @@ pub struct MMIODeviceInfo {
 }
 
 /// Manages the complexities of registering a MMIO device.
+#[derive(Debug)]
 pub struct MMIODeviceManager {
     pub(crate) bus: crate::devices::Bus,
     pub(crate) irq_allocator: IdAllocator,
@@ -131,7 +133,7 @@ impl MMIODeviceManager {
         &mut self,
         identifier: (DeviceType, String),
         device_info: MMIODeviceInfo,
-        device: Arc<Mutex<dyn BusDevice>>,
+        device: Arc<Mutex<BusDevice>>,
     ) -> Result<()> {
         self.bus
             .insert(device, device_info.addr, device_info.len)
@@ -145,6 +147,7 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         device_id: String,
+        // BusDevice::MmioTransport
         mmio_device: MmioTransport,
         device_info: &MMIODeviceInfo,
     ) -> Result<()> {
@@ -171,7 +174,7 @@ impl MMIODeviceManager {
         self.register_mmio_device(
             identifier,
             device_info.clone(),
-            Arc::new(Mutex::new(mmio_device)),
+            Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
         )
     }
 
@@ -280,7 +283,11 @@ impl MMIODeviceManager {
         let device_info = self.allocate_mmio_resources(0)?;
 
         let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
-        self.register_mmio_device(identifier, device_info, Arc::new(Mutex::new(device)))
+        self.register_mmio_device(
+            identifier,
+            device_info,
+            Arc::new(Mutex::new(BusDevice::BootTimer(device))),
+        )
     }
 
     /// Gets the information of the devices registered up to some point in time.
@@ -303,7 +310,7 @@ impl MMIODeviceManager {
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<dyn BusDevice>> {
+    ) -> Option<&Mutex<BusDevice>> {
         if let Some(device_info) = self
             .id_to_dev_info
             .get(&(device_type, device_id.to_string()))
@@ -316,13 +323,13 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered device.
-    pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
+    pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
     where
         F: FnMut(
             &DeviceType,
             &String,
             &MMIODeviceInfo,
-            &Mutex<dyn BusDevice>,
+            &Mutex<BusDevice>,
         ) -> std::result::Result<(), E>,
     {
         for ((device_type, device_id), device_info) in self.get_device_info().iter() {
@@ -336,7 +343,7 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered virtio device.
-    pub fn for_each_virtio_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
+    pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
     where
         F: FnMut(
             u32,
@@ -350,9 +357,8 @@ impl MMIODeviceManager {
                 let virtio_device = bus_device
                     .lock()
                     .expect("Poisoned lock")
-                    .as_any()
-                    .downcast_ref::<MmioTransport>()
-                    .expect("Unexpected BusDevice type")
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type")
                     .device();
                 f(*virtio_type, device_id, device_info, virtio_device)?;
             }
@@ -365,16 +371,15 @@ impl MMIODeviceManager {
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
     pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
     where
-        T: VirtioDevice + 'static,
+        T: VirtioDevice + 'static + Debug,
         F: FnOnce(&mut T) -> std::result::Result<(), String>,
     {
         if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
             let virtio_device = busdev
                 .lock()
                 .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                .expect("Unexpected BusDevice type")
+                .mmio_transport_ref()
+                .expect("Unexpected device type")
                 .device();
             let mut dev = virtio_device.lock().expect("Poisoned lock");
             f(dev
@@ -491,6 +496,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
+    #[derive(Debug)]
     struct DummyDevice {
         dummy: u32,
         queues: Vec<Queue>,

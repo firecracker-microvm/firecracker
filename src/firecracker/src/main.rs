@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::{io, panic, process};
 
 use event_manager::SubscriberOps;
-use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
+use log::{error, info};
+use logger::{ProcessTimeReporter, StoreMetric, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument};
@@ -70,10 +71,6 @@ pub fn enable_ssbd_mitigation() {
 }
 
 fn main_exitable() -> FcExitCode {
-    LOGGER
-        .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
-        .expect("Failed to register logger");
-
     if let Err(err) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", err);
         return vmm::FcExitCode::GenericError;
@@ -275,8 +272,6 @@ fn main_exitable() -> FcExitCode {
         app_name: "Firecracker".to_string(),
     };
 
-    LOGGER.set_instance_id(instance_id.to_owned());
-
     if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
         let level = arguments.single_value("level").unwrap().to_owned();
@@ -293,12 +288,12 @@ fn main_exitable() -> FcExitCode {
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
 
-        let logger_config = LoggerConfig::new(
-            PathBuf::from(log),
-            logger_level,
+        let logger_config = LoggerConfig {
+            log_path: PathBuf::from(log),
+            level: logger_level,
             show_level,
             show_log_origin,
-        );
+        };
         if let Err(err) = init_logger(logger_config, &instance_info) {
             return generic_error_exit(&format!("Could not initialize logger: {}", err));
         };

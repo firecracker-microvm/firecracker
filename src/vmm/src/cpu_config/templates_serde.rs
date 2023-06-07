@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
 
@@ -8,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serializer};
 pub fn serialize_to_hex_str<S, N>(number: &N, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
-    N: std::fmt::LowerHex,
+    N: std::fmt::LowerHex + Debug,
 {
     serializer.serialize_str(format!("{:#x}", number).as_str())
 }

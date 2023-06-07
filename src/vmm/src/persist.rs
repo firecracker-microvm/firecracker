@@ -3,6 +3,7 @@
 
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
+use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
@@ -10,7 +11,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use logger::{error, info, warn};
+use log::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
@@ -117,7 +118,7 @@ impl From<&VmResources> for VmInfo {
 }
 
 /// Contains the necesary state for saving/restoring a microVM.
-#[derive(Versionize)]
+#[derive(Debug, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MicrovmState {
     /// Miscellaneous VM info.

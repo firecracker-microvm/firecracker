@@ -103,6 +103,8 @@ pub struct VirtioDeviceState {
 }
 
 impl VirtioDeviceState {
+    // TODO Remove `skip(device)`. This will likely require removing dynamic dispatch with
+    // `dyn VirtioDevice` and replacing it with an enum `enum VirtioDevice`, this may be a tricky.
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
         VirtioDeviceState {
             device_type: device.device_type(),
@@ -177,6 +179,7 @@ pub struct MmioTransportState {
     config_generation: u32,
 }
 
+#[derive(Debug)]
 pub struct MmioTransportConstructorArgs {
     pub mem: GuestMemoryMmap,
     pub device: Arc<Mutex<dyn VirtioDevice>>,

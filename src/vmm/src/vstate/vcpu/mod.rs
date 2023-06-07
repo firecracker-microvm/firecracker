@@ -16,7 +16,8 @@ use std::{fmt, io, result, thread};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
-use logger::{error, info, IncMetric, METRICS};
+use log::{error, info};
+use logger::{IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
 use utils::errno;
 use utils::eventfd::EventFd;
@@ -96,6 +97,7 @@ impl fmt::Display for StartThreadedError {
 }
 
 /// A wrapper around creating and using a vcpu.
+#[derive(Debug)]
 pub struct Vcpu {
     /// Access to kvm-arch specific functionality.
     pub kvm_vcpu: KvmVcpu,
@@ -582,8 +584,8 @@ impl Drop for Vcpu {
     }
 }
 
-#[derive(Clone)]
 /// List of events that the Vcpu can receive.
+#[derive(Debug, Clone)]
 pub enum VcpuEvent {
     /// The vCPU thread will end when receiving this message.
     Finish,
@@ -636,6 +638,7 @@ impl fmt::Debug for VcpuResponse {
 }
 
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
+#[derive(Debug)]
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
@@ -736,9 +739,6 @@ pub mod tests {
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
     use crate::RECV_TIMEOUT_SEC;
-
-    struct DummyDevice;
-    impl crate::devices::BusDevice for DummyDevice {}
 
     impl Vcpu {
         pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
@@ -849,29 +849,6 @@ pub mod tests {
                 EmulationError::FaultyKvmExit("Invalid argument (os error 22)".to_string())
             )
         );
-
-        let mut bus = crate::devices::Bus::new();
-        let dummy = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dummy, 0x10, 0x10).unwrap();
-        vcpu.set_mmio_bus(bus);
-        let addr = 0x10;
-        static mut DATA: [u8; 4] = [0, 0, 0, 0];
-
-        unsafe {
-            *(vcpu.test_vcpu_exit_reason.lock().unwrap()) =
-                Some(Ok(VcpuExit::MmioRead(addr, &mut DATA)));
-        }
-        let res = vcpu.run_emulation();
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), VcpuEmulation::Handled);
-
-        unsafe {
-            *(vcpu.test_vcpu_exit_reason.lock().unwrap()) =
-                Some(Ok(VcpuExit::MmioWrite(addr, &DATA)));
-        }
-        let res = vcpu.run_emulation();
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), VcpuEmulation::Handled);
     }
 
     impl PartialEq for VcpuResponse {
@@ -989,7 +966,7 @@ pub mod tests {
             )
             .expect("failed to configure vcpu");
 
-        let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let mut seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::None).unwrap();
         let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
             .start_threaded(seccomp_filters.remove("vcpu").unwrap(), barrier.clone())

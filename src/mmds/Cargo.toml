@@ -15,6 +15,7 @@ serde_json = "1.0.78"
 thiserror = "1.0.32"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
+log = "0.4.18"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }

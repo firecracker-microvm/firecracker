@@ -40,6 +40,7 @@ const RCV_BUF_MAX_SIZE: usize = 2500;
 
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
+#[derive(Debug)]
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
@@ -79,7 +80,7 @@ pub struct Endpoint {
 // is the only option).
 
 impl Endpoint {
-    pub fn new<T: NetworkBytes>(
+    pub fn new<T: std::fmt::Debug + NetworkBytes>(
         segment: &TcpSegment<T>,
         eviction_threshold: NonZeroU64,
         connection_rto_period: NonZeroU64,
@@ -112,7 +113,7 @@ impl Endpoint {
         })
     }
 
-    pub fn new_with_defaults<T: NetworkBytes>(
+    pub fn new_with_defaults<T: std::fmt::Debug + NetworkBytes>(
         segment: &TcpSegment<T>,
     ) -> Result<Self, PassiveOpenError> {
         // The unwraps are safe because the constants are greater than 0.
@@ -124,7 +125,7 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes, F: FnOnce(Request) -> Response>(
+    pub fn receive_segment<T: std::fmt::Debug + NetworkBytes, F: FnOnce(Request) -> Response>(
         &mut self,
         s: &TcpSegment<T>,
         callback: F,
@@ -349,7 +350,6 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
     use std::str::from_utf8;
 
     use super::*;
@@ -360,12 +360,6 @@ mod tests {
     impl Endpoint {
         pub fn set_eviction_threshold(&mut self, value: u64) {
             self.eviction_threshold = value;
-        }
-    }
-
-    impl fmt::Debug for Endpoint {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Endpoint)")
         }
     }
 

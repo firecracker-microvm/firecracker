@@ -6,8 +6,7 @@ use std::fs::File;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
-use crate::devices::legacy::ReadableFd;
-
+#[derive(Debug)]
 pub struct MockSerialInput(pub File);
 
 impl io::Read for MockSerialInput {
@@ -21,5 +20,3 @@ impl AsRawFd for MockSerialInput {
         self.0.as_raw_fd()
     }
 }
-
-impl ReadableFd for MockSerialInput {}

@@ -5,7 +5,8 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, METRICS};
+use log::{error, warn};
+use logger::{IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::epoll::EventSet;
 
@@ -17,6 +18,15 @@ pub(crate) struct PeriodicMetrics {
     write_metrics_event_fd: TimerFd,
     #[cfg(test)]
     flush_counter: u64,
+}
+
+// TODO Derive debug when https://github.com/main--/rust-timerfd/pull/12 is merged (or we which to a different crate)
+impl std::fmt::Debug for PeriodicMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeriodicMetrics")
+            .field("write_metrics_event_fd", &"?")
+            .finish()
+    }
 }
 
 impl PeriodicMetrics {
