@@ -10,8 +10,8 @@ use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::devices::virtio::persist::Error as VirtioStateError;
-use crate::devices::virtio::rng::{Entropy, Error as EntropyError, NUM_QUEUES, QUEUE_SIZE};
+use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::devices::virtio::rng::{Entropy, Error as EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
 use crate::devices::virtio::{VirtioDeviceState, TYPE_RNG};
 
 #[derive(Clone, Versionize)]
@@ -54,8 +54,8 @@ impl Persist<'_> for Entropy {
         let queues = state.virtio_state.build_queues_checked(
             &constructor_args.0,
             TYPE_RNG,
-            NUM_QUEUES,
-            QUEUE_SIZE,
+            RNG_NUM_QUEUES,
+            RNG_QUEUE_SIZE,
         )?;
 
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;

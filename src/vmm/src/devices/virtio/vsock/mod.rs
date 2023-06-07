@@ -23,7 +23,7 @@ pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
-use crate::devices::virtio::persist::Error as VirtioStateError;
+use crate::devices::virtio::persist::PersistError as VirtioStateError;
 
 mod defs {
     /// Device ID used in MMIO device identification.
@@ -31,12 +31,13 @@ mod defs {
     pub const VSOCK_DEV_ID: &str = "vsock";
 
     /// Number of virtio queues.
-    pub const NUM_QUEUES: usize = 3;
+    pub const VSOCK_NUM_QUEUES: usize = 3;
     /// Max size of virtio queues.
-    pub const QUEUE_SIZE: u16 = 256;
+    pub const VSOCK_QUEUE_SIZE: u16 = 256;
     /// Virtio queue sizes, in number of descriptor chain heads.
     /// There are 3 queues for a virtio device (in this order): RX, TX, Event
-    pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
+    pub const VSOCK_QUEUE_SIZES: [u16; VSOCK_NUM_QUEUES] =
+        [VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE];
 
     /// Max vsock packet data/buffer size.
     pub const MAX_PKT_BUF_SIZE: usize = 64 * 1024;

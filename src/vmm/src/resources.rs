@@ -940,7 +940,7 @@ mod tests {
             None,
         ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                crate::devices::virtio::net::Error::TapOpen { .. },
+                crate::devices::virtio::net::NetError::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
         }

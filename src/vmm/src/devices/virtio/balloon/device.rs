@@ -18,14 +18,15 @@ use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
-    BALLOON_DEV_ID, DEFLATE_INDEX, INFLATE_INDEX, MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER,
-    MIB_TO_4K_PAGES, NUM_QUEUES, QUEUE_SIZES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
-    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
-    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
-    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
-    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
+    BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
+    MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER, MIB_TO_4K_PAGES, STATS_INDEX,
+    VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
+    VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
+    VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE,
+    VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN,
+    VIRTIO_BALLOON_S_SWAP_OUT,
 };
-use crate::devices::virtio::balloon::Error as BalloonError;
+use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
@@ -134,7 +135,7 @@ pub struct Balloon {
 
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
-    pub(crate) queue_evts: [EventFd; NUM_QUEUES],
+    pub(crate) queue_evts: [EventFd; BALLOON_NUM_QUEUES],
     pub(crate) device_state: DeviceState,
     pub(crate) irq_trigger: IrqTrigger,
 
@@ -173,7 +174,7 @@ impl Balloon {
             EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
         ];
 
-        let mut queues: Vec<Queue> = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+        let mut queues: Vec<Queue> = BALLOON_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
         // The VirtIO specification states that the statistics queue should
         // not be present at all if the statistics are not enabled.
@@ -589,7 +590,7 @@ pub(crate) mod tests {
 
     use utils::vm_memory::GuestAddress;
 
-    use super::super::CONFIG_SPACE_SIZE;
+    use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::report_balloon_event_fail;
@@ -716,21 +717,24 @@ pub(crate) mod tests {
         };
         assert_eq!(balloon.config(), cfg);
 
-        let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
+        let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
         // The first 4 bytes are num_pages, the last 4 bytes are actual_pages.
         // The config space is little endian.
         // 0x10 MB in the constructor corresponds to 0x1000 pages in the
         // config space.
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
             [0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(actual_config_space, expected_config_space);
 
         // Invalid read.
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
             [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
         actual_config_space = expected_config_space;
-        balloon.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut actual_config_space);
+        balloon.read_config(
+            BALLOON_CONFIG_SPACE_SIZE as u64 + 1,
+            &mut actual_config_space,
+        );
 
         // Validate read failed (the config space was not updated).
         assert_eq!(actual_config_space, expected_config_space);
@@ -740,11 +744,11 @@ pub(crate) mod tests {
     fn test_virtio_write_config() {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
 
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         balloon.write_config(0, &expected_config_space);
 
-        let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
+        let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
@@ -1043,7 +1047,7 @@ pub(crate) mod tests {
         assert_eq!(balloon.num_pages(), 0x100);
         assert!(balloon.update_size(16).is_ok());
 
-        let mut actual_config = vec![0; CONFIG_SPACE_SIZE];
+        let mut actual_config = vec![0; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config);
         assert_eq!(actual_config, vec![0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0]);
         assert_eq!(balloon.num_pages(), 0x1000);
