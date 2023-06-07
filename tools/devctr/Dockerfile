@@ -41,7 +41,7 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         musl-tools \
-        net-tools iproute2 iperf3 \
+        net-tools iproute2 iperf3 fdisk \
         openssh-client \
         pkgconf \
         python3 python3-dev python3-pip \
