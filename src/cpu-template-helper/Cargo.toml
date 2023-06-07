@@ -7,6 +7,10 @@ build = "../../build.rs"
 license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "cpu-template-helper"
+bench = false
+
 [dependencies]
 clap = { version = "4.3.0", features = ["derive", "string"] }
 libc = "0.2.117"
