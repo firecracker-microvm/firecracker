@@ -5,6 +5,9 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
 bitflags = "1.3.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
