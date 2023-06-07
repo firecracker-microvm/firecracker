@@ -1,23 +1,12 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// /// Module with cpu templates for x86_64
-// #[cfg(target_arch = "x86_64")]
-// pub mod x86_64;
-//
-// /// Utility module for testing cpu_configuration.
-// pub mod test_utils;
-
 #[cfg(target_arch = "x86_64")]
 mod common_types {
     pub use crate::cpu_config::x86_64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::x86_64::static_cpu_templates::StaticCpuTemplate;
     pub use crate::cpu_config::x86_64::{test_utils, CpuConfiguration, Error as GuestConfigError};
 }
-
-/// Module with cpu templates for aarch64
-// #[cfg(target_arch = "aarch64")]
-// pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
 mod common_types {
