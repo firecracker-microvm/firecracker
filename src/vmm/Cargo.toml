@@ -45,7 +45,3 @@ proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 [[bench]]
 name = "cpu_templates"
 harness = false
-
-[[bench]]
-name = "snapshots"
-harness = false
