@@ -538,7 +538,7 @@ impl Queue {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
 
     use utils::vm_memory::test_utils::create_anon_guest_memory;
     use utils::vm_memory::{GuestAddress, GuestMemoryMmap};

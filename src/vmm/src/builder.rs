@@ -71,7 +71,7 @@ pub enum StartMicrovmError {
     CreateGuestConfig(#[from] GuestConfigError),
     /// Internal errors are due to resource exhaustion.
     #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
-    CreateNetDevice(crate::devices::virtio::net::Error),
+    CreateNetDevice(crate::devices::virtio::net::NetError),
     /// Failed to create a `RateLimiter` object.
     #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
@@ -1688,7 +1688,7 @@ pub mod tests {
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(crate::devices::virtio::net::Error::EventFd(
+        let err = CreateNetDevice(crate::devices::virtio::net::NetError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

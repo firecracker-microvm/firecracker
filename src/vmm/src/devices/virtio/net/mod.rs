@@ -4,16 +4,16 @@
 use std::{io, result};
 
 pub const MAX_BUFFER_SIZE: usize = 65562;
-pub const QUEUE_SIZE: u16 = 256;
-pub const NUM_QUEUES: usize = 2;
-pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
+pub const NET_QUEUE_SIZE: u16 = 256;
+pub const NET_NUM_QUEUES: usize = 2;
+pub const NET_QUEUE_SIZES: [u16; NET_NUM_QUEUES] = [NET_QUEUE_SIZE; NET_NUM_QUEUES];
 // The index of the rx queue from Net device queues/queues_evts vector.
 pub const RX_INDEX: usize = 0;
 // The index of the tx queue from Net device queues/queues_evts vector.
 pub const TX_INDEX: usize = 1;
 
 pub mod device;
-pub mod event_handler;
+mod event_handler;
 pub mod persist;
 mod tap;
 pub mod test_utils;
@@ -32,7 +32,7 @@ pub enum NetQueue {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum NetError {
     /// Open tap device failed
     #[error("Open tap device failed: {0}")]
     TapOpen(TapError),
@@ -53,4 +53,4 @@ pub enum Error {
     VnetHeaderMissing,
 }
 
-pub type Result<T> = result::Result<T, Error>;
+pub type Result<T> = result::Result<T, NetError>;

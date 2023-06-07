@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod device;
-pub mod event_handler;
+mod event_handler;
 pub mod persist;
 pub mod test_utils;
 mod util;
@@ -10,15 +10,15 @@ mod util;
 use utils::vm_memory::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
-pub use self::event_handler::*;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
-pub const CONFIG_SPACE_SIZE: usize = 8;
-pub const QUEUE_SIZE: u16 = 256;
-pub const NUM_QUEUES: usize = 3;
-pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE, QUEUE_SIZE];
+pub const BALLOON_CONFIG_SPACE_SIZE: usize = 8;
+pub const BALLOON_QUEUE_SIZE: u16 = 256;
+pub const BALLOON_NUM_QUEUES: usize = 3;
+pub const BALLOON_QUEUE_SIZES: [u16; BALLOON_NUM_QUEUES] =
+    [BALLOON_QUEUE_SIZE, BALLOON_QUEUE_SIZE, BALLOON_QUEUE_SIZE];
 // Number of 4K pages in a MiB.
 pub const MIB_TO_4K_PAGES: u32 = 256;
 // The maximum number of pages that can be received in a single descriptor.
@@ -52,7 +52,7 @@ const VIRTIO_BALLOON_S_HTLB_PGALLOC: u16 = 8;
 const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 
 #[derive(Debug)]
-pub enum Error {
+pub enum BalloonError {
     /// Activation error.
     Activate(super::ActivateError),
     /// No balloon device found.
@@ -94,4 +94,4 @@ pub enum RemoveRegionError {
     RegionNotFound,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type BalloonResult<T> = std::result::Result<T, BalloonError>;

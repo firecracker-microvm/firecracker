@@ -29,7 +29,10 @@ use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
-use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
+use super::{
+    io as block_io, BlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
+    SECTOR_SIZE,
+};
 use crate::devices::virtio::{IrqTrigger, IrqType};
 
 /// Configuration options for disk caching.
@@ -83,15 +86,15 @@ impl DiskProperties {
         is_disk_read_only: bool,
         cache_type: CacheType,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Self, Error> {
+    ) -> result::Result<Self, BlockError> {
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
             .open(PathBuf::from(&disk_image_path))
-            .map_err(|x| Error::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| BlockError::BackingFile(x, disk_image_path.clone()))?;
         let disk_size = disk_image
             .seek(SeekFrom::End(0))
-            .map_err(|x| Error::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| BlockError::BackingFile(x, disk_image_path.clone()))?;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
@@ -109,7 +112,7 @@ impl DiskProperties {
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
             file_engine: FileEngine::from_file(disk_image, file_engine_type)
-                .map_err(Error::FileEngine)?,
+                .map_err(BlockError::FileEngine)?,
         })
     }
 
@@ -134,8 +137,8 @@ impl DiskProperties {
         &self.image_id
     }
 
-    fn build_device_id(disk_file: &File) -> result::Result<String, Error> {
-        let blk_metadata = disk_file.metadata().map_err(Error::GetFileMetadata)?;
+    fn build_device_id(disk_file: &File) -> result::Result<String, BlockError> {
+        let blk_metadata = disk_file.metadata().map_err(BlockError::GetFileMetadata)?;
         // This is how kvmtool does it.
         let device_id = format!(
             "{}{}{}",
@@ -173,8 +176,8 @@ impl DiskProperties {
     /// on the backing file size.
     pub fn virtio_block_config_space(&self) -> Vec<u8> {
         // The config space is little endian.
-        let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
-        for i in 0..CONFIG_SPACE_SIZE {
+        let mut config = Vec::with_capacity(BLOCK_CONFIG_SPACE_SIZE);
+        for i in 0..BLOCK_CONFIG_SPACE_SIZE {
             config.push((self.nsectors >> (8 * i)) as u8);
         }
         config
@@ -236,7 +239,7 @@ impl Block {
         is_disk_root: bool,
         rate_limiter: RateLimiter,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Block, Error> {
+    ) -> result::Result<Block, BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             is_disk_read_only,
@@ -254,9 +257,9 @@ impl Block {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
-        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?];
+        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(BlockError::EventFd)?];
 
-        let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+        let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
         Ok(Block {
             id,
@@ -270,8 +273,8 @@ impl Block {
             queue_evts,
             queues,
             device_state: DeviceState::Inactive,
-            irq_trigger: IrqTrigger::new().map_err(Error::IrqTrigger)?,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
+            irq_trigger: IrqTrigger::new().map_err(BlockError::IrqTrigger)?,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BlockError::EventFd)?,
             is_io_engine_throttled: false,
         })
     }
@@ -374,7 +377,7 @@ impl Block {
 
         if let FileEngine::Async(engine) = self.disk.file_engine_mut() {
             if let Err(err) = engine.kick_submission_queue() {
-                error!("Error submitting pending block requests: {:?}", err);
+                error!("BlockError submitting pending block requests: {:?}", err);
             }
         }
 
@@ -440,7 +443,7 @@ impl Block {
     }
 
     /// Update the backing file and the config space of the block device.
-    pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), Error> {
+    pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             self.is_read_only(),
@@ -623,7 +626,7 @@ impl Drop for Block {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
@@ -642,9 +645,8 @@ pub(crate) mod tests {
         set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
-    use crate::devices::virtio::queue::tests::*;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
     #[test]
     fn test_disk_backing_file_helper() {
@@ -664,7 +666,7 @@ pub(crate) mod tests {
         assert_eq!(size, SECTOR_SIZE * num_sectors);
         assert_eq!(disk_properties.nsectors, num_sectors);
         let cfg = disk_properties.virtio_block_config_space();
-        assert_eq!(cfg.len(), CONFIG_SPACE_SIZE);
+        assert_eq!(cfg.len(), BLOCK_CONFIG_SPACE_SIZE);
         for (i, byte) in cfg.iter().enumerate() {
             assert_eq!(*byte, (num_sectors >> (8 * i)) as u8);
         }
@@ -705,20 +707,20 @@ pub(crate) mod tests {
     fn test_virtio_read_config() {
         let block = default_block(default_engine_type_for_kv());
 
-        let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
+        let mut actual_config_space = [0u8; BLOCK_CONFIG_SPACE_SIZE];
         block.read_config(0, &mut actual_config_space);
         // This will read the number of sectors.
         // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
         // The config space is little endian.
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
             [0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(actual_config_space, expected_config_space);
 
         // Invalid read.
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
             [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
         actual_config_space = expected_config_space;
-        block.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut actual_config_space);
+        block.read_config(BLOCK_CONFIG_SPACE_SIZE as u64 + 1, &mut actual_config_space);
 
         // Validate read failed (the config space was not updated).
         assert_eq!(actual_config_space, expected_config_space);
@@ -728,11 +730,11 @@ pub(crate) mod tests {
     fn test_virtio_write_config() {
         let mut block = default_block(default_engine_type_for_kv());
 
-        let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
+        let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         block.write_config(0, &expected_config_space);
 
-        let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
+        let mut actual_config_space = [0u8; BLOCK_CONFIG_SPACE_SIZE];
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
@@ -1416,7 +1418,7 @@ pub(crate) mod tests {
         // skip this test if kernel < 5.10 since in this case the sync engine will be used.
         skip_if_io_uring_unsupported!();
 
-        // FullSQueue Error
+        // FullSQueue BlockError
         {
             let mut block = default_block(FileEngineType::Async);
 
@@ -1424,7 +1426,7 @@ pub(crate) mod tests {
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
             block.activate(mem.clone()).unwrap();
 
-            // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
+            // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
             add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.is_io_engine_throttled);
@@ -1449,7 +1451,7 @@ pub(crate) mod tests {
             check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &vq);
         }
 
-        // FullCQueue Error
+        // FullCQueue BlockError
         {
             let mut block = default_block(FileEngineType::Async);
 

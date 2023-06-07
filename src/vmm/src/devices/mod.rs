@@ -23,7 +23,7 @@ pub(crate) fn report_net_event_fail(err: Error) {
     METRICS.net.event_fails.inc();
 }
 
-pub(crate) fn report_balloon_event_fail(err: virtio::balloon::Error) {
+pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {
     error!("{:?}", err);
     METRICS.balloon.event_fails.inc();
 }

@@ -14,7 +14,7 @@ MACHINE = platform.machine()
 
 SIZES_DICT = {
     "x86_64": {
-        "FC_BINARY_SIZE_TARGET": 2808184,
+        "FC_BINARY_SIZE_TARGET": 3063120,
         "JAILER_BINARY_SIZE_TARGET": 965840,
     },
     "aarch64": {
