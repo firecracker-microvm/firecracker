@@ -9,7 +9,7 @@
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 mod rtc_pl031;
-mod serial;
+pub mod serial;
 
 use std::io;
 use std::ops::Deref;
@@ -21,17 +21,19 @@ pub use self::i8042::{Error as I8042DeviceError, I8042Device};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{
-    ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper, IER_RDA_BIT, IER_RDA_OFFSET,
+    SerialDevice, SerialEventsWrapper, SerialWrapper, IER_RDA_BIT, IER_RDA_OFFSET,
 };
 
 /// Wrapper for implementing the trigger functionality for `EventFd`.
 ///
 /// The trigger is used for handling events in the legacy devices.
+#[derive(Debug)]
 pub struct EventFdTrigger(EventFd);
 
 impl Trigger for EventFdTrigger {
     type E = io::Error;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn trigger(&self) -> io::Result<()> {
         self.write(1)
     }
@@ -39,6 +41,7 @@ impl Trigger for EventFdTrigger {
 
 impl Deref for EventFdTrigger {
     type Target = EventFd;
+    #[tracing::instrument(level = "trace", ret)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -46,16 +49,19 @@ impl Deref for EventFdTrigger {
 
 impl EventFdTrigger {
     /// Clone an `EventFdTrigger`.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(EventFdTrigger((**self).try_clone()?))
     }
 
     /// Create an `EventFdTrigger`.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(evt: EventFd) -> Self {
         Self(evt)
     }
 
     /// Get the associated event fd out of an `EventFdTrigger`.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_event(&self) -> EventFd {
         self.0.try_clone().unwrap()
     }

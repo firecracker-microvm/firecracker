@@ -19,7 +19,8 @@
 
 use std::collections::BTreeMap;
 use std::convert::{Into, TryInto};
-use std::{fmt, result};
+use std::fmt::{self, Debug};
+use std::result;
 
 use serde::de::{self, Error as _, MapAccess, Visitor};
 use serde::Deserialize;
@@ -48,23 +49,28 @@ pub(crate) enum Error {
 }
 
 /// Deserializable object that represents the Json filter file.
+#[derive(Debug)]
 pub(crate) struct JsonFile(pub BTreeMap<String, Filter>);
 
 // Implement a custom deserializer, that returns an error for duplicate thread keys.
 impl<'de> Deserialize<'de> for JsonFile {
+    #[tracing::instrument(level = "trace", ret, skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
     {
+        #[derive(Debug)]
         struct JsonFileVisitor;
 
         impl<'d> Visitor<'d> for JsonFileVisitor {
             type Value = BTreeMap<String, Filter>;
 
+            #[tracing::instrument(level = "trace", ret, skip(f))]
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
                 f.write_str("a map of filters")
             }
 
+            #[tracing::instrument(level = "trace", ret, skip(access))]
             fn visit_map<M>(self, mut access: M) -> result::Result<Self::Value, M::Error>
             where
                 M: MapAccess<'d>,
@@ -99,6 +105,7 @@ pub(crate) struct SyscallRule {
 
 impl SyscallRule {
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "trace", ret)]
     fn validate(&self) -> Result<()> {
         // Validate all `SeccompCondition`s.
         if let Some(conditions) = self.conditions.as_ref() {
@@ -127,6 +134,7 @@ pub(crate) struct Filter {
 
 impl Filter {
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "trace", ret)]
     fn validate(&self) -> Result<()> {
         // Doesn't make sense to have equal default and on-match actions.
         if self.default_action == self.filter_action {
@@ -145,6 +153,7 @@ impl Filter {
 /// Object responsible for compiling [`Filter`](struct.Filter.html)s into
 /// [`BpfProgram`](../common/type.BpfProgram.html)s.
 /// Uses the [`SeccompFilter`](../backend/struct.SeccompFilter.html) interface as an IR language.
+#[derive(Debug)]
 pub(crate) struct Compiler {
     /// Target architecture. Can be different from the current `target_arch`.
     arch: TargetArch,
@@ -154,6 +163,7 @@ pub(crate) struct Compiler {
 
 impl Compiler {
     /// Create a new `Compiler` instance, for the given target architecture.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(arch: TargetArch) -> Self {
         Self {
             arch,
@@ -162,6 +172,7 @@ impl Compiler {
     }
 
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "trace", ret)]
     fn validate_filters(&self, filters: &BTreeMap<String, Filter>) -> Result<()> {
         // Validate all `Filter`s.
         filters
@@ -172,6 +183,7 @@ impl Compiler {
     }
 
     /// Main compilation function.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn compile_blob(
         &self,
         filters: BTreeMap<String, Filter>,
@@ -194,6 +206,7 @@ impl Compiler {
     }
 
     /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR language).
+    #[tracing::instrument(level = "trace", ret)]
     fn make_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -220,6 +233,7 @@ impl Compiler {
     /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR language).
     /// This filter will drop any argument checks and any rule-level action.
     /// All rules will trigger the filter-level `filter_action`.
+    #[tracing::instrument(level = "trace", ret)]
     fn make_basic_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -260,6 +274,7 @@ mod tests {
     };
 
     impl Filter {
+        #[tracing::instrument(level = "trace", ret)]
         pub fn new(
             default_action: SeccompAction,
             filter_action: SeccompAction,
@@ -274,6 +289,7 @@ mod tests {
     }
 
     impl SyscallRule {
+        #[tracing::instrument(level = "trace", ret)]
         pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
@@ -283,10 +299,12 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn match_syscall(syscall_number: i64, action: SeccompAction) -> (i64, Vec<SeccompRule>) {
         (syscall_number, vec![SeccompRule::new(vec![], action)])
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn match_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> (i64, Vec<SeccompRule>) {
         (syscall_number, rules)
     }

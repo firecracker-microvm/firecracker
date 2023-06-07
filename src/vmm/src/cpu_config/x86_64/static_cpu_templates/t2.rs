@@ -10,6 +10,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// T2 template
 ///
 /// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance.
+#[tracing::instrument(level = "trace", ret)]
 pub fn t2() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

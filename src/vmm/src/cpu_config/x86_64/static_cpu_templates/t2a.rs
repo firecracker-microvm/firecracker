@@ -10,6 +10,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// T2A template
 ///
 /// Provide instruction set feature partity with Intel Cascade Lake or later using T2CL template.
+#[tracing::instrument(level = "trace", ret)]
 pub fn t2a() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

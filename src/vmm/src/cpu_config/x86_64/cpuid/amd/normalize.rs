@@ -114,6 +114,7 @@ impl super::AmdCpuid {
     /// When attempting to access missing leaves or set fields within leaves to values that don't
     /// fit.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn normalize(
         &mut self,
         // The index of the current logical CPU in the range [0..cpu_count].
@@ -142,6 +143,7 @@ impl super::AmdCpuid {
     /// This function passes through leaves from the host CPUID, if this does not match the AMD
     /// specification it is possible to enter an indefinite loop. To avoid this, this will return an
     /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
+    #[tracing::instrument(level = "trace", ret)]
     fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
         if get_vendor_id_from_host().map_err(PassthroughCacheTopologyError::NoVendorId)?
             != *VENDOR_ID_AMD
@@ -204,6 +206,7 @@ impl super::AmdCpuid {
 
     /// Update largest extended fn entry.
     #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
+    #[tracing::instrument(level = "trace", ret)]
     fn update_largest_extended_fn_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // KVM sets the largest extended function to 0x80000000. Change it to 0x8000001f
         // Since we also use the leaf 0x8000001d (Extended Cache Topology).
@@ -220,6 +223,7 @@ impl super::AmdCpuid {
     }
 
     /// Updated extended feature fn entry.
+    #[tracing::instrument(level = "trace", ret)]
     fn update_extended_feature_fn_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // set the Topology Extension bit since we use the Extended Cache Topology leaf
         let leaf_80000001 = self
@@ -234,6 +238,7 @@ impl super::AmdCpuid {
     }
 
     // Update structured extended feature entry.
+    #[tracing::instrument(level = "trace", ret)]
     fn update_structured_extended_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_7_subleaf_0 = self
             .get_mut(&CpuidKey::subleaf(0x7, 0x0))
@@ -249,6 +254,7 @@ impl super::AmdCpuid {
 
     /// Update AMD feature entry.
     #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
+    #[tracing::instrument(level = "trace", ret)]
     fn update_amd_feature_entry(&mut self, cpu_count: u8) -> Result<(), FeatureEntryError> {
         /// This value allows at most 64 logical threads within a package.
         const THREAD_ID_MAX_SIZE: u32 = 7;
@@ -287,6 +293,7 @@ impl super::AmdCpuid {
 
     /// Update extended cache topology entry.
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
+    #[tracing::instrument(level = "trace", ret)]
     fn update_extended_cache_topology_entry(
         &mut self,
         cpu_count: u8,
@@ -350,6 +357,7 @@ impl super::AmdCpuid {
 
     /// Update extended apic id entry
     #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
+    #[tracing::instrument(level = "trace", ret)]
     fn update_extended_apic_id_entry(
         &mut self,
         cpu_index: u8,
@@ -423,6 +431,7 @@ impl super::AmdCpuid {
     }
 
     /// Update brand string entry
+    #[tracing::instrument(level = "trace", ret)]
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         self.apply_brand_string(Self::DEFAULT_BRAND_STRING)
             .map_err(NormalizeCpuidError::BrandString)?;

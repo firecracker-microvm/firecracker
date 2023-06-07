@@ -109,6 +109,7 @@ pub enum RestoreStateError {
 pub type Result<T> = result::Result<T, Error>;
 
 /// A wrapper around creating and using a VM.
+#[derive(Debug)]
 pub struct Vm {
     fd: VmFd,
 
@@ -127,6 +128,7 @@ pub struct Vm {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Initializes the guest memory.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn memory_init(
         &mut self,
         guest_mem: &GuestMemoryMmap,
@@ -145,6 +147,7 @@ impl Vm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn set_kvm_memory_regions(
         &self,
         guest_mem: &GuestMemoryMmap,
@@ -175,6 +178,7 @@ impl Vm {
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn fd(&self) -> &VmFd {
         &self.fd
     }
@@ -183,6 +187,7 @@ impl Vm {
 #[cfg(target_arch = "aarch64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(kvm: &Kvm) -> Result<Self> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
@@ -194,6 +199,7 @@ impl Vm {
     }
 
     /// Creates the GIC (Global Interrupt Controller).
+    #[tracing::instrument(level = "trace", ret)]
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
         self.irqchip_handle = Some(
             crate::arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
@@ -203,6 +209,7 @@ impl Vm {
     }
 
     /// Gets a reference to the irqchip of the VM.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_irqchip(&self) -> &dyn GICDevice {
         self.irqchip_handle
             .as_ref()
@@ -211,6 +218,7 @@ impl Vm {
     }
 
     /// Saves and returns the Kvm Vm state.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
         Ok(VmState {
             gic: self
@@ -225,6 +233,7 @@ impl Vm {
     /// # Errors
     ///
     /// When [`GICDevice::restore_device`] errors.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn restore_state(
         &self,
         mpidrs: &[u64],
@@ -239,6 +248,7 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(kvm: &Kvm) -> Result<Self> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
@@ -256,11 +266,13 @@ impl Vm {
     }
 
     /// Returns a ref to the supported `CpuId` for this Vm.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn supported_cpuid(&self) -> &CpuId {
         &self.supported_cpuid
     }
 
     /// Returns a ref to the list of serializable MSR indices.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn msrs_to_save(&self) -> &MsrList {
         &self.msrs_to_save
     }
@@ -275,6 +287,7 @@ impl Vm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
         self.fd
             .set_pit2(&state.pitstate)
@@ -295,6 +308,7 @@ impl Vm {
     }
 
     /// Creates the irq chip and an in-kernel device model for the PIT.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
@@ -307,6 +321,7 @@ impl Vm {
     }
 
     /// Saves and returns the Kvm Vm state.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn save_state(&self) -> Result<VmState> {
         let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
 
@@ -362,9 +377,23 @@ pub struct VmState {
     ioapic: kvm_irqchip,
 }
 
+#[cfg(target_arch = "x86_64")]
+impl std::fmt::Debug for VmState {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VmState")
+            .field("pitstate", &self.pitstate)
+            .field("clock", &self.clock)
+            .field("pic_master", &"?")
+            .field("pic_slave", &"?")
+            .field("ioapic", &"?")
+            .finish()
+    }
+}
+
 /// Structure holding an general specific VM state.
 #[cfg(target_arch = "aarch64")]
-#[derive(Default, Versionize)]
+#[derive(Debug, Default, Versionize)]
 pub struct VmState {
     gic: GicState,
 }
@@ -380,6 +409,7 @@ pub(crate) mod tests {
     use crate::vstate::system::KvmContext;
 
     // Auxiliary function being used throughout the tests.
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
         let gm = utils::vm_memory::test_utils::create_anon_guest_memory(

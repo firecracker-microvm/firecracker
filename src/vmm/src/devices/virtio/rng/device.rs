@@ -6,8 +6,9 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use logger::{debug, error, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
+use tracing::{debug, error};
 use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
@@ -32,6 +33,7 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 pub struct Entropy {
     // VirtIO fields
     avail_features: u64,
@@ -49,11 +51,13 @@ pub struct Entropy {
 }
 
 impl Entropy {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(rate_limiter: RateLimiter) -> Result<Self> {
         let queues = vec![Queue::new(RNG_QUEUE_SIZE); RNG_NUM_QUEUES];
         Self::new_with_queues(queues, rate_limiter)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new_with_queues(queues: Vec<Queue>, rate_limiter: RateLimiter) -> Result<Self> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
         let queue_events = (0..RNG_NUM_QUEUES)
@@ -73,10 +77,12 @@ impl Entropy {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn id(&self) -> &str {
         ENTROPY_DEV_ID
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn signal_used_queue(&self) -> std::result::Result<(), DeviceError> {
         debug!("entropy: raising IRQ");
         self.irq_trigger
@@ -84,6 +90,7 @@ impl Entropy {
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn rate_limit_request(rate_limiter: &mut RateLimiter, bytes: u64) -> bool {
         if !rate_limiter.consume(1, TokenType::Ops) {
             return false;
@@ -97,11 +104,13 @@ impl Entropy {
         true
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn rate_limit_replenish_request(rate_limiter: &mut RateLimiter, bytes: u64) {
         rate_limiter.manual_replenish(1, TokenType::Ops);
         rate_limiter.manual_replenish(bytes, TokenType::Bytes);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32> {
         // If guest provided us with an empty buffer just return directly
         if iovec.len() == 0 {
@@ -118,6 +127,7 @@ impl Entropy {
         Ok(iovec.write_at(&rand_bytes, 0).unwrap().try_into().unwrap())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn process_entropy_queue(&mut self) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -182,6 +192,7 @@ impl Entropy {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn process_entropy_queue_event(&mut self) {
         if let Err(err) = self.queue_events[RNG_QUEUE].read() {
             error!("Failed to read entropy queue event: {err}");
@@ -194,6 +205,7 @@ impl Entropy {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn process_rate_limiter_event(&mut self) {
         METRICS.entropy.rate_limiter_event_count.inc();
         match self.rate_limiter.event_handler() {
@@ -208,80 +220,100 @@ impl Entropy {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn process_virtio_queues(&mut self) {
         self.process_entropy_queue();
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn rate_limiter(&self) -> &RateLimiter {
         &self.rate_limiter
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn set_avail_features(&mut self, features: u64) {
         self.avail_features = features;
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn set_acked_features(&mut self, features: u64) {
         self.acked_features = features;
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn set_irq_status(&mut self, status: usize) {
         self.irq_trigger.irq_status = Arc::new(AtomicUsize::new(status));
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap) {
         self.device_state = DeviceState::Activated(mem);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn activate_event(&self) -> &EventFd {
         &self.activate_event
     }
 }
 
 impl VirtioDevice for Entropy {
+    #[tracing::instrument(level = "trace", ret)]
     fn device_type(&self) -> u32 {
         TYPE_RNG
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "trace")]
     fn queues_mut(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_events
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn read_config(&self, _offset: u64, mut _data: &mut [u8]) {}
 
+    #[tracing::instrument(level = "trace", ret)]
     fn write_config(&mut self, _offset: u64, _data: &[u8]) {}
 
+    #[tracing::instrument(level = "trace", ret)]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         self.activate_event.write(1).map_err(|err| {
             error!("entropy: Cannot write to activate_evt: {err}");
@@ -306,15 +338,18 @@ mod tests {
     use crate::devices::virtio::VIRTQ_DESC_F_WRITE;
 
     impl VirtioTestDevice for Entropy {
+        #[tracing::instrument(level = "trace", ret)]
         fn set_queues(&mut self, queues: Vec<Queue>) {
             self.queues = queues;
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn num_queues() -> usize {
             RNG_NUM_QUEUES
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn default_entropy() -> Entropy {
         Entropy::new(RateLimiter::default()).unwrap()
     }

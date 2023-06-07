@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::convert::{Into, TryFrom, TryInto};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Deserializer};
 
@@ -84,6 +85,7 @@ const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 pub(crate) struct Comment;
 
 impl<'de> Deserialize<'de> for Comment {
+    #[tracing::instrument(level = "trace", skip(_deserializer))]
     fn deserialize<D>(_deserializer: D) -> std::result::Result<Comment, D::Error>
     where
         D: Deserializer<'de>,
@@ -136,6 +138,7 @@ pub(crate) enum TargetArchError {
 
 impl TargetArch {
     /// Get the arch audit value.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_audit_value(self) -> u32 {
         match self {
             TargetArch::x86_64 => AUDIT_ARCH_X86_64,
@@ -144,6 +147,7 @@ impl TargetArch {
     }
 
     /// Get the string representation.
+    #[tracing::instrument(level = "trace", ret)]
     fn to_string(self) -> &'static str {
         match self {
             TargetArch::x86_64 => "x86_64",
@@ -154,6 +158,7 @@ impl TargetArch {
 
 impl TryInto<TargetArch> for &str {
     type Error = TargetArchError;
+    #[tracing::instrument(level = "trace", ret)]
     fn try_into(self) -> std::result::Result<TargetArch, TargetArchError> {
         match self.to_lowercase().as_str() {
             "x86_64" => Ok(TargetArch::x86_64),
@@ -164,6 +169,7 @@ impl TryInto<TargetArch> for &str {
 }
 
 impl From<TargetArch> for &str {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(target_arch: TargetArch) -> Self {
         target_arch.to_string()
     }
@@ -268,6 +274,7 @@ pub(crate) struct SeccompFilter {
 
 impl SeccompCondition {
     /// Validates the SeccompCondition data
+    #[tracing::instrument(level = "trace", ret)]
     pub fn validate(&self) -> Result<()> {
         // Checks that the given argument number is valid.
         if self.arg_number > ARG_NUMBER_MAX {
@@ -285,6 +292,7 @@ impl SeccompCondition {
     /// the BPF program by the kernel.
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
+    #[tracing::instrument(level = "trace", ret)]
     fn value_segments(&self) -> (u32, u32, u8, u8) {
         // Splits the specified value into its most significant and least significant halves.
         let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
@@ -314,6 +322,7 @@ impl SeccompCondition {
     ///
     /// The most significant and least significant halves of the argument value are compared
     /// separately since the BPF operand and accumulator are 4 bytes whereas an argument value is 8.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -337,6 +346,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -361,6 +371,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -385,6 +396,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -409,6 +421,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -436,6 +449,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
         let (_, _, msb_offset, lsb_offset) = self.value_segments();
         let masked_value = self.value & mask;
@@ -464,6 +478,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -489,6 +504,7 @@ impl SeccompCondition {
     /// * `offset` - The given jump offset to the start of the next rule.
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
+    #[tracing::instrument(level = "trace", ret)]
     fn into_bpf(self, offset: u8) -> Vec<sock_filter> {
         let result = match self.operator {
             SeccompCmpOp::Eq => self.into_eq_bpf(offset),
@@ -515,6 +531,7 @@ impl From<SeccompAction> for u32 {
     /// * `action` - The [`SeccompAction`] that the kernel will take.
     ///
     /// [`SeccompAction`]: struct.SeccompAction.html
+    #[tracing::instrument(level = "trace", ret)]
     fn from(action: SeccompAction) -> Self {
         match action {
             SeccompAction::Allow => SECCOMP_RET_ALLOW,
@@ -538,6 +555,7 @@ impl SeccompRule {
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     /// [`SeccompAction`]: struct.SeccompAction.html
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(conditions: Vec<SeccompCondition>, action: SeccompAction) -> Self {
         Self { conditions, action }
     }
@@ -552,6 +570,7 @@ impl SeccompRule {
     /// * `accumulator` - Accumulator of BPF statements that compose the BPF program.
     /// * `rule_len` - Number of conditions in the rule.
     /// * `offset` - Offset (in number of BPF statements) to the next rule.
+    #[tracing::instrument(level = "trace", ret)]
     fn append_condition(
         condition: SeccompCondition,
         accumulator: &mut Vec<Vec<sock_filter>>,
@@ -597,6 +616,7 @@ impl From<SeccompRule> for BpfProgram {
     /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
     ///   for the next syscall or the default action if the current syscall is the last one. It
     ///   essentially jumps out of the current rule chain.
+    #[tracing::instrument(level = "trace", ret)]
     fn from(rule: SeccompRule) -> Self {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
@@ -638,6 +658,7 @@ impl SeccompFilter {
     /// * `rules` - Map of syscall numbers and the rules that will be applied to each of them.
     /// * `default_action` - Action taken for all syscalls that do not match any rule.
     /// * `target_arch` - Target architecture of the generated BPF filter.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(
         rules: SeccompRuleMap,
         default_action: SeccompAction,
@@ -655,6 +676,7 @@ impl SeccompFilter {
     }
 
     /// Performs semantic checks on the SeccompFilter.
+    #[tracing::instrument(level = "trace", ret)]
     fn validate(&self) -> Result<()> {
         for (syscall_number, syscall_rules) in self.rules.iter() {
             // All inserted syscalls must have at least one rule, otherwise BPF code will break.
@@ -698,6 +720,7 @@ impl SeccompFilter {
     /// * `accumulator` - The expanding BPF program.
     /// * `filter_len` - The size (in number of BPF statements) of the BPF program. This is limited
     ///   to 4096. If the limit is exceeded, the filter is invalidated.
+    #[tracing::instrument(level = "trace", ret)]
     fn append_syscall_chain(
         syscall_number: i64,
         chain: Vec<SeccompRule>,
@@ -743,6 +766,7 @@ impl SeccompFilter {
 
 impl TryInto<BpfProgram> for SeccompFilter {
     type Error = Error;
+    #[tracing::instrument(level = "trace", ret)]
     fn try_into(self) -> Result<BpfProgram> {
         // Initialize the result with the precursory architecture check.
         let mut result = VALIDATE_ARCHITECTURE(self.target_arch);
@@ -807,6 +831,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
 /// * `k` - The operand.
 #[allow(non_snake_case)]
 #[inline(always)]
+#[tracing::instrument(level = "trace", ret)]
 fn BPF_JUMP(code: u16, k: u32, jt: u8, jf: u8) -> sock_filter {
     sock_filter { code, jt, jf, k }
 }
@@ -819,6 +844,7 @@ fn BPF_JUMP(code: u16, k: u32, jt: u8, jf: u8) -> sock_filter {
 /// * `k` - The operand.
 #[allow(non_snake_case)]
 #[inline(always)]
+#[tracing::instrument(level = "trace", ret)]
 fn BPF_STMT(code: u16, k: u32) -> sock_filter {
     sock_filter {
         code,
@@ -831,6 +857,7 @@ fn BPF_STMT(code: u16, k: u32) -> sock_filter {
 /// Builds a sequence of BPF instructions that validate the underlying architecture.
 #[allow(non_snake_case)]
 #[inline(always)]
+#[tracing::instrument(level = "trace", ret)]
 fn VALIDATE_ARCHITECTURE(target_arch: TargetArch) -> Vec<sock_filter> {
     let audit_arch_value = target_arch.get_audit_value();
     vec![
@@ -843,6 +870,7 @@ fn VALIDATE_ARCHITECTURE(target_arch: TargetArch) -> Vec<sock_filter> {
 /// Builds a sequence of BPF instructions that are followed by syscall examination.
 #[allow(non_snake_case)]
 #[inline(always)]
+#[tracing::instrument(level = "trace", ret)]
 fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
     vec![BPF_STMT(
         BPF_LD + BPF_W + BPF_ABS,
@@ -868,12 +896,14 @@ mod tests {
     }
 
     // Builds the (syscall, rules) tuple for allowing a syscall with certain arguments.
+    #[tracing::instrument(level = "trace", ret)]
     fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> (i64, Vec<SeccompRule>) {
         (syscall_number, rules)
     }
 
     impl SeccompCondition {
         // Creates a new `SeccompCondition`.
+        #[tracing::instrument(level = "trace", ret)]
         pub fn new(
             arg_number: u8,
             arg_len: SeccompCmpArgLen,
@@ -915,6 +945,7 @@ mod tests {
         libc::SYS_futex,
     ];
 
+    #[tracing::instrument(level = "trace", ret)]
     fn install_filter(bpf_filter: BpfProgram) {
         unsafe {
             {
@@ -937,6 +968,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn validate_seccomp_filter(
         rules: Vec<(i64, Vec<SeccompRule>)>,
         validation_fn: fn(),
@@ -1472,6 +1504,7 @@ mod tests {
         assert_eq!(bpfprog, instructions);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_test_bpf_filter(arg_len: ArgLen) -> SeccompFilter {
         SeccompFilter::new(
             vec![

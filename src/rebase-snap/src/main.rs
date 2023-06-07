@@ -25,6 +25,7 @@ enum Error {
     Metadata(std::io::Error),
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn build_arg_parser<'a>() -> ArgParser<'a> {
     let arg_parser = ArgParser::new()
         .arg(
@@ -43,6 +44,7 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
     arg_parser
 }
 
+#[tracing::instrument(level = "trace")]
 fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
     arg_parser.parse_from_cmdline().unwrap_or_else(|err| {
         panic!(
@@ -67,6 +69,7 @@ fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
     arg_parser.arguments()
 }
 
+#[tracing::instrument(level = "trace")]
 fn parse_args(args: &Arguments) -> Result<(File, File), Error> {
     // Safe to unwrap since the required arguments are checked as part of
     // `arg_parser.parse_from_cmdline()`
@@ -86,6 +89,7 @@ fn parse_args(args: &Arguments) -> Result<(File, File), Error> {
     Ok((base_file, diff_file))
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
     let mut cursor: u64 = 0;
     while let Some(block_start) = diff_file.seek_data(cursor).map_err(Error::SeekData)? {
@@ -118,6 +122,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn main() {
     let mut arg_parser = build_arg_parser();
     let args = extract_args(&mut arg_parser);
@@ -212,6 +217,7 @@ mod tests {
         assert!(parse_args(arguments).is_ok());
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_file_content(file: &mut File, expected_content: &[u8]) {
         let mut buf = vec![0u8; expected_content.len()];
         file.read_exact_at(buf.as_mut_slice(), 0).unwrap();

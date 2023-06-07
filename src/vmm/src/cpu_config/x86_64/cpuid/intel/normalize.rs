@@ -74,10 +74,11 @@ impl super::IntelCpuid {
     /// When attempting to access missing leaves or set fields within leaves to values that don't
     /// fit.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn normalize(
         &mut self,
         // The index of the current logical CPU in the range [0..cpu_count].
-        _cpu_index: u8,
+        cpu_index: u8,
         // The total number of logical CPUs.
         cpu_count: u8,
         // The number of logical CPUs per core.
@@ -93,6 +94,7 @@ impl super::IntelCpuid {
 
     /// Update deterministic cache entry
     #[allow(clippy::unwrap_in_result)]
+    #[tracing::instrument(level = "trace", ret)]
     fn update_deterministic_cache_entry(
         &mut self,
         cpu_count: u8,
@@ -176,6 +178,7 @@ impl super::IntelCpuid {
     }
 
     /// Update power management entry
+    #[tracing::instrument(level = "trace", ret)]
     fn update_power_management_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_6 = self
             .get_mut(&CpuidKey::leaf(0x6))
@@ -198,6 +201,7 @@ impl super::IntelCpuid {
     }
 
     /// Update performance monitoring entry
+    #[tracing::instrument(level = "trace", ret)]
     fn update_performance_monitoring_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_a = self
             .get_mut(&CpuidKey::leaf(0xA))
@@ -212,6 +216,7 @@ impl super::IntelCpuid {
     }
 
     /// Update brand string entry
+    #[tracing::instrument(level = "trace", ret)]
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // Get host brand string.
         let host_brand_string: [u8; BRAND_STRING_LENGTH] = host_brand_string();
@@ -259,6 +264,7 @@ pub enum DefaultBrandStringError {
     clippy::arithmetic_side_effects
 )]
 #[inline]
+#[tracing::instrument(level = "trace", ret)]
 fn default_brand_string(
     // Host brand string.
     // This should look like b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz".

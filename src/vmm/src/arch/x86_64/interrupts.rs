@@ -27,18 +27,21 @@ const APIC_LVT1: usize = 0x360;
 const APIC_MODE_NMI: u32 = 0x4;
 const APIC_MODE_EXTINT: u32 = 0x7;
 
+#[tracing::instrument(level = "trace", ret)]
 fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get(range).expect("get_klapic_reg range");
     byte_order::read_le_u32_from_i8(reg)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get_mut(range).expect("set_klapic_reg range");
     byte_order::write_le_i32(reg, value as i32)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
     ((reg) & !0x700) | ((mode) << 8)
 }
@@ -47,6 +50,7 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
+#[tracing::instrument(level = "trace", ret)]
 pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
     let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
 

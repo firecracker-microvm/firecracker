@@ -6,11 +6,10 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::warn;
 use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
-use utils::kernel_version::min_kernel_version_for_io_uring;
+use tracing::warn;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -29,6 +28,7 @@ pub enum CacheTypeState {
 }
 
 impl From<CacheType> for CacheTypeState {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(cache_type: CacheType) -> Self {
         match cache_type {
             CacheType::Unsafe => CacheTypeState::Unsafe,
@@ -38,6 +38,7 @@ impl From<CacheType> for CacheTypeState {
 }
 
 impl From<CacheTypeState> for CacheType {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(cache_type_state: CacheTypeState) -> Self {
         match cache_type_state {
             CacheTypeState::Unsafe => CacheType::Unsafe,
@@ -57,6 +58,7 @@ pub enum FileEngineTypeState {
 }
 
 impl From<FileEngineType> for FileEngineTypeState {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(file_engine_type: FileEngineType) -> Self {
         match file_engine_type {
             FileEngineType::Sync => FileEngineTypeState::Sync,
@@ -66,6 +68,7 @@ impl From<FileEngineType> for FileEngineTypeState {
 }
 
 impl From<FileEngineTypeState> for FileEngineType {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(file_engine_type_state: FileEngineTypeState) -> Self {
         match file_engine_type_state {
             FileEngineTypeState::Sync => FileEngineType::Sync,
@@ -74,7 +77,7 @@ impl From<FileEngineTypeState> for FileEngineType {
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BlockState {
     id: String,
@@ -97,6 +100,7 @@ pub struct BlockState {
 }
 
 impl BlockState {
+    #[tracing::instrument(level = "trace", ret)]
     fn block_cache_type_ser(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 3 && self.cache_type != CacheTypeState::Unsafe {
             warn!(
@@ -108,11 +112,13 @@ impl BlockState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn default_cache_type_flush(_source_version: u16) -> CacheTypeState {
         CacheTypeState::Unsafe
     }
 }
 
+#[derive(Debug)]
 pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
 }
@@ -122,6 +128,7 @@ impl Persist<'_> for Block {
     type ConstructorArgs = BlockConstructorArgs;
     type Error = BlockError;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         // Save device state.
         BlockState {
@@ -136,6 +143,7 @@ impl Persist<'_> for Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -160,7 +168,7 @@ impl Persist<'_> for Block {
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \
                      Defaulting to \"Sync\" mode.",
-                    min_kernel_version_for_io_uring()
+                    utils::kernel_version::min_kernel_version_for_io_uring()
                 );
 
                 let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)

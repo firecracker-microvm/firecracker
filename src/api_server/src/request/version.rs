@@ -6,6 +6,7 @@ use vmm::rpc_interface::VmmAction;
 
 use crate::parsed_request::{Error, ParsedRequest};
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn parse_get_version() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.vmm_version_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmmVersion))

@@ -121,6 +121,7 @@ pub struct Logger {
 
 impl Logger {
     /// Creates a new instance of the current logger.
+#[tracing::instrument(level = "trace", ret)]
     fn new() -> Logger {
         Logger {
             init: Init::new(),
@@ -132,14 +133,17 @@ impl Logger {
         }
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn show_level(&self) -> bool {
         self.show_level.load(Ordering::Relaxed)
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn show_file_path(&self) -> bool {
         self.show_file_path.load(Ordering::Relaxed)
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn show_line_numbers(&self) -> bool {
         self.show_line_numbers.load(Ordering::Relaxed)
     }
@@ -167,6 +171,7 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN:logger/src/lib.rs:290] A warning log
     /// message with level included
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_include_level(&self, option: bool) -> &Self {
         self.show_level.store(option, Ordering::Relaxed);
         self
@@ -199,6 +204,7 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN] A warning log message with log origin
     /// disabled
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_include_origin(&self, file_path: bool, line_numbers: bool) -> &Self {
         self.show_file_path.store(file_path, Ordering::Relaxed);
         // If the file path is not shown, do not show line numbers either.
@@ -208,6 +214,7 @@ impl Logger {
     }
 
     /// Sets the ID for this logger session.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_instance_id(&self, instance_id: String) -> &Self {
         let mut guard = extract_guard(self.instance_id.write());
         *guard = instance_id;
@@ -239,18 +246,21 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] A test warning
     /// message
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_max_level(&self, level: LevelFilter) -> &Self {
         set_max_level(level);
         self
     }
 
     /// Get the current thread's name.
+#[tracing::instrument(level = "trace", ret)]
     fn get_thread_name(&self) -> String {
         thread::current().name().unwrap_or("-").to_string()
     }
 
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
+#[tracing::instrument(level = "trace", ret)]
     fn create_prefix(&self, record: &Record) -> String {
         let mut prefix: Vec<String> = vec![];
 
@@ -280,6 +290,7 @@ impl Logger {
     }
 
     /// if the max level hasn't been configured yet, set it to default
+#[tracing::instrument(level = "trace", ret)]
     fn try_init_max_level(&self) {
         // if the max level hasn't been configured yet, set it to default
         if max_level() == LevelFilter::Off {
@@ -310,6 +321,7 @@ impl Logger {
     ///     .configure(Some("MY-INSTANCE".to_string()))
     ///     .unwrap();
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
         self.init
             .call_init(|| {
@@ -344,6 +356,7 @@ impl Logger {
     ///
     /// LOGGER.init("Running Firecracker v.x".to_string(), Box::new(logs));
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
         self.init
             .call_init(|| {
@@ -365,6 +378,7 @@ impl Logger {
     /// Handles the common logic of writing regular log messages.
     ///
     /// Writes `msg` followed by a newline to the destination, flushing afterwards.
+#[tracing::instrument(level = "trace", ret)]
     fn write_log(&self, msg: String, msg_level: Level) {
         let mut guard;
         let mut writer: Box<dyn Write> = if self.init.is_initialized() {
@@ -401,10 +415,12 @@ pub enum LoggerError {
 /// Implements the "Log" trait from the externally used "log" crate.
 impl Log for Logger {
     // This is currently not used.
+#[tracing::instrument(level = "trace", ret)]
     fn enabled(&self, _metadata: &Metadata) -> bool {
         unreachable!();
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn log(&self, record: &Record) {
         let msg = format!(
             "{} {} {}",
@@ -416,6 +432,7 @@ impl Log for Logger {
     }
 
     // This is currently not used.
+#[tracing::instrument(level = "trace", ret)]
     fn flush(&self) {
         unreachable!();
     }
@@ -442,6 +459,7 @@ mod tests {
     }
 
     impl Write for LogWriter {
+#[tracing::instrument(level = "trace", ret)]
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let mut data = self.buf.lock().unwrap();
             data.append(&mut buf.to_vec());
@@ -449,6 +467,7 @@ mod tests {
             Ok(buf.len())
         }
 
+#[tracing::instrument(level = "trace", ret)]
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
@@ -459,6 +478,7 @@ mod tests {
     }
 
     impl Read for LogReader {
+#[tracing::instrument(level = "trace", ret)]
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let mut data = self.buf.lock().unwrap();
 
@@ -471,12 +491,14 @@ mod tests {
         }
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn log_channel() -> (LogWriter, LogReader) {
         let buf = Arc::new(Mutex::new(vec![]));
         (LogWriter { buf: buf.clone() }, LogReader { buf })
     }
 
     impl Logger {
+#[tracing::instrument(level = "trace", ret)]
         fn mock_new() -> Logger {
             let logger = Logger::new();
             logger.set_instance_id(TEST_INSTANCE_ID.to_string());
@@ -484,6 +506,7 @@ mod tests {
             logger
         }
 
+#[tracing::instrument(level = "trace", ret)]
         fn mock_log(&self, level: Level, msg: &str) {
             self.log(
                 &log::Record::builder()
@@ -495,6 +518,7 @@ mod tests {
             );
         }
 
+#[tracing::instrument(level = "trace", ret)]
         fn mock_init(&self) -> LogReader {
             let (writer, mut reader) = log_channel();
             assert!(self
@@ -509,6 +533,7 @@ mod tests {
         }
     }
 
+#[tracing::instrument(level = "trace", ret)]
     fn validate_log(log_reader: &mut dyn Read, expected: &str) {
         let mut log = Vec::new();
         log_reader.read_to_end(&mut log).unwrap();
@@ -763,3 +788,4 @@ mod tests {
         );
     }
 }
+

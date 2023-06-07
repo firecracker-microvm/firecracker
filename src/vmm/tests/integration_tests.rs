@@ -2,16 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::{Seek, SeekFrom};
+use std::thread;
 use std::time::Duration;
-use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
-use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot, setup_serial_device};
+use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot};
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
-use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
@@ -22,26 +21,12 @@ use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
-fn test_setup_serial_device() {
-    let read_tempfile = TempFile::new().unwrap();
-    let read_handle = MockSerialInput(read_tempfile.into_file());
-    let mut event_manager = EventManager::new().unwrap();
-
-    assert!(setup_serial_device(
-        &mut event_manager,
-        Box::new(read_handle),
-        Box::new(io::stdout()),
-    )
-    .is_ok());
-}
-
-#[test]
 fn test_build_and_boot_microvm() {
     // Error case: no boot source configured.
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let empty_seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::None).unwrap();
 
         let vmm_ret = build_and_boot_microvm(
             &InstanceInfo::default(),
@@ -183,6 +168,7 @@ fn test_disallow_dump_cpu_config_without_pausing() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
+#[tracing::instrument(level = "trace")]
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
@@ -247,12 +233,13 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     (snapshot_file, memory_file)
 }
 
+#[tracing::instrument(level = "trace", ret, skip(snapshot_file, memory_file))]
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     use utils::vm_memory::GuestMemoryMmap;
     use vmm::memory_snapshot::SnapshotMemory;
 
     let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let empty_seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::None).unwrap();
 
     // Deserialize microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
@@ -354,6 +341,7 @@ fn test_snapshot_load_sanity_checks() {
     );
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn get_microvm_state_from_snapshot() -> MicrovmState {
     // Create a diff snapshot
     let (snapshot_file, _) = verify_create_snapshot(true);

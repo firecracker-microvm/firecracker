@@ -70,6 +70,7 @@ pub struct BlockDeviceConfig {
 }
 
 impl From<&Block> for BlockDeviceConfig {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(block: &Block) -> Self {
         let rl: RateLimiterConfig = block.rate_limiter().into();
         BlockDeviceConfig {
@@ -99,7 +100,7 @@ pub struct BlockDeviceUpdateConfig {
 }
 
 /// Wrapper for the collection that holds all the Block Devices
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BlockBuilder {
     /// The list of block devices.
     /// There can be at most one root block device and it would be the first in the list.
@@ -111,6 +112,7 @@ pub struct BlockBuilder {
 
 impl BlockBuilder {
     /// Constructor for BlockDevices. It initializes an empty LinkedList.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Self {
         Self {
             list: VecDeque::<Arc<Mutex<Block>>>::new(),
@@ -118,6 +120,7 @@ impl BlockBuilder {
     }
 
     /// Specifies whether there is a root block device already present in the list.
+    #[tracing::instrument(level = "trace", ret)]
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
         if let Some(block) = self.list.get(0) {
@@ -128,6 +131,7 @@ impl BlockBuilder {
     }
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
         self.list
             .iter()
@@ -135,6 +139,7 @@ impl BlockBuilder {
     }
 
     /// Inserts an existing block device.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn add_device(&mut self, block_device: Arc<Mutex<Block>>) {
         if block_device.lock().expect("Poisoned lock").is_root_device() {
             self.list.push_front(block_device);
@@ -146,6 +151,7 @@ impl BlockBuilder {
     /// Inserts a `Block` in the block devices list using the specified configuration.
     /// If a block with the same id already exists, it will overwrite it.
     /// Inserting a secondary root block device will fail.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<()> {
         let is_root_device = config.is_root_device;
         let position = self.get_index_of_drive_id(&config.drive_id);
@@ -183,6 +189,7 @@ impl BlockBuilder {
     }
 
     /// Creates a Block device from a BlockDeviceConfig.
+    #[tracing::instrument(level = "trace", ret)]
     fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
         // check if the path exists
         let path_on_host = PathBuf::from(&block_device_config.path_on_host);
@@ -213,6 +220,7 @@ impl BlockBuilder {
     }
 
     /// Returns a vec with the structures used to configure the devices.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn configs(&self) -> Vec<BlockDeviceConfig> {
         let mut ret = vec![];
         for block in &self.list {
@@ -230,6 +238,7 @@ mod tests {
     use super::*;
 
     impl PartialEq for DriveError {
+        #[tracing::instrument(level = "trace", ret)]
         fn eq(&self, other: &DriveError) -> bool {
             self.to_string() == other.to_string()
         }
@@ -238,6 +247,7 @@ mod tests {
     // This implementation is used only in tests.
     // We cannot directly derive clone because RateLimiter does not implement clone.
     impl Clone for BlockDeviceConfig {
+        #[tracing::instrument(level = "trace", ret)]
         fn clone(&self) -> Self {
             BlockDeviceConfig {
                 path_on_host: self.path_on_host.clone(),

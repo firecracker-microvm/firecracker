@@ -33,12 +33,13 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an Ethernet frame.
+#[derive(Debug)]
 pub struct EthernetFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytes> EthernetFrame<'a, T> {
     /// Interprets `bytes` as an Ethernet frame without any validity checks.
     ///
     /// # Panics
@@ -46,6 +47,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     ///  This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthernetFrame {
             bytes: InnerBytes::new(bytes),
@@ -54,6 +56,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
 
     /// Checks whether the specified byte sequence can be interpreted as an Ethernet frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_bytes(bytes: T) -> Result<Self, Error> {
         if bytes.len() < PAYLOAD_OFFSET {
             return Err(Error::SliceTooShort);
@@ -64,43 +67,50 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
 
     /// Returns the destination MAC address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dst_mac(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET])
     }
 
     /// Returns the source MAC address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn src_mac(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET])
     }
 
     /// Returns the ethertype of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn ethertype(&self) -> u16 {
         self.bytes.ntohs_unchecked(ETHERTYPE_OFFSET)
     }
 
     /// Returns the offset of the payload within the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn payload_offset(&self) -> usize {
         PAYLOAD_OFFSET
     }
 
     /// Returns the payload of the frame as an `[&u8]` slice.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn payload(&self) -> &[u8] {
         self.bytes.split_at(self.payload_offset()).1
     }
 
     /// Returns the length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 }
 
-impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytesMut> EthernetFrame<'a, T> {
     /// Attempts to write an Ethernet frame using the given header fields to `buf`.
+    #[tracing::instrument(level = "trace", ret)]
     fn new_with_header(
         buf: T,
         dst_mac: MacAddr,
@@ -124,6 +134,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
     /// Attempts to write an incomplete Ethernet frame (whose length is currently unknown) to `buf`,
     /// using the specified header fields.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write_incomplete(
         buf: T,
         dst_mac: MacAddr,
@@ -137,6 +148,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Sets the destination MAC address.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_dst_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET].copy_from_slice(addr.get_bytes());
         self
@@ -144,6 +156,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Sets the source MAC address.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_src_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET].copy_from_slice(addr.get_bytes());
         self
@@ -151,6 +164,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Sets the ethertype of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_ethertype(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(ETHERTYPE_OFFSET, value);
         self
@@ -158,6 +172,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Returns the payload of the frame as a `&mut [u8]` slice.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         // We need this let to avoid confusing the borrow checker.
         let offset = self.payload_offset();
@@ -165,13 +180,14 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
+impl<'a, T: std::fmt::Debug + NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
     /// Completes the inner frame by shrinking it to its actual length.
     ///
     /// # Panics
     ///
     /// This method panics if `len` is greater than the length of the inner byte sequence.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn with_payload_len_unchecked(mut self, payload_len: usize) -> EthernetFrame<'a, T> {
         let payload_offset = self.inner.payload_offset();
         self.inner
@@ -183,23 +199,17 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
+    use std::str::FromStr;
 
     use super::*;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Ethernet frame)")
-        }
-    }
 
     #[test]
     fn test_ethernet_frame() {
         let mut a = [0u8; 10000];
         let mut bad_array = [0u8; 1];
 
-        let dst_mac = MacAddr::parse_str("01:23:45:67:89:ab").unwrap();
-        let src_mac = MacAddr::parse_str("cd:ef:01:23:45:67").unwrap();
+        let dst_mac = MacAddr::from_str("01:23:45:67:89:ab").unwrap();
+        let src_mac = MacAddr::from_str("cd:ef:01:23:45:67").unwrap();
         let ethertype = 1289;
 
         assert_eq!(

@@ -6,16 +6,11 @@
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.
 
-mod init;
-mod logger;
 mod metrics;
 
+use std::fmt::Debug;
 use std::sync::LockResult;
 
-pub use log::Level::*;
-pub use log::{warn, *};
-
-pub use crate::logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
 pub use crate::metrics::RTCDeviceMetrics;
 pub use crate::metrics::{
@@ -23,26 +18,34 @@ pub use crate::metrics::{
     SharedStoreMetric, StoreMetric, METRICS,
 };
 
+/// Alias for `std::io::LineWriter<std::fs::File>`.
+pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
+
 /// Prefix to be used in log lines for functions/modules in Firecracker
 /// that are not generally available.
 const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
 
 /// Log a standard warning message indicating a given feature name
 /// is in development preview.
+#[tracing::instrument(level = "trace", ret)]
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     match msg_opt {
-        None => warn!(
+        None => tracing::warn!(
             "{} {} is in development preview.",
-            DEV_PREVIEW_LOG_PREFIX, feature_name
+            DEV_PREVIEW_LOG_PREFIX,
+            feature_name
         ),
-        Some(msg) => warn!(
+        Some(msg) => tracing::warn!(
             "{} {} is in development preview - {}",
-            DEV_PREVIEW_LOG_PREFIX, feature_name, msg
+            DEV_PREVIEW_LOG_PREFIX,
+            feature_name,
+            msg
         ),
     }
 }
 
-fn extract_guard<G>(lock_result: LockResult<G>) -> G {
+#[tracing::instrument(level = "trace")]
+fn extract_guard<G: Debug>(lock_result: LockResult<G>) -> G {
     match lock_result {
         Ok(guard) => guard,
         // If a thread panics while holding this lock, the writer within should still be usable.
@@ -53,6 +56,7 @@ fn extract_guard<G>(lock_result: LockResult<G>) -> G {
 
 /// Helper function for updating the value of a store metric with elapsed time since some time in a
 /// past.
+#[tracing::instrument(level = "trace", ret)]
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
     let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
     metric.store(delta_us as usize);

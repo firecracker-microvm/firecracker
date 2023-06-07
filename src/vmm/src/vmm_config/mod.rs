@@ -10,6 +10,7 @@ use std::path::Path;
 use libc::O_NONBLOCK;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::prelude::*;
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -21,8 +22,6 @@ pub mod drive;
 pub mod entropy;
 /// Wrapper over the microVM general information attached to the microVM.
 pub mod instance_info;
-/// Wrapper for configuring the logger.
-pub mod logger;
 /// Wrapper for configuring the memory and CPU of the microVM.
 pub mod machine_config;
 /// Wrapper for configuring the metrics.
@@ -58,6 +57,7 @@ pub struct TokenBucketConfig {
 }
 
 impl From<&TokenBucket> for TokenBucketConfig {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(tb: &TokenBucket) -> Self {
         let one_time_burst = match tb.initial_one_time_burst() {
             0 => None,
@@ -83,6 +83,7 @@ pub struct RateLimiterConfig {
 }
 
 /// A public-facing, stateless structure, specifying RateLimiter properties updates.
+#[derive(Debug)]
 pub struct RateLimiterUpdate {
     /// Possible update to the RateLimiter::bandwidth bucket.
     pub bandwidth: BucketUpdate,
@@ -90,6 +91,7 @@ pub struct RateLimiterUpdate {
     pub ops: BucketUpdate,
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
     match tb_cfg {
         // There is data to update.
@@ -110,6 +112,7 @@ fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
 }
 
 impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(cfg: Option<RateLimiterConfig>) -> Self {
         if let Some(cfg) = cfg {
             RateLimiterUpdate {
@@ -129,6 +132,7 @@ impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
 impl TryInto<RateLimiter> for RateLimiterConfig {
     type Error = io::Error;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn try_into(self) -> std::result::Result<RateLimiter, Self::Error> {
         let bw = self.bandwidth.unwrap_or_default();
         let ops = self.ops.unwrap_or_default();
@@ -144,6 +148,7 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
 }
 
 impl From<&RateLimiter> for RateLimiterConfig {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(rl: &RateLimiter) -> Self {
         RateLimiterConfig {
             bandwidth: rl.bandwidth().map(TokenBucketConfig::from),
@@ -154,6 +159,7 @@ impl From<&RateLimiter> for RateLimiterConfig {
 
 impl RateLimiterConfig {
     // Option<T> already implements From<T> so we have to use a custom one.
+    #[tracing::instrument(level = "trace", ret)]
     fn into_option(self) -> Option<RateLimiterConfig> {
         if self.bandwidth.is_some() || self.ops.is_some() {
             Some(self)
@@ -169,6 +175,7 @@ type Result<T> = std::result::Result<T, std::io::Error>;
 /// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
 /// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
 /// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
+#[tracing::instrument(level = "trace", ret)]
 fn open_file_nonblock(path: &Path) -> Result<File> {
     OpenOptions::new()
         .custom_flags(O_NONBLOCK)
@@ -177,7 +184,73 @@ fn open_file_nonblock(path: &Path) -> Result<File> {
         .open(path)
 }
 
-type FcLineWriter = io::LineWriter<File>;
+/// Strongly typed structure used to describe the logger.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoggerConfig {
+    /// Named pipe or file used as output for logs.
+    pub log_path: Option<std::path::PathBuf>,
+    /// The level of the Logger.
+    pub level: Option<log::Level>,
+    /// When enabled, the logger will append to the output the severity of the log entry.
+    pub show_level: Option<bool>,
+    /// When enabled, the logger will append the origin of the log entry.
+    pub show_log_origin: Option<bool>,
+    /// The profile file to output.
+    pub profile_file: Option<std::path::PathBuf>,
+}
+use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+impl LoggerConfig {
+    /// Initalizes the logger.
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn init(&self) {
+        let show_origin = self.show_log_origin.unwrap_or_default();
+
+        let fmt_layer = tracing_subscriber::fmt::Layer::new()
+            .with_level(self.show_level.unwrap_or_default())
+            .with_file(show_origin)
+            .with_line_number(show_origin);
+
+        let level = match self.level {
+            Some(log::Level::Error) => tracing::Level::ERROR,
+            Some(log::Level::Warn) => tracing::Level::WARN,
+            Some(log::Level::Info) | None => tracing::Level::INFO,
+            Some(log::Level::Debug) => tracing::Level::DEBUG,
+            Some(log::Level::Trace) => tracing::Level::TRACE,
+        };
+
+        let writer = if let Some(path) = &self.log_path {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)
+                .unwrap();
+            let writer = std::io::BufWriter::new(file);
+            let mutex = std::sync::Mutex::new(writer);
+            tracing_subscriber::fmt::writer::BoxMakeWriter::new(mutex)
+        } else {
+            tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
+        };
+
+        let fmt_layer = fmt_layer.with_writer(writer.with_max_level(level));
+
+        if let Some(profile_file) = &self.profile_file {
+            // We can discard the flush guard as
+            // > This type is only needed when using
+            // > `tracing::subscriber::set_global_default`, which prevents the drop
+            // > implementation of layers from running when the program exits.
+            // See https://docs.rs/tracing-flame/0.2.0/tracing_flame/struct.FlushGuard.html
+            let (flame_layer, _guard) = tracing_flame::FlameLayer::with_file(profile_file).unwrap();
+            tracing_subscriber::registry()
+                .with(fmt_layer)
+                .with(flame_layer)
+                .init();
+        } else {
+            tracing_subscriber::registry().with(fmt_layer).init();
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -242,7 +315,7 @@ mod tests {
         let good_file = log_file_temp.as_path().to_path_buf();
         let maybe_fifo = open_file_nonblock(&good_file);
         assert!(maybe_fifo.is_ok());
-        let mut fw = FcLineWriter::new(maybe_fifo.unwrap());
+        let mut fw = logger::FcLineWriter::new(maybe_fifo.unwrap());
 
         let msg = String::from("some message");
         assert!(fw.write(msg.as_bytes()).is_ok());

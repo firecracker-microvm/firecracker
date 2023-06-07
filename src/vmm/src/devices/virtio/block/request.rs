@@ -8,8 +8,9 @@
 use std::convert::From;
 use std::result;
 
-use logger::{error, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
+use tracing::error;
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
@@ -38,6 +39,7 @@ pub enum RequestType {
 }
 
 impl From<u32> for RequestType {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(value: u32) -> Self {
         match value {
             VIRTIO_BLK_T_IN => RequestType::In,
@@ -49,17 +51,20 @@ impl From<u32> for RequestType {
     }
 }
 
+#[derive(Debug)]
 pub enum ProcessingResult {
     Submitted,
     Throttled,
     Executed(FinishedRequest),
 }
 
+#[derive(Debug)]
 pub struct FinishedRequest {
     pub num_bytes_to_mem: u32,
     pub desc_idx: u16,
 }
 
+#[derive(Debug)]
 enum Status {
     Ok { num_bytes_to_mem: u32 },
     IoErr { num_bytes_to_mem: u32, err: IoErr },
@@ -67,6 +72,7 @@ enum Status {
 }
 
 impl Status {
+    #[tracing::instrument(level = "trace", ret)]
     fn from_data(data_len: u32, transferred_data_len: u32, data_to_mem: bool) -> Status {
         let num_bytes_to_mem = match data_to_mem {
             true => transferred_data_len,
@@ -86,6 +92,7 @@ impl Status {
     }
 }
 
+#[derive(Debug)]
 pub struct PendingRequest {
     r#type: RequestType,
     data_len: u32,
@@ -94,6 +101,7 @@ pub struct PendingRequest {
 }
 
 impl PendingRequest {
+    #[tracing::instrument(level = "trace", ret)]
     fn write_status_and_finish(self, status: &Status, mem: &GuestMemoryMmap) -> FinishedRequest {
         let (num_bytes_to_mem, status_code) = match status {
             Status::Ok { num_bytes_to_mem } => (*num_bytes_to_mem, VIRTIO_BLK_S_OK),
@@ -133,6 +141,7 @@ impl PendingRequest {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn finish(self, mem: &GuestMemoryMmap, res: Result<u32, IoErr>) -> FinishedRequest {
         let status = match (res, self.r#type) {
             (Ok(transferred_data_len), RequestType::In) => {
@@ -180,7 +189,7 @@ impl PendingRequest {
 ///
 /// The header simplifies reading the request from memory as all request follow
 /// the same memory layout.
-#[derive(Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct RequestHeader {
     request_type: u32,
@@ -192,6 +201,7 @@ pub struct RequestHeader {
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(request_type: u32, sector: u64) -> RequestHeader {
         RequestHeader {
             request_type,
@@ -207,6 +217,7 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
+    #[tracing::instrument(level = "trace", ret)]
     fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> result::Result<Self, BlockError> {
         let request_header: RequestHeader =
             memory.read_obj(addr).map_err(BlockError::GuestMemory)?;
@@ -214,7 +225,7 @@ impl RequestHeader {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Request {
     pub r#type: RequestType,
     pub data_len: u32,
@@ -224,6 +235,7 @@ pub struct Request {
 }
 
 impl Request {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn parse(
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
@@ -313,6 +325,7 @@ impl Request {
         Ok(req)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn rate_limit(&self, rate_limiter: &mut RateLimiter) -> bool {
         // If limiter.consume() fails it means there is no more TokenType::Ops
         // budget and rate limiting is in effect.
@@ -333,10 +346,12 @@ impl Request {
         false
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn offset(&self) -> u64 {
         self.sector << SECTOR_SHIFT
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn to_pending_request(&self, desc_idx: u16) -> PendingRequest {
         PendingRequest {
             r#type: self.r#type,
@@ -346,6 +361,7 @@ impl Request {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn process(
         self,
         disk: &mut DiskProperties,
@@ -454,6 +470,7 @@ mod tests {
     }
 
     impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
+        #[tracing::instrument(level = "trace", ret)]
         fn check_parse_err(&self, _e: BlockError) {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();
@@ -464,6 +481,7 @@ mod tests {
             ));
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn check_parse(&self, check_data: bool) {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();
@@ -677,6 +695,7 @@ mod tests {
             ),
         )>;
 
+        #[tracing::instrument(level = "trace", ret)]
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             // All strategies have the same weight, there is no reson currently to skew
             // the rations to increase the odds of a specific request type.
@@ -699,6 +718,7 @@ mod tests {
     }
 
     impl From<RequestType> for u32 {
+        #[tracing::instrument(level = "trace", ret)]
         fn from(request_type: RequestType) -> u32 {
             match request_type {
                 RequestType::In => VIRTIO_BLK_T_IN,
@@ -711,6 +731,7 @@ mod tests {
     }
 
     // Returns flags based on the request type.
+    #[tracing::instrument(level = "trace", ret)]
     fn request_type_flags(request_type: RequestType) -> u16 {
         match request_type {
             RequestType::In => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
@@ -721,6 +742,8 @@ mod tests {
         }
     }
 
+    #[allow(clippy::let_with_type_underscore)]
+    #[tracing::instrument(level = "trace", ret)]
     fn random_request_parse(
     ) -> impl Strategy<Value = (Result<Request, BlockError>, GuestMemoryMmap, Queue)> {
         // In this strategy we are going to generate random Requests/Errors and map them
@@ -759,6 +782,7 @@ mod tests {
             )
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn do_random_request_parse(
         sparsity: u64,
         data_len: u32,

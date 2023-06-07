@@ -8,6 +8,7 @@ use crate::template::strip::{strip_common, Error};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[allow(dead_code)]
+#[tracing::instrument(level = "trace", ret)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
     // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
     let (mut cpuid_modifiers_maps, mut msr_modifiers_maps): (Vec<_>, Vec<_>) = templates
@@ -64,6 +65,7 @@ mod tests {
     //   but EBX values are different, the EAX register modifier should be removed and the EBX
     //   register modifier should be preserved.
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_input_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
@@ -109,6 +111,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_expected_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
@@ -148,6 +151,7 @@ mod tests {
     //   removed.
     // * As addr 0x2 modifier only exist in the third template, it should be preserved.
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_input_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
@@ -176,6 +180,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_expected_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {

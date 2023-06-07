@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 
 use crate::devices::report_balloon_event_fail;
@@ -12,6 +12,7 @@ use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[INFLATE_INDEX], EventSet::IN)) {
             error!("Failed to register inflate queue event: {}", err);
@@ -29,14 +30,16 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("balloon: activate event");
+        tracing::debug!("balloon: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume balloon activate event: {:?}", err);
         }
@@ -48,6 +51,7 @@ impl Balloon {
 }
 
 impl MutEventSubscriber for Balloon {
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -95,6 +99,7 @@ impl MutEventSubscriber for Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,

@@ -1,6 +1,8 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+
 /// Simple abstraction of a state machine.
 ///
 /// `StateMachine<T>` is a wrapper over `T` that also encodes state information for `T`.
@@ -13,17 +15,26 @@
 pub struct StateMachine<T> {
     function: Option<StateFn<T>>,
 }
+impl<T> Debug for StateMachine<T> {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateMachine")
+            .field("function", &self.function.map(|f| f as usize))
+            .finish()
+    }
+}
 
 /// Type representing a state handler of a `StateMachine<T>` machine. Each state handler
 /// is a function from `T` that handles a specific state of `T`.
 type StateFn<T> = fn(&mut T) -> StateMachine<T>;
 
-impl<T> StateMachine<T> {
+impl<T: Debug> StateMachine<T> {
     /// Creates a new state wrapper.
     ///
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
+    #[tracing::instrument(level = "trace", ret, skip(function))]
     pub fn new(function: Option<StateFn<T>>) -> StateMachine<T> {
         StateMachine { function }
     }
@@ -33,6 +44,7 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
+    #[tracing::instrument(level = "trace", ret, skip(function))]
     pub fn next(function: StateFn<T>) -> StateMachine<T> {
         StateMachine::new(Some(function))
     }
@@ -43,6 +55,7 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this last state.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn finish() -> StateMachine<T> {
         StateMachine::new(None)
     }
@@ -54,6 +67,7 @@ impl<T> StateMachine<T> {
     /// `machine` - a mutable reference to the object running through the various states.
     /// `starting_state_fn` - a `fn(&mut T) -> StateMachine<T>` that should be the handler for
     ///                       the initial state.
+    #[tracing::instrument(level = "trace", ret, skip(starting_state_fn))]
     pub fn run(machine: &mut T, starting_state_fn: StateFn<T>) {
         // Start off in the `starting_state` state.
         let mut state_machine = StateMachine::new(Some(starting_state_fn));
@@ -70,6 +84,7 @@ mod tests {
     use super::*;
 
     // DummyMachine with states `s1`, `s2` and `s3`.
+    #[derive(Debug)]
     struct DummyMachine {
         private_data_s1: bool,
         private_data_s2: bool,
@@ -77,6 +92,7 @@ mod tests {
     }
 
     impl DummyMachine {
+        #[tracing::instrument(level = "trace", ret)]
         fn new() -> Self {
             DummyMachine {
                 private_data_s1: false,
@@ -88,6 +104,7 @@ mod tests {
         // DummyMachine functions here.
 
         // Simple state-machine: start->s1->s2->s3->done.
+        #[tracing::instrument(level = "trace", ret)]
         fn run(&mut self) {
             // Verify the machine has not run yet.
             assert!(!self.private_data_s1);
@@ -103,6 +120,7 @@ mod tests {
             assert!(self.private_data_s3);
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn s1(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s1);
@@ -110,6 +128,7 @@ mod tests {
             StateMachine::next(Self::s2)
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn s2(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s2);
@@ -117,6 +136,7 @@ mod tests {
             StateMachine::next(Self::s3)
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn s3(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s3);

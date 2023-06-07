@@ -5,8 +5,8 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::io::{self, Seek, SeekFrom};
-use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
@@ -17,12 +17,11 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use logger::{error, warn, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
+use tracing::error;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
-use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
@@ -39,11 +38,10 @@ use crate::cpu_config::templates::{
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-use crate::devices::legacy::{
-    EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
-};
+use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
@@ -55,7 +53,7 @@ use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigE
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEventsObserver};
+use crate::{device_manager, BusDevice, Error, EventManager, RestoreVcpusError, Vmm};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error)]
@@ -75,6 +73,11 @@ pub enum StartMicrovmError {
     /// Failed to create a `RateLimiter` object.
     #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
+    /// Legacy devices work with Event file descriptors and the creation can fail because
+    /// of resource exhaustion.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Error creating legacy device: {0}")]
+    CreateLegacyDevice(device_manager::legacy::Error),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
     GuestMemoryMmap(utils::vm_memory::Error),
@@ -137,57 +140,14 @@ pub enum StartMicrovmError {
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
 impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
     }
 }
 
-// Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
-pub(crate) struct SerialStdin(io::Stdin);
-impl SerialStdin {
-    /// Returns a `SerialStdin` wrapper over `io::stdin`.
-    pub fn get() -> Self {
-        SerialStdin(io::stdin())
-    }
-}
-
-impl io::Read for SerialStdin {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl AsRawFd for SerialStdin {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-}
-
-impl ReadableFd for SerialStdin {}
-
-impl VmmEventsObserver for SerialStdin {
-    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        // Set raw mode for stdin.
-        self.0.lock().set_raw_mode().map_err(|err| {
-            warn!("Cannot set raw mode for the terminal. {:?}", err);
-            err
-        })?;
-
-        // Set non blocking stdin.
-        self.0.lock().set_non_block(true).map_err(|err| {
-            warn!("Cannot set non block for the terminal. {:?}", err);
-            err
-        })
-    }
-    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        self.0.lock().set_canon_mode().map_err(|err| {
-            warn!("Cannot set canonical mode for the terminal. {:?}", err);
-            err
-        })
-    }
-}
-
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -227,21 +187,22 @@ fn create_vmm_and_vcpus(
         set_stdout_nonblocking();
 
         // Serial device setup.
-        let serial_device = setup_serial_device(
-            event_manager,
-            Box::new(SerialStdin::get()),
-            Box::new(io::stdout()),
-        )
-        .map_err(Internal)?;
+        let serial_device =
+            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
             .try_clone()
             .map_err(Error::EventFd)
             .map_err(Internal)?;
 
-        let pio_device_manager =
-            create_pio_dev_manager_with_legacy_devices(&vm, serial_device, reset_evt)
-                .map_err(Internal)?;
+        // create pio dev manager with legacy devices
+        let pio_device_manager = {
+            // TODO Remove these unwraps.
+            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
+            pio_dev_mgr.register_devices(vm.fd()).unwrap();
+            pio_dev_mgr
+        };
 
         (vcpus, pio_device_manager)
     };
@@ -258,7 +219,7 @@ fn create_vmm_and_vcpus(
     };
 
     let vmm = Vmm {
-        events_observer: Some(Box::new(SerialStdin::get())),
+        events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         vm,
@@ -279,6 +240,7 @@ fn create_vmm_and_vcpus(
 /// The built microVM and all the created vCPUs start off in the paused state.
 /// To boot the microVM and run those vCPUs, `Vmm::resume_vm()` needs to be
 /// called.
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
@@ -391,6 +353,7 @@ pub fn build_microvm_for_boot(
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 pub fn build_and_boot_microvm(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
@@ -465,6 +428,7 @@ pub enum BuildMicrovmFromSnapshotError {
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -567,6 +531,7 @@ pub fn build_microvm_from_snapshot(
 }
 
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
+#[tracing::instrument(level = "trace", ret)]
 pub fn create_guest_memory(
     mem_size_mib: usize,
     track_dirty_pages: bool,
@@ -584,6 +549,7 @@ pub fn create_guest_memory(
     .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
@@ -614,6 +580,7 @@ fn load_kernel(
     Ok(entry_addr.kernel_load)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
     vm_memory: &GuestMemoryMmap,
@@ -635,7 +602,8 @@ fn load_initrd_from_config(
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
-fn load_initrd<F>(
+#[tracing::instrument(level = "trace", ret)]
+fn load_initrd<F: Debug>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
 ) -> std::result::Result<InitrdConfig, StartMicrovmError>
@@ -677,6 +645,7 @@ where
     })
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn setup_kvm_vm(
     guest_memory: &GuestMemoryMmap,
     track_dirty_pages: bool,
@@ -694,6 +663,7 @@ pub(crate) fn setup_kvm_vm(
 
 /// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
+#[tracing::instrument(level = "trace", ret)]
 pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartMicrovmError> {
     vm.setup_irqchip()
         .map_err(Error::Vm)
@@ -702,6 +672,7 @@ pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartM
 
 /// Sets up the irqchip for a aarch64 microVM.
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "trace", ret)]
 pub fn setup_interrupt_controller(
     vm: &mut Vm,
     vcpu_count: u8,
@@ -712,51 +683,39 @@ pub fn setup_interrupt_controller(
 }
 
 /// Sets up the serial device.
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
-    input: Box<dyn ReadableFd + Send>,
-    out: Box<dyn io::Write + Send>,
-) -> super::Result<Arc<Mutex<SerialDevice>>> {
+    input: std::io::Stdin,
+    out: std::io::Stdout,
+) -> super::Result<Arc<Mutex<BusDevice>>> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
-    let serial = Arc::new(Mutex::new(SerialWrapper {
+    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
         serial: Serial::with_events(
             interrupt_evt,
             SerialEventsWrapper {
-                metrics: METRICS.uart.clone(),
                 buffer_ready_event_fd: Some(kick_stdin_read_evt),
             },
-            out,
+            SerialOut::Stdout(out),
         ),
         input: Some(input),
-    }));
+    })));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
 
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
+#[tracing::instrument(level = "trace", ret)]
 pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
     let rtc = Rtc::with_events(METRICS.rtc.clone());
     Arc::new(Mutex::new(rtc))
 }
 
-#[cfg(target_arch = "x86_64")]
-fn create_pio_dev_manager_with_legacy_devices(
-    vm: &Vm,
-    serial: Arc<Mutex<SerialDevice>>,
-    i8042_reset_evfd: EventFd,
-) -> std::result::Result<PortIODeviceManager, super::Error> {
-    let mut pio_dev_mgr =
-        PortIODeviceManager::new(serial, i8042_reset_evfd).map_err(Error::CreateLegacyDevice)?;
-    pio_dev_mgr
-        .register_devices(vm.fd())
-        .map_err(Error::LegacyIOBus)?;
-    Ok(pio_dev_mgr)
-}
-
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "trace", ret)]
 fn attach_legacy_devices_aarch64(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
@@ -773,11 +732,7 @@ fn attach_legacy_devices_aarch64(
     if cmdline_contains_console {
         // Make stdout non-blocking.
         set_stdout_nonblocking();
-        let serial = setup_serial_device(
-            event_manager,
-            Box::new(SerialStdin::get()),
-            Box::new(io::stdout()),
-        )?;
+        let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
         vmm.mmio_device_manager
             .register_mmio_serial(vmm.vm.fd(), serial, None)
             .map_err(Error::RegisterMMIODevice)?;
@@ -792,6 +747,7 @@ fn attach_legacy_devices_aarch64(
         .map_err(Error::RegisterMMIODevice)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Vec<Vcpu>> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
@@ -808,6 +764,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
 
 /// Configures the system for booting Linux.
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[tracing::instrument(level = "trace", ret)]
 pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &mut [Vcpu],
@@ -904,7 +861,8 @@ pub fn configure_system_for_boot(
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
-fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
+fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
     id: String,
@@ -923,6 +881,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
         .map(|_| ())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn attach_boot_timer_device(
     vmm: &mut Vmm,
     request_ts: TimestampUs,
@@ -938,6 +897,7 @@ pub(crate) fn attach_boot_timer_device(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 fn attach_entropy_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -953,10 +913,11 @@ fn attach_entropy_device(
     attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
-fn attach_block_devices<'a>(
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
+fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
-    blocks: impl Iterator<Item = &'a Arc<Mutex<Block>>>,
+    blocks: I,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     for block in blocks {
@@ -981,10 +942,11 @@ fn attach_block_devices<'a>(
     Ok(())
 }
 
-fn attach_net_devices<'a>(
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
+fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
-    net_devices: impl Iterator<Item = &'a Arc<Mutex<Net>>>,
+    net_devices: I,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     for net_device in net_devices {
@@ -995,6 +957,7 @@ fn attach_net_devices<'a>(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -1006,6 +969,7 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
 }
 
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 fn attach_balloon_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -1018,6 +982,7 @@ fn attach_balloon_device(
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn set_stdout_nonblocking() {
     // SAFETY: Call is safe since parameters are valid.
     let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
@@ -1054,6 +1019,7 @@ pub mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
+    #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
@@ -1063,6 +1029,7 @@ pub mod tests {
     }
 
     impl CustomBlockConfig {
+        #[tracing::instrument(level = "trace", ret)]
         pub(crate) fn new(
             drive_id: String,
             is_root_device: bool,
@@ -1080,6 +1047,7 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn default_mmio_device_manager() -> MMIODeviceManager {
         MMIODeviceManager::new(
             crate::arch::MMIO_MEM_START,
@@ -1089,25 +1057,7 @@ pub mod tests {
         .unwrap()
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn default_portio_device_manager() -> PortIODeviceManager {
-        PortIODeviceManager::new(
-            Arc::new(Mutex::new(SerialWrapper {
-                serial: Serial::with_events(
-                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
-                    SerialEventsWrapper {
-                        metrics: METRICS.uart.clone(),
-                        buffer_ready_event_fd: None,
-                    },
-                    Box::new(std::io::sink()),
-                ),
-                input: None,
-            })),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        )
-        .unwrap()
-    }
-
+    #[tracing::instrument(level = "trace", ret)]
     fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
         // The following unwraps can never fail; the only way any of these methods
         // would return an `Err` is if one of the following conditions is met:
@@ -1127,6 +1077,7 @@ pub mod tests {
             .contains(slug)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
         linux_loader::cmdline::Cmdline::try_from(
             DEFAULT_KERNEL_CMDLINE,
@@ -1135,6 +1086,7 @@ pub mod tests {
         .unwrap()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn default_vmm() -> Vmm {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
@@ -1146,7 +1098,20 @@ pub mod tests {
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
-        let pio_device_manager = default_portio_device_manager();
+        let pio_device_manager = PortIODeviceManager::new(
+            Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+                serial: Serial::with_events(
+                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+                    SerialEventsWrapper {
+                        buffer_ready_event_fd: None,
+                    },
+                    SerialOut::Sink(std::io::sink()),
+                ),
+                input: None,
+            }))),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        )
+        .unwrap();
 
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
@@ -1159,7 +1124,7 @@ pub mod tests {
         }
 
         Vmm {
-            events_observer: Some(Box::new(SerialStdin::get())),
+            events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
             shutdown_exit_code: None,
             vm,
@@ -1173,6 +1138,7 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(event_manager))]
     pub(crate) fn insert_block_devices(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1206,6 +1172,7 @@ pub mod tests {
         block_files
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     pub(crate) fn insert_net_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1219,6 +1186,7 @@ pub mod tests {
         assert!(res.is_ok());
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     pub(crate) fn insert_net_device_with_mmds(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1239,6 +1207,7 @@ pub mod tests {
         attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     pub(crate) fn insert_vsock_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1257,6 +1226,7 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     pub(crate) fn insert_entropy_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1274,6 +1244,7 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     pub(crate) fn insert_balloon_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1292,20 +1263,24 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn make_test_bin() -> Vec<u8> {
         let mut fake_bin = Vec::new();
         fake_bin.resize(1_000_000, 0xAA);
         fake_bin
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
         utils::vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         create_guest_mem_at(GuestAddress(0x0), size)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
         mem.iter().all(|r| r.bitmap().is_some())
     }
@@ -1367,12 +1342,6 @@ pub mod tests {
             StartMicrovmError::InitrdLoad.to_string(),
             res.err().unwrap().to_string()
         );
-    }
-
-    #[test]
-    fn test_stdin_wrapper() {
-        let wrapper = SerialStdin::get();
-        assert_eq!(wrapper.as_raw_fd(), io::stdin().as_raw_fd())
     }
 
     #[test]

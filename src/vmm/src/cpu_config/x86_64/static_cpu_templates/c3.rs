@@ -10,6 +10,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// C3 CPU template.
 ///
 /// Mask CPUID to make exposed CPU features as close as possbile to AWS C3 instance.
+#[tracing::instrument(level = "trace", ret)]
 pub fn c3() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

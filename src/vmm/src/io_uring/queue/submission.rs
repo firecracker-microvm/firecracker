@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::io::Error as IOError;
 use std::mem;
 use std::num::Wrapping;
@@ -28,6 +29,7 @@ pub enum Error {
     Submit(IOError),
 }
 
+#[derive(Debug)]
 pub(crate) struct SubmissionQueue {
     io_uring_fd: RawFd,
 
@@ -50,6 +52,7 @@ pub(crate) struct SubmissionQueue {
 }
 
 impl SubmissionQueue {
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -83,7 +86,8 @@ impl SubmissionQueue {
     /// # Safety
     /// Unsafe because we pass a raw `user_data` pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub(crate) unsafe fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
+    #[tracing::instrument(level = "trace", ret)]
+    pub(crate) unsafe fn push<T: Debug>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail
@@ -120,6 +124,7 @@ impl SubmissionQueue {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn submit(&mut self, min_complete: u32) -> Result<u32, Error> {
         if self.to_submit == 0 && min_complete == 0 {
             // Nothing to submit and nothing to wait for.
@@ -153,6 +158,7 @@ impl SubmissionQueue {
         Ok(submitted)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn mmap(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -181,6 +187,7 @@ impl SubmissionQueue {
         Ok((sqe_ring, sqes))
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn pending(&self) -> Result<u32, Error> {
         let ring_slice = self.ring.as_volatile_slice();
         // get the sqe head
@@ -191,6 +198,7 @@ impl SubmissionQueue {
 }
 
 impl Drop for SubmissionQueue {
+    #[tracing::instrument(level = "trace", ret)]
     fn drop(&mut self) {
         // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.ring.as_ptr().cast::<libc::c_void>(), self.ring.size()) };

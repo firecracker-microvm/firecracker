@@ -27,6 +27,7 @@ mod common_types {
 }
 
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::result::Result;
 
 pub use common_types::*;
@@ -73,6 +74,7 @@ pub enum CpuTemplateType {
 }
 
 impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(value: &Option<CpuTemplateType>) -> Self {
         match value {
             Some(CpuTemplateType::Static(template)) => *template,
@@ -95,10 +97,11 @@ where
 
 impl<V> RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Applies filter to the value
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn apply(&self, value: V) -> V {
         (value & !self.filter) | self.value
     }
@@ -151,9 +154,10 @@ impl_numeric!(u128);
 
 impl<V> Serialize for RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Serialize combination of value and filter into a single tri state string
+    #[tracing::instrument(level = "trace", skip(serializer))]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -182,7 +186,7 @@ where
 
 impl<'de, V> Deserialize<'de> for RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Deserialize a composite bitmap string into a value pair
     /// input string: "010x"
@@ -190,6 +194,7 @@ where
     ///     filter: 1110
     ///     value: 0100
     /// }
+    #[tracing::instrument(level = "trace", ret, skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

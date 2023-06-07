@@ -35,11 +35,13 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
 
 impl ByteBuffer for [u8] {
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn len(&self) -> usize {
         self.len()
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]) {
         let buf_len = buf.len();
         buf.copy_from_slice(&self[offset..offset + buf_len]);
@@ -48,17 +50,22 @@ impl ByteBuffer for [u8] {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use super::*;
 
-    fn bb_len<T: ByteBuffer + ?Sized>(buf: &T) -> usize {
+    #[tracing::instrument(level = "trace", ret)]
+    fn bb_len<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> usize {
         buf.len()
     }
 
-    fn bb_is_empty<T: ByteBuffer + ?Sized>(buf: &T) -> bool {
+    #[tracing::instrument(level = "trace", ret)]
+    fn bb_is_empty<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> bool {
         buf.len() == 0
     }
 
-    fn bb_read_from_1<T: ByteBuffer + ?Sized>(src: &T, dst: &mut [u8]) {
+    #[tracing::instrument(level = "trace", ret)]
+    fn bb_read_from_1<T: ByteBuffer + ?Sized + Debug>(src: &T, dst: &mut [u8]) {
         src.read_to_slice(1, dst);
     }
 

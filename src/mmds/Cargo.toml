@@ -21,3 +21,4 @@ logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
 snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
+tracing = { version = "0.1.37", features = ["attributes"] }

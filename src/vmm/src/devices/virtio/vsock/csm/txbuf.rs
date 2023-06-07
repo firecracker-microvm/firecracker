@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;
 
@@ -12,6 +13,7 @@ use super::{defs, Error, Result};
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
 /// the host can't read fast enough.
+#[derive(Debug)]
 pub struct TxBuf {
     /// The actual u8 buffer - only allocated after the first push.
     data: Option<Box<[u8]>>,
@@ -26,6 +28,7 @@ impl TxBuf {
     const SIZE: usize = defs::CONN_TX_BUF_SIZE as usize;
 
     /// Ring-buffer constructor.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Self {
         Self {
             data: None,
@@ -36,6 +39,7 @@ impl TxBuf {
 
     /// Get the used length of this buffer - number of bytes that have been pushed in, but not
     /// yet flushed out.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> usize {
         (self.head - self.tail).0 as usize
     }
@@ -44,6 +48,7 @@ impl TxBuf {
     ///
     /// Either the entire source slice will be pushed to the ring-buffer, or none of it, if
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<()> {
         // Error out if there's no room to push the entire slice.
         if self.len() + src.len() > Self::SIZE {
@@ -83,10 +88,8 @@ impl TxBuf {
     ///
     /// Return the number of bytes that have been transferred out of the ring-buffer and into
     /// the writable stream.
-    pub fn flush_to<W>(&mut self, sink: &mut W) -> Result<usize>
-    where
-        W: Write,
-    {
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize> {
         // Nothing to do, if this buffer holds no data.
         if self.is_empty() {
             return Ok(0);
@@ -131,12 +134,14 @@ impl TxBuf {
     }
 
     /// Check if the buffer holds any data that hasn't yet been flushed out.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 impl WriteVolatile for TxBuf {
+    #[tracing::instrument(level = "trace", ret)]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -153,6 +158,7 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug)]
     struct TestSink {
         data: Vec<u8>,
         err: Option<IoError>,
@@ -161,6 +167,7 @@ mod tests {
 
     impl TestSink {
         const DEFAULT_CAPACITY: usize = 2 * TxBuf::SIZE;
+        #[tracing::instrument(level = "trace", ret)]
         fn new() -> Self {
             Self {
                 data: Vec::with_capacity(Self::DEFAULT_CAPACITY),
@@ -171,6 +178,7 @@ mod tests {
     }
 
     impl Write for TestSink {
+        #[tracing::instrument(level = "trace", ret)]
         fn write(&mut self, src: &[u8]) -> IoResult<usize> {
             if self.err.is_some() {
                 return Err(self.err.take().unwrap());
@@ -179,19 +187,23 @@ mod tests {
             self.data.extend_from_slice(&src[..len_to_push]);
             Ok(len_to_push)
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn flush(&mut self) -> IoResult<()> {
             Ok(())
         }
     }
 
     impl TestSink {
+        #[tracing::instrument(level = "trace", ret)]
         fn clear(&mut self) {
             self.data = Vec::with_capacity(self.capacity);
             self.err = None;
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn set_err(&mut self, err: IoError) {
             self.err = Some(err);
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn set_capacity(&mut self, capacity: usize) {
             self.capacity = capacity;
             if self.data.len() > self.capacity {

@@ -10,7 +10,7 @@ use versionize_derive::Versionize;
 use super::*;
 
 /// State for saving a TokenBucket.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct TokenBucketState {
     size: u64,
@@ -25,6 +25,7 @@ impl Persist<'_> for TokenBucket {
     type ConstructorArgs = ();
     type Error = io::Error;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         TokenBucketState {
             size: self.size,
@@ -35,6 +36,7 @@ impl Persist<'_> for TokenBucket {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let now = Instant::now();
         let last_update = now
@@ -53,7 +55,7 @@ impl Persist<'_> for TokenBucket {
 }
 
 /// State for saving a RateLimiter.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct RateLimiterState {
     ops: Option<TokenBucketState>,
@@ -65,6 +67,7 @@ impl Persist<'_> for RateLimiter {
     type ConstructorArgs = ();
     type Error = io::Error;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         RateLimiterState {
             ops: self.ops.as_ref().map(|ops| ops.save()),
@@ -72,6 +75,7 @@ impl Persist<'_> for RateLimiter {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let rate_limiter = RateLimiter {
             ops: if let Some(ops) = state.ops.as_ref() {

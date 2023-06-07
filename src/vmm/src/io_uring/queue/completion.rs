@@ -21,6 +21,7 @@ pub enum Error {
     VolatileMemory(VolatileMemoryError),
 }
 
+#[derive(Debug)]
 pub(crate) struct CompletionQueue {
     // Offsets.
     head_off: usize,
@@ -37,6 +38,7 @@ pub(crate) struct CompletionQueue {
 }
 
 impl CompletionQueue {
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -67,6 +69,7 @@ impl CompletionQueue {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) fn count(&self) -> u32 {
         self.count
     }
@@ -75,7 +78,8 @@ impl CompletionQueue {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub(crate) unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
+    #[tracing::instrument(level = "trace", ret)]
+    pub(crate) unsafe fn pop<T: std::fmt::Debug>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;
@@ -99,6 +103,7 @@ impl CompletionQueue {
 }
 
 impl Drop for CompletionQueue {
+    #[tracing::instrument(level = "trace", ret)]
     fn drop(&mut self) {
         // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.cqes.as_ptr().cast::<libc::c_void>(), self.cqes.size()) };

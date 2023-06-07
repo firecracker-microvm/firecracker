@@ -47,7 +47,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
 
-use logger::error;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 pub mod persist;
@@ -67,6 +66,7 @@ const TIMER_REFILL_STATE: TimerState =
 const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 
 // Euclid's two-thousand-year-old algorithm for finding the greatest common divisor.
+#[tracing::instrument(level = "trace", ret)]
 fn gcd(x: u64, y: u64) -> u64 {
     let mut x = x;
     let mut y = y;
@@ -123,6 +123,7 @@ impl TokenBucket {
     /// for an initial burst of data.
     ///
     /// If the `size` or the `complete refill time` are zero, then `None` is returned.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(size: u64, one_time_burst: u64, complete_refill_time_ms: u64) -> Option<Self> {
         // If either token bucket capacity or refill time is 0, disable limiting.
         if size == 0 || complete_refill_time_ms == 0 {
@@ -157,6 +158,7 @@ impl TokenBucket {
     }
 
     // Replenishes token bucket based on elapsed time. Should only be called internally by `Self`.
+    #[tracing::instrument(level = "trace", ret)]
     fn auto_replenish(&mut self) {
         // Compute time passed since last refill/update.
         let now = Instant::now();
@@ -210,6 +212,7 @@ impl TokenBucket {
     }
 
     /// Attempts to consume `tokens` from the bucket and returns whether the action succeeded.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn reduce(&mut self, mut tokens: u64) -> BucketReduction {
         // First things first: consume the one-time-burst budget.
         if self.one_time_burst > 0 {
@@ -234,9 +237,10 @@ impl TokenBucket {
 
             // This operation requests a bandwidth higher than the bucket size
             if tokens > self.size {
-                error!(
+                tracing::error!(
                     "Consumed {} tokens from bucket of size {}",
-                    tokens, self.size
+                    tokens,
+                    self.size
                 );
                 // Empty the bucket and report an overconsumption of
                 // (remaining tokens / size) times larger than the bucket size
@@ -256,6 +260,7 @@ impl TokenBucket {
     }
 
     /// "Manually" adds tokens to bucket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn force_replenish(&mut self, tokens: u64) {
         // This means we are still during the burst interval.
         // Of course there is a very small chance  that the last reduce() also used up burst
@@ -272,32 +277,38 @@ impl TokenBucket {
     }
 
     /// Returns the capacity of the token bucket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn capacity(&self) -> u64 {
         self.size
     }
 
     /// Returns the remaining one time burst budget.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn one_time_burst(&self) -> u64 {
         self.one_time_burst
     }
 
     /// Returns the time in milliseconds required to to completely fill the bucket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn refill_time_ms(&self) -> u64 {
         self.refill_time
     }
 
     /// Returns the current budget (one time burst allowance notwithstanding).
+    #[tracing::instrument(level = "trace", ret)]
     pub fn budget(&self) -> u64 {
         self.budget
     }
 
     /// Returns the initially configured one time burst budget.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn initial_one_time_burst(&self) -> u64 {
         self.initial_one_time_burst
     }
 }
 
 /// Enum that describes the type of token used.
+#[derive(Debug)]
 pub enum TokenType {
     /// Token type used for bandwidth limiting.
     Bytes,
@@ -306,6 +317,7 @@ pub enum TokenType {
 }
 
 /// Enum that describes the type of token bucket update.
+#[derive(Debug)]
 pub enum BucketUpdate {
     /// No Update - same as before.
     None,
@@ -340,12 +352,14 @@ pub struct RateLimiter {
 }
 
 impl PartialEq for RateLimiter {
+    #[tracing::instrument(level = "trace", ret)]
     fn eq(&self, other: &RateLimiter) -> bool {
         self.bandwidth == other.bandwidth && self.ops == other.ops
     }
 }
 
 impl fmt::Debug for RateLimiter {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -377,6 +391,7 @@ impl RateLimiter {
     /// # Errors
     ///
     /// If the timerfd creation fails, an error is returned.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(
         bytes_total_capacity: u64,
         bytes_one_time_burst: u64,
@@ -411,6 +426,7 @@ impl RateLimiter {
     }
 
     // Arm the timer of the rate limiter with the provided `TimerState`.
+    #[tracing::instrument(level = "trace", ret)]
     fn activate_timer(&mut self, timer_state: TimerState) {
         // Register the timer; don't care about its previous state
         self.timer_fd.set_state(timer_state, SetTimeFlags::Default);
@@ -420,6 +436,7 @@ impl RateLimiter {
     /// Attempts to consume tokens and returns whether that is possible.
     ///
     /// If rate limiting is disabled on provided `token_type`, this function will always succeed.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
         // If the timer is active, we can't consume tokens from any bucket and the function fails.
         if self.timer_active {
@@ -473,6 +490,7 @@ impl RateLimiter {
     ///
     /// Can be used to *manually* add tokens to a bucket. Useful for reverting a
     /// `consume()` if needed.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn manual_replenish(&mut self, tokens: u64, token_type: TokenType) {
         // Identify the required token bucket.
         let token_bucket = match token_type {
@@ -490,6 +508,7 @@ impl RateLimiter {
     /// The limiter 'blocks' when a `consume()` operation fails because there was not enough
     /// budget for it.
     /// An event will be generated on the exported FD when the limiter 'unblocks'.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_blocked(&self) -> bool {
         self.timer_active
     }
@@ -500,6 +519,7 @@ impl RateLimiter {
     /// # Errors
     ///
     /// If the rate limiter is disabled or is not blocked, an error is returned.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn event_handler(&mut self) -> Result<(), Error> {
         match self.timer_fd.read() {
             0 => Err(Error::SpuriousRateLimiterEvent(
@@ -514,6 +534,7 @@ impl RateLimiter {
 
     /// Updates the parameters of the token buckets associated with this RateLimiter.
     // TODO: Please note that, right now, the buckets become full after being updated.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_buckets(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
         match bytes {
             BucketUpdate::Disabled => self.bandwidth = None,
@@ -528,11 +549,13 @@ impl RateLimiter {
     }
 
     /// Returns an immutable view of the inner bandwidth token bucket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn bandwidth(&self) -> Option<&TokenBucket> {
         self.bandwidth.as_ref()
     }
 
     /// Returns an immutable view of the inner ops token bucket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn ops(&self) -> Option<&TokenBucket> {
         self.ops.as_ref()
     }
@@ -545,6 +568,7 @@ impl AsRawFd for RateLimiter {
     ///
     /// Will return a negative value if rate limiting is disabled on both
     /// token types.
+    #[tracing::instrument(level = "trace", ret)]
     fn as_raw_fd(&self) -> RawFd {
         self.timer_fd.as_raw_fd()
     }
@@ -552,6 +576,7 @@ impl AsRawFd for RateLimiter {
 
 impl Default for RateLimiter {
     /// Default RateLimiter is a no-op limiter with infinite budget.
+    #[tracing::instrument(level = "trace", ret)]
     fn default() -> Self {
         // Safe to unwrap since this will not attempt to create timer_fd.
         RateLimiter::new(0, 0, 0, 0, 0, 0).expect("Failed to build default RateLimiter")
@@ -567,24 +592,29 @@ pub(crate) mod tests {
 
     impl TokenBucket {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
+        #[tracing::instrument(level = "trace", ret)]
         fn reset(&mut self) {
             self.budget = self.size;
             self.last_update = Instant::now();
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn get_last_update(&self) -> &Instant {
             &self.last_update
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn get_processed_capacity(&self) -> u64 {
             self.processed_capacity
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn get_processed_refill_time(&self) -> u64 {
             self.processed_refill_time
         }
 
         // After a restore, we cannot be certain that the last_update field has the same value.
+        #[tracing::instrument(level = "trace", ret)]
         pub fn partial_eq(&self, other: &TokenBucket) -> bool {
             (other.capacity() == self.capacity())
                 && (other.one_time_burst() == self.one_time_burst())
@@ -594,6 +624,7 @@ pub(crate) mod tests {
     }
 
     impl RateLimiter {
+        #[tracing::instrument(level = "trace", ret)]
         fn get_token_bucket(&self, token_type: TokenType) -> Option<&TokenBucket> {
             match token_type {
                 TokenType::Bytes => self.bandwidth.as_ref(),

@@ -13,6 +13,7 @@ use crate::cpu_config::templates::RegisterValueFilter;
 /// Template to mask Neoverse-V1 as Neoverse-N1
 /// Masks: dgh, asimdfhm, bf16, dcpodp, flagm, i8mm, sha3, sha512, sm3, sm4
 /// sve, svebf16, svei8mm, uscat, fcma, jscvt, dit, ilrcpc, rng
+#[tracing::instrument(level = "trace", ret)]
 pub fn v1n1() -> CustomCpuTemplate {
     CustomCpuTemplate {
         reg_modifiers: vec![

@@ -6,13 +6,15 @@ mod metrics;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{io, panic, process};
 
 use event_manager::SubscriberOps;
-use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
+use logger::{ProcessTimeReporter, StoreMetric, METRICS};
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
+use tracing::{error, info};
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
@@ -21,7 +23,6 @@ use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
@@ -35,6 +36,7 @@ const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[cfg(target_arch = "aarch64")]
 /// Enable SSBD mitigation through `prctl`.
+#[tracing::instrument(level = "trace", ret)]
 pub fn enable_ssbd_mitigation() {
     // Parameters for `prctl`
     // TODO: generate bindings for these from the kernel sources.
@@ -69,11 +71,8 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn main_exitable() -> FcExitCode {
-    LOGGER
-        .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
-        .expect("Failed to register logger");
-
     if let Err(err) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", err);
         return vmm::FcExitCode::GenericError;
@@ -275,33 +274,32 @@ fn main_exitable() -> FcExitCode {
         app_name: "Firecracker".to_string(),
     };
 
-    LOGGER.set_instance_id(instance_id.to_owned());
-
     if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
-        let level = arguments.single_value("level").unwrap().to_owned();
-        let logger_level = match LoggerLevel::from_string(level) {
-            Ok(level) => level,
-            Err(err) => {
-                return generic_error_exit(&format!(
-                    "Invalid value for logger level: {}.Possible values: [Error, Warning, Info, \
-                     Debug]",
-                    err
-                ));
-            }
+        let logger_level = match arguments.single_value("level") {
+            None => None,
+            Some(s) => match log::Level::from_str(s) {
+                Ok(level) => Some(level),
+                Err(err) => {
+                    return generic_error_exit(&format!(
+                        "Invalid value for logger level: {}.Possible values: [Error, Warning, \
+                         Info, Debug]",
+                        err
+                    ));
+                }
+            },
         };
-        let show_level = arguments.flag_present("show-level");
-        let show_log_origin = arguments.flag_present("show-log-origin");
+        let show_level = Some(arguments.flag_present("show-level"));
+        let show_log_origin = Some(arguments.flag_present("show-log-origin"));
 
-        let logger_config = LoggerConfig::new(
-            PathBuf::from(log),
-            logger_level,
+        let logger_config = vmm::vmm_config::LoggerConfig {
+            log_path: Some(PathBuf::from(log)),
+            level: logger_level,
             show_level,
             show_log_origin,
-        );
-        if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger: {}", err));
+            profile_file: None,
         };
+        logger_config.init();
     }
 
     if let Some(metrics_path) = arguments.single_value("metrics-path") {
@@ -408,6 +406,7 @@ fn main_exitable() -> FcExitCode {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn main() {
     // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
     // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
@@ -424,6 +423,7 @@ fn main() {
 }
 
 // Exit gracefully with a generic error code.
+#[tracing::instrument(level = "trace", ret)]
 fn generic_error_exit(msg: &str) -> FcExitCode {
     error!("{}", msg);
     vmm::FcExitCode::GenericError
@@ -431,9 +431,11 @@ fn generic_error_exit(msg: &str) -> FcExitCode {
 
 // Log a warning for any usage of deprecated parameters.
 #[allow(unused)]
+#[tracing::instrument(level = "trace", ret)]
 fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
+#[tracing::instrument(level = "trace", ret)]
 fn print_supported_snapshot_versions() {
     let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
     let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
@@ -450,6 +452,7 @@ fn print_supported_snapshot_versions() {
 }
 
 // Print data format of provided snapshot state file.
+#[tracing::instrument(level = "trace", ret)]
 fn print_snapshot_data_format(snapshot_path: &str) {
     let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
         process::exit(
@@ -477,6 +480,7 @@ fn print_snapshot_data_format(snapshot_path: &str) {
 }
 
 // Configure and start a microVM as described by the command-line JSON.
+#[tracing::instrument(level = "trace", ret, skip(event_manager))]
 fn build_microvm_from_json(
     seccomp_filters: &BpfThreadMap,
     event_manager: &mut EventManager,
@@ -511,6 +515,7 @@ fn build_microvm_from_json(
     Ok((vm_resources, vmm))
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn run_without_api(
     seccomp_filters: &BpfThreadMap,
     config_json: Option<String>,

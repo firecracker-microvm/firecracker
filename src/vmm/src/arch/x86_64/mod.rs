@@ -55,6 +55,7 @@ pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
+#[tracing::instrument(level = "trace", ret)]
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
     // (It points to an address in the 32 bit space).
@@ -70,11 +71,13 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 }
 
 /// Returns the memory address where the kernel could be loaded.
+#[tracing::instrument(level = "trace", ret)]
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
 }
 
 /// Returns the memory address where the initrd could be loaded.
+#[tracing::instrument(level = "trace", ret)]
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
@@ -99,6 +102,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
 /// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
 /// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
+#[tracing::instrument(level = "trace", ret)]
 pub fn configure_system(
     guest_mem: &GuestMemoryMmap,
     cmdline_addr: GuestAddress,
@@ -174,6 +178,7 @@ pub fn configure_system(
 
 /// Add an e820 region to the e820 map.
 /// Returns Ok(()) if successful, or an error if there is no space left in the map.
+#[tracing::instrument(level = "trace", ret, skip(params))]
 fn add_e820_entry(
     params: &mut boot_params,
     addr: u64,

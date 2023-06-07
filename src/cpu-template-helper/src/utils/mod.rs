@@ -89,6 +89,7 @@ pub enum Error {
     BuildMicroVm(#[from] StartMicrovmError),
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmResources), Error> {
     // Prepare resources from the given config file.
     let instance_info = InstanceInfo {
@@ -100,7 +101,7 @@ pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmRes
     let vm_resources = VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
         .map_err(Error::CreateVmResources)?;
     let mut event_manager = EventManager::new().unwrap();
-    let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::None).unwrap();
 
     // Build a microVM.
     let vmm = build_microvm_for_boot(
@@ -113,6 +114,7 @@ pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmRes
     Ok((vmm, vm_resources))
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
     // Extract the part of the filename before the extension.
     let mut new_file_name = OsString::from(path.file_stem().unwrap());
@@ -145,6 +147,7 @@ pub mod tests {
 
     impl ModifierMapKey for MockModifierMapKey {}
     impl Display for MockModifierMapKey {
+        #[tracing::instrument(level = "trace", ret, skip(f))]
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "ID={:#x}", self.0)
         }
@@ -159,10 +162,12 @@ pub mod tests {
     impl ModifierMapValue for MockModifierMapValue {
         type Type = u8;
 
+        #[tracing::instrument(level = "trace", ret)]
         fn filter(&self) -> Self::Type {
             self.filter
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn value(&self) -> Self::Type {
             self.value
         }

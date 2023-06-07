@@ -34,51 +34,62 @@ impl GICv3 {
     const ARCH_GIC_V3_MAINT_IRQ: u32 = 9;
 
     /// Get the address of the GIC distributor.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_dist_addr() -> u64 {
         super::layout::MAPPED_IO_START - GICv3::KVM_VGIC_V3_DIST_SIZE
     }
 
     /// Get the size of the GIC distributor.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_dist_size() -> u64 {
         GICv3::KVM_VGIC_V3_DIST_SIZE
     }
 
     /// Get the address of the GIC redistributors.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_redists_addr(vcpu_count: u64) -> u64 {
         GICv3::get_dist_addr() - GICv3::get_redists_size(vcpu_count)
     }
 
     /// Get the size of the GIC redistributors.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_redists_size(vcpu_count: u64) -> u64 {
         vcpu_count * GICv3::KVM_VGIC_V3_REDIST_SIZE
     }
 }
 
 impl GICDevice for GICv3 {
+    #[tracing::instrument(level = "trace", ret)]
     fn version() -> u32 {
         kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn device_fd(&self) -> &DeviceFd {
         &self.fd
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn device_properties(&self) -> &[u64] {
         &self.properties
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn vcpu_count(&self) -> u64 {
         self.vcpu_count
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fdt_compatibility(&self) -> &str {
         "arm,gic-v3"
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fdt_maint_irq(&self) -> u32 {
         GICv3::ARCH_GIC_V3_MAINT_IRQ
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_device(fd: DeviceFd, vcpu_count: u64) -> Box<dyn GICDevice> {
         Box::new(GICv3 {
             fd,
@@ -92,14 +103,17 @@ impl GICDevice for GICv3 {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
         regs::save_state(&self.fd, mpidrs)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
         regs::restore_state(&self.fd, mpidrs, state)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
@@ -129,6 +143,7 @@ impl GICDevice for GICv3 {
 /// RDIST pending tables into guest RAM.
 ///
 /// The tables get flushed to guest RAM whenever the VM gets stopped.
+#[tracing::instrument(level = "trace", ret)]
 fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
     let init_gic_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,

@@ -1,14 +1,18 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+use std::str::FromStr;
+
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
 
 /// Serializes number to hex
+#[tracing::instrument(level = "trace", skip(serializer))]
 pub fn serialize_to_hex_str<S, N>(number: &N, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
-    N: std::fmt::LowerHex,
+    N: std::fmt::LowerHex + Debug,
 {
     serializer.serialize_str(format!("{:#x}", number).as_str())
 }
@@ -17,6 +21,7 @@ macro_rules! deserialize_from_str {
     ($name:ident, $type:tt) => {
         /// Deserializes number from string.
         /// Number can be in binary, hex or dec formats.
+        #[tracing::instrument(level = "trace", ret, skip(deserializer))]
         pub fn $name<'de, D>(deserializer: D) -> Result<$type, D::Error>
         where
             D: Deserializer<'de>,

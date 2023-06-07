@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Debug;
 /// The vsock object implements the runtime logic of our vsock device:
 /// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
 /// those    packets to the `VsockBackend`;
@@ -27,7 +28,8 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
+use tracing::{debug, error, warn};
 use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
@@ -36,8 +38,9 @@ use crate::devices::virtio::VirtioDevice;
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: Debug + VsockBackend + 'static,
 {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
 
@@ -58,6 +61,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: TX queue event");
 
@@ -84,6 +88,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: event queue event");
 
@@ -100,6 +105,7 @@ where
         false
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
         debug!("vsock: backend event");
 
@@ -116,6 +122,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
             error!("Failed to register rx queue event: {}", err);
@@ -131,12 +138,14 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn handle_activate_event(&self, ops: &mut EventOps) {
         debug!("vsock: activate event");
         if let Err(err) = self.activate_evt.read() {
@@ -151,8 +160,9 @@ where
 
 impl<B> MutEventSubscriber for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: Debug + VsockBackend + 'static,
 {
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let evset = event.event_set();
@@ -187,6 +197,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,
@@ -409,6 +420,7 @@ mod tests {
     // function for testing error cases, so the asserts always expect is_err() to be true. When
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
+    #[tracing::instrument(level = "trace", ret)]
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
         use utils::vm_memory::GuestAddress;
 

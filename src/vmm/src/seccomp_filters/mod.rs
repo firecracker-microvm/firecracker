@@ -1,8 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use std::fmt;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::path::Path;
 use std::sync::Arc;
 
 use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
@@ -33,6 +35,7 @@ pub enum FilterError {
 }
 
 impl fmt::Display for FilterError {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FilterError::*;
 
@@ -54,28 +57,31 @@ impl fmt::Display for FilterError {
 }
 
 /// Seccomp filter configuration.
-pub enum SeccompConfig {
+#[derive(Debug)]
+pub enum SeccompConfig<T: Read> {
     /// Seccomp filtering disabled.
     None,
     /// Default, advanced filters.
     Advanced,
+    // TODO Can we use a generic here to avoid dynamic dispatch?
     /// Custom, user-provided filters.
-    Custom(Box<dyn std::io::Read>),
+    Custom(T),
 }
 
-impl SeccompConfig {
+impl SeccompConfig<File> {
     /// Given the relevant command line args, return the appropriate config type.
-    pub fn from_args(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn from_args<T: AsRef<Path> + Debug>(
         no_seccomp: bool,
-        seccomp_filter: Option<&String>,
+        seccomp_filter: Option<T>,
     ) -> Result<Self, FilterError> {
         if no_seccomp {
             Ok(SeccompConfig::None)
         } else {
             match seccomp_filter {
-                Some(path) => Ok(SeccompConfig::Custom(Box::new(
+                Some(path) => Ok(SeccompConfig::Custom(
                     File::open(path).map_err(FilterError::FileOpen)?,
-                ))),
+                )),
                 None => Ok(SeccompConfig::Advanced),
             }
         }
@@ -83,41 +89,37 @@ impl SeccompConfig {
 }
 
 /// Retrieve the appropriate filters, based on the SeccompConfig.
-pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
+#[tracing::instrument(level = "trace", ret)]
+pub fn get_filters<T: Read + Debug>(config: SeccompConfig<T>) -> Result<BpfThreadMap, FilterError> {
     match config {
-        SeccompConfig::None => Ok(get_empty_filters()),
-        SeccompConfig::Advanced => get_default_filters(),
-        SeccompConfig::Custom(reader) => get_custom_filters(reader),
+        // Retrieve empty seccomp filters.
+        SeccompConfig::None => {
+            let mut map = BpfThreadMap::new();
+            map.insert("vmm".to_string(), Arc::new(vec![]));
+            map.insert("api".to_string(), Arc::new(vec![]));
+            map.insert("vcpu".to_string(), Arc::new(vec![]));
+            Ok(map)
+        }
+        // Retrieve the default filters containing the syscall rules required by `Firecracker`
+        // to function. The binary file is generated via the `build.rs` script of this crate.
+        SeccompConfig::Advanced => {
+            // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
+            let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
+            let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
+                .map_err(FilterError::Deserialization)?;
+            filter_thread_categories(map)
+        }
+        // Retrieve custom seccomp filters.
+        SeccompConfig::Custom(reader) => {
+            let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
+                .map_err(FilterError::Deserialization)?;
+            filter_thread_categories(map)
+        }
     }
 }
 
-/// Retrieve the default filters containing the syscall rules required by `Firecracker`
-/// to function. The binary file is generated via the `build.rs` script of this crate.
-fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
-    // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
-    let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
-    let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
-        .map_err(FilterError::Deserialization)?;
-    filter_thread_categories(map)
-}
-
-/// Retrieve empty seccomp filters.
-fn get_empty_filters() -> BpfThreadMap {
-    let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
-    map
-}
-
-/// Retrieve custom seccomp filters.
-fn get_custom_filters<R: Read>(reader: R) -> Result<BpfThreadMap, FilterError> {
-    let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
-        .map_err(FilterError::Deserialization)?;
-    filter_thread_categories(map)
-}
-
 /// Return an error if the BpfThreadMap contains invalid thread categories.
+#[tracing::instrument(level = "trace", ret)]
 fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
     let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map
         .into_iter()
@@ -155,13 +157,13 @@ mod tests {
 
     #[test]
     fn test_get_filters() {
-        let mut filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let mut filters = get_filters(SeccompConfig::<std::io::Empty>::Advanced).unwrap();
         assert_eq!(filters.len(), 3);
         assert!(filters.remove("vmm").is_some());
         assert!(filters.remove("api").is_some());
         assert!(filters.remove("vcpu").is_some());
 
-        let mut filters = get_filters(SeccompConfig::None).unwrap();
+        let mut filters = get_filters(SeccompConfig::<std::io::Empty>::None).unwrap();
         assert_eq!(filters.len(), 3);
         assert_eq!(filters.remove("vmm").unwrap().len(), 0);
         assert_eq!(filters.remove("api").unwrap().len(), 0);
@@ -169,7 +171,7 @@ mod tests {
 
         let file = TempFile::new().unwrap().into_file();
 
-        assert!(get_filters(SeccompConfig::Custom(Box::new(file))).is_err());
+        assert!(get_filters(SeccompConfig::Custom(file)).is_err());
     }
 
     #[test]
@@ -210,23 +212,23 @@ mod tests {
     #[test]
     fn test_seccomp_config() {
         assert!(matches!(
-            SeccompConfig::from_args(true, None),
+            SeccompConfig::from_args(true, Option::<&str>::None),
             Ok(SeccompConfig::None)
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(false, Some(&"/dev/null".to_string())),
+            SeccompConfig::from_args(false, Some("/dev/null")),
             Ok(SeccompConfig::Custom(_))
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(false, Some(&"invalid_path".to_string())),
+            SeccompConfig::from_args(false, Some("invalid_path")),
             Err(FilterError::FileOpen(_))
         ));
 
         // test the default case, no parametes -> default advanced.
         assert!(matches!(
-            SeccompConfig::from_args(false, None),
+            SeccompConfig::from_args(false, Option::<&str>::None),
             Ok(SeccompConfig::Advanced)
         ));
     }

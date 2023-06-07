@@ -15,6 +15,7 @@
 //! in guest memory. This is done to avoid unnecessarily copying data from guest memory
 //! to temporary buffers, before passing it on to the vsock backend.
 
+use std::fmt::Debug;
 use std::io::ErrorKind;
 
 use utils::vm_memory::{
@@ -86,6 +87,7 @@ unsafe impl ByteValued for VsockPacketHeader {}
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:
 /// - the chain head, holding the packet header; and
 /// - (an optional) data/buffer descriptor, only present for data packets (VSOCK_OP_RW).
+#[derive(Debug)]
 pub struct VsockPacket {
     hdr_addr: GuestAddress,
     // For performance purposes we hold a local copy of the Packet header.
@@ -97,6 +99,7 @@ pub struct VsockPacket {
 }
 
 impl VsockPacket {
+    #[tracing::instrument(level = "trace", ret)]
     fn check_desc_write_only(desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
         if desc.is_write_only() != expected_write_only {
             return match desc.is_write_only() {
@@ -108,6 +111,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_hdr_desc(hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
         Self::check_desc_write_only(hdr_desc, expected_write_only)?;
 
@@ -124,6 +128,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn init_buf(&mut self, hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
         let buf_desc = hdr_desc
             .next_descriptor()
@@ -151,6 +156,7 @@ impl VsockPacket {
     /// The chain head is expected to hold valid packet header data. A following packet buffer
     /// descriptor can optionally end the chain. Bounds and pointer checks are performed when
     /// creating the wrapper.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
         Self::check_hdr_desc(hdr_desc, false)?;
 
@@ -194,6 +200,7 @@ impl VsockPacket {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor. Bounds and pointer checks are performed when creating the wrapper.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_rx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
         Self::check_hdr_desc(hdr_desc, true)?;
 
@@ -214,11 +221,13 @@ impl VsockPacket {
     }
 
     /// Provides in-place access to the local copy of the vsock packet header.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn hdr(&self) -> &VsockPacketHeader {
         &self.hdr
     }
 
     /// Writes the local copy of the packet header to the guest memory.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<()> {
         // Reject weirdly-sized packets.
         self.check_len()?;
@@ -228,6 +237,7 @@ impl VsockPacket {
     }
 
     /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn check_len(&self) -> Result<()> {
         if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
             return Err(VsockError::InvalidPktLen(self.len()));
@@ -236,6 +246,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn buf_size(&self) -> usize {
         self.buf_size
     }
@@ -245,6 +256,7 @@ impl VsockPacket {
     ///
     /// Returns a [`VolatileSlice`͘] of length `count` starting at offset `buf_offset` to the
     /// [`GuestMemoryMmap`] backing the data descriptor of this [`VsockPacket`].
+    #[tracing::instrument(level = "trace", ret)]
     fn check_bounds_for_buffer_access<'a>(
         &'a self,
         mem: &'a GuestMemoryMmap,
@@ -271,11 +283,12 @@ impl VsockPacket {
             .ok_or(VsockError::GuestMemoryBounds)
     }
 
-    pub fn read_at_offset_from(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn read_at_offset_from<T: ReadVolatile + Debug>(
         &mut self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        src: &mut impl ReadVolatile,
+        src: &mut T,
         count: usize,
     ) -> Result<usize> {
         let mut dst = self.check_bounds_for_buffer_access(mem, offset, count)?;
@@ -295,11 +308,12 @@ impl VsockPacket {
         }
     }
 
-    pub fn write_from_offset_to(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn write_from_offset_to<T: WriteVolatile + Debug>(
         &self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        dst: &mut impl WriteVolatile,
+        dst: &mut T,
         count: usize,
     ) -> Result<usize> {
         let src = self.check_bounds_for_buffer_access(mem, offset, count)?;
@@ -319,96 +333,117 @@ impl VsockPacket {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn src_cid(&self) -> u64 {
         u64::from_le(self.hdr.src_cid)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_src_cid(&mut self, cid: u64) -> &mut Self {
         self.hdr.src_cid = cid.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dst_cid(&self) -> u64 {
         u64::from_le(self.hdr.dst_cid)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_dst_cid(&mut self, cid: u64) -> &mut Self {
         self.hdr.dst_cid = cid.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn src_port(&self) -> u32 {
         u32::from_le(self.hdr.src_port)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_src_port(&mut self, port: u32) -> &mut Self {
         self.hdr.src_port = port.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dst_port(&self) -> u32 {
         u32::from_le(self.hdr.dst_port)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_dst_port(&mut self, port: u32) -> &mut Self {
         self.hdr.dst_port = port.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> u32 {
         u32::from_le(self.hdr.len)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_len(&mut self, len: u32) -> &mut Self {
         self.hdr.len = len.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn type_(&self) -> u16 {
         u16::from_le(self.hdr.type_)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_type(&mut self, type_: u16) -> &mut Self {
         self.hdr.type_ = type_.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn op(&self) -> u16 {
         u16::from_le(self.hdr.op)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_op(&mut self, op: u16) -> &mut Self {
         self.hdr.op = op.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn flags(&self) -> u32 {
         u32::from_le(self.hdr.flags)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_flags(&mut self, flags: u32) -> &mut Self {
         self.hdr.flags = flags.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_flag(&mut self, flag: u32) -> &mut Self {
         self.set_flags(self.flags() | flag);
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn buf_alloc(&self) -> u32 {
         u32::from_le(self.hdr.buf_alloc)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_buf_alloc(&mut self, buf_alloc: u32) -> &mut Self {
         self.hdr.buf_alloc = buf_alloc.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn fwd_cnt(&self) -> u32 {
         u32::from_le(self.hdr.fwd_cnt)
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn set_fwd_cnt(&mut self, fwd_cnt: u32) -> &mut Self {
         self.hdr.fwd_cnt = fwd_cnt.to_le();
         self
@@ -455,6 +490,7 @@ mod tests {
         };
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemoryMmap) {
         let hdr_addr = GuestAddress(guest_desc.addr.get());
         let mut hdr: VsockPacketHeader = mem.read_obj(hdr_addr).unwrap();

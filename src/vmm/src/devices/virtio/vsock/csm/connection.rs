@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
+use std::fmt::Debug;
 /// The main job of `VsockConnection` is to forward data traffic, back and forth, between a
 /// guest-side AF_VSOCK socket and a host-side generic `Read + Write + AsRawFd` stream, while
 /// also managing its internal state.
@@ -83,7 +84,8 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use logger::{debug, error, info, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
+use tracing::{debug, error, info, warn};
 use utils::epoll::EventSet;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 
@@ -101,6 +103,7 @@ pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `ReadVolatile + Write + WriteVolatile + AsRawFd` stream.
+#[derive(Debug)]
 pub struct VsockConnection<S: VsockConnectionBackend> {
     /// The current connection state.
     state: ConnState,
@@ -138,7 +141,7 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
 
 impl<S> VsockChannel for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Fill in a vsock packet, to be delivered to our peer (the guest driver).
     ///
@@ -155,6 +158,7 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
+    #[tracing::instrument(level = "trace", ret)]
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
@@ -284,6 +288,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
+    #[tracing::instrument(level = "trace", ret)]
     fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
@@ -393,6 +398,7 @@ where
     }
 
     /// Check if the connection has any pending packet addressed to the peer.
+    #[tracing::instrument(level = "trace", ret)]
     fn has_pending_rx(&self) -> bool {
         !self.pending_rx.is_empty()
     }
@@ -400,12 +406,13 @@ where
 
 impl<S> AsRawFd for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Get the file descriptor that this connection wants polled.
     ///
     /// The connection is interested in being notified about EPOLLIN / EPOLLOUT events on the
     /// host stream.
+    #[tracing::instrument(level = "trace", ret)]
     fn as_raw_fd(&self) -> RawFd {
         self.stream.as_raw_fd()
     }
@@ -413,7 +420,7 @@ where
 
 impl<S> VsockEpollListener for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Get the event set that this connection is interested in.
     ///
@@ -421,6 +428,7 @@ where
     /// - data is available to be read from the host stream, so that it can store an RW pending RX
     ///   indication; and
     /// - data can be written to the host stream, and the TX buffer needs to be flushed.
+    #[tracing::instrument(level = "trace", ret)]
     fn get_polled_evset(&self) -> EventSet {
         let mut evset = EventSet::empty();
         if !self.tx_buf.is_empty() {
@@ -439,6 +447,7 @@ where
     }
 
     /// Notify the connection about an event (or set of events) that it was interested in.
+    #[tracing::instrument(level = "trace", ret)]
     fn notify(&mut self, evset: EventSet) {
         if evset.contains(EventSet::IN) {
             // Data can be read from the host stream. Setting a Rw pending indication, so that
@@ -490,9 +499,10 @@ where
 
 impl<S> VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Create a new guest-initiated connection object.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new_peer_init(
         stream: S,
         local_cid: u64,
@@ -520,6 +530,7 @@ where
     }
 
     /// Create a new host-initiated connection object.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new_local_init(
         stream: S,
         local_cid: u64,
@@ -547,6 +558,7 @@ where
 
     /// Check if there is an expiry (kill) timer set for this connection, sometime in the
     /// future.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn will_expire(&self) -> bool {
         match self.expiry {
             None => false,
@@ -556,6 +568,7 @@ where
 
     /// Check if this connection needs to be scheduled for forceful termination, due to its
     /// kill timer having expired.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn has_expired(&self) -> bool {
         match self.expiry {
             None => false,
@@ -564,18 +577,21 @@ where
     }
 
     /// Get the kill timer value, if one is set.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn expiry(&self) -> Option<Instant> {
         self.expiry
     }
 
     /// Schedule the connection to be forcefully terminated ASAP (i.e. the next time the
     /// connection is asked to yield a packet, via `recv_pkt()`).
+    #[tracing::instrument(level = "trace", ret)]
     pub fn kill(&mut self) {
         self.state = ConnState::Killed;
         self.pending_rx.insert(PendingRx::Rst);
     }
 
     /// Return the connections state.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn state(&self) -> ConnState {
         self.state
     }
@@ -586,6 +602,7 @@ where
     /// Warning: this will bypass the connection state machine and write directly to the
     /// underlying stream. No account of this write is kept, which includes bypassing
     /// vsock flow control.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize> {
         self.stream.write(buf).map_err(Error::StreamWrite)
     }
@@ -594,6 +611,7 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
+    #[tracing::instrument(level = "trace", ret)]
     fn send_bytes(
         &mut self,
         mem: &GuestMemoryMmap,
@@ -641,6 +659,7 @@ where
     }
 
     /// Check if the credit information the peer has last received from us is outdated.
+    #[tracing::instrument(level = "trace", ret)]
     fn peer_needs_credit_update(&self) -> bool {
         let peer_seen_free_buf =
             Wrapping(defs::CONN_TX_BUF_SIZE) - (self.fwd_cnt - self.last_fwd_cnt_to_peer);
@@ -649,17 +668,20 @@ where
 
     /// Check if we need to ask the peer for a credit update before sending any more data its
     /// way.
+    #[tracing::instrument(level = "trace", ret)]
     fn need_credit_update_from_peer(&self) -> bool {
         self.peer_avail_credit() == 0
     }
 
     /// Get the maximum number of bytes that we can send to our peer, without overflowing its
     /// buffer.
+    #[tracing::instrument(level = "trace", ret)]
     fn peer_avail_credit(&self) -> usize {
         (Wrapping(self.peer_buf_alloc) - (self.rx_cnt - self.peer_fwd_cnt)).0 as usize
     }
 
     /// Prepare a packet header for transmission to our peer.
+    #[tracing::instrument(level = "trace")]
     fn init_pkt<'a>(&self, pkt: &'a mut VsockPacket) -> &'a mut VsockPacket {
         pkt.set_src_cid(self.local_cid)
             .set_dst_cid(self.peer_cid)
@@ -693,6 +715,7 @@ mod tests {
     const PEER_PORT: u32 = 1003;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
 
+    #[derive(Debug)]
     enum StreamState {
         Closed,
         Error(ErrorKind),
@@ -700,6 +723,7 @@ mod tests {
         WouldBlock,
     }
 
+    #[derive(Debug)]
     struct TestStream {
         fd: EventFd,
         read_buf: Vec<u8>,
@@ -708,6 +732,7 @@ mod tests {
         write_state: StreamState,
     }
     impl TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn new() -> Self {
             Self {
                 fd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -717,6 +742,7 @@ mod tests {
                 write_buf: Vec::new(),
             }
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn new_with_read_buf(buf: &[u8]) -> Self {
             let mut stream = Self::new();
             stream.read_buf = buf.to_vec();
@@ -725,12 +751,14 @@ mod tests {
     }
 
     impl AsRawFd for TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn as_raw_fd(&self) -> RawFd {
             self.fd.as_raw_fd()
         }
     }
 
     impl Read for TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn read(&mut self, data: &mut [u8]) -> IoResult<usize> {
             match self.read_state {
                 StreamState::Closed => Ok(0),
@@ -751,6 +779,7 @@ mod tests {
     }
 
     impl ReadVolatile for TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn read_volatile<B: BitmapSlice>(
             &mut self,
             buf: &mut VolatileSlice<B>,
@@ -761,6 +790,7 @@ mod tests {
     }
 
     impl Write for TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn write(&mut self, data: &[u8]) -> IoResult<usize> {
             match self.write_state {
                 StreamState::Closed => Err(IoError::new(ErrorKind::BrokenPipe, "EPIPE")),
@@ -772,12 +802,14 @@ mod tests {
                 StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
             }
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn flush(&mut self) -> IoResult<()> {
             Ok(())
         }
     }
 
     impl WriteVolatile for TestStream {
+        #[tracing::instrument(level = "trace", ret)]
         fn write_volatile<B: BitmapSlice>(
             &mut self,
             buf: &VolatileSlice<B>,
@@ -791,19 +823,22 @@ mod tests {
 
     impl<S> VsockConnection<S>
     where
-        S: VsockConnectionBackend,
+        S: VsockConnectionBackend + Debug,
     {
         /// Get the fwd_cnt value from the connection.
+        #[tracing::instrument(level = "trace", ret)]
         pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
             self.fwd_cnt
         }
 
         /// Forcefully insert a credit update flag.
+        #[tracing::instrument(level = "trace", ret)]
         pub(crate) fn insert_credit_update(&mut self) {
             self.pending_rx.insert(PendingRx::CreditUpdate);
         }
     }
 
+    #[tracing::instrument(level = "trace")]
     fn init_pkt(pkt: &mut VsockPacket, op: u16, len: u32) -> &mut VsockPacket {
         pkt.set_src_cid(PEER_CID)
             .set_dst_cid(LOCAL_CID)
@@ -824,6 +859,7 @@ mod tests {
     // packet.  A single `VsockConnection` object will also suffice for our testing needs. We'll
     // be using a specially crafted `Read + Write + AsRawFd` object as a backing stream, so that
     // we can control the various error conditions that might arise.
+    #[derive(Debug)]
     struct CsmTestContext {
         _vsock_test_ctx: TestContext,
         pkt: VsockPacket,
@@ -831,10 +867,12 @@ mod tests {
     }
 
     impl CsmTestContext {
+        #[tracing::instrument(level = "trace", ret)]
         fn new_established() -> Self {
             Self::new(ConnState::Established)
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn new(conn_state: ConnState) -> Self {
             let vsock_test_ctx = TestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
@@ -881,10 +919,12 @@ mod tests {
             }
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn set_stream(&mut self, stream: TestStream) {
             self.conn.stream = stream;
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn set_peer_credit(&mut self, credit: u32) {
             assert!(credit < self.conn.peer_buf_alloc);
             self.conn.peer_fwd_cnt = Wrapping(0);
@@ -892,31 +932,37 @@ mod tests {
             assert_eq!(self.conn.peer_avail_credit(), credit as usize);
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn send(&mut self) {
             self.conn
                 .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
                 .unwrap();
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn recv(&mut self) {
             self.conn
                 .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
                 .unwrap();
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn notify_epollin(&mut self) {
             self.conn.notify(EventSet::IN);
             assert!(self.conn.has_pending_rx());
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn notify_epollout(&mut self) {
             self.conn.notify(EventSet::OUT);
         }
 
+        #[tracing::instrument(level = "trace")]
         fn init_pkt(&mut self, op: u16, len: u32) -> &mut VsockPacket {
             init_pkt(&mut self.pkt, op, len)
         }
 
+        #[tracing::instrument(level = "trace")]
         fn init_data_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);

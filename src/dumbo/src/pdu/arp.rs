@@ -65,12 +65,13 @@ pub enum Error {
 /// ARP is a generic protocol as far as data
 /// link layer and network layer protocols go, but this particular implementation is concerned with
 /// ARP frames related to IPv4 over Ethernet.
+#[derive(Debug)]
 pub struct EthIPv4ArpFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytes> EthIPv4ArpFrame<'a, T> {
     /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
     ///
     ///  # Panics
@@ -78,6 +79,7 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     /// This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthIPv4ArpFrame {
             bytes: InnerBytes::new(bytes),
@@ -88,6 +90,7 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     ///
     /// If no error occurs, it guarantees accessor methods (which make use of various `_unchecked`
     /// functions) are safe to call on the result, because all predefined offsets will be valid.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
@@ -122,60 +125,70 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
 
     /// Returns the hardware type of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn htype(&self) -> u16 {
         self.bytes.ntohs_unchecked(HTYPE_OFFSET)
     }
 
     /// Returns the protocol type of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn ptype(&self) -> u16 {
         self.bytes.ntohs_unchecked(PTYPE_OFFSET)
     }
 
     /// Returns the hardware address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn hlen(&self) -> u8 {
         self.bytes[HLEN_OFFSET]
     }
 
     /// Returns the protocol address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn plen(&self) -> u8 {
         self.bytes[PLEN_OFFSET]
     }
 
     /// Returns the type of operation within the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn operation(&self) -> u16 {
         self.bytes.ntohs_unchecked(OPER_OFFSET)
     }
 
     /// Returns the sender hardware address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn sha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET])
     }
 
     /// Returns the sender protocol address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn spa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_SPA_OFFSET))
     }
 
     /// Returns the target hardware address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn tha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET])
     }
 
     /// Returns the target protocol address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn tpa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_TPA_OFFSET))
     }
 
     /// Returns the length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> usize {
         // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is the actual
         // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
@@ -183,8 +196,9 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(level = "trace", ret)]
     fn write_raw(
         buf: T,
         htype: u16,
@@ -220,6 +234,7 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
     /// Attempts to write an ARP request to `buf`, based on the specified hardware and protocol
     /// addresses.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write_request(
         buf: T,
         sha: MacAddr,
@@ -244,6 +259,7 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
     /// Attempts to write an ARP reply to `buf`, based on the specified hardware and protocol
     /// addresses.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write_reply(
         buf: T,
         sha: MacAddr,
@@ -267,42 +283,49 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
 
     /// Sets the hardware type of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_htype(&mut self, value: u16) {
         self.bytes.htons_unchecked(HTYPE_OFFSET, value);
     }
 
     /// Sets the protocol type of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_ptype(&mut self, value: u16) {
         self.bytes.htons_unchecked(PTYPE_OFFSET, value);
     }
 
     /// Sets the hardware address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_hlen(&mut self, value: u8) {
         self.bytes[HLEN_OFFSET] = value;
     }
 
     /// Sets the protocol address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_plen(&mut self, value: u8) {
         self.bytes[PLEN_OFFSET] = value;
     }
 
     /// Sets the operation within the frame.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_operation(&mut self, value: u16) {
         self.bytes.htons_unchecked(OPER_OFFSET, value);
     }
 
     /// Sets the sender hardware address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_sha(&mut self, addr: MacAddr) {
         self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
     /// Sets the sender protocol address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_spa(&mut self, addr: Ipv4Addr) {
         self.bytes
             .htonl_unchecked(ETH_IPV4_SPA_OFFSET, u32::from(addr));
@@ -310,12 +333,14 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
 
     /// Sets the target hardware address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_tha(&mut self, addr: MacAddr) {
         self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
     /// Sets the target protocol address.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_tpa(&mut self, addr: Ipv4Addr) {
         self.bytes
             .htonl_unchecked(ETH_IPV4_TPA_OFFSET, u32::from(addr));
@@ -325,6 +350,7 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
 /// This function checks if `buf` may hold an Ethernet frame which encapsulates an
 /// `EthIPv4ArpRequest` for the given address. Cannot produce false negatives.
 #[inline]
+#[tracing::instrument(level = "trace", ret)]
 pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
     // The unchecked methods are safe because we actually check the buffer length beforehand.
     if buf.len() >= ethernet::PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN {
@@ -338,23 +364,17 @@ pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
+    use std::str::FromStr;
 
     use super::*;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(EthIPv4ArpFrame frame)")
-        }
-    }
 
     #[test]
     fn test_eth_ipv4_arp_frame() {
         let mut a = [0u8; 1000];
         let mut bad_array = [0u8; 1];
 
-        let sha = MacAddr::parse_str("01:23:45:67:89:ab").unwrap();
-        let tha = MacAddr::parse_str("cd:ef:01:23:45:67").unwrap();
+        let sha = MacAddr::from_str("01:23:45:67:89:ab").unwrap();
+        let tha = MacAddr::from_str("cd:ef:01:23:45:67").unwrap();
         let spa = Ipv4Addr::new(10, 1, 2, 3);
         let tpa = Ipv4Addr::new(10, 4, 5, 6);
 

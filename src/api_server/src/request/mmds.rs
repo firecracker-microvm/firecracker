@@ -10,11 +10,13 @@ use vmm::vmm_config::mmds::MmdsConfig;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetMMDS))
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
     let config: MmdsConfig = serde_json::from_slice(body.raw()).map_err(|err| {
         METRICS.put_api_requests.mmds_fails.inc();
@@ -35,6 +37,7 @@ fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(parsed_request)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn parse_put_mmds(
     body: &Body,
     path_second_token: Option<&&str>,
@@ -58,6 +61,7 @@ pub(crate) fn parse_put_mmds(
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::PatchMMDS(

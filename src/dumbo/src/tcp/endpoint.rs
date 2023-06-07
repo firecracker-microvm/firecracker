@@ -40,6 +40,7 @@ const RCV_BUF_MAX_SIZE: usize = 2500;
 
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
+#[derive(Debug)]
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
@@ -79,7 +80,8 @@ pub struct Endpoint {
 // is the only option).
 
 impl Endpoint {
-    pub fn new<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn new<T: std::fmt::Debug + NetworkBytes>(
         segment: &TcpSegment<T>,
         eviction_threshold: NonZeroU64,
         connection_rto_period: NonZeroU64,
@@ -112,7 +114,8 @@ impl Endpoint {
         })
     }
 
-    pub fn new_with_defaults<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn new_with_defaults<T: std::fmt::Debug + NetworkBytes>(
         segment: &TcpSegment<T>,
     ) -> Result<Self, PassiveOpenError> {
         // The unwraps are safe because the constants are greater than 0.
@@ -124,7 +127,8 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes, F: FnOnce(Request) -> Response>(
+    #[tracing::instrument(level = "trace", ret, skip(callback))]
+    pub fn receive_segment<T: std::fmt::Debug + NetworkBytes, F: FnOnce(Request) -> Response>(
         &mut self,
         s: &TcpSegment<T>,
         callback: F,
@@ -242,6 +246,7 @@ impl Endpoint {
         }
     }
 
+    #[tracing::instrument(level = "trace")]
     pub fn write_next_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
@@ -275,16 +280,19 @@ impl Endpoint {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_done(&self) -> bool {
         self.connection.is_done()
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_evictable(&self) -> bool {
         timestamp_cycles().wrapping_sub(self.last_segment_received_timestamp)
             > self.eviction_threshold
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn next_segment_status(&self) -> NextSegmentStatus {
         let can_send_new_data = !self.response_buf.is_empty()
             && seq_after(
@@ -300,11 +308,13 @@ impl Endpoint {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn connection(&self) -> &Connection {
         &self.connection
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn build_response(status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(Version::default(), status_code);
     response.set_body(body);
@@ -312,6 +322,7 @@ fn build_response(status_code: StatusCode, body: Body) -> Response {
 }
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
+#[tracing::instrument(level = "trace", ret, skip(callback))]
 fn parse_request_bytes<F: FnOnce(Request) -> Response>(
     byte_stream: &[u8],
     callback: F,
@@ -349,7 +360,6 @@ fn parse_request_bytes<F: FnOnce(Request) -> Response>(
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
     use std::str::from_utf8;
 
     use super::*;
@@ -358,14 +368,9 @@ mod tests {
     use crate::tcp::tests::mock_callback;
 
     impl Endpoint {
+        #[tracing::instrument(level = "trace", ret)]
         pub fn set_eviction_threshold(&mut self, value: u64) {
             self.eviction_threshold = value;
-        }
-    }
-
-    impl fmt::Debug for Endpoint {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Endpoint)")
         }
     }
 

@@ -6,6 +6,7 @@ mod chroot;
 mod env;
 mod resource_limits;
 use std::ffi::{CString, NulError, OsString};
+use std::fmt::{Debug, Display};
 use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io, process, result};
@@ -146,6 +147,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 /// Create an ArgParser object which contains info about the command line argument parser and
 /// populate it with the expected arguments and their characteristics.
+#[tracing::instrument(level = "trace", ret)]
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
         .arg(
@@ -225,16 +227,18 @@ pub fn build_arg_parser() -> ArgParser<'static> {
 
 // It's called writeln_special because we have to use this rather convoluted way of writing
 // to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
+#[tracing::instrument(level = "trace", ret)]
 pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
 where
-    T: AsRef<Path>,
-    V: ::std::fmt::Display,
+    T: AsRef<Path> + Debug,
+    V: Display + Debug,
 {
     fs::write(file_path, format!("{}\n", value))
         .map_err(|err| Error::Write(PathBuf::from(file_path.as_ref()), err))
 }
 
-pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+#[tracing::instrument(level = "trace", ret)]
+pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String> {
     let mut line = fs::read_to_string(file_path)
         .map_err(|err| Error::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
 
@@ -244,6 +248,7 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     Ok(line)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn close_fds_by_close_range() -> Result<()> {
     // First try using the close_range syscall to close all open FDs in the range of 3..UINT_MAX
     // SAFETY: if the syscall is not available then ENOSYS will be returned
@@ -259,6 +264,7 @@ fn close_fds_by_close_range() -> Result<()> {
     .map_err(Error::CloseRange)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn close_fds_by_reading_proc() -> Result<()> {
     // Calling this method means that close_range failed (we might be on kernel < 5.9).
     // We can't use std::fs::ReadDir here as under the hood we need access to the dirfd in order to
@@ -290,6 +296,7 @@ fn close_fds_by_reading_proc() -> Result<()> {
 }
 
 // Closes all FDs other than 0 (STDIN), 1 (STDOUT) and 2 (STDERR)
+#[tracing::instrument(level = "trace", ret)]
 fn close_inherited_fds() -> Result<()> {
     // The approach we take here is to firstly try to use the close_range syscall
     // which is available on kernels > 5.9.
@@ -300,6 +307,7 @@ fn close_inherited_fds() -> Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn sanitize_process() -> Result<()> {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
@@ -310,6 +318,7 @@ fn sanitize_process() -> Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn clean_env_vars() {
     // Remove environment variables received from
     // the parent process so there are no leaks
@@ -322,7 +331,8 @@ fn clean_env_vars() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
+#[tracing::instrument(level = "trace", ret)]
+pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
         .to_path_buf()
@@ -332,6 +342,7 @@ pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     CString::new(path_str).map_err(Error::CStringParsing)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn main() {
     sanitize_process()
         .unwrap_or_else(|err| panic!("Failed to sanitize the Jailer process: {}", err));
@@ -388,6 +399,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn run_close_fds_test(test_fn: fn() -> Result<()>) {
         let n = 100;
 

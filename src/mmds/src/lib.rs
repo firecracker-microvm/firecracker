@@ -39,6 +39,7 @@ pub enum Error {
 }
 
 impl From<MediaType> for OutputFormat {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(media_type: MediaType) -> Self {
         match media_type {
             MediaType::ApplicationJson => OutputFormat::Json,
@@ -48,6 +49,7 @@ impl From<MediaType> for OutputFormat {
 }
 
 // Builds the `micro_http::Response` with a given HTTP version, status code, and body.
+#[tracing::instrument(level = "trace", ret)]
 fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(http_version, status_code);
     response.set_body(body);
@@ -56,6 +58,7 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
 
 /// Patch provided JSON document (given as `serde_json::Value`) in-place with JSON Merge Patch
 /// [RFC 7396](https://tools.ietf.org/html/rfc7396).
+#[tracing::instrument(level = "trace", ret)]
 pub fn json_patch(target: &mut Value, patch: &Value) {
     if patch.is_object() {
         if !target.is_object() {
@@ -83,6 +86,7 @@ pub fn json_patch(target: &mut Value, patch: &Value) {
 }
 
 // Make the URI a correct JSON pointer value.
+#[tracing::instrument(level = "trace", ret)]
 fn sanitize_uri(mut uri: String) -> String {
     let mut len = u32::MAX as usize;
     // Loop while the deduping decreases the sanitized len.
@@ -95,6 +99,7 @@ fn sanitize_uri(mut uri: String) -> String {
     uri
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response {
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
@@ -113,6 +118,7 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
     // Allow only GET requests.
     match request.method() {
@@ -129,6 +135,7 @@ fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
     // Fetch custom headers from request.
     let token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
@@ -159,6 +166,7 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn respond_to_get_request_checked(
     mmds: &Mmds,
     request: Request,
@@ -189,6 +197,7 @@ fn respond_to_get_request_checked(
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
     let uri = request.uri().get_abs_path();
 
@@ -226,6 +235,7 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn respond_to_put_request(
     mmds: &mut Mmds,
     request: Request,
@@ -298,6 +308,7 @@ mod tests {
     use super::*;
     use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
 
+    #[tracing::instrument(level = "trace", ret)]
     fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{
             "name": {
@@ -322,6 +333,7 @@ mod tests {
         mmds
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn get_json_data() -> &'static str {
         r#"{
             "age": 43,

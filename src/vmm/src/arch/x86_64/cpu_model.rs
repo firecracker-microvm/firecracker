@@ -21,6 +21,7 @@ pub struct CpuModel {
 
 impl CpuModel {
     /// Get CPU model from current machine.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_cpu_model() -> Self {
         // SAFETY: This operation is safe as long as the processor implements this CPUID function.
         // 0x1 is the defined code for getting the processor version information.
@@ -29,6 +30,7 @@ impl CpuModel {
     }
 
     /// Check if the current CPU model is Intel Cascade Lake or later.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_at_least_cascade_lake(&self) -> bool {
         let cascade_lake = CpuModel {
             extended_family: 0,
@@ -43,6 +45,7 @@ impl CpuModel {
 }
 
 impl From<&u32> for CpuModel {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(eax: &u32) -> Self {
         CpuModel {
             extended_family: ((eax >> 20) & 0xff) as u8,
@@ -55,6 +58,7 @@ impl From<&u32> for CpuModel {
 }
 
 impl From<&CpuModel> for u32 {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(cpu_model: &CpuModel) -> Self {
         u32::from(cpu_model.extended_family) << 20
             | u32::from(cpu_model.extended_model) << 16
@@ -65,12 +69,14 @@ impl From<&CpuModel> for u32 {
 }
 
 impl PartialOrd for CpuModel {
+    #[tracing::instrument(level = "trace", ret)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(u32::from(self).cmp(&u32::from(other)))
     }
 }
 
 impl Ord for CpuModel {
+    #[tracing::instrument(level = "trace", ret)]
     fn cmp(&self, other: &Self) -> Ordering {
         u32::from(self).cmp(&u32::from(other))
     }

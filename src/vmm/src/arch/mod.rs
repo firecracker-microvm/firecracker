@@ -47,6 +47,7 @@ pub enum DeviceType {
 }
 
 /// Type for passing information about the initrd in the guest memory.
+#[derive(Debug)]
 pub struct InitrdConfig {
     /// Load address of initrd in guest memory
     pub address: utils::vm_memory::GuestAddress,
@@ -58,6 +59,7 @@ pub struct InitrdConfig {
 pub const PAGE_SIZE: usize = 4096;
 
 impl fmt::Display for DeviceType {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

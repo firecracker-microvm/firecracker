@@ -11,8 +11,9 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
+use logger::ProcessTimeReporter;
 use seccompiler::BpfThreadMap;
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vmm::resources::VmResources;
@@ -20,6 +21,7 @@ use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
+#[derive(Debug)]
 struct ApiServerAdapter {
     api_event_fd: EventFd,
     from_api: Receiver<ApiRequest>,
@@ -30,6 +32,7 @@ struct ApiServerAdapter {
 impl ApiServerAdapter {
     /// Runs the vmm to completion, while any arising control events are deferred
     /// to a `RuntimeApiController`.
+    #[tracing::instrument(level = "trace", ret, skip(event_manager))]
     fn run_microvm(
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
@@ -55,6 +58,7 @@ impl ApiServerAdapter {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn handle_request(&mut self, req_action: VmmAction) {
         let response = self.controller.handle_request(req_action);
         // Send back the result.
@@ -66,6 +70,7 @@ impl ApiServerAdapter {
 }
 impl MutEventSubscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
+    #[tracing::instrument(level = "trace", ret)]
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -107,6 +112,7 @@ impl MutEventSubscriber for ApiServerAdapter {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
@@ -115,6 +121,7 @@ impl MutEventSubscriber for ApiServerAdapter {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn run_with_api(
     seccomp_filters: &mut BpfThreadMap,
     config_json: Option<String>,

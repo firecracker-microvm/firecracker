@@ -13,6 +13,7 @@ libc = "0.2.117"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
+tracing = { version = "0.1.37", features = ["attributes"] }
 
 vmm = { path = "../vmm" }
 

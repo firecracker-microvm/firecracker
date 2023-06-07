@@ -22,6 +22,7 @@ pub struct CpuidModifierMapKey {
 
 impl ModifierMapKey for CpuidModifierMapKey {}
 impl Display for CpuidModifierMapKey {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -40,10 +41,12 @@ pub struct CpuidModifierMapValue(pub RegisterValueFilter<u32>);
 impl ModifierMapValue for CpuidModifierMapValue {
     type Type = u32;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn filter(&self) -> Self::Type {
         self.0.filter
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn value(&self) -> Self::Type {
         self.0.value
     }
@@ -53,6 +56,7 @@ impl ModifierMapValue for CpuidModifierMapValue {
 pub struct CpuidModifierMap(pub HashMap<CpuidModifierMapKey, CpuidModifierMapValue>);
 
 impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(leaf_modifiers: Vec<CpuidLeafModifier>) -> Self {
         let mut map = HashMap::new();
         for leaf_modifier in leaf_modifiers {
@@ -73,6 +77,7 @@ impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
 }
 
 impl From<CpuidModifierMap> for Vec<CpuidLeafModifier> {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(modifier_map: CpuidModifierMap) -> Self {
         let mut leaf_modifiers = Vec::<CpuidLeafModifier>::new();
         for (modifier_key, modifier_value) in modifier_map.0 {
@@ -115,6 +120,7 @@ pub struct MsrModifierMapKey(pub u32);
 
 impl ModifierMapKey for MsrModifierMapKey {}
 impl Display for MsrModifierMapKey {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "index={:#x}", self.0)
     }
@@ -126,10 +132,12 @@ pub struct MsrModifierMapValue(pub RegisterValueFilter<u64>);
 impl ModifierMapValue for MsrModifierMapValue {
     type Type = u64;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn filter(&self) -> Self::Type {
         self.0.filter
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn value(&self) -> Self::Type {
         self.0.value
     }
@@ -139,6 +147,7 @@ impl ModifierMapValue for MsrModifierMapValue {
 pub struct MsrModifierMap(pub HashMap<MsrModifierMapKey, MsrModifierMapValue>);
 
 impl From<Vec<RegisterModifier>> for MsrModifierMap {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(modifiers: Vec<RegisterModifier>) -> Self {
         let mut map = HashMap::new();
         for modifier in modifiers {
@@ -152,6 +161,7 @@ impl From<Vec<RegisterModifier>> for MsrModifierMap {
 }
 
 impl From<MsrModifierMap> for Vec<RegisterModifier> {
+    #[tracing::instrument(level = "trace", ret)]
     fn from(modifier_map: MsrModifierMap) -> Self {
         let mut modifier_vec = modifier_map
             .0
@@ -273,6 +283,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_sample_cpuid_modifier_vec() -> Vec<CpuidLeafModifier> {
         vec![
             cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY, vec![
@@ -286,6 +297,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
+#[tracing::instrument(level = "trace", ret)]
     fn build_sample_cpuid_modifier_map() -> CpuidModifierMap {
         CpuidModifierMap(HashMap::from([
             cpuid_modifier_map!(0x0, 0x0, KvmCpuidFlags::EMPTY, Eax, 0x0),
@@ -314,6 +326,7 @@ mod tests {
         assert_eq!(key.to_string(), "index=0x1234");
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn build_sample_msr_modifier_vec() -> Vec<RegisterModifier> {
         vec![
             msr_modifier!(0x0, 0x0),
@@ -322,6 +335,7 @@ mod tests {
         ]
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn build_sample_msr_modifier_map() -> MsrModifierMap {
         MsrModifierMap(HashMap::from([
             msr_modifier_map!(0x0, 0x0),

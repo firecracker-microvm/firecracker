@@ -22,6 +22,7 @@ use super::muxer::{ConnMapKey, MuxerRx};
 use super::{defs, MuxerConnection};
 
 /// The muxer RX queue.
+#[derive(Debug)]
 pub struct MuxerRxQ {
     /// The RX queue data.
     q: VecDeque<MuxerRx>,
@@ -33,6 +34,7 @@ impl MuxerRxQ {
     const SIZE: usize = defs::MUXER_RXQ_SIZE;
 
     /// Trivial RX queue constructor.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Self {
         Self {
             q: VecDeque::with_capacity(Self::SIZE),
@@ -44,6 +46,7 @@ impl MuxerRxQ {
     /// Note: the resulting queue may still be desynchronized, if there are too many connections
     ///       that have pending RX data. In that case, the muxer will first drain this queue, and
     ///       then try again to build a synchronized one.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_conn_map(conn_map: &HashMap<ConnMapKey, MuxerConnection>) -> Self {
         let mut q = VecDeque::new();
         let mut synced = true;
@@ -73,6 +76,7 @@ impl MuxerRxQ {
     /// Returns:
     /// - `true` if the new item has been successfully queued; or
     /// - `false` if there was no room left in the queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push(&mut self, rx: MuxerRx) -> bool {
         // Pushing to a non-full, synchronized queue will always succeed.
         if self.is_synced() && !self.is_full() {
@@ -102,31 +106,37 @@ impl MuxerRxQ {
     }
 
     /// Peek into the front of the queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn peek(&self) -> Option<MuxerRx> {
         self.q.front().copied()
     }
 
     /// Pop an RX item from the front of the queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn pop(&mut self) -> Option<MuxerRx> {
         self.q.pop_front()
     }
 
     /// Check if the RX queue is synchronized with the connection pool.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_synced(&self) -> bool {
         self.synced
     }
 
     /// Get the total number of items in the queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> usize {
         self.q.len()
     }
 
     /// Check if the queue is empty.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Check if the queue is full.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_full(&self) -> bool {
         self.len() == Self::SIZE
     }

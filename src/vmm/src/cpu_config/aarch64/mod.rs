@@ -25,6 +25,7 @@ pub struct CpuConfiguration {
 
 impl CpuConfiguration {
     /// Creates new guest CPU config based on the provided template
+    #[tracing::instrument(level = "trace", ret)]
     pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Result<Self, Error> {
         for (modifier, reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
             reg.value = modifier.bitmap.apply(reg.value);
@@ -34,6 +35,7 @@ impl CpuConfiguration {
 
     /// Returns ids of registers that are changed
     /// by this template
+    #[tracing::instrument(level = "trace", ret)]
     pub fn register_ids(&self) -> Vec<u64> {
         self.regs.iter().map(|reg| reg.id).collect()
     }

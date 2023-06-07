@@ -25,6 +25,7 @@ pub enum Error {
     GuestMemory(utils::vm_memory::GuestMemoryError),
 }
 
+#[derive(Debug)]
 pub struct AsyncFileEngine<T> {
     file: File,
     ring: IoUring,
@@ -32,12 +33,14 @@ pub struct AsyncFileEngine<T> {
     phantom: PhantomData<T>,
 }
 
+#[derive(Debug)]
 pub struct WrappedUserData<T> {
     addr: Option<GuestAddress>,
     user_data: T,
 }
 
-impl<T> WrappedUserData<T> {
+impl<T: std::fmt::Debug> WrappedUserData<T> {
+    #[tracing::instrument(level = "trace", ret)]
     fn new(user_data: T) -> Self {
         WrappedUserData {
             addr: None,
@@ -45,6 +48,7 @@ impl<T> WrappedUserData<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn new_with_dirty_tracking(addr: GuestAddress, user_data: T) -> Self {
         WrappedUserData {
             addr: Some(addr),
@@ -52,6 +56,7 @@ impl<T> WrappedUserData<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn mark_dirty_mem_and_unwrap(self, mem: &GuestMemoryMmap, count: u32) -> T {
         if let Some(addr) = self.addr {
             mark_dirty_mem(mem, addr, count as usize)
@@ -61,7 +66,8 @@ impl<T> WrappedUserData<T> {
     }
 }
 
-impl<T> AsyncFileEngine<T> {
+impl<T: std::fmt::Debug> AsyncFileEngine<T> {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
         log_dev_preview_warning("Async file IO", Option::None);
 
@@ -90,14 +96,17 @@ impl<T> AsyncFileEngine<T> {
     }
 
     #[cfg(test)]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn file(&self) -> &File {
         &self.file
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn completion_evt(&self) -> &EventFd {
         &self.completion_evt
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push_read(
         &mut self,
         offset: u64,
@@ -135,6 +144,7 @@ impl<T> AsyncFileEngine<T> {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push_write(
         &mut self,
         offset: u64,
@@ -172,6 +182,7 @@ impl<T> AsyncFileEngine<T> {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, Error>> {
         let wrapped_user_data = WrappedUserData::new(user_data);
 
@@ -185,10 +196,12 @@ impl<T> AsyncFileEngine<T> {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn kick_submission_queue(&mut self) -> Result<(), Error> {
         self.ring.submit().map(|_| ()).map_err(Error::IoUring)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn drain(&mut self, discard_cqes: bool) -> Result<(), Error> {
         self.ring
             .submit_and_wait_all()
@@ -203,6 +216,7 @@ impl<T> AsyncFileEngine<T> {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn drain_and_flush(&mut self, discard_cqes: bool) -> Result<(), Error> {
         self.drain(discard_cqes)?;
 
@@ -214,6 +228,7 @@ impl<T> AsyncFileEngine<T> {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
         // SAFETY: We trust that the host kernel did not touch the operation's `user_data` field.
         // The `T` type is the same one used for `push`ing and since the kernel made this entry
@@ -222,6 +237,7 @@ impl<T> AsyncFileEngine<T> {
         unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(Error::IoUring)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, Error> {
         let cqe = self.do_pop()?.map(|cqe| {
             let count = cqe.count();

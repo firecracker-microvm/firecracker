@@ -6,6 +6,7 @@ use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterVa
 
 use crate::utils::aarch64::reg_modifier;
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
     let mut reg_modifiers: Vec<RegisterModifier> = cpu_config
         .regs
@@ -23,6 +24,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn build_sample_regs() -> Vec<Aarch64Register> {
         vec![
             Aarch64Register {
@@ -40,6 +42,7 @@ mod tests {
         ]
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn build_expected_reg_modifiers() -> Vec<RegisterModifier> {
         vec![
             reg_modifier!(

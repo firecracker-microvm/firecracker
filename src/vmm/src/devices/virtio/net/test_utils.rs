@@ -8,6 +8,7 @@ use std::os::raw::c_ulong;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, result};
@@ -29,6 +30,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn default_net() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
     // Id is the firecracker-facing identifier, e.g. local to the FC process. We thus do not need to
@@ -58,6 +60,7 @@ pub fn default_net() -> Net {
     net
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn default_net_no_mmds() -> Net {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
     let tap_device_id = format!("net-device{}", next_tap);
@@ -85,6 +88,7 @@ pub enum ReadTapMock {
 }
 
 impl ReadTapMock {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn mock_frame(&self) -> Vec<u8> {
         if let ReadTapMock::MockFrame(frame) = self {
             return frame.clone();
@@ -107,16 +111,19 @@ pub struct Mocks {
 }
 
 impl Mocks {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_read_tap(&mut self, read_tap: ReadTapMock) {
         self.read_tap = read_tap;
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_write_tap(&mut self, write_tap: WriteTapMock) {
         self.write_tap = write_tap;
     }
 }
 
 impl Default for Mocks {
+    #[tracing::instrument(level = "trace", ret)]
     fn default() -> Mocks {
         Mocks {
             read_tap: ReadTapMock::MockFrame(
@@ -127,11 +134,13 @@ impl Default for Mocks {
     }
 }
 
+#[derive(Debug)]
 pub enum NetQueue {
     Rx,
     Tx,
 }
 
+#[derive(Debug)]
 pub enum NetEvent {
     RxQueue,
     RxRateLimiter,
@@ -140,12 +149,14 @@ pub enum NetEvent {
     TxRateLimiter,
 }
 
+#[derive(Debug)]
 pub struct TapTrafficSimulator {
     socket: File,
     send_addr: libc::sockaddr_ll,
 }
 
 impl TapTrafficSimulator {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(tap_index: i32) -> Self {
         // Create sockaddr_ll struct.
         // SAFETY: sockaddr_storage has no invariants and can be safely zeroed.
@@ -188,6 +199,7 @@ impl TapTrafficSimulator {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn push_tx_packet(&self, buf: &[u8]) {
         // SAFETY: The call is safe since the parameters are valid.
         let res = unsafe {
@@ -205,6 +217,7 @@ impl TapTrafficSimulator {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn pop_rx_packet(&self, buf: &mut [u8]) -> bool {
         // SAFETY: The call is safe since the parameters are valid.
         let ret = unsafe {
@@ -224,6 +237,7 @@ impl TapTrafficSimulator {
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn create_socket() -> File {
     // SAFETY: This is safe since we check the return value.
     let socket = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ALL.to_be()) };
@@ -236,6 +250,7 @@ pub fn create_socket() -> File {
 }
 
 // Returns handles to virtio queues creation/activation and manipulation.
+#[tracing::instrument(level = "trace", ret)]
 pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
     let rxq = VirtQueue::new(GuestAddress(0), mem, 16);
     let txq = VirtQueue::new(GuestAddress(0x1000), mem, 16);
@@ -244,6 +259,7 @@ pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
     (rxq, txq)
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn if_index(tap: &Tap) -> i32 {
     let sock = create_socket();
     let ifreq = IfReqBuilder::new()
@@ -256,6 +272,7 @@ pub fn if_index(tap: &Tap) -> i32 {
 }
 
 /// Enable the tap interface.
+#[tracing::instrument(level = "trace", ret)]
 pub fn enable(tap: &Tap) {
     // Disable IPv6 router advertisment requests
     Command::new("sh")
@@ -280,6 +297,7 @@ pub fn enable(tap: &Tap) {
 }
 
 #[cfg(test)]
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
@@ -292,6 +310,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result<(), DeviceError> {
     if idx > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
@@ -302,6 +321,7 @@ pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, DeviceError> {
     if idx > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
@@ -311,16 +331,19 @@ pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, Devi
     Ok(u64::try_from(net.queue_evts[idx].as_raw_fd()).unwrap())
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn default_guest_mac() -> MacAddr {
-    MacAddr::parse_str("11:22:33:44:55:66").unwrap()
+    MacAddr::from_str("11:22:33:44:55:66").unwrap()
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn set_mac(net: &mut Net, mac: MacAddr) {
     net.guest_mac = Some(mac);
     net.config_space.guest_mac = mac;
 }
 
 // Assigns "guest virtio driver" activated queues to the net device.
+#[tracing::instrument(level = "trace", ret)]
 pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
     net.queues.clear();
     net.queues.push(rxq);
@@ -359,9 +382,24 @@ pub mod test {
         pub txq: VirtQueue<'a>,
     }
 
+    impl std::fmt::Debug for TestHelper<'_> {
+        #[tracing::instrument(level = "trace", ret, skip(f))]
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("TestHelper")
+                .field("event_manager", &"?")
+                .field("subscriber_id", &self.subscriber_id)
+                .field("net", &self.net)
+                .field("mem", &self.mem)
+                .field("rxq", &self.rxq)
+                .field("txq", &self.txq)
+                .finish()
+        }
+    }
+
     impl<'a> TestHelper<'a> {
         const QUEUE_SIZE: u16 = 16;
 
+        #[tracing::instrument(level = "trace", ret)]
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
@@ -394,10 +432,12 @@ pub mod test {
             }
         }
 
+        #[tracing::instrument(level = "trace")]
         pub fn net(&mut self) -> MutexGuard<Net> {
             self.net.lock().unwrap()
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         pub fn activate_net(&mut self) {
             self.net.lock().unwrap().activate(self.mem.clone()).unwrap();
             // Process the activate event.
@@ -405,6 +445,7 @@ pub mod test {
             assert_eq!(ev_count, 1);
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         pub fn simulate_event(&mut self, event: NetEvent) {
             match event {
                 NetEvent::RxQueue => self.net().process_rx_queue_event(),
@@ -415,10 +456,12 @@ pub mod test {
             };
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         pub fn data_addr(&self) -> u64 {
             self.txq.end().raw_value()
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         pub fn add_desc_chain(
             &mut self,
             queue: NetQueue,
@@ -459,6 +502,7 @@ pub mod test {
         }
 
         /// Generate a tap frame of `frame_len` and check that it is deferred
+        #[tracing::instrument(level = "trace", ret)]
         pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
             self.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
             let used_idx = self.rxq.used.idx.get();
@@ -481,6 +525,7 @@ pub mod test {
 
         /// Check that after adding a valid Rx queue descriptor chain a previously deferred frame
         /// is eventually received by the guest
+        #[tracing::instrument(level = "trace", ret)]
         pub fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
             let used_idx = self.rxq.used.idx.get();
             // Add a valid Rx avail descriptor chain and run epoll.
@@ -504,6 +549,7 @@ pub mod test {
 
         // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
         // Doesn't generate an error if the descriptor chain is longer than `frame_len`.
+        #[tracing::instrument(level = "trace", ret)]
         pub fn write_tx_frame(&self, desc_list: &[(u16, u32, u16)], frame_len: usize) -> Vec<u8> {
             let mut frame = utils::rand::rand_alphanumerics(frame_len)
                 .as_bytes()

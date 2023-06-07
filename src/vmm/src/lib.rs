@@ -67,13 +67,15 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
+use logger::{MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
+use tracing::{error, info, warn};
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
+use utils::terminal::Terminal;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
@@ -85,8 +87,8 @@ use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
-    TYPE_BLOCK, TYPE_NET,
+    Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, TYPE_BALLOON, TYPE_BLOCK,
+    TYPE_NET,
 };
 use crate::devices::BusDevice;
 use crate::memory_snapshot::SnapshotMemory;
@@ -151,11 +153,6 @@ pub enum Error {
     #[error("Invalid cmdline")]
     /// Invalid command line error.
     Cmdline,
-    /// Legacy devices work with Event file descriptors and the creation can fail because
-    /// of resource exhaustion.
-    #[cfg(target_arch = "x86_64")]
-    #[error("Error creating legacy device: {0}")]
-    CreateLegacyDevice(device_manager::legacy::Error),
     /// Device manager error.
     #[error("{0}")]
     DeviceManager(device_manager::mmio::Error),
@@ -179,9 +176,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     #[error("Cannot add devices to the legacy I/O Bus. {0}")]
     LegacyIOBus(device_manager::legacy::Error),
-    /// Internal logger error.
-    #[error("Logger error: {0}")]
-    Logger(LoggerError),
     /// Internal metrics system error.
     #[error("Metrics error: {0}")]
     Metrics(MetricsError),
@@ -242,18 +236,6 @@ pub enum Error {
     VmmObserverTeardown(utils::errno::Error),
 }
 
-/// Trait for objects that need custom initialization and teardown during the Vmm lifetime.
-pub trait VmmEventsObserver {
-    /// This function will be called during microVm boot.
-    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        Ok(())
-    }
-    /// This function will be called on microVm teardown.
-    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        Ok(())
-    }
-}
-
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -261,6 +243,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
+#[tracing::instrument(level = "trace", ret)]
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
 }
@@ -269,6 +252,7 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 #[derive(Debug, derive_more::From)]
 pub struct EmulateSerialInitError(std::io::Error);
 impl fmt::Display for EmulateSerialInitError {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Emulate serial init error: {}", self.0)
     }
@@ -324,8 +308,9 @@ pub enum DumpCpuConfigError {
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
+#[derive(Debug)]
 pub struct Vmm {
-    events_observer: Option<Box<dyn VmmEventsObserver>>,
+    events_observer: Option<std::io::Stdin>,
     instance_info: InstanceInfo,
     shutdown_exit_code: Option<FcExitCode>,
 
@@ -348,26 +333,30 @@ pub struct Vmm {
 
 impl Vmm {
     /// Gets Vmm version.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn version(&self) -> String {
         self.instance_info.vmm_version.clone()
     }
 
     /// Gets Vmm instance info.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
     }
 
     /// Gets the specified bus device.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_bus_device(
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<dyn BusDevice>> {
+    ) -> Option<&Mutex<devices::bus::BusDevice>> {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
@@ -378,6 +367,7 @@ impl Vmm {
     /// When:
     /// - [`vmm::VmmEventsObserver::on_vmm_boot`] errors.
     /// - [`vmm::vstate::vcpu::Vcpu::start_threaded`] errors.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
@@ -386,8 +376,18 @@ impl Vmm {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));
 
-        if let Some(observer) = self.events_observer.as_mut() {
-            observer.on_vmm_boot()?;
+        if let Some(stdin) = self.events_observer.as_mut() {
+            // Set raw mode for stdin.
+            stdin.lock().set_raw_mode().map_err(|err| {
+                warn!("Cannot set raw mode for the terminal. {:?}", err);
+                err
+            })?;
+
+            // Set non blocking stdin.
+            stdin.lock().set_non_block(true).map_err(|err| {
+                warn!("Cannot set non block for the terminal. {:?}", err);
+                err
+            })?;
         }
 
         Vcpu::register_kick_signal_handler();
@@ -411,6 +411,7 @@ impl Vmm {
     }
 
     /// Sends a resume command to the vCPUs.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn resume_vm(&mut self) -> Result<()> {
         self.mmio_device_manager.kick_devices();
 
@@ -435,6 +436,7 @@ impl Vmm {
     }
 
     /// Sends a pause command to the vCPUs.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn pause_vm(&mut self) -> Result<()> {
         // Send the events.
         self.vcpus_handles
@@ -457,60 +459,75 @@ impl Vmm {
     }
 
     /// Returns a reference to the inner `GuestMemoryMmap` object.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
     }
 
     /// Sets RDA bit in serial console
+    #[tracing::instrument(level = "trace", ret)]
     pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
-        #[cfg(target_arch = "aarch64")]
-        use crate::devices::legacy::SerialDevice;
-        #[cfg(target_arch = "x86_64")]
-        let mut serial = self
-            .pio_device_manager
-            .stdio_serial
-            .lock()
-            .expect("Poisoned lock");
-
-        #[cfg(target_arch = "aarch64")]
-        let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
-        #[cfg(target_arch = "aarch64")]
-        if serial_bus_device.is_none() {
-            return Ok(());
-        }
-        #[cfg(target_arch = "aarch64")]
-        let mut serial_device_locked = serial_bus_device.unwrap().lock().expect("Poisoned lock");
-        #[cfg(target_arch = "aarch64")]
-        let serial = serial_device_locked
-            .as_mut_any()
-            .downcast_mut::<SerialDevice>()
-            .expect("Unexpected BusDeviceType");
-
         // When restoring from a previously saved state, there is no serial
         // driver initialization, therefore the RDA (Received Data Available)
         // interrupt is not enabled. Because of that, the driver won't get
         // notified of any bytes that we send to the guest. The clean solution
         // would be to save the whole serial device state when we do the vm
         // serialization. For now we set that bit manually
-        serial
-            .serial
-            .write(IER_RDA_OFFSET, IER_RDA_BIT)
-            .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
-        Ok(())
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            use devices::legacy::SerialDevice;
+            let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
+            if serial_bus_device.is_none() {
+                return Ok(());
+            }
+            let mut serial_device_locked =
+                serial_bus_device.unwrap().lock().expect("Poisoned lock");
+            let serial = serial_device_locked
+                .serial_mut()
+                .unwrap()
+                .expect("Unexpected BusDeviceType");
+
+            serial
+                .serial
+                .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            Ok(())
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut guard = self
+                .pio_device_manager
+                .stdio_serial
+                .lock()
+                .expect("Poisoned lock");
+            let serial = guard.serial_mut().unwrap();
+
+            serial
+                .serial
+                .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            Ok(())
+        }
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn send_ctrl_alt_del(&mut self) -> Result<()> {
         self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
+            .i8042_device_mut()
+            .unwrap()
             .trigger_ctrl_alt_del()
             .map_err(Error::I8042Error)
     }
 
     /// Saves the state of a paused Microvm.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn save_state(
         &mut self,
         vm_info: &VmInfo,
@@ -542,6 +559,7 @@ impl Vmm {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save_vcpu_states(&mut self) -> std::result::Result<Vec<VcpuState>, MicrovmStateError> {
         for handle in self.vcpus_handles.iter() {
             handle
@@ -571,6 +589,7 @@ impl Vmm {
     }
 
     /// Restores vcpus kvm states.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn restore_vcpu_states(
         &mut self,
         mut vcpu_states: Vec<VcpuState>,
@@ -603,6 +622,7 @@ impl Vmm {
     }
 
     /// Dumps CPU configuration.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dump_cpu_config(
         &mut self,
     ) -> std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
@@ -633,6 +653,7 @@ impl Vmm {
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
         let mut bitmap: DirtyBitmap = HashMap::new();
         self.guest_memory
@@ -651,6 +672,7 @@ impl Vmm {
     }
 
     /// Enables or disables KVM dirty page tracking.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<()> {
         // This function _always_ results in an ioctl update. The VMM is stateless in the sense
         // that it's unaware of the current dirty page tracking setting.
@@ -664,6 +686,7 @@ impl Vmm {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
@@ -675,6 +698,7 @@ impl Vmm {
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_block_rate_limiter(
         &mut self,
         drive_id: &str,
@@ -690,6 +714,7 @@ impl Vmm {
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_net_rate_limiters(
         &mut self,
         net_id: &str,
@@ -707,16 +732,15 @@ impl Vmm {
     }
 
     /// Returns a reference to the balloon device if present.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
                 .lock()
                 .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                // Only MmioTransport implements BusDevice at this point.
-                .expect("Unexpected BusDevice type")
+                .mmio_transport_ref()
+                .expect("Unexpected device type")
                 .device();
 
             let config = virtio_device
@@ -734,16 +758,15 @@ impl Vmm {
     }
 
     /// Returns the latest balloon statistics if they are enabled.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
                 .lock()
                 .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                // Only MmioTransport implements BusDevice at this point.
-                .expect("Unexpected BusDevice type")
+                .mmio_transport_ref()
+                .expect("Unexpected device type")
                 .device();
 
             let latest_stats = virtio_device
@@ -763,6 +786,7 @@ impl Vmm {
     }
 
     /// Updates configuration for the balloon device target size.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_balloon_config(
         &mut self,
         amount_mib: u32,
@@ -779,10 +803,8 @@ impl Vmm {
                 let virtio_device = busdev
                     .lock()
                     .expect("Poisoned lock")
-                    .as_any()
-                    .downcast_ref::<MmioTransport>()
-                    // Only MmioTransport implements BusDevice at this point.
-                    .expect("Unexpected BusDevice type")
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type")
                     .device();
 
                 virtio_device
@@ -801,6 +823,7 @@ impl Vmm {
     }
 
     /// Updates configuration for the balloon device as described in `balloon_stats_update`.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn update_balloon_stats_config(
         &mut self,
         stats_polling_interval_s: u16,
@@ -811,10 +834,8 @@ impl Vmm {
                 let virtio_device = busdev
                     .lock()
                     .expect("Poisoned lock")
-                    .as_any()
-                    .downcast_ref::<MmioTransport>()
-                    // Only MmioTransport implements BusDevice at this point.
-                    .expect("Unexpected BusDevice type")
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type")
                     .device();
 
                 virtio_device
@@ -832,6 +853,7 @@ impl Vmm {
     }
 
     /// Signals Vmm to stop and exit.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn stop(&mut self, exit_code: FcExitCode) {
         // To avoid cycles, all teardown paths take the following route:
         //   +------------------------+----------------------------+------------------------+
@@ -886,6 +908,7 @@ impl Vmm {
 /// |    Aff3    |    Aff2    |    Aff1    |    Aff0    |
 /// As specified in the linux kernel: Documentation/virt/kvm/devices/arm-vgic-v3.rst
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "trace", ret)]
 fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
     vcpu_states
         .iter()
@@ -897,6 +920,7 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 }
 
 impl Drop for Vmm {
+    #[tracing::instrument(level = "trace", ret)]
     fn drop(&mut self) {
         // There are two cases when `drop()` is called:
         // 1) before the Vmm has been mutexed and subscribed to the event
@@ -922,7 +946,11 @@ impl Drop for Vmm {
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            if let Err(err) = observer.on_vmm_stop() {
+            let res = observer.lock().set_canon_mode().map_err(|err| {
+                warn!("Cannot set canonical mode for the terminal. {:?}", err);
+                err
+            });
+            if let Err(err) = res {
                 warn!("{}", Error::VmmObserverTeardown(err));
             }
         }
@@ -940,6 +968,7 @@ impl Drop for Vmm {
 
 impl MutEventSubscriber for Vmm {
     /// Handle a read event (EPOLLIN).
+    #[tracing::instrument(level = "trace", ret)]
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -970,6 +999,7 @@ impl MutEventSubscriber for Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
             error!("Failed to register vmm exit event: {}", err);

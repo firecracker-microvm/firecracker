@@ -23,7 +23,8 @@ use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::{debug, error, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
+use tracing::{debug, error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};
@@ -50,6 +51,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
+#[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
     pub(crate) queues: Vec<VirtQueue>,
@@ -74,8 +76,9 @@ pub struct Vsock<B> {
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend,
+    B: std::fmt::Debug + VsockBackend,
 {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
@@ -96,6 +99,7 @@ where
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(cid: u64, backend: B) -> super::Result<Vsock<B>> {
         let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
@@ -104,20 +108,24 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn cid(&self) -> u64 {
         self.cid
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn backend(&self) -> &B {
         &self.backend
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
         self.irq_trigger
@@ -128,6 +136,7 @@ where
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
         // This is safe since we checked in the event handler that the device is activated.
@@ -181,6 +190,7 @@ where
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
         // This is safe since we checked in the event handler that the device is activated.
@@ -222,6 +232,7 @@ where
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets
     // remain but their CID is updated to reflect the current guest_cid.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -248,44 +259,54 @@ where
 
 impl<B> VirtioDevice for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: std::fmt::Debug + VsockBackend + 'static,
 {
+    #[tracing::instrument(level = "trace", ret)]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn device_type(&self) -> u32 {
         uapi::VIRTIO_ID_VSOCK
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn queues(&self) -> &[VirtQueue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "trace")]
     fn queues_mut(&mut self) -> &mut [VirtQueue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_events
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
             0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
@@ -306,6 +327,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         METRICS.vsock.cfg_fails.inc();
         warn!(
@@ -315,6 +337,7 @@ where
         );
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.vsock.activate_fails.inc();
@@ -337,6 +360,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }

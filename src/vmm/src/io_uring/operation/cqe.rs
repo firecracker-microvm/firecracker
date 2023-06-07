@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::result::Result;
 
 use utils::vm_memory::ByteValued;
@@ -11,18 +12,20 @@ use crate::io_uring::bindings::io_uring_cqe;
 unsafe impl ByteValued for io_uring_cqe {}
 
 /// Wrapper over a completed operation.
+#[derive(Debug)]
 pub struct Cqe<T> {
     res: i32,
     user_data: Box<T>,
 }
 
-impl<T> Cqe<T> {
+impl<T: Debug> Cqe<T> {
     /// Construct a Cqe object from a raw `io_uring_cqe`.
     ///
     /// # Safety
     /// Unsafe because we assume full ownership of the inner.user_data address.
     /// We assume that it points to a valid address created with a Box<T>, with the correct type T,
     /// and that ownership of that address is passed to this function.
+    #[tracing::instrument(level = "trace", ret)]
     pub(crate) unsafe fn new(inner: io_uring_cqe) -> Self {
         Self {
             res: inner.res,
@@ -31,11 +34,13 @@ impl<T> Cqe<T> {
     }
 
     /// Return the number of bytes successfully transferred by this operation.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn count(&self) -> u32 {
         u32::try_from(self.res).unwrap_or(0)
     }
 
     /// Return the result associated to the IO operation.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn result(&self) -> Result<u32, std::io::Error> {
         let res = self.res;
 
@@ -47,7 +52,8 @@ impl<T> Cqe<T> {
     }
 
     /// Create a new Cqe, applying the passed function to the user_data.
-    pub fn map_user_data<U, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
+    #[tracing::instrument(level = "trace", ret, skip(op))]
+    pub fn map_user_data<U: Debug, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
             res: self.res,
             user_data: Box::new(op(self.user_data())),
@@ -55,6 +61,7 @@ impl<T> Cqe<T> {
     }
 
     /// Consume the object and return the user_data.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn user_data(self) -> T {
         *self.user_data
     }

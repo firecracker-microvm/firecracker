@@ -7,13 +7,13 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use logger::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
 use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
+use tracing::warn;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -34,6 +34,7 @@ pub struct NetConfigSpaceState {
 }
 
 impl NetConfigSpaceState {
+    #[tracing::instrument(level = "trace", ret)]
     fn de_guest_mac_v2(&mut self, version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not have optional MAC address.
         warn!("Optional MAC address will be set to older version.");
@@ -43,6 +44,7 @@ impl NetConfigSpaceState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn ser_guest_mac_v2(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not have optional MAC address.
         warn!("Saving to older snapshot version, optional MAC address will not be saved.");
@@ -53,13 +55,14 @@ impl NetConfigSpaceState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn def_guest_mac_old(_: u16) -> [u8; MAC_ADDR_LEN] {
         // v1.2 and newer don't use this field anyway
         Default::default()
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetState {
     id: String,
@@ -71,6 +74,7 @@ pub struct NetState {
     virtio_state: VirtioDeviceState,
 }
 
+#[derive(Debug)]
 pub struct NetConstructorArgs {
     pub mem: GuestMemoryMmap,
     pub mmds: Option<Arc<Mutex<Mmds>>>,
@@ -89,6 +93,7 @@ impl Persist<'_> for Net {
     type ConstructorArgs = NetConstructorArgs;
     type Error = Error;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         NetState {
             id: self.id().clone(),
@@ -104,6 +109,7 @@ impl Persist<'_> for Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -164,6 +170,7 @@ mod tests {
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
     use crate::devices::virtio::test_utils::default_mem;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_mem();
         let mut mem = vec![0; 4096];

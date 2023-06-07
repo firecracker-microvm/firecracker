@@ -3,7 +3,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
@@ -11,6 +11,7 @@ use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::VirtioDevice;
 
 impl Block {
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[0], EventSet::IN)) {
             error!("Failed to register queue event: {}", err);
@@ -25,14 +26,16 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("block: activate event");
+        tracing::debug!("block: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
@@ -45,6 +48,7 @@ impl Block {
 
 impl MutEventSubscriber for Block {
     // Handle an event for queue or rate limiter.
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -85,6 +89,7 @@ impl MutEventSubscriber for Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret, skip(ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,

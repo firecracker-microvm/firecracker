@@ -8,10 +8,9 @@
 use std::num::Wrapping;
 use std::{io, result};
 
-use logger::{error, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
+use tracing::warn;
 use utils::eventfd::EventFd;
-
-use crate::devices::bus::BusDevice;
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error)]
@@ -61,6 +60,7 @@ const KEY_DEL: u16 = 0xE071;
 const BUF_SIZE: usize = 16;
 
 /// A i8042 PS/2 controller that emulates just enough to shutdown the machine.
+#[derive(Debug)]
 pub struct I8042Device {
     /// CPU reset eventfd. We will set this event when the guest issues CMD_RESET_CPU.
     reset_evt: EventFd,
@@ -88,6 +88,7 @@ pub struct I8042Device {
 
 impl I8042Device {
     /// Constructs an i8042 device that will signal the given event when the guest requests it.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(reset_evt: EventFd, kbd_interrupt_evt: EventFd) -> I8042Device {
         I8042Device {
             reset_evt,
@@ -104,6 +105,7 @@ impl I8042Device {
 
     /// Signal a ctrl-alt-del (reset) event.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
         // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
         // Fail if we don't have room for the whole sequence.
@@ -116,6 +118,7 @@ impl I8042Device {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn trigger_kbd_interrupt(&self) -> Result<()> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
@@ -126,6 +129,7 @@ impl I8042Device {
             .map_err(Error::KbdInterruptFailure)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn trigger_key(&mut self, key: u16) -> Result<()> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
@@ -143,6 +147,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn push_byte(&mut self, byte: u8) -> Result<()> {
         self.status |= SB_OUT_DATA_AVAIL;
         if self.buf_len() == BUF_SIZE {
@@ -154,6 +159,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn pop_byte(&mut self) -> Option<u8> {
         if self.buf_len() == 0 {
             return None;
@@ -167,6 +173,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn flush_buf(&mut self) {
         self.bhead = Wrapping(0usize);
         self.btail = Wrapping(0usize);
@@ -174,13 +181,15 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     fn buf_len(&self) -> usize {
         (self.btail - self.bhead).0
     }
 }
 
-impl BusDevice for I8042Device {
-    fn read(&mut self, offset: u64, data: &mut [u8]) {
+impl I8042Device {
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn bread(&mut self, offset: u64, data: &mut [u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
             METRICS.i8042.missed_read_count.inc();
@@ -214,7 +223,8 @@ impl BusDevice for I8042Device {
         }
     }
 
-    fn write(&mut self, offset: u64, data: &[u8]) {
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn bwrite(&mut self, offset: u64, data: &[u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
             METRICS.i8042.missed_write_count.inc();
@@ -229,7 +239,7 @@ impl BusDevice for I8042Device {
                 // our exit event fd. Meaning Firecracker will be exiting as soon as the VMM
                 // thread wakes up to handle this event.
                 if let Err(err) = self.reset_evt.write(1) {
-                    error!("Failed to trigger i8042 reset event: {:?}", err);
+                    tracing::error!("Failed to trigger i8042 reset event: {:?}", err);
                     METRICS.i8042.error_count.inc();
                 }
                 METRICS.i8042.reset_count.inc();
@@ -312,6 +322,7 @@ mod tests {
     use super::*;
 
     impl PartialEq for Error {
+        #[tracing::instrument(level = "trace", ret)]
         fn eq(&self, other: &Error) -> bool {
             self.to_string() == other.to_string()
         }
@@ -327,9 +338,9 @@ mod tests {
 
         // Check if reading in a 2-length array doesn't have side effects.
         let mut data = [1, 2];
-        i8042.read(0, &mut data);
+        i8042.bread(0, &mut data);
         assert_eq!(data, [1, 2]);
-        i8042.read(1, &mut data);
+        i8042.bread(1, &mut data);
         assert_eq!(data, [1, 2]);
 
         // Check if reset works.
@@ -337,23 +348,23 @@ mod tests {
         // counter doesn't change (for 0 it blocks).
         assert!(reset_evt.write(1).is_ok());
         let mut data = [CMD_RESET_CPU];
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         assert_eq!(reset_evt.read().unwrap(), 2);
 
         // Check if reading with offset 1 doesn't have side effects.
-        i8042.read(1, &mut data);
+        i8042.bread(1, &mut data);
         assert_eq!(data[0], CMD_RESET_CPU);
 
         // Check invalid `write`s.
         let before = METRICS.i8042.missed_write_count.count();
         // offset != 0.
-        i8042.write(1, &data);
+        i8042.bwrite(1, &data);
         // data != CMD_RESET_CPU
         data[0] = CMD_RESET_CPU + 1;
-        i8042.write(1, &data);
+        i8042.bwrite(1, &data);
         // data.len() != 1
         let data = [CMD_RESET_CPU; 2];
-        i8042.write(1, &data);
+        i8042.bwrite(1, &data);
         assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
     }
 
@@ -367,33 +378,33 @@ mod tests {
 
         // Test reading/writing the control register.
         data[0] = CMD_WRITE_CTR;
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         assert_ne!(i8042.status & SB_I8042_CMD_DATA, 0);
         data[0] = 0x52;
-        i8042.write(OFS_DATA, &data);
+        i8042.bwrite(OFS_DATA, &data);
         data[0] = CMD_READ_CTR;
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         assert_ne!(i8042.status & SB_OUT_DATA_AVAIL, 0);
-        i8042.read(OFS_DATA, &mut data);
+        i8042.bread(OFS_DATA, &mut data);
         assert_eq!(data[0], 0x52);
 
         // Test reading/writing the output port.
         data[0] = CMD_WRITE_OUTP;
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         assert_ne!(i8042.status & SB_I8042_CMD_DATA, 0);
         data[0] = 0x52;
-        i8042.write(OFS_DATA, &data);
+        i8042.bwrite(OFS_DATA, &data);
         data[0] = CMD_READ_OUTP;
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         assert_ne!(i8042.status & SB_OUT_DATA_AVAIL, 0);
-        i8042.read(OFS_DATA, &mut data);
+        i8042.bread(OFS_DATA, &mut data);
         assert_eq!(data[0], 0x52);
 
         // Test kbd commands.
         data[0] = 0x52;
-        i8042.write(OFS_DATA, &data);
+        i8042.bwrite(OFS_DATA, &data);
         assert_ne!(i8042.status & SB_OUT_DATA_AVAIL, 0);
-        i8042.read(OFS_DATA, &mut data);
+        i8042.bread(OFS_DATA, &mut data);
         assert_eq!(data[0], 0xFA);
     }
 
@@ -428,6 +439,7 @@ mod tests {
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         );
 
+        #[tracing::instrument(level = "trace", ret)]
         fn expect_key(i8042: &mut I8042Device, key: u16) {
             let mut data = [1];
 
@@ -436,13 +448,13 @@ mod tests {
             assert!(i8042.kbd_interrupt_evt.read().unwrap() > 1);
 
             // The "data available" flag should be on.
-            i8042.read(OFS_STATUS, &mut data);
+            i8042.bread(OFS_STATUS, &mut data);
 
             let mut key_byte: u8;
             if key & 0xFF00 != 0 {
                 // For extended keys, we should be able to read the MSB first.
                 key_byte = ((key & 0xFF00) >> 8) as u8;
-                i8042.read(OFS_DATA, &mut data);
+                i8042.bread(OFS_DATA, &mut data);
                 assert_eq!(data[0], key_byte);
 
                 // And then do the same for the LSB.
@@ -451,10 +463,10 @@ mod tests {
                 i8042.trigger_kbd_interrupt().unwrap();
                 assert!(i8042.kbd_interrupt_evt.read().unwrap() > 1);
                 // The "data available" flag should be on.
-                i8042.read(OFS_STATUS, &mut data);
+                i8042.bread(OFS_STATUS, &mut data);
             }
             key_byte = (key & 0xFF) as u8;
-            i8042.read(OFS_DATA, &mut data);
+            i8042.bread(OFS_DATA, &mut data);
             assert_eq!(data[0], key_byte);
         }
 
@@ -496,9 +508,9 @@ mod tests {
         // Test kbd interrupt disable.
         let mut data = [1];
         data[0] = CMD_WRITE_CTR;
-        i8042.write(OFS_STATUS, &data);
+        i8042.bwrite(OFS_STATUS, &data);
         data[0] = i8042.control & !CB_KBD_INT;
-        i8042.write(OFS_DATA, &data);
+        i8042.bwrite(OFS_DATA, &data);
         i8042.trigger_key(KEY_CTRL).unwrap();
         assert_eq!(
             i8042.trigger_kbd_interrupt().unwrap_err(),

@@ -10,18 +10,18 @@
 mod parsed_request;
 mod request;
 
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
-};
+use logger::{update_metric_with_elapsed_time, ProcessTimeReporter, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
 use seccompiler::BpfProgramRef;
 use serde_json::json;
+use tracing::{debug, error, info, warn};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
@@ -44,6 +44,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Structure associated with the API server implementation.
+#[derive(Debug)]
 pub struct ApiServer {
     /// Sender which allows passing messages to the VMM.
     api_request_sender: mpsc::Sender<ApiRequest>,
@@ -60,6 +61,7 @@ impl ApiServer {
     /// Constructor for `ApiServer`.
     ///
     /// Returns the newly formed `ApiServer`.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
@@ -144,6 +146,7 @@ impl ApiServer {
     /// let mut buf: [u8; 100] = [0; 100];
     /// assert!(sock.read(&mut buf[..]).unwrap() > 0);
     /// ```
+    #[tracing::instrument(level = "trace", ret)]
     pub fn bind_and_run(
         &mut self,
         path: &PathBuf,
@@ -220,6 +223,7 @@ impl ApiServer {
     }
 
     /// Handles an API request received through the associated socket.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn handle_request(
         &mut self,
         request: &Request,
@@ -249,6 +253,7 @@ impl ApiServer {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn serve_vmm_action_request(
         &mut self,
         vmm_action: Box<VmmAction>,
@@ -291,13 +296,15 @@ impl ApiServer {
     }
 
     /// An HTTP response which also includes a body.
-    pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
+    #[tracing::instrument(level = "trace", ret)]
+    pub(crate) fn json_response<T: Into<String> + Debug>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
         response.set_body(Body::new(body.into()));
         response
     }
 
-    fn json_fault_message<T: AsRef<str> + serde::Serialize>(msg: T) -> String {
+    #[tracing::instrument(level = "trace", ret)]
+    fn json_fault_message<T: AsRef<str> + serde::Serialize + Debug>(msg: T) -> String {
         json!({ "fault_message": msg }).to_string()
     }
 }
@@ -443,7 +450,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::Advanced).unwrap();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
@@ -491,7 +498,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_filters(SeccompConfig::<std::io::Empty>::Advanced).unwrap();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()

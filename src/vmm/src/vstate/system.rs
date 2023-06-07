@@ -39,12 +39,14 @@ type Result<T> = result::Result<T, Error>;
 /// Describes a KVM context that gets attached to the microVM.
 /// It gives access to the functionality of the KVM wrapper as
 /// long as every required KVM capability is present on the host.
+#[derive(Debug)]
 pub struct KvmContext {
     kvm: Kvm,
     max_memslots: usize,
 }
 
 impl KvmContext {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Result<Self> {
         use kvm_ioctls::Cap::*;
         let kvm = Kvm::new()?;
@@ -92,11 +94,13 @@ impl KvmContext {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn fd(&self) -> &Kvm {
         &self.kvm
     }
 
     /// Get the maximum number of memory slots reported by this KVM context.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn max_memslots(&self) -> usize {
         self.max_memslots
     }

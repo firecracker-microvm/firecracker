@@ -55,30 +55,37 @@ impl GICv2 {
 }
 
 impl GICDevice for GICv2 {
+    #[tracing::instrument(level = "trace", ret)]
     fn version() -> u32 {
         kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn device_fd(&self) -> &DeviceFd {
         &self.fd
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn device_properties(&self) -> &[u64] {
         &self.properties
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn vcpu_count(&self) -> u64 {
         self.vcpu_count
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fdt_compatibility(&self) -> &str {
         "arm,gic-400"
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fdt_maint_irq(&self) -> u32 {
         GICv2::ARCH_GIC_V2_MAINT_IRQ
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_device(fd: DeviceFd, vcpu_count: u64) -> Box<dyn GICDevice> {
         Box::new(GICv2 {
             fd,
@@ -92,14 +99,17 @@ impl GICDevice for GICv2 {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
         regs::save_state(&self.fd, mpidrs)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
         regs::restore_state(&self.fd, mpidrs, state)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.

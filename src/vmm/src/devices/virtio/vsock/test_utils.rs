@@ -4,6 +4,7 @@
 #![cfg(test)]
 #![doc(hidden)]
 
+use std::fmt::Debug;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
@@ -20,6 +21,7 @@ use crate::devices::virtio::{
 
 type Result<T> = std::result::Result<T, VsockError>;
 
+#[derive(Debug)]
 pub struct TestBackend {
     pub evfd: EventFd,
     pub rx_err: Option<VsockError>,
@@ -31,6 +33,7 @@ pub struct TestBackend {
 }
 
 impl TestBackend {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Self {
         Self {
             evfd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -43,24 +46,29 @@ impl TestBackend {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_rx_err(&mut self, err: Option<VsockError>) {
         self.rx_err = err;
     }
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_tx_err(&mut self, err: Option<VsockError>) {
         self.tx_err = err;
     }
+    #[tracing::instrument(level = "trace", ret)]
     pub fn set_pending_rx(&mut self, prx: bool) {
         self.pending_rx = prx;
     }
 }
 
 impl Default for TestBackend {
+    #[tracing::instrument(level = "trace", ret)]
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl VsockChannel for TestBackend {
+    #[tracing::instrument(level = "trace", ret)]
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
@@ -80,6 +88,7 @@ impl VsockChannel for TestBackend {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<()> {
         match self.tx_err.take() {
             None => {
@@ -90,27 +99,32 @@ impl VsockChannel for TestBackend {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn has_pending_rx(&self) -> bool {
         self.pending_rx
     }
 }
 
 impl AsRawFd for TestBackend {
+    #[tracing::instrument(level = "trace", ret)]
     fn as_raw_fd(&self) -> RawFd {
         self.evfd.as_raw_fd()
     }
 }
 
 impl VsockEpollListener for TestBackend {
+    #[tracing::instrument(level = "trace", ret)]
     fn get_polled_evset(&self) -> EventSet {
         EventSet::IN
     }
+    #[tracing::instrument(level = "trace", ret)]
     fn notify(&mut self, evset: EventSet) {
         self.evset = Some(evset);
     }
 }
 impl VsockBackend for TestBackend {}
 
+#[derive(Debug)]
 pub struct TestContext {
     pub cid: u64,
     pub mem: GuestMemoryMmap,
@@ -119,6 +133,7 @@ pub struct TestContext {
 }
 
 impl TestContext {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new() -> Self {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
@@ -131,6 +146,7 @@ impl TestContext {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn create_event_handler_context(&self) -> EventHandlerContext {
         const QSIZE: u16 = 256;
 
@@ -170,11 +186,13 @@ impl TestContext {
 }
 
 impl Default for TestContext {
+    #[tracing::instrument(level = "trace", ret)]
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[derive(Debug)]
 pub struct EventHandlerContext<'a> {
     pub device: Vsock<TestBackend>,
     pub guest_rxvq: GuestQ<'a>,
@@ -183,15 +201,18 @@ pub struct EventHandlerContext<'a> {
 }
 
 impl<'a> EventHandlerContext<'a> {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn mock_activate(&mut self, mem: GuestMemoryMmap) {
         // Artificially activate the device.
         self.device.activate(mem).unwrap();
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn signal_txq_event(&mut self) {
         self.device.queue_events[TXQ_INDEX].write(1).unwrap();
         self.device.handle_txq_event(EventSet::IN);
     }
+    #[tracing::instrument(level = "trace", ret)]
     pub fn signal_rxq_event(&mut self) {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
         self.device.handle_rxq_event(EventSet::IN);
@@ -199,6 +220,7 @@ impl<'a> EventHandlerContext<'a> {
 }
 
 #[cfg(test)]
+#[tracing::instrument(level = "trace", ret)]
 pub fn read_packet_data(pkt: &VsockPacket, mem: &GuestMemoryMmap, how_much: usize) -> Vec<u8> {
     let mut buf = vec![0; how_much];
     pkt.write_from_offset_to(mem, 0, &mut buf.as_mut_slice(), how_much)
@@ -208,8 +230,9 @@ pub fn read_packet_data(pkt: &VsockPacket, mem: &GuestMemoryMmap, how_much: usiz
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend,
+    B: VsockBackend + Debug,
 {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write_element_in_queue(vsock: &Vsock<B>, idx: usize, val: u64) {
         if idx > vsock.queue_events.len() - 1 {
             panic!("Index bigger than the number of queues of this device");
@@ -217,6 +240,7 @@ where
         vsock.queue_events[idx].write(val).unwrap();
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn get_element_from_interest_list(vsock: &Vsock<B>, idx: usize) -> u64 {
         match idx {
             0..=2 => u64::try_from(vsock.queue_events[idx].as_raw_fd()).unwrap(),

@@ -6,6 +6,7 @@
 //!
 //! [`Connection`]: struct.Connection.html
 
+use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
@@ -79,7 +80,7 @@ bitflags! {
 pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PassiveOpenError {
     /// The incoming segment is not a valid `SYN`.
     InvalidSyn,
@@ -88,7 +89,7 @@ pub enum PassiveOpenError {
 }
 
 /// Describes errors which may occur when an existing connection receives a TCP segment.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RecvError {
     /// The payload length is larger than the receive buffer size.
     BufferTooSmall,
@@ -97,8 +98,7 @@ pub enum RecvError {
 }
 
 /// Describes errors which may occur when a connection attempts to write a segment.
-#[derive(derive_more::From)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq, derive_more::From)]
 pub enum WriteNextError {
     /// The connection cannot write the segment because it has been previously reset.
     ConnectionReset,
@@ -155,7 +155,7 @@ pub enum WriteNextError {
 /// traffic handled by dumbo ever leaves a microVM.
 ///
 /// [`close`]: #method.close
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Clone)]
 pub struct Connection {
     // The sequence number to ACK at the next opportunity. This is 1 + the highest received
     // in-order sequence number.
@@ -200,7 +200,10 @@ pub struct Connection {
     status_flags: ConnStatusFlags,
 }
 
-fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, PassiveOpenError> {
+#[tracing::instrument(level = "trace", ret)]
+fn parse_mss_option<T: std::fmt::Debug + NetworkBytes>(
+    segment: &TcpSegment<T>,
+) -> Result<u16, PassiveOpenError> {
     match segment.parse_mss_option_unchecked(segment.header_len()) {
         Ok(Some(value)) => Ok(value.get()),
         Ok(None) => Ok(MSS_DEFAULT),
@@ -208,7 +211,8 @@ fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, Pas
     }
 }
 
-fn is_valid_syn<T: NetworkBytes>(segment: &TcpSegment<T>) -> bool {
+#[tracing::instrument(level = "trace", ret)]
+fn is_valid_syn<T: std::fmt::Debug + NetworkBytes>(segment: &TcpSegment<T>) -> bool {
     segment.flags_after_ns() == TcpFlags::SYN && segment.payload_len() == 0
 }
 
@@ -223,7 +227,8 @@ impl Connection {
     ///   first segment which has not been acknowledged yet. This uses an opaque time unit.
     /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before the
     ///   connection resets itself.
-    pub fn passive_open<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn passive_open<T: std::fmt::Debug + NetworkBytes>(
         segment: &TcpSegment<T>,
         local_rwnd_size: u32,
         rto_period: NonZeroU64,
@@ -271,43 +276,53 @@ impl Connection {
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn flags_intersect(&self, flags: ConnStatusFlags) -> bool {
         self.status_flags.intersects(flags)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn set_flags(&mut self, flags: ConnStatusFlags) {
         self.status_flags.insert(flags);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn clear_flags(&mut self, flags: ConnStatusFlags) {
         self.status_flags.remove(flags);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn syn_received(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::SYN_RECEIVED)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn synack_pending(&self) -> bool {
         self.syn_received() && !self.synack_sent()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn synack_sent(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::SYNACK_SENT)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn is_reset(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::RESET)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fin_sent(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::FIN_SENT)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn fin_acked(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::FIN_ACKED)
     }
 
-    fn is_same_syn<T: NetworkBytes>(&self, segment: &TcpSegment<T>) -> bool {
+    #[tracing::instrument(level = "trace", ret)]
+    fn is_same_syn<T: std::fmt::Debug + NetworkBytes>(&self, segment: &TcpSegment<T>) -> bool {
         // This only really makes sense before getting into ESTABLISHED, but that's fine
         // because we only use it before that point.
         if !is_valid_syn(segment) || self.ack_to_send.0 != segment.sequence_number().wrapping_add(1)
@@ -318,22 +333,26 @@ impl Connection {
         matches!(parse_mss_option(segment), Ok(mss) if mss == self.mss)
     }
 
-    fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
+    #[tracing::instrument(level = "trace", ret)]
+    fn reset_for_segment<T: std::fmt::Debug + NetworkBytes>(&mut self, s: &TcpSegment<T>) {
         if !self.rst_pending() {
             self.send_rst = Some(RstConfig::new(s));
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn rst_pending(&self) -> bool {
         self.send_rst.is_some()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn rto_expired(&self, now: u64) -> bool {
         now - self.rto_start >= self.rto_period
     }
 
     // We send a FIN control segment if every data byte up to the self.send_fin sequence number
     // has been ACKed by the other endpoint, and no FIN has been previously sent.
+    #[tracing::instrument(level = "trace", ret)]
     fn can_send_first_fin(&self) -> bool {
         !self.fin_sent()
             && matches!(self.send_fin, Some(fin_seq) if fin_seq == self.highest_ack_received)
@@ -341,6 +360,7 @@ impl Connection {
 
     // Returns the window size which should be written to an outgoing segment. This is going to be
     // even more useful when we'll support window scaling.
+    #[tracing::instrument(level = "trace", ret)]
     fn local_rwnd(&self) -> u16 {
         let rwnd = (self.local_rwnd_edge - self.ack_to_send).0;
 
@@ -352,17 +372,20 @@ impl Connection {
     }
 
     // Will actually become meaningful when/if we implement window scaling.
+    #[tracing::instrument(level = "trace", ret)]
     fn remote_window_size(&self, window_size: u16) -> u32 {
         u32::from(window_size)
     }
 
     // Computes the remote rwnd edge given the ACK number and window size from an incoming segment.
+    #[tracing::instrument(level = "trace", ret)]
     fn compute_remote_rwnd_edge(&self, ack: Wrapping<u32>, window_size: u16) -> Wrapping<u32> {
         ack + Wrapping(self.remote_window_size(window_size))
     }
 
     // Has this name just in case the pending_ack status will be more than just some boolean at
     // some point in the future.
+    #[tracing::instrument(level = "trace", ret)]
     fn enqueue_ack(&mut self) {
         self.pending_ack = true;
     }
@@ -372,6 +395,7 @@ impl Connection {
     /// Subsequent calls after the first one do not have any effect. The sequence number of the
     /// `FIN` is the first sequence number not yet sent at this point.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn close(&mut self) {
         if self.send_fin.is_none() {
             self.send_fin = Some(self.first_not_sent);
@@ -381,6 +405,7 @@ impl Connection {
     /// Returns a valid configuration for a `RST` segment, which can be sent to the other
     /// endpoint to signal the connection should be reset.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn make_rst_config(&self) -> RstConfig {
         if self.is_established() {
             RstConfig::Seq(self.first_not_sent.0)
@@ -392,6 +417,7 @@ impl Connection {
     /// Specifies that a `RST` segment should be sent to the other endpoint, and then the
     /// connection should be destroyed.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn reset(&mut self) {
         if !self.rst_pending() {
             self.send_rst = Some(self.make_rst_config());
@@ -400,12 +426,14 @@ impl Connection {
 
     /// Returns `true` if the connection is past the `ESTABLISHED` point.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_established(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::ESTABLISHED)
     }
 
     /// Returns `true` if a `FIN` has been received.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn fin_received(&self) -> bool {
         self.fin_received.is_some()
     }
@@ -419,18 +447,21 @@ impl Connection {
     /// a new connection is created meanwhile using the same tuple and we get very unlucky (worst
     /// case, extremely unlikely though).
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_done(&self) -> bool {
         self.is_reset() || (self.fin_received() && self.flags_intersect(ConnStatusFlags::FIN_SENT))
     }
 
     /// Returns the first sequence number which has not been sent yet for the current window.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn first_not_sent(&self) -> Wrapping<u32> {
         self.first_not_sent
     }
 
     /// Returns the highest acknowledgement number received for the current window.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn highest_ack_received(&self) -> Wrapping<u32> {
         self.highest_ack_received
     }
@@ -441,6 +472,7 @@ impl Connection {
     /// sent unless its sequence number falls into the receive window.
     // TODO: return the actual advance value here
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn advance_local_rwnd_edge(&mut self, value: u32) {
         let v = Wrapping(value);
         let max_w = Wrapping(MAX_WINDOW_SIZE);
@@ -460,12 +492,14 @@ impl Connection {
 
     /// Returns the right edge of the receive window advertised by the other endpoint.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn remote_rwnd_edge(&self) -> Wrapping<u32> {
         self.remote_rwnd_edge
     }
 
     /// Returns `true` if a retransmission caused by the reception of a duplicate `ACK` is pending.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dup_ack_pending(&self) -> bool {
         self.dup_ack
     }
@@ -478,6 +512,7 @@ impl Connection {
     /// only pertains to control segments and timeout expiry. Data segment related status will
     /// be reported by higher level components, which also manage the contents of the send buffer.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn control_segment_or_timeout_status(&self) -> NextSegmentStatus {
         if self.synack_pending()
             || self.rst_pending()
@@ -494,7 +529,8 @@ impl Connection {
 
     // We use this helper method to set up self.send_rst and prepare a return value in one go. It's
     // only used by the receive_segment() method.
-    fn reset_for_segment_helper<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    fn reset_for_segment_helper<T: std::fmt::Debug + NetworkBytes>(
         &mut self,
         s: &TcpSegment<T>,
         flags: RecvStatusFlags,
@@ -515,7 +551,8 @@ impl Connection {
     /// * `s` - The incoming segment.
     /// * `buf` - The receive buffer where payload data (if any) from `s` is going to be written.
     /// * `now` - An opaque timestamp representing the current moment in time.
-    pub fn receive_segment<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    pub fn receive_segment<T: std::fmt::Debug + NetworkBytes>(
         &mut self,
         s: &TcpSegment<T>,
         buf: &mut [u8],
@@ -729,7 +766,8 @@ impl Connection {
     // destination L3 addresses (which are required for checksum computation). We need this stupid
     // ?Sized trait bound, because otherwise Sized would be implied, and we can have unsized types
     // which implement ByteBuffer (such as [u8]), since payload expects a reference to some R.
-    fn write_segment<'a, R: ByteBuffer + ?Sized>(
+    #[tracing::instrument(level = "trace", ret)]
+    fn write_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -766,7 +804,8 @@ impl Connection {
     }
 
     // Control segments are segments with no payload (at least I like to use this name).
-    fn write_control_segment<'a, R: ByteBuffer + ?Sized>(
+    #[tracing::instrument(level = "trace")]
+    fn write_control_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -820,7 +859,8 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
-    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized>(
+    #[tracing::instrument(level = "trace")]
+    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -1018,19 +1058,12 @@ impl Connection {
 // actual TCP implementation.
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::fmt;
-
     use super::*;
 
     // A segment without options or a payload is 20 bytes long.
     const BASIC_SEGMENT_SIZE: usize = 20;
 
-    impl fmt::Debug for Connection {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(connection)")
-        }
-    }
-
+    #[derive(Debug)]
     pub struct ConnectionTester {
         buf: [u8; 2000],
         src_port: u16,
@@ -1046,6 +1079,7 @@ pub(crate) mod tests {
     }
 
     impl ConnectionTester {
+        #[tracing::instrument(level = "trace", ret)]
         pub fn new() -> Self {
             ConnectionTester {
                 buf: [0u8; 2000],
@@ -1062,7 +1096,8 @@ pub(crate) mod tests {
             }
         }
 
-        fn passive_open<T: NetworkBytes>(
+        #[tracing::instrument(level = "trace", ret)]
+        fn passive_open<T: std::fmt::Debug + NetworkBytes>(
             &self,
             s: &TcpSegment<T>,
         ) -> Result<Connection, PassiveOpenError> {
@@ -1076,6 +1111,7 @@ pub(crate) mod tests {
 
         // This helps write segments; it uses a lot of default values, and sets the ACK and SEQ
         // numbers to 0, and self.remote_isn respectively.
+        #[tracing::instrument(level = "trace", ret)]
         fn write_segment_helper<'a>(
             &self,
             buf: &'a mut [u8],
@@ -1099,14 +1135,17 @@ pub(crate) mod tests {
             .unwrap()
         }
 
+        #[tracing::instrument(level = "trace")]
         pub fn write_syn<'a>(&self, buf: &'a mut [u8]) -> TcpSegment<'a, &'a mut [u8]> {
             self.write_segment_helper(buf, true, None)
         }
 
+        #[tracing::instrument(level = "trace")]
         pub fn write_ctrl<'a>(&self, buf: &'a mut [u8]) -> TcpSegment<'a, &'a mut [u8]> {
             self.write_segment_helper(buf, false, None)
         }
 
+        #[tracing::instrument(level = "trace")]
         pub fn write_data<'a>(
             &self,
             buf: &'a mut [u8],
@@ -1117,7 +1156,8 @@ pub(crate) mod tests {
             segment
         }
 
-        fn receive_segment<T: NetworkBytes>(
+        #[tracing::instrument(level = "trace", ret)]
+        fn receive_segment<T: std::fmt::Debug + NetworkBytes>(
             &mut self,
             c: &mut Connection,
             s: &TcpSegment<T>,
@@ -1125,6 +1165,7 @@ pub(crate) mod tests {
             c.receive_segment(s, self.buf.as_mut(), self.now)
         }
 
+        #[tracing::instrument(level = "trace")]
         fn write_next_segment(
             &mut self,
             c: &mut Connection,
@@ -1140,7 +1181,8 @@ pub(crate) mod tests {
         // that the receive_segment() method also returns the specified RecvStatusFlags. We
         // also make sure the outgoing RST segment has additional_segment_flags set besides
         // TcpFlags::RST.
-        fn should_reset_after<T: NetworkBytes>(
+        #[tracing::instrument(level = "trace", ret)]
+        fn should_reset_after<T: std::fmt::Debug + NetworkBytes>(
             &mut self,
             c: &mut Connection,
             s: &TcpSegment<T>,
@@ -1179,6 +1221,7 @@ pub(crate) mod tests {
         }
 
         // Checks that the next segment sent by c is a SYNACK.
+        #[tracing::instrument(level = "trace", ret)]
         fn check_synack_is_next(&mut self, c: &mut Connection) {
             let send_buf = [0u8; 2000];
             let payload_src = Some((send_buf.as_ref(), c.highest_ack_received));
@@ -1201,7 +1244,8 @@ pub(crate) mod tests {
     }
 
     // Verifies whether we are dealing with a control segment with the specified flags.
-    fn check_control_segment<T: NetworkBytes>(
+    #[tracing::instrument(level = "trace", ret)]
+    fn check_control_segment<T: std::fmt::Debug + NetworkBytes>(
         s: &TcpSegment<T>,
         options_len: usize,
         flags_after_ns: TcpFlags,
@@ -1212,7 +1256,12 @@ pub(crate) mod tests {
 
     // Checks if the segment ACKs the specified sequence number, and whether the additional_flags
     // are set (besides ACK).
-    fn check_acks<T: NetworkBytes>(s: &TcpSegment<T>, ack_number: u32, additional_flags: TcpFlags) {
+    #[tracing::instrument(level = "trace", ret)]
+    fn check_acks<T: std::fmt::Debug + NetworkBytes>(
+        s: &TcpSegment<T>,
+        ack_number: u32,
+        additional_flags: TcpFlags,
+    ) {
         assert_eq!(s.flags_after_ns(), TcpFlags::ACK | additional_flags);
         assert_eq!(s.ack_number(), ack_number);
     }
@@ -1220,10 +1269,12 @@ pub(crate) mod tests {
     // The following "check_" helper functions ensure a Connection in a certain state does not have
     // any unwarranted status flags set. We wouldn't need to look at this if we used a state enum
     // instead of a status flags set.
+    #[tracing::instrument(level = "trace", ret)]
     fn check_syn_received(c: &Connection) {
         assert_eq!(c.status_flags, ConnStatusFlags::SYN_RECEIVED);
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_synack_sent(c: &Connection) {
         assert_eq!(
             c.status_flags,
@@ -1231,6 +1282,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_established(c: &Connection) {
         assert_eq!(
             c.status_flags,
@@ -1240,6 +1292,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_fin_received_but_not_sent(c: &Connection) {
         assert_eq!(
             c.status_flags,

@@ -9,6 +9,7 @@
 mod common;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::Read;
 use std::sync::Arc;
 
@@ -55,7 +56,8 @@ pub enum InstallationError {
 /// memory that we can allocate while performing the deserialization.
 /// It's recommended that the integrator of the library uses this to prevent memory allocations
 /// DOS-es.
-pub fn deserialize_binary<R: Read>(
+#[tracing::instrument(level = "trace", ret)]
+pub fn deserialize_binary<R: Read + Debug>(
     reader: R,
     bytes_limit: Option<u64>,
 ) -> std::result::Result<BpfThreadMap, DeserializationError> {
@@ -79,6 +81,7 @@ pub fn deserialize_binary<R: Read>(
 }
 
 /// Helper function for installing a BPF filter.
+#[tracing::instrument(level = "trace", ret)]
 pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), InstallationError> {
     // If the program is empty, don't install the filter.
     if bpf_filter.is_empty() {

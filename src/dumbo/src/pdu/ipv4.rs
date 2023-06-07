@@ -55,12 +55,13 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an IPv4 packet.
+#[derive(Debug)]
 pub struct IPv4Packet<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytes> IPv4Packet<'a, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
     /// the length of the inner byte sequence.
     ///
@@ -69,6 +70,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         IPv4Packet {
             bytes: InnerBytes::new(bytes),
@@ -77,6 +79,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Attempts to interpret `bytes` as an IPv4 packet, checking the validity of the header fields
     /// and the length of the inner byte sequence.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_bytes(bytes: T, verify_checksum: bool) -> Result<Self, Error> {
         let bytes_len = bytes.len();
 
@@ -121,6 +124,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This method returns the actual length (in bytes) of the header, and not the value of the
     /// `ihl` header field).
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn version_and_header_len(&self) -> (u8, usize) {
         let x = self.bytes[VERSION_AND_IHL_OFFSET];
         let ihl = x & 0x0f;
@@ -130,6 +134,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the packet header length (in bytes).
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn header_len(&self) -> usize {
         let (_, header_len) = self.version_and_header_len();
         header_len
@@ -137,6 +142,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the values of the `dscp` and `ecn` header fields.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn dscp_and_ecn(&self) -> (u8, u8) {
         let x = self.bytes[DSCP_AND_ECN_OFFSET];
         (x >> 2, x & 0b11)
@@ -144,18 +150,21 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the value of the 'total length' header field.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn total_len(&self) -> u16 {
         self.bytes.ntohs_unchecked(TOTAL_LEN_OFFSET)
     }
 
     /// Returns the value of the `identification` header field.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn identification(&self) -> u16 {
         self.bytes.ntohs_unchecked(IDENTIFICATION_OFFSET)
     }
 
     /// Returns the values of the `flags` and `fragment offset` header fields.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn flags_and_fragment_offset(&self) -> (u8, u16) {
         let x = self.bytes.ntohs_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET);
         ((x >> 13) as u8, x & 0x1fff)
@@ -163,30 +172,35 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the value of the `ttl` header field.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn ttl(&self) -> u8 {
         self.bytes[TTL_OFFSET]
     }
 
     /// Returns the value of the `protocol` header field.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn protocol(&self) -> u8 {
         self.bytes[PROTOCOL_OFFSET]
     }
 
     /// Returns the value of the `header checksum` header field.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn header_checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(HEADER_CHECKSUM_OFFSET)
     }
 
     /// Returns the source IPv4 address of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn source_address(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(SOURCE_ADDRESS_OFFSET))
     }
 
     /// Returns the destination IPv4 address of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn destination_address(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(DESTINATION_ADDRESS_OFFSET))
     }
@@ -198,12 +212,14 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn payload_unchecked(&self, header_len: usize) -> &[u8] {
         self.bytes.split_at(header_len).1
     }
 
     /// Returns a byte slice that contains the payload of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn payload(&self) -> &[u8] {
         self.payload_unchecked(self.header_len())
     }
@@ -213,6 +229,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This is equal to the output of the `total_len()` method for properly constructed instances
     /// of `IPv4Packet`.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
@@ -227,6 +244,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This method may panic if the value of `header_len` is invalid.
     ///
     /// [here]: https://en.wikipedia.org/wiki/IPv4_header_checksum
+    #[tracing::instrument(level = "trace", ret)]
     pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
         for i in 0..header_len / 2 {
@@ -242,12 +260,13 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Computes and returns the packet header checksum.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn compute_checksum(&self) -> u16 {
         self.compute_checksum_unchecked(self.header_len())
     }
 }
 
-impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
+impl<'a, T: std::fmt::Debug + NetworkBytesMut> IPv4Packet<'a, T> {
     /// Attempts to write an IPv4 packet header to `buf`, making sure there is enough space.
     ///
     /// This method returns an incomplete packet, because the size of the payload might be unknown
@@ -255,6 +274,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     /// `dscp`, `ecn`, `identification`, `flags`, and `fragment_offset` fields are set to 0. The
     /// `ttl` is set to a default value. The `total_len` and `checksum` fields will be set when
     /// the length of the incomplete packet is determined.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write_header(
         buf: T,
         protocol: u8,
@@ -281,6 +301,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     /// Sets the values of the `version` and `ihl` header fields (the latter is computed from the
     /// value of `header_len`).
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_version_and_header_len(&mut self, version: u8, header_len: usize) -> &mut Self {
         let version = version << 4;
         let ihl = ((header_len as u8) >> 2) & 0xf;
@@ -290,6 +311,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the values of the `dscp` and `ecn` header fields.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_dscp_and_ecn(&mut self, dscp: u8, ecn: u8) -> &mut Self {
         self.bytes[DSCP_AND_ECN_OFFSET] = (dscp << 2) | ecn;
         self
@@ -297,6 +319,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `total length` header field.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_total_len(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(TOTAL_LEN_OFFSET, value);
         self
@@ -304,6 +327,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `identification` header field.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_identification(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(IDENTIFICATION_OFFSET, value);
         self
@@ -311,6 +335,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the values of the `flags` and `fragment offset` header fields.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_flags_and_fragment_offset(&mut self, flags: u8, fragment_offset: u16) -> &mut Self {
         let value = (u16::from(flags) << 13) | fragment_offset;
         self.bytes
@@ -320,6 +345,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `ttl` header field.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_ttl(&mut self, value: u8) -> &mut Self {
         self.bytes[TTL_OFFSET] = value;
         self
@@ -327,6 +353,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `protocol` header field.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_protocol(&mut self, value: u8) -> &mut Self {
         self.bytes[PROTOCOL_OFFSET] = value;
         self
@@ -334,6 +361,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `header checksum` header field.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_header_checksum(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(HEADER_CHECKSUM_OFFSET, value);
         self
@@ -341,6 +369,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the source address of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_source_address(&mut self, addr: Ipv4Addr) -> &mut Self {
         self.bytes
             .htonl_unchecked(SOURCE_ADDRESS_OFFSET, u32::from(addr));
@@ -349,6 +378,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the destination address of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn set_destination_address(&mut self, addr: Ipv4Addr) -> &mut Self {
         self.bytes
             .htonl_unchecked(DESTINATION_ADDRESS_OFFSET, u32::from(addr));
@@ -362,12 +392,14 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
         self.bytes.split_at_mut(header_len).1
     }
 
     /// Returns a mutable byte slice representing the payload of the packet.
     #[inline]
+    #[tracing::instrument(level = "trace")]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         // Can't use self.header_len() as a fn parameter on the following line, because
         // the borrow checker complains. This may change when it becomes smarter.
@@ -381,7 +413,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 /// It can be transformed into an `IPv4Packet` by specifying the size of the payload, and
 /// shrinking the inner byte sequence to be as large as the packet itself (this includes setting
 /// the `total length` header field).
-impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
+impl<'a, T: std::fmt::Debug + NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     /// Transforms `self` into an `IPv4Packet` based on the supplied header and payload length. May
     /// panic for invalid values of the input parameters.
     ///
@@ -390,6 +422,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     /// This method may panic if the combination of `header_len` and `payload_len` is invalid,
     /// or any of the individual values are invalid.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn with_header_and_payload_len_unchecked(
         mut self,
         header_len: usize,
@@ -423,6 +456,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     /// This method may panic if the combination of `options_len` and `payload_len` is invalid,
     /// or any of the individual values are invalid.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn with_options_and_payload_len_unchecked(
         self,
         options_len: usize,
@@ -440,6 +474,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn with_payload_len_unchecked(
         self,
         payload_len: usize,
@@ -453,6 +488,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
 /// This function checks if `buf` may hold an IPv4Packet heading towards the given address. Cannot
 /// produce false negatives.
 #[inline]
+#[tracing::instrument(level = "trace", ret)]
 pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
     // The unchecked methods are safe because we actually check the buffer length beforehand.
     if buf.len() >= ethernet::PAYLOAD_OFFSET + OPTIONS_OFFSET {
@@ -466,24 +502,10 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-
     use super::*;
     use crate::MacAddr;
 
     const MAX_HEADER_LEN: usize = 60;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for IPv4Packet<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(IPv4 packet)")
-        }
-    }
-
-    impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<IPv4Packet<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Incomplete IPv4 packet)")
-        }
-    }
 
     #[test]
     fn test_set_get() {
@@ -579,6 +601,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
+        #[tracing::instrument(level = "trace")]
         fn p(buf: &mut [u8]) -> IPv4Packet<&mut [u8]> {
             IPv4Packet::from_bytes_unchecked(buf)
         }

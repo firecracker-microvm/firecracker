@@ -4,10 +4,10 @@
 //! Auxiliary module for configuring the metrics system.
 use std::path::PathBuf;
 
-use logger::METRICS;
+use logger::{FcLineWriter, METRICS};
 use serde::{Deserialize, Serialize};
 
-use super::{open_file_nonblock, FcLineWriter};
+use super::open_file_nonblock;
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -25,13 +25,14 @@ pub enum MetricsConfigError {
 }
 
 /// Configures the metrics as described in `metrics_cfg`.
+#[tracing::instrument(level = "trace", ret)]
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> std::result::Result<(), MetricsConfigError> {
     let writer = FcLineWriter::new(
         open_file_nonblock(&metrics_cfg.metrics_path)
             .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?,
     );
     METRICS
-        .init(Box::new(writer))
+        .init(writer)
         .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))
 }
 

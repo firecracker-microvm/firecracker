@@ -15,7 +15,7 @@ use super::*;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_VSOCK};
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockState {
     pub backend: VsockBackendState,
@@ -23,7 +23,7 @@ pub struct VsockState {
 }
 
 /// The Vsock serializable state.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockFrontendState {
     pub cid: u64,
@@ -31,14 +31,14 @@ pub struct VsockFrontendState {
 }
 
 /// An enum for the serializable backend state types.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum VsockBackendState {
     Uds(VsockUdsState),
 }
 
 /// The Vsock Unix Backend serializable state.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockUdsState {
     /// The path for the UDS socket.
@@ -46,12 +46,14 @@ pub struct VsockUdsState {
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
+#[derive(Debug)]
 pub struct VsockConstructorArgs<B> {
     pub mem: GuestMemoryMmap,
     pub backend: B,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
+#[derive(Debug)]
 pub struct VsockUdsConstructorArgs {
     // cid available in VsockFrontendState.
     pub cid: u64,
@@ -62,12 +64,14 @@ impl Persist<'_> for VsockUnixBackend {
     type ConstructorArgs = VsockUdsConstructorArgs;
     type Error = VsockUnixBackendError;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         VsockBackendState::Uds(VsockUdsState {
             path: self.host_sock_path.clone(),
         })
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -83,12 +87,13 @@ impl Persist<'_> for VsockUnixBackend {
 
 impl<B> Persist<'_> for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: std::fmt::Debug + VsockBackend + 'static,
 {
     type State = VsockFrontendState;
     type ConstructorArgs = VsockConstructorArgs<B>;
     type Error = VsockError;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         VsockFrontendState {
             cid: self.cid(),
@@ -96,6 +101,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -140,12 +146,14 @@ pub(crate) mod tests {
         type ConstructorArgs = VsockUdsConstructorArgs;
         type Error = VsockUnixBackendError;
 
+        #[tracing::instrument(level = "trace", ret)]
         fn save(&self) -> Self::State {
             VsockBackendState::Uds(VsockUdsState {
                 path: "test".to_owned(),
             })
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn restore(
             _: Self::ConstructorArgs,
             state: &Self::State,

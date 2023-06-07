@@ -3,6 +3,7 @@
 
 //! Defines functionality for creating guest memory snapshots.
 
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::SeekFrom;
 
@@ -84,6 +85,7 @@ pub enum Error {
 
 impl SnapshotMemory for GuestMemoryMmap {
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
+    #[tracing::instrument(level = "trace", ret)]
     fn describe(&self) -> GuestMemoryState {
         let mut guest_memory_state = GuestMemoryState::default();
         let mut offset = 0;
@@ -100,6 +102,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
+    #[tracing::instrument(level = "trace", ret)]
     fn dump<T: WriteVolatile>(&self, writer: &mut T) -> std::result::Result<(), Error> {
         self.iter()
             .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
@@ -107,6 +110,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
+    #[tracing::instrument(level = "trace", ret)]
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
@@ -169,6 +173,7 @@ impl SnapshotMemory for GuestMemoryMmap {
 
     /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
     /// by anonymous memory. Memory layout and ranges are described in `state` param.
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         file: Option<&File>,
         state: &GuestMemoryState,

@@ -18,14 +18,14 @@ use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_BALLOON};
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonConfigSpaceState {
     num_pages: u32,
     actual_pages: u32,
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonStatsState {
     swap_in: Option<u64>,
@@ -41,6 +41,7 @@ pub struct BalloonStatsState {
 }
 
 impl BalloonStatsState {
+    #[tracing::instrument(level = "trace", ret)]
     fn from_stats(stats: &BalloonStats) -> Self {
         Self {
             swap_in: stats.swap_in,
@@ -56,6 +57,7 @@ impl BalloonStatsState {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_stats(&self) -> BalloonStats {
         BalloonStats {
             target_pages: 0,
@@ -76,7 +78,7 @@ impl BalloonStatsState {
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonState {
     stats_polling_interval_s: u16,
@@ -86,6 +88,7 @@ pub struct BalloonState {
     virtio_state: VirtioDeviceState,
 }
 
+#[derive(Debug)]
 pub struct BalloonConstructorArgs {
     pub mem: GuestMemoryMmap,
 }
@@ -95,6 +98,7 @@ impl Persist<'_> for Balloon {
     type ConstructorArgs = BalloonConstructorArgs;
     type Error = super::BalloonError;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn save(&self) -> Self::State {
         BalloonState {
             stats_polling_interval_s: self.stats_polling_interval_s,
@@ -108,6 +112,7 @@ impl Persist<'_> for Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,

@@ -6,6 +6,7 @@ use vmm::cpu_config::templates::CustomCpuTemplate;
 use super::{verify_common, Error};
 use crate::utils::aarch64::RegModifierMap;
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
     let reg_template = RegModifierMap::from(cpu_template.reg_modifiers);
     let reg_config = RegModifierMap::from(cpu_config.reg_modifiers);

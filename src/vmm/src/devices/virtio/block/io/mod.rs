@@ -12,13 +12,13 @@ pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
 use crate::devices::virtio::block::device::FileEngineType;
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct UserDataOk<T> {
     pub user_data: T,
     pub count: u32,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FileEngineOk<T> {
     Submitted,
     Executed(UserDataOk<T>),
@@ -33,6 +33,7 @@ pub enum Error {
 }
 
 impl Error {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_throttling_err(&self) -> bool {
         match self {
             Error::Async(async_io::Error::IoUring(err)) => err.is_throttling_err(),
@@ -41,20 +42,22 @@ impl Error {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct UserDataError<T, E> {
     pub user_data: T,
     pub error: E,
 }
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 pub enum FileEngine<T> {
     #[allow(unused)]
     Async(AsyncFileEngine<T>),
     Sync(SyncFileEngine),
 }
 
-impl<T> FileEngine<T> {
+impl<T: std::fmt::Debug> FileEngine<T> {
+    #[tracing::instrument(level = "trace", ret)]
     pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine<T>, Error> {
         if !engine_type
             .is_supported()
@@ -71,6 +74,7 @@ impl<T> FileEngine<T> {
     }
 
     #[cfg(test)]
+    #[tracing::instrument(level = "trace", ret)]
     pub fn file(&self) -> &File {
         match self {
             FileEngine::Async(engine) => engine.file(),
@@ -78,6 +82,7 @@ impl<T> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn read(
         &mut self,
         offset: u64,
@@ -106,6 +111,7 @@ impl<T> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn write(
         &mut self,
         offset: u64,
@@ -134,6 +140,7 @@ impl<T> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn flush(&mut self, user_data: T) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
         match self {
             FileEngine::Async(engine) => match engine.push_flush(user_data) {
@@ -156,6 +163,7 @@ impl<T> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn drain(&mut self, discard: bool) -> Result<(), Error> {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(Error::Async),
@@ -163,6 +171,7 @@ impl<T> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn drain_and_flush(&mut self, discard: bool) -> Result<(), Error> {
         match self {
             FileEngine::Async(engine) => engine.drain_and_flush(discard).map_err(Error::Async),
@@ -226,6 +235,7 @@ pub mod tests {
         };
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
         if let FileEngine::Async(ref mut engine) = engine {
             engine.drain(false).unwrap();
@@ -233,11 +243,13 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn create_mem() -> GuestMemoryMmap {
         utils::vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
             .unwrap()
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {
@@ -245,6 +257,7 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {

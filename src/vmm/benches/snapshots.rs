@@ -24,6 +24,7 @@ use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{persist, FcExitCode};
 
 #[inline]
+#[tracing::instrument(level = "trace", ret)]
 pub fn bench_restore_snapshot(
     mut snapshot_reader: &[u8],
     snapshot_len: usize,
@@ -38,6 +39,7 @@ pub fn bench_restore_snapshot(
 }
 
 #[inline]
+#[tracing::instrument(level = "trace", ret)]
 pub fn bench_create_snapshot<W: std::io::Write>(
     mut snapshot_writer: &mut W,
     vm: VersionMap,
@@ -55,6 +57,7 @@ pub fn bench_create_snapshot<W: std::io::Write>(
     }
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn create_microvm_state(is_diff: bool) -> MicrovmState {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
@@ -110,6 +113,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
     microvm_state
 }
 
+#[tracing::instrument(level = "trace", ret)]
 pub fn snapshot_benchmark(c: &mut Criterion) {
     let version_map = VERSION_MAP.clone();
 

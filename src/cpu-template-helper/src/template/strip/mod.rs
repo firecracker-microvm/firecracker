@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use crate::utils::{ModifierMapKey, ModifierMapValue};
 
@@ -22,10 +23,11 @@ pub enum Error {
     NumberOfInputs,
 }
 
+#[tracing::instrument(level = "trace", ret)]
 fn strip_common<K, V>(maps: &mut [HashMap<K, V>]) -> Result<(), Error>
 where
-    K: ModifierMapKey,
-    V: ModifierMapValue,
+    K: ModifierMapKey + Debug,
+    V: ModifierMapValue + Debug,
 {
     if maps.len() < 2 {
         return Err(Error::NumberOfInputs);

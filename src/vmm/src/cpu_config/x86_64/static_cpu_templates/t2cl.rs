@@ -11,6 +11,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 ///
 /// Mask CPUID to make exposed CPU features as close as possbile to Intel Cascade Lake and provide
 /// instruction set feature partity with AMD Milan using T2A template.
+#[tracing::instrument(level = "trace", ret)]
 pub fn t2cl() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

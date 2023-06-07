@@ -173,6 +173,7 @@ pub trait GICDevice {
 /// If "version" parameter is "None" the function will try to create by default a GICv3 device.
 /// If that fails it will try to fall-back to a GICv2 device.
 /// If version is Some the function will try to create a device of exactly the specified version.
+#[tracing::instrument(level = "trace", ret)]
 pub fn create_gic(
     vm: &VmFd,
     vcpu_count: u64,

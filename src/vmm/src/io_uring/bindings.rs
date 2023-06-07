@@ -21,18 +21,22 @@ impl<T> __IncompleteArrayField<T> {
         __IncompleteArrayField(::std::marker::PhantomData, [])
     }
     #[inline]
+
     pub fn as_ptr(&self) -> *const T {
         self as *const _ as *const T
     }
     #[inline]
+
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self as *mut _ as *mut T
     }
     #[inline]
+
     pub unsafe fn as_slice(&self, len: usize) -> &[T] {
         ::std::slice::from_raw_parts(self.as_ptr(), len)
     }
     #[inline]
+
     pub unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
         ::std::slice::from_raw_parts_mut(self.as_mut_ptr(), len)
     }
@@ -107,6 +111,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_1() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_1))
     );
+
     fn test_field_off() {
         assert_eq!(
             unsafe {
@@ -124,6 +129,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_1() {
         );
     }
     test_field_off();
+
     fn test_field_addr2() {
         assert_eq!(
             unsafe {
@@ -169,6 +175,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_2() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_2))
     );
+
     fn test_field_addr() {
         assert_eq!(
             unsafe {
@@ -186,6 +193,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_2() {
         );
     }
     test_field_addr();
+
     fn test_field_splice_off_in() {
         assert_eq!(
             unsafe {
@@ -242,6 +250,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         4usize,
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_3))
     );
+
     fn test_field_rw_flags() {
         assert_eq!(
             unsafe {
@@ -259,6 +268,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_rw_flags();
+
     fn test_field_fsync_flags() {
         assert_eq!(
             unsafe {
@@ -276,6 +286,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_fsync_flags();
+
     fn test_field_poll_events() {
         assert_eq!(
             unsafe {
@@ -293,6 +304,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_poll_events();
+
     fn test_field_poll32_events() {
         assert_eq!(
             unsafe {
@@ -310,6 +322,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_poll32_events();
+
     fn test_field_sync_range_flags() {
         assert_eq!(
             unsafe {
@@ -327,6 +340,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_sync_range_flags();
+
     fn test_field_msg_flags() {
         assert_eq!(
             unsafe {
@@ -344,6 +358,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_msg_flags();
+
     fn test_field_timeout_flags() {
         assert_eq!(
             unsafe {
@@ -361,6 +376,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_timeout_flags();
+
     fn test_field_accept_flags() {
         assert_eq!(
             unsafe {
@@ -378,6 +394,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_accept_flags();
+
     fn test_field_cancel_flags() {
         assert_eq!(
             unsafe {
@@ -395,6 +412,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_cancel_flags();
+
     fn test_field_open_flags() {
         assert_eq!(
             unsafe {
@@ -412,6 +430,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_open_flags();
+
     fn test_field_statx_flags() {
         assert_eq!(
             unsafe {
@@ -429,6 +448,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_statx_flags();
+
     fn test_field_fadvise_advice() {
         assert_eq!(
             unsafe {
@@ -446,6 +466,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_3() {
         );
     }
     test_field_fadvise_advice();
+
     fn test_field_splice_flags() {
         assert_eq!(
             unsafe {
@@ -510,6 +531,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1() 
             stringify!(io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1)
         )
     );
+
     fn test_field_buf_index() {
         assert_eq!(
             unsafe {
@@ -529,6 +551,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1__bindgen_ty_1() 
         );
     }
     test_field_buf_index();
+
     fn test_field_buf_group() {
         assert_eq!(
             unsafe {
@@ -576,6 +599,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1() {
             stringify!(io_uring_sqe__bindgen_ty_4__bindgen_ty_1)
         )
     );
+
     fn test_field_personality() {
         assert_eq!(
             unsafe {
@@ -594,6 +618,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4__bindgen_ty_1() {
         );
     }
     test_field_personality();
+
     fn test_field_splice_fd_in() {
         assert_eq!(
             unsafe {
@@ -634,6 +659,7 @@ fn bindgen_test_layout_io_uring_sqe__bindgen_ty_4() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_sqe__bindgen_ty_4))
     );
+
     fn test_field___pad2() {
         assert_eq!(
             unsafe {
@@ -673,6 +699,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_sqe))
     );
+
     fn test_field_opcode() {
         assert_eq!(
             unsafe {
@@ -690,6 +717,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         );
     }
     test_field_opcode();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -707,6 +735,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         );
     }
     test_field_flags();
+
     fn test_field_ioprio() {
         assert_eq!(
             unsafe {
@@ -724,6 +753,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         );
     }
     test_field_ioprio();
+
     fn test_field_fd() {
         assert_eq!(
             unsafe {
@@ -741,6 +771,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         );
     }
     test_field_fd();
+
     fn test_field_len() {
         assert_eq!(
             unsafe {
@@ -758,6 +789,7 @@ fn bindgen_test_layout_io_uring_sqe() {
         );
     }
     test_field_len();
+
     fn test_field_user_data() {
         assert_eq!(
             unsafe {
@@ -847,6 +879,7 @@ fn bindgen_test_layout_io_uring_cqe() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_cqe))
     );
+
     fn test_field_user_data() {
         assert_eq!(
             unsafe {
@@ -864,6 +897,7 @@ fn bindgen_test_layout_io_uring_cqe() {
         );
     }
     test_field_user_data();
+
     fn test_field_res() {
         assert_eq!(
             unsafe {
@@ -881,6 +915,7 @@ fn bindgen_test_layout_io_uring_cqe() {
         );
     }
     test_field_res();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -926,6 +961,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         8usize,
         concat!("Alignment of ", stringify!(io_sqring_offsets))
     );
+
     fn test_field_head() {
         assert_eq!(
             unsafe {
@@ -943,6 +979,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_head();
+
     fn test_field_tail() {
         assert_eq!(
             unsafe {
@@ -960,6 +997,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_tail();
+
     fn test_field_ring_mask() {
         assert_eq!(
             unsafe {
@@ -977,6 +1015,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_ring_mask();
+
     fn test_field_ring_entries() {
         assert_eq!(
             unsafe {
@@ -994,6 +1033,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_ring_entries();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -1011,6 +1051,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_flags();
+
     fn test_field_dropped() {
         assert_eq!(
             unsafe {
@@ -1028,6 +1069,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_dropped();
+
     fn test_field_array() {
         assert_eq!(
             unsafe {
@@ -1045,6 +1087,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_array();
+
     fn test_field_resv1() {
         assert_eq!(
             unsafe {
@@ -1062,6 +1105,7 @@ fn bindgen_test_layout_io_sqring_offsets() {
         );
     }
     test_field_resv1();
+
     fn test_field_resv2() {
         assert_eq!(
             unsafe {
@@ -1105,6 +1149,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         8usize,
         concat!("Alignment of ", stringify!(io_cqring_offsets))
     );
+
     fn test_field_head() {
         assert_eq!(
             unsafe {
@@ -1122,6 +1167,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_head();
+
     fn test_field_tail() {
         assert_eq!(
             unsafe {
@@ -1139,6 +1185,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_tail();
+
     fn test_field_ring_mask() {
         assert_eq!(
             unsafe {
@@ -1156,6 +1203,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_ring_mask();
+
     fn test_field_ring_entries() {
         assert_eq!(
             unsafe {
@@ -1173,6 +1221,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_ring_entries();
+
     fn test_field_overflow() {
         assert_eq!(
             unsafe {
@@ -1190,6 +1239,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_overflow();
+
     fn test_field_cqes() {
         assert_eq!(
             unsafe {
@@ -1207,6 +1257,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_cqes();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -1224,6 +1275,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_flags();
+
     fn test_field_resv1() {
         assert_eq!(
             unsafe {
@@ -1241,6 +1293,7 @@ fn bindgen_test_layout_io_cqring_offsets() {
         );
     }
     test_field_resv1();
+
     fn test_field_resv2() {
         assert_eq!(
             unsafe {
@@ -1285,6 +1338,7 @@ fn bindgen_test_layout_io_uring_params() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_params))
     );
+
     fn test_field_sq_entries() {
         assert_eq!(
             unsafe {
@@ -1302,6 +1356,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_sq_entries();
+
     fn test_field_cq_entries() {
         assert_eq!(
             unsafe {
@@ -1319,6 +1374,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_cq_entries();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -1336,6 +1392,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_flags();
+
     fn test_field_sq_thread_cpu() {
         assert_eq!(
             unsafe {
@@ -1353,6 +1410,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_sq_thread_cpu();
+
     fn test_field_sq_thread_idle() {
         assert_eq!(
             unsafe {
@@ -1370,6 +1428,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_sq_thread_idle();
+
     fn test_field_features() {
         assert_eq!(
             unsafe {
@@ -1387,6 +1446,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_features();
+
     fn test_field_wq_fd() {
         assert_eq!(
             unsafe {
@@ -1404,6 +1464,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_wq_fd();
+
     fn test_field_resv() {
         assert_eq!(
             unsafe {
@@ -1421,6 +1482,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_resv();
+
     fn test_field_sq_off() {
         assert_eq!(
             unsafe {
@@ -1438,6 +1500,7 @@ fn bindgen_test_layout_io_uring_params() {
         );
     }
     test_field_sq_off();
+
     fn test_field_cq_off() {
         assert_eq!(
             unsafe {
@@ -1490,6 +1553,7 @@ fn bindgen_test_layout_io_uring_files_update() {
         8usize,
         concat!("Alignment of ", stringify!(io_uring_files_update))
     );
+
     fn test_field_offset() {
         assert_eq!(
             unsafe {
@@ -1507,6 +1571,7 @@ fn bindgen_test_layout_io_uring_files_update() {
         );
     }
     test_field_offset();
+
     fn test_field_resv() {
         assert_eq!(
             unsafe {
@@ -1524,6 +1589,7 @@ fn bindgen_test_layout_io_uring_files_update() {
         );
     }
     test_field_resv();
+
     fn test_field_fds() {
         assert_eq!(
             unsafe {
@@ -1562,6 +1628,7 @@ fn bindgen_test_layout_io_uring_probe_op() {
         4usize,
         concat!("Alignment of ", stringify!(io_uring_probe_op))
     );
+
     fn test_field_op() {
         assert_eq!(
             unsafe {
@@ -1579,6 +1646,7 @@ fn bindgen_test_layout_io_uring_probe_op() {
         );
     }
     test_field_op();
+
     fn test_field_resv() {
         assert_eq!(
             unsafe {
@@ -1596,6 +1664,7 @@ fn bindgen_test_layout_io_uring_probe_op() {
         );
     }
     test_field_resv();
+
     fn test_field_flags() {
         assert_eq!(
             unsafe {
@@ -1613,6 +1682,7 @@ fn bindgen_test_layout_io_uring_probe_op() {
         );
     }
     test_field_flags();
+
     fn test_field_resv2() {
         assert_eq!(
             unsafe {
@@ -1652,6 +1722,7 @@ fn bindgen_test_layout_io_uring_probe() {
         4usize,
         concat!("Alignment of ", stringify!(io_uring_probe))
     );
+
     fn test_field_last_op() {
         assert_eq!(
             unsafe {
@@ -1669,6 +1740,7 @@ fn bindgen_test_layout_io_uring_probe() {
         );
     }
     test_field_last_op();
+
     fn test_field_ops_len() {
         assert_eq!(
             unsafe {
@@ -1686,6 +1758,7 @@ fn bindgen_test_layout_io_uring_probe() {
         );
     }
     test_field_ops_len();
+
     fn test_field_resv() {
         assert_eq!(
             unsafe {
@@ -1703,6 +1776,7 @@ fn bindgen_test_layout_io_uring_probe() {
         );
     }
     test_field_resv();
+
     fn test_field_resv2() {
         assert_eq!(
             unsafe {
@@ -1720,6 +1794,7 @@ fn bindgen_test_layout_io_uring_probe() {
         );
     }
     test_field_resv2();
+
     fn test_field_ops() {
         assert_eq!(
             unsafe {
@@ -1768,6 +1843,7 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
             stringify!(io_uring_restriction__bindgen_ty_1)
         )
     );
+
     fn test_field_register_op() {
         assert_eq!(
             unsafe {
@@ -1786,6 +1862,7 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
         );
     }
     test_field_register_op();
+
     fn test_field_sqe_op() {
         assert_eq!(
             unsafe {
@@ -1804,6 +1881,7 @@ fn bindgen_test_layout_io_uring_restriction__bindgen_ty_1() {
         );
     }
     test_field_sqe_op();
+
     fn test_field_sqe_flags() {
         assert_eq!(
             unsafe {
@@ -1844,6 +1922,7 @@ fn bindgen_test_layout_io_uring_restriction() {
         4usize,
         concat!("Alignment of ", stringify!(io_uring_restriction))
     );
+
     fn test_field_opcode() {
         assert_eq!(
             unsafe {
@@ -1861,6 +1940,7 @@ fn bindgen_test_layout_io_uring_restriction() {
         );
     }
     test_field_opcode();
+
     fn test_field_resv() {
         assert_eq!(
             unsafe {
@@ -1878,6 +1958,7 @@ fn bindgen_test_layout_io_uring_restriction() {
         );
     }
     test_field_resv();
+
     fn test_field_resv2() {
         assert_eq!(
             unsafe {

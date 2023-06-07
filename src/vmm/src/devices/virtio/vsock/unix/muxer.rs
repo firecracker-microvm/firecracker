@@ -31,11 +31,13 @@
 ///    To route all these events to their handlers, the muxer uses another `HashMap` object,
 ///    mapping `RawFd`s to `EpollListener`s.
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{debug, error, info, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
+use tracing::{debug, error, info, warn};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::vm_memory::GuestMemoryMmap;
 
@@ -67,6 +69,7 @@ pub enum MuxerRx {
 }
 
 /// An epoll listener, registered under the muxer's nested epoll FD.
+#[derive(Debug)]
 enum EpollListener {
     /// The listener is a `MuxerConnection`, identified by `key`, and interested in the events
     /// in `evset`. Since `MuxerConnection` implements `VsockEpollListener`, notifications will
@@ -80,6 +83,7 @@ enum EpollListener {
 }
 
 /// The vsock connection multiplexer.
+#[derive(Debug)]
 pub struct VsockMuxer {
     /// Guest CID.
     cid: u64,
@@ -114,6 +118,7 @@ impl VsockChannel for VsockMuxer {
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
+    #[tracing::instrument(level = "trace", ret)]
     fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
@@ -187,6 +192,7 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
+    #[tracing::instrument(level = "trace", ret)]
     fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         let conn_key = ConnMapKey {
             local_port: pkt.dst_port(),
@@ -249,6 +255,7 @@ impl VsockChannel for VsockMuxer {
 
     /// Check if the muxer has any pending RX data, with which to fill a guest-provided RX
     /// buffer.
+    #[tracing::instrument(level = "trace", ret)]
     fn has_pending_rx(&self) -> bool {
         !self.rxq.is_empty() || !self.rxq.is_synced()
     }
@@ -259,6 +266,7 @@ impl AsRawFd for VsockMuxer {
     /// case).
     ///
     /// This will be the muxer's nested epoll FD.
+    #[tracing::instrument(level = "trace", ret)]
     fn as_raw_fd(&self) -> RawFd {
         self.epoll.as_raw_fd()
     }
@@ -269,11 +277,13 @@ impl VsockEpollListener for VsockMuxer {
     ///
     /// Since the polled FD is a nested epoll FD, we're only interested in EPOLLIN events (i.e.
     /// some event occurred on one of the FDs registered under our epoll FD).
+    #[tracing::instrument(level = "trace", ret)]
     fn get_polled_evset(&self) -> EventSet {
         EventSet::IN
     }
 
     /// Notify the muxer about a pending event having occured under its nested epoll FD.
+    #[tracing::instrument(level = "trace", ret)]
     fn notify(&mut self, _: EventSet) {
         debug!("vsock: muxer received kick");
 
@@ -302,6 +312,7 @@ impl VsockBackend for VsockMuxer {}
 
 impl VsockMuxer {
     /// Muxer constructor.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(cid: u64, host_sock_path: String) -> Result<Self> {
         // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
@@ -327,11 +338,13 @@ impl VsockMuxer {
         Ok(muxer)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     pub fn host_sock_path(&self) -> &str {
         &self.host_sock_path
     }
 
     /// Handle/dispatch an epoll event to its listener.
+    #[tracing::instrument(level = "trace", ret)]
     fn handle_event(&mut self, fd: RawFd, event_set: EventSet) {
         debug!(
             "vsock: muxer processing event: fd={}, evset={:?}",
@@ -420,6 +433,7 @@ impl VsockMuxer {
     }
 
     /// Parse a host "connect" command, and extract the destination vsock port.
+    #[tracing::instrument(level = "trace", ret)]
     fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32> {
         let mut buf = [0u8; 32];
 
@@ -463,6 +477,7 @@ impl VsockMuxer {
     }
 
     /// Add a new connection to the active connection pool.
+    #[tracing::instrument(level = "trace", ret)]
     fn add_connection(&mut self, key: ConnMapKey, conn: MuxerConnection) -> Result<()> {
         // We might need to make room for this new connection, so let's sweep the kill queue
         // first.  It's fine to do this here because:
@@ -498,6 +513,7 @@ impl VsockMuxer {
     }
 
     /// Remove a connection from the active connection poll.
+    #[tracing::instrument(level = "trace", ret)]
     fn remove_connection(&mut self, key: ConnMapKey) {
         if let Some(conn) = self.conn_map.remove(&key) {
             self.remove_listener(conn.as_raw_fd());
@@ -509,6 +525,7 @@ impl VsockMuxer {
     /// Schedule a connection for immediate termination.
     /// I.e. as soon as we can also let our peer know we're dropping the connection, by sending
     /// it an RST packet.
+    #[tracing::instrument(level = "trace", ret)]
     fn kill_connection(&mut self, key: ConnMapKey) {
         let mut had_rx = false;
         METRICS.vsock.conns_killed.inc();
@@ -528,6 +545,7 @@ impl VsockMuxer {
     }
 
     /// Register a new epoll listener under the muxer's nested epoll FD.
+    #[tracing::instrument(level = "trace", ret)]
     fn add_listener(&mut self, fd: RawFd, listener: EpollListener) -> Result<()> {
         let evset = match listener {
             EpollListener::Connection { evset, .. } => evset,
@@ -550,6 +568,7 @@ impl VsockMuxer {
     }
 
     /// Remove (and return) a previously registered epoll listener.
+    #[tracing::instrument(level = "trace", ret)]
     fn remove_listener(&mut self, fd: RawFd) -> Option<EpollListener> {
         let maybe_listener = self.listener_map.remove(&fd);
 
@@ -568,6 +587,7 @@ impl VsockMuxer {
     }
 
     /// Allocate a host-side port to be assigned to a new host-initiated connection.
+    #[tracing::instrument(level = "trace", ret)]
     fn allocate_local_port(&mut self) -> u32 {
         // TODO: this doesn't seem very space-efficient.
         // Mybe rewrite this to limit port range and use a bitmap?
@@ -583,6 +603,7 @@ impl VsockMuxer {
     }
 
     /// Mark a previously used host-side port as free.
+    #[tracing::instrument(level = "trace", ret)]
     fn free_local_port(&mut self, port: u32) {
         self.local_port_set.remove(&port);
     }
@@ -593,6 +614,7 @@ impl VsockMuxer {
     /// the file system path corresponing to the destination port. If successful, a new
     /// connection object will be created and added to the connection pool. On failure, a new
     /// RST packet will be scheduled for delivery to the guest.
+    #[tracing::instrument(level = "trace", ret)]
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacket) {
         let port_path = format!("{}_{}", self.host_sock_path, pkt.dst_port());
 
@@ -625,6 +647,7 @@ impl VsockMuxer {
     /// - update the connection's epoll listener;
     /// - schedule the connection to be queried for RX data;
     /// - kill the connection if an unrecoverable error occurs.
+    #[tracing::instrument(level = "trace", ret, skip(mut_fn))]
     fn apply_conn_mutation<F>(&mut self, key: ConnMapKey, mut_fn: F)
     where
         F: FnOnce(&mut MuxerConnection),
@@ -727,6 +750,7 @@ impl VsockMuxer {
 
     /// Check if any connections have timed out, and if so, schedule them for immediate
     /// termination.
+    #[tracing::instrument(level = "trace", ret)]
     fn sweep_killq(&mut self) {
         while let Some(key) = self.killq.pop() {
             // Connections don't get removed from the kill queue when their kill timer is
@@ -755,6 +779,7 @@ impl VsockMuxer {
     /// Enqueue errors aren't propagated up the call chain, since there is nothing we can do to
     /// handle them. We do, however, log a warning, since not being able to enqueue an RST
     /// packet means we have to drop it, which is not normal operation.
+    #[tracing::instrument(level = "trace", ret)]
     fn enq_rst(&mut self, local_port: u32, peer_port: u32) {
         let pushed = self.rxq.push(MuxerRx::RstPkt {
             local_port,
@@ -787,6 +812,7 @@ mod tests {
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
 
+    #[derive(Debug)]
     struct MuxerTestContext {
         _vsock_test_ctx: VsockTestContext,
         pkt: VsockPacket,
@@ -794,12 +820,14 @@ mod tests {
     }
 
     impl Drop for MuxerTestContext {
+        #[tracing::instrument(level = "trace", ret)]
         fn drop(&mut self) {
             std::fs::remove_file(self.muxer.host_sock_path.as_str()).unwrap();
         }
     }
 
     // Create a TempFile with a given prefix and return it as a nice String
+    #[tracing::instrument(level = "trace", ret)]
     fn get_file(fprefix: &str) -> String {
         let listener_path = TempFile::new_with_prefix(fprefix).unwrap();
         listener_path
@@ -811,6 +839,7 @@ mod tests {
     }
 
     impl MuxerTestContext {
+        #[tracing::instrument(level = "trace", ret)]
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
@@ -829,6 +858,7 @@ mod tests {
             }
         }
 
+        #[tracing::instrument(level = "trace")]
         fn init_pkt(&mut self, local_port: u32, peer_port: u32, op: u16) -> &mut VsockPacket {
             self.pkt
                 .set_type(uapi::VSOCK_TYPE_STREAM)
@@ -840,6 +870,7 @@ mod tests {
                 .set_buf_alloc(PEER_BUF_ALLOC)
         }
 
+        #[tracing::instrument(level = "trace")]
         fn init_data_pkt(
             &mut self,
             local_port: u32,
@@ -857,22 +888,26 @@ mod tests {
             &mut self.pkt
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn send(&mut self) {
             self.muxer
                 .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
                 .unwrap();
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn recv(&mut self) {
             self.muxer
                 .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
                 .unwrap();
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn notify_muxer(&mut self) {
             self.muxer.notify(EventSet::IN);
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn count_epoll_listeners(&self) -> (usize, usize) {
             let mut local_lsn_count = 0usize;
             let mut conn_lsn_count = 0usize;
@@ -886,10 +921,12 @@ mod tests {
             (local_lsn_count, conn_lsn_count)
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn create_local_listener(&self, port: u32) -> LocalListener {
             LocalListener::new(format!("{}_{}", self.muxer.host_sock_path, port))
         }
 
+        #[tracing::instrument(level = "trace", ret)]
         fn local_connect(&mut self, peer_port: u32) -> (UnixStream, u32) {
             let (init_local_lsn_count, init_conn_lsn_count) = self.count_epoll_listeners();
 
@@ -944,12 +981,14 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct LocalListener {
         path: PathBuf,
         sock: UnixListener,
     }
     impl LocalListener {
-        fn new<P: AsRef<Path> + Clone>(path: P) -> Self {
+        #[tracing::instrument(level = "trace", ret)]
+        fn new<P: AsRef<Path> + Clone + Debug>(path: P) -> Self {
             let path_buf = path.as_ref().to_path_buf();
             let sock = UnixListener::bind(path).unwrap();
             sock.set_nonblocking(true).unwrap();
@@ -958,6 +997,7 @@ mod tests {
                 sock,
             }
         }
+        #[tracing::instrument(level = "trace", ret)]
         fn accept(&mut self) -> UnixStream {
             let (stream, _) = self.sock.accept().unwrap();
             stream.set_nonblocking(true).unwrap();
@@ -965,6 +1005,7 @@ mod tests {
         }
     }
     impl Drop for LocalListener {
+        #[tracing::instrument(level = "trace", ret)]
         fn drop(&mut self) {
             std::fs::remove_file(&self.path).unwrap();
         }

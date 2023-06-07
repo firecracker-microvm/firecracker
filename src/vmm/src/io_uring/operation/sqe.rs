@@ -1,6 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+
 use utils::vm_memory::ByteValued;
 
 use crate::io_uring::bindings::io_uring_sqe;
@@ -11,8 +13,17 @@ unsafe impl ByteValued for io_uring_sqe {}
 /// Newtype wrapper over a raw sqe.
 pub(crate) struct Sqe(pub(crate) io_uring_sqe);
 
+// TODO Investigate getting a `std::fmt::Debug` implementation on `crate::bindings::io_uring_sqe`.
+impl std::fmt::Debug for Sqe {
+    #[tracing::instrument(level = "trace", ret, skip(f))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sqe").finish()
+    }
+}
+
 impl Sqe {
     /// Construct a new sqe.
+    #[tracing::instrument(level = "trace", ret, skip(inner))]
     pub(crate) fn new(inner: io_uring_sqe) -> Self {
         Self(inner)
     }
@@ -22,7 +33,8 @@ impl Sqe {
     /// # Safety
     /// Safe only if you guarantee that this is a valid pointer to some memory where there is a
     /// value of type T created from a Box<T>.
-    pub(crate) unsafe fn user_data<T>(self) -> T {
+    #[tracing::instrument(level = "trace", ret)]
+    pub(crate) unsafe fn user_data<T: Debug>(self) -> T {
         *Box::from_raw(self.0.user_data as *mut T)
     }
 }

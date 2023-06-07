@@ -11,6 +11,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 ///
 /// Mask CPUID to make exposed CPU features as close as possbile to AWS T2 instance and allow
 /// migrating snapshots between hosts with Intel Skylake and Cascade Lake securely.
+#[tracing::instrument(level = "trace", ret)]
 pub fn t2s() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

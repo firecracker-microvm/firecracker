@@ -69,6 +69,7 @@ pub enum Error {
 
 impl Error {
     /// Return true if this error is caused by a full submission or completion queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn is_throttling_err(&self) -> bool {
         matches!(
             self,
@@ -78,6 +79,7 @@ impl Error {
 }
 
 /// Main object representing an io_uring instance.
+#[derive(Debug)]
 pub struct IoUring {
     registered_fds_count: u32,
     squeue: SubmissionQueue,
@@ -103,6 +105,7 @@ impl IoUring {
     /// * `files` - Files to be registered for IO.
     /// * `restrictions` - Vector of [`Restriction`](restriction/enum.Restriction.html)s
     /// * `eventfd` - Optional eventfd for receiving completion notifications.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn new(
         num_entries: u32,
         files: Vec<&File>,
@@ -163,7 +166,11 @@ impl IoUring {
     /// # Safety
     /// Unsafe because we pass a raw user_data pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub unsafe fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
+    #[tracing::instrument(level = "trace", ret)]
+    pub unsafe fn push<T: std::fmt::Debug>(
+        &mut self,
+        op: Operation<T>,
+    ) -> std::result::Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
         match self.registered_fds_count {
@@ -196,7 +203,8 @@ impl IoUring {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
+    #[tracing::instrument(level = "trace", ret)]
+    pub unsafe fn pop<T: std::fmt::Debug>(&mut self) -> Result<Option<Cqe<T>>> {
         self.cqueue
             .pop()
             .map(|maybe_cqe| {
@@ -210,31 +218,37 @@ impl IoUring {
             .map_err(Error::CQueue)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn do_submit(&mut self, min_complete: u32) -> Result<u32> {
         self.squeue.submit(min_complete).map_err(Error::SQueue)
     }
 
     /// Submit all operations but don't wait for any completions.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn submit(&mut self) -> Result<u32> {
         self.do_submit(0)
     }
 
     /// Submit all operations and wait for their completion.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn submit_and_wait_all(&mut self) -> Result<u32> {
         self.do_submit(self.num_ops)
     }
 
     /// Return the number of operations currently on the submission queue.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn pending_sqes(&self) -> Result<u32> {
         self.squeue.pending().map_err(Error::SQueue)
     }
 
     /// A total of the number of ops in the submission and completion queues, as well as the
     /// in-flight ops.
+    #[tracing::instrument(level = "trace", ret)]
     pub fn num_ops(&self) -> u32 {
         self.num_ops
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn enable(&mut self) -> Result<()> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
@@ -250,6 +264,7 @@ impl IoUring {
         .map_err(Error::Enable)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn register_files(&mut self, files: Vec<&File>) -> Result<()> {
         if files.is_empty() {
             // No-op.
@@ -284,6 +299,7 @@ impl IoUring {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn register_eventfd(&self, fd: RawFd) -> Result<()> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
@@ -299,6 +315,7 @@ impl IoUring {
         .map_err(Error::RegisterEventfd)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn register_restrictions(&self, restrictions: Vec<Restriction>) -> Result<()> {
         if restrictions.is_empty() {
             // No-op.
@@ -323,6 +340,7 @@ impl IoUring {
         .map_err(Error::RegisterRestrictions)
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_features(params: io_uring_params) -> Result<()> {
         // We require that the host kernel will never drop completed entries due to an (unlikely)
         // overflow in the completion queue.
@@ -337,6 +355,7 @@ impl IoUring {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn check_operations(&self) -> Result<()> {
         let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::Fam)?;
 
@@ -388,6 +407,7 @@ mod tests {
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
 
+    #[tracing::instrument(level = "trace", ret)]
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
             assert!(entry.result().is_ok());
@@ -399,6 +419,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn setup_mem_region(len: usize) -> MmapRegion {
         const PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
         const FLAGS: i32 = libc::MAP_ANONYMOUS | libc::MAP_PRIVATE;
@@ -415,10 +436,12 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn free_mem_region(region: MmapRegion) {
         unsafe { libc::munmap(region.as_ptr().cast::<libc::c_void>(), region.len()) };
     }
 
+    #[tracing::instrument(level = "trace", ret)]
     fn read_entire_mem_region(region: &MmapRegion) -> Vec<u8> {
         let mut result = vec![0u8; region.len()];
         let count = region.as_volatile_slice().read(&mut result[..], 0).unwrap();
@@ -426,6 +449,8 @@ mod tests {
         result
     }
 
+    #[allow(clippy::let_with_type_underscore)]
+    #[tracing::instrument(level = "trace", ret)]
     fn arbitrary_rw_operation(file_len: u32) -> impl Strategy<Value = Operation<u32>> {
         (
             // OpCode: 0 -> Write, 1 -> Read.
