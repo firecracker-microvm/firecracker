@@ -13,5 +13,6 @@ libc = "0.2.117"
 nix = { version = "0.26.2", default-features = false, features = ["dir"] }
 regex = { version = "1.8.3", default-features = false, features = ["std"] }
 thiserror = "1.0.32"
+tracing = { version = "0.1.37", features = ["attributes"] }
 
 utils = { path = "../utils" }

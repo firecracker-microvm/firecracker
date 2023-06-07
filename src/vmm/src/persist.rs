@@ -15,6 +15,7 @@ use log::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
+use tracing::{error, info, warn};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap};

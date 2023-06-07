@@ -22,6 +22,7 @@ pub use micro_http::{
 };
 use seccompiler::BpfProgramRef;
 use serde_json::json;
+use tracing::{debug, error, info, warn};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;

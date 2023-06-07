@@ -8,6 +8,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
 use logger::{IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 
 /// Metrics reporting period.

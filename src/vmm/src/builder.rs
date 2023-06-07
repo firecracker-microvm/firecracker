@@ -20,6 +20,7 @@ use linux_loader::loader::KernelLoader;
 use log::error;
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
+use tracing::error;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;

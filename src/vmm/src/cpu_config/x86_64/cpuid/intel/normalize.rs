@@ -77,7 +77,7 @@ impl super::IntelCpuid {
     pub fn normalize(
         &mut self,
         // The index of the current logical CPU in the range [0..cpu_count].
-        _cpu_index: u8,
+        cpu_index: u8,
         // The total number of logical CPUs.
         cpu_count: u8,
         // The number of logical CPUs per core.

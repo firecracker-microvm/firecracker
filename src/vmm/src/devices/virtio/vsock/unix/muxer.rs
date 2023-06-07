@@ -36,8 +36,8 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use log::{debug, error, info, warn};
 use logger::{IncMetric, METRICS};
+use tracing::{debug, error, info, warn};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::vm_memory::GuestMemoryMmap;
 

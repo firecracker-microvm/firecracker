@@ -14,6 +14,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use log::{error, warn};
 use logger::ProcessTimeReporter;
 use seccompiler::BpfThreadMap;
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vmm::resources::VmResources;

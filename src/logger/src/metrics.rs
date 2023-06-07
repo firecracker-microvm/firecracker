@@ -68,8 +68,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 #[cfg(target_arch = "aarch64")]
-use log::warn;
-use serde::{Serialize, Serializer};
+use tracing::warn;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::rtc_pl031::RtcEvents;
 

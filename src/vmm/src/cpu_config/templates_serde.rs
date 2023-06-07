@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Debug;
+use std::str::FromStr;
 
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
@@ -19,6 +20,7 @@ macro_rules! deserialize_from_str {
     ($name:ident, $type:tt) => {
         /// Deserializes number from string.
         /// Number can be in binary, hex or dec formats.
+        #[tracing::instrument(level = "trace", ret, skip(deserializer))]
         pub fn $name<'de, D>(deserializer: D) -> Result<$type, D::Error>
         where
             D: Deserializer<'de>,

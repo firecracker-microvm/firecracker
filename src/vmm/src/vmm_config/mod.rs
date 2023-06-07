@@ -10,6 +10,8 @@ use std::path::Path;
 use libc::O_NONBLOCK;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -21,8 +23,6 @@ pub mod drive;
 pub mod entropy;
 /// Wrapper over the microVM general information attached to the microVM.
 pub mod instance_info;
-/// Wrapper for configuring the logger.
-pub mod logger;
 /// Wrapper for configuring the memory and CPU of the microVM.
 pub mod machine_config;
 /// Wrapper for configuring the metrics.
@@ -178,6 +178,58 @@ fn open_file_nonblock(path: &Path) -> Result<File> {
         .open(path)
 }
 
+/// Strongly typed structure used to describe the logger.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoggerConfig {
+    /// Named pipe or file used as output for logs.
+    pub log_path: Option<std::path::PathBuf>,
+    /// The level of the Logger.
+    pub level: Option<log::Level>,
+    /// When enabled, the logger will append to the output the severity of the log entry.
+    pub show_level: Option<bool>,
+    /// When enabled, the logger will append the origin of the log entry.
+    pub show_log_origin: Option<bool>,
+}
+
+
+impl LoggerConfig {
+    /// Initalizes the logger.
+    pub fn init(&self) {
+        let show_origin = self.show_log_origin.unwrap_or_default();
+
+        let fmt_layer = tracing_subscriber::fmt::Layer::new()
+            .with_level(self.show_level.unwrap_or_default())
+            .with_file(show_origin)
+            .with_line_number(show_origin);
+
+        let level = match self.level {
+            Some(log::Level::Error) => tracing::Level::ERROR,
+            Some(log::Level::Warn) => tracing::Level::WARN,
+            Some(log::Level::Info) | None => tracing::Level::INFO,
+            Some(log::Level::Debug) => tracing::Level::DEBUG,
+            Some(log::Level::Trace) => tracing::Level::TRACE,
+        };
+
+        let writer = if let Some(path) = &self.log_path {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)
+                .unwrap();
+            let writer = std::io::BufWriter::new(file);
+            let mutex = std::sync::Mutex::new(writer);
+            tracing_subscriber::fmt::writer::BoxMakeWriter::new(mutex)
+        } else {
+            tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
+        };
+
+        let fmt_layer = fmt_layer.with_writer(writer.with_max_level(level));
+
+        tracing_subscriber::registry().with(fmt_layer).init();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,5 +280,19 @@ mod tests {
         let generated_rl_conf = RateLimiterConfig::from(&rl);
         assert_eq!(generated_rl_conf, rl_conf);
         assert_eq!(generated_rl_conf.into_option(), Some(rl_conf));
+    }
+
+    #[test]
+    fn test_fifo_line_writer() {
+        let log_file_temp =
+            TempFile::new().expect("Failed to create temporary output logging file.");
+        let good_file = log_file_temp.as_path().to_path_buf();
+        let maybe_fifo = open_file_nonblock(&good_file);
+        assert!(maybe_fifo.is_ok());
+        let mut fw = logger::FcLineWriter::new(maybe_fifo.unwrap());
+
+        let msg = String::from("some message");
+        assert!(fw.write(msg.as_bytes()).is_ok());
+        assert!(fw.flush().is_ok());
     }
 }

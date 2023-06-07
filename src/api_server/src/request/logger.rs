@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use logger::{IncMetric, METRICS};
-use vmm::vmm_config::logger::LoggerConfig;
+use vmm::vmm_config::LoggerConfig;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
@@ -22,8 +22,6 @@ pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
 mod tests {
     use std::path::PathBuf;
 
-    use vmm::vmm_config::logger::LoggerLevel;
-
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
 
@@ -31,16 +29,17 @@ mod tests {
     fn test_parse_put_logger_request() {
         let mut body = r#"{
                 "log_path": "log",
-                "level": "Warning",
+                "level": "Warn",
                 "show_level": false,
                 "show_log_origin": false
               }"#;
 
         let mut expected_cfg = LoggerConfig {
-            log_path: PathBuf::from("log"),
-            level: LoggerLevel::Warning,
-            show_level: false,
-            show_log_origin: false,
+            log_path: Some(PathBuf::from("log")),
+            level: Some(log::Level::Warn),
+            show_level: Some(false),
+            show_log_origin: Some(false),
+            profile_file: None,
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
@@ -49,16 +48,17 @@ mod tests {
 
         body = r#"{
                 "log_path": "log",
-                "level": "DEBUG",
+                "level": "Debug",
                 "show_level": false,
                 "show_log_origin": false
               }"#;
 
         expected_cfg = LoggerConfig {
-            log_path: PathBuf::from("log"),
-            level: LoggerLevel::Debug,
-            show_level: false,
-            show_log_origin: false,
+            log_path: Some(PathBuf::from("log")),
+            level: Some(log::Level::Debug),
+            show_level: Some(false),
+            show_log_origin: Some(false),
+            profile_file: None,
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
@@ -67,7 +67,7 @@ mod tests {
 
         let invalid_body = r#"{
                 "invalid_field": "log",
-                "level": "Warning",
+                "level": "Warn",
                 "show_level": false,
                 "show_log_origin": false
               }"#;

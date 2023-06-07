@@ -12,6 +12,7 @@ use log::error;
 use logger::{IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use tracing::error;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;

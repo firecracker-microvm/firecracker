@@ -19,6 +19,7 @@ use log::{error, warn};
 use logger::{IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use serde::{Deserialize, Serialize};
+use tracing::{error, warn};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::vm_memory::GuestMemoryMmap;

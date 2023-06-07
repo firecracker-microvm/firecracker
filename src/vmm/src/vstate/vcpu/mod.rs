@@ -19,6 +19,7 @@ use libc::{c_int, c_void, siginfo_t};
 use log::{error, info};
 use logger::{IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
+use tracing::{error, info};
 use utils::errno;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};

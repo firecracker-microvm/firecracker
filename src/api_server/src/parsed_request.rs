@@ -7,6 +7,7 @@ use log::{error, info};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use tracing::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;

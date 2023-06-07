@@ -19,6 +19,7 @@ use logger::{IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use tracing::{error, warn};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};

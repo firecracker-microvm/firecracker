@@ -14,3 +14,4 @@ log = "0.4.18"
 logger = { path = "../logger" }
 snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
+tracing = { version = "0.1.37", features = ["attributes"] }

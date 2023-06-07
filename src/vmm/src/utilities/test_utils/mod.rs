@@ -52,18 +52,21 @@ pub fn create_vmm(
     (vmm, event_manager)
 }
 
+// TODO Add `ret` to `#[tracing::instrument(level = "trace")]` when `EventManager`
 // implements `Debug` (this may happen when https://github.com/rust-vmm/event-manager/pull/107 is
 // merged).
 pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, false, true)
 }
 
+// TODO Add `ret` to `#[tracing::instrument(level = "trace")]` when `EventManager`
 // implements `Debug` (this may happen when https://github.com/rust-vmm/event-manager/pull/107 is
 // merged).
 pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, false, false)
 }
 
+// TODO Add `ret` to `#[tracing::instrument(level = "trace")]` when `EventManager`
 // implements `Debug` (this may happen when https://github.com/rust-vmm/event-manager/pull/107 is
 // merged).
 #[cfg(target_arch = "x86_64")]
