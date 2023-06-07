@@ -106,8 +106,8 @@ where
             .build_queues_checked(
                 &constructor_args.mem,
                 TYPE_VSOCK,
-                defs::NUM_QUEUES,
-                defs::QUEUE_SIZE,
+                defs::VSOCK_NUM_QUEUES,
+                defs::VSOCK_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
         let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;

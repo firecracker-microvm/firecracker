@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 pub use crate::devices::virtio::block::device::FileEngineType;
-use crate::devices::virtio::block::Error as BlockError;
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::Block;
 pub use crate::devices::virtio::CacheType;
 use crate::Error as VmmError;
