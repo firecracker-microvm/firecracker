@@ -26,7 +26,7 @@ defaults.update(args.step_param)
 
 optional_grp = group(
     "❓ Optional",
-    "./tools/devtool -y test -c 1-10 -m 0 -- ../tests/integration_tests/ -m no_block_pr",
+    "./tools/devtool -y test -c 1-10 -m 0 -- ../tests/integration_tests/ -m no_block_pr --log-cli-level=INFO",
     **defaults,
 )
 
