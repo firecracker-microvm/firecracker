@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Optional benchmarks-do-not-regress test"""
 
+import json
+import logging
 import os
 import platform
 
@@ -11,6 +13,7 @@ from framework import utils
 from host_tools.cargo_build import cargo
 
 TARGET_BRANCH = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") or "main"
+LOGGER = logging.getLogger(__name__)
 
 
 @pytest.mark.no_block_pr
@@ -40,6 +43,16 @@ def test_no_regression_relative_to_target_branch():
         for result in criterion_output.split("\n\n")
         if "Performance has regressed." in result
     )
+
+    for benchmark in os.listdir("../build/cargo_target/criterion"):
+        with open(
+            f"../build/cargo_target/criterion/{benchmark}/new/estimates.json",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(file)
+        average_ns = data["mean"]["point_estimate"]
+
+        LOGGER.info("%s mean: %iµs", benchmark, average_ns / 1000)
 
     # If this string is anywhere in stdout, then at least one of our benchmarks
     # is now performing worse with the PR changes.

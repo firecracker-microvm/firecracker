@@ -45,7 +45,7 @@ pub fn cpu_template_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = cpu_template_benches;
-    config = Criterion::default().sample_size(200).output_directory(Path::new("../../build/vmm_benchmark/cpu_templates"));
+    config = Criterion::default().sample_size(200);
     targets = cpu_template_benchmark
 }
 
