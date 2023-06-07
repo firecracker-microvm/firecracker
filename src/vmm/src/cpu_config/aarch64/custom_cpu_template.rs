@@ -157,10 +157,13 @@ mod tests {
                 }"#,
         );
         assert!(cpu_config_result.is_err());
-        assert!(cpu_config_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [j] as a number for CPU template"));
+        let error_msg: String = cpu_config_result.unwrap_err().to_string();
+        // Formatted error expected clarifying the number system prefix is missing
+        assert!(
+            error_msg.contains("No supported number system prefix found in value"),
+            "{}",
+            error_msg
+        );
 
         // Malformed address as binary
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -184,7 +187,7 @@ mod tests {
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "200",
+                            "addr": "0x200",
                             "bitmap": "0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1"
                         },
                     ]
@@ -200,7 +203,7 @@ mod tests {
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "200",
+                            "addr": "0x200",
                             "bitmap": "0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1"
                         },
                     ]

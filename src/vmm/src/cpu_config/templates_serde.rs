@@ -1,8 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
-
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
 
@@ -29,7 +27,11 @@ macro_rules! deserialize_from_str {
             } else if let Some(s) = number_str.strip_prefix("0x") {
                 $type::from_str_radix(s, 16)
             } else {
-                $type::from_str(&number_str)
+                return Err(D::Error::custom(format!(
+                    "No supported number system prefix found in value [{}]. Make sure to prefix \
+                     the number with '0x' for hexadecimal numbers or '0b' for binary numbers.",
+                    number_str,
+                )));
             }
             .map_err(|err| {
                 D::Error::custom(format!(
@@ -54,12 +56,6 @@ mod tests {
 
     #[test]
     fn test_deserialize_from_str() {
-        let valid_string = "69";
-        let deserializer: StrDeserializer<Error> = valid_string.into_deserializer();
-        let valid_value = deserialize_from_str_u32(deserializer);
-        assert!(valid_value.is_ok());
-        assert_eq!(valid_value.unwrap(), 69);
-
         let valid_string = "0b1000101";
         let deserializer: StrDeserializer<Error> = valid_string.into_deserializer();
         let valid_value = deserialize_from_str_u32(deserializer);
@@ -73,6 +69,11 @@ mod tests {
         assert_eq!(valid_value.unwrap(), 69);
 
         let invalid_string = "xϽ69";
+        let deserializer: StrDeserializer<Error> = invalid_string.into_deserializer();
+        let invalid_value = deserialize_from_str_u32(deserializer);
+        assert!(invalid_value.is_err());
+
+        let invalid_string = "69";
         let deserializer: StrDeserializer<Error> = invalid_string.into_deserializer();
         let invalid_value = deserialize_from_str_u32(deserializer);
         assert!(invalid_value.is_err());
