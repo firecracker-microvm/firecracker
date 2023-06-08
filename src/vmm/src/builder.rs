@@ -62,7 +62,7 @@ pub enum StartMicrovmError {
     /// This error is thrown by the minimal boot loader implementation.
     ConfigureSystem(arch::Error),
     /// Internal errors are due to resource exhaustion.
-    CreateNetDevice(devices::virtio::net::Error),
+    CreateNetDevice(devices::virtio::net::NetError),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
@@ -1619,7 +1619,7 @@ pub mod tests {
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(devices::virtio::net::Error::EventFd(
+        let err = CreateNetDevice(devices::virtio::net::NetError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

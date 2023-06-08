@@ -953,7 +953,7 @@ mod tests {
             None,
         ) {
             Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                devices::virtio::net::Error::TapOpen { .. },
+                devices::virtio::net::NetError::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
         }

@@ -99,7 +99,7 @@ impl MutEventSubscriber for Block {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
@@ -111,8 +111,8 @@ pub mod tests {
     use crate::virtio::block::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
-    use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::virtio::VIRTQ_DESC_F_NEXT;
 
     #[test]
     fn test_event_handler() {

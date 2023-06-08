@@ -4,7 +4,6 @@
 name = "aiohttp"
 version = "3.8.4"
 description = "Async http client/server framework (asyncio)"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -113,7 +112,6 @@ speedups = ["Brotli", "aiodns", "cchardet"]
 name = "aiosignal"
 version = "1.3.1"
 description = "aiosignal: a list of registered asynchronous callbacks"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -128,7 +126,6 @@ frozenlist = ">=1.1.0"
 name = "argparse"
 version = "1.4.0"
 description = "Python command-line parsing library"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -140,7 +137,6 @@ files = [
 name = "arrow"
 version = "1.2.0"
 description = "Better dates & times for Python"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -155,7 +151,6 @@ python-dateutil = ">=2.7.0"
 name = "astroid"
 version = "2.15.1"
 description = "An abstract syntax tree for Python with inference support."
-category = "main"
 optional = false
 python-versions = ">=3.7.2"
 files = [
@@ -172,7 +167,6 @@ wrapt = {version = ">=1.11,<2", markers = "python_version < \"3.11\""}
 name = "async-timeout"
 version = "4.0.2"
 description = "Timeout context manager for asyncio programs"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -184,7 +178,6 @@ files = [
 name = "attrs"
 version = "22.2.0"
 description = "Classes Without Boilerplate"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -203,7 +196,6 @@ tests-no-zope = ["cloudpickle", "cloudpickle", "hypothesis", "hypothesis", "mypy
 name = "aws-embedded-metrics"
 version = "3.1.0"
 description = "AWS Embedded Metrics Package"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -218,7 +210,6 @@ aiohttp = "*"
 name = "black"
 version = "23.3.0"
 description = "The uncompromising code formatter."
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -267,7 +258,6 @@ uvloop = ["uvloop (>=0.15.2)"]
 name = "boto3"
 version = "1.26.101"
 description = "The AWS SDK for Python"
-category = "main"
 optional = false
 python-versions = ">= 3.7"
 files = [
@@ -287,7 +277,6 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 name = "botocore"
 version = "1.29.101"
 description = "Low-level, data-driven core of boto 3."
-category = "main"
 optional = false
 python-versions = ">= 3.7"
 files = [
@@ -307,7 +296,6 @@ crt = ["awscrt (==0.16.9)"]
 name = "certifi"
 version = "2022.12.7"
 description = "Python package for providing Mozilla's CA Bundle."
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -319,7 +307,6 @@ files = [
 name = "charset-normalizer"
 version = "3.0.1"
 description = "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet."
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -417,7 +404,6 @@ files = [
 name = "click"
 version = "8.0.1"
 description = "Composable command line interface toolkit"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -432,7 +418,6 @@ colorama = {version = "*", markers = "platform_system == \"Windows\""}
 name = "colorama"
 version = "0.4.6"
 description = "Cross-platform colored terminal text."
-category = "main"
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
 files = [
@@ -444,7 +429,6 @@ files = [
 name = "contextlib2"
 version = "21.6.0"
 description = "Backports and enhancements for the contextlib module"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -468,7 +452,6 @@ files = [
 name = "decorator"
 version = "5.1.1"
 description = "Decorators for Humans"
-category = "main"
 optional = false
 python-versions = ">=3.5"
 files = [
@@ -480,7 +463,6 @@ files = [
 name = "dill"
 version = "0.3.6"
 description = "serialize all of python"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -495,7 +477,6 @@ graph = ["objgraph (>=1.7.2)"]
 name = "exceptiongroup"
 version = "1.1.0"
 description = "Backport of PEP 654 (exception groups)"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -510,7 +491,6 @@ test = ["pytest (>=6)"]
 name = "execnet"
 version = "1.9.0"
 description = "execnet: rapid multi-Python deployment"
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 files = [
@@ -525,7 +505,6 @@ testing = ["pre-commit"]
 name = "frozenlist"
 version = "1.3.3"
 description = "A list-like structure which implements collections.abc.MutableSequence"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -609,7 +588,6 @@ files = [
 name = "gitlint"
 version = "0.16.0"
 description = "Git commit message linter written in python, checks your commit messages for style."
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -626,7 +604,6 @@ sh = {version = "1.14.2", markers = "sys_platform != \"win32\""}
 name = "idna"
 version = "3.4"
 description = "Internationalized Domain Names in Applications (IDNA)"
-category = "main"
 optional = false
 python-versions = ">=3.5"
 files = [
@@ -638,7 +615,6 @@ files = [
 name = "iniconfig"
 version = "2.0.0"
 description = "brain-dead simple config-ini parsing"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -650,7 +626,6 @@ files = [
 name = "isort"
 version = "5.12.0"
 description = "A Python utility / library to sort Python imports."
-category = "main"
 optional = false
 python-versions = ">=3.8.0"
 files = [
@@ -668,7 +643,6 @@ requirements-deprecated-finder = ["pip-api", "pipreqs"]
 name = "jmespath"
 version = "1.0.1"
 description = "JSON Matching Expressions"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -680,7 +654,6 @@ files = [
 name = "jsonschema"
 version = "4.17.3"
 description = "An implementation of JSON Schema validation for Python"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -700,7 +673,6 @@ format-nongpl = ["fqdn", "idna", "isoduration", "jsonpointer (>1.13)", "rfc3339-
 name = "jsonschema-spec"
 version = "0.1.4"
 description = "JSONSchema Spec with object-oriented paths"
-category = "main"
 optional = false
 python-versions = ">=3.7.0,<4.0.0"
 files = [
@@ -718,7 +690,6 @@ typing-extensions = ">=4.3.0,<5.0.0"
 name = "lazy-object-proxy"
 version = "1.9.0"
 description = "A fast and thorough lazy object proxy."
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -764,7 +735,6 @@ files = [
 name = "mccabe"
 version = "0.7.0"
 description = "McCabe checker, plugin for flake8"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -776,7 +746,6 @@ files = [
 name = "multidict"
 version = "6.0.4"
 description = "multidict implementation"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -860,7 +829,6 @@ files = [
 name = "mypy-extensions"
 version = "1.0.0"
 description = "Type system extensions for programs checked with the mypy type checker."
-category = "main"
 optional = false
 python-versions = ">=3.5"
 files = [
@@ -872,7 +840,6 @@ files = [
 name = "nsenter"
 version = "0.2"
 description = "Enter kernel namespaces from Python"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -889,7 +856,6 @@ pathlib = "*"
 name = "numpy"
 version = "1.24.2"
 description = "Fundamental package for array computing in Python"
-category = "main"
 optional = false
 python-versions = ">=3.8"
 files = [
@@ -927,7 +893,6 @@ files = [
 name = "openapi-schema-validator"
 version = "0.4.4"
 description = "OpenAPI schema validation for Python"
-category = "main"
 optional = false
 python-versions = ">=3.7.0,<4.0.0"
 files = [
@@ -946,7 +911,6 @@ docs = ["sphinx (>=5.3.0,<6.0.0)", "sphinx-immaterial (>=0.11.0,<0.12.0)"]
 name = "openapi-spec-validator"
 version = "0.5.6"
 description = "OpenAPI 2.0 (aka Swagger) and OpenAPI 3 spec validator"
-category = "main"
 optional = false
 python-versions = ">=3.7.0,<4.0.0"
 files = [
@@ -968,7 +932,6 @@ requests = ["requests"]
 name = "packaging"
 version = "23.0"
 description = "Core utilities for Python packages"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -980,7 +943,6 @@ files = [
 name = "pandas"
 version = "1.5.3"
 description = "Powerful data structures for data analysis, time series, and statistics"
-category = "main"
 optional = false
 python-versions = ">=3.8"
 files = [
@@ -1025,7 +987,6 @@ test = ["hypothesis (>=5.5.3)", "pytest (>=6.0)", "pytest-xdist (>=1.31)"]
 name = "pathable"
 version = "0.4.3"
 description = "Object-oriented paths"
-category = "main"
 optional = false
 python-versions = ">=3.7.0,<4.0.0"
 files = [
@@ -1037,7 +998,6 @@ files = [
 name = "pathlib"
 version = "1.0.1"
 description = "Object-oriented filesystem paths"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1049,7 +1009,6 @@ files = [
 name = "pathspec"
 version = "0.11.0"
 description = "Utility library for gitignore style pattern matching of file paths."
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1061,7 +1020,6 @@ files = [
 name = "platformdirs"
 version = "3.2.0"
 description = "A small Python package for determining appropriate platform-specific dirs, e.g. a \"user data dir\"."
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1077,7 +1035,6 @@ test = ["appdirs (==1.4.4)", "covdefaults (>=2.3)", "pytest (>=7.2.2)", "pytest-
 name = "pluggy"
 version = "1.0.0"
 description = "plugin and hook calling mechanisms for python"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -1093,7 +1050,6 @@ testing = ["pytest", "pytest-benchmark"]
 name = "psutil"
 version = "5.9.4"
 description = "Cross-platform lib for process and system monitoring in Python."
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
 files = [
@@ -1120,7 +1076,6 @@ test = ["enum34", "ipaddress", "mock", "pywin32", "wmi"]
 name = "py"
 version = "1.11.0"
 description = "library with cross-python path, ini-parsing, io, code, log facilities"
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 files = [
@@ -1132,7 +1087,6 @@ files = [
 name = "pylint"
 version = "2.17.1"
 description = "python code static checker"
-category = "main"
 optional = false
 python-versions = ">=3.7.2"
 files = [
@@ -1158,7 +1112,6 @@ testutils = ["gitpython (>3)"]
 name = "pyrsistent"
 version = "0.19.3"
 description = "Persistent/Functional/Immutable data structures"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1195,7 +1148,6 @@ files = [
 name = "pytest"
 version = "7.2.1"
 description = "pytest: simple powerful testing with Python"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1219,7 +1171,6 @@ testing = ["argcomplete", "hypothesis (>=3.56)", "mock", "nose", "pygments (>=2.
 name = "pytest-json-report"
 version = "1.5.0"
 description = "A pytest plugin to report test results as JSON files"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1233,24 +1184,25 @@ pytest-metadata = "*"
 
 [[package]]
 name = "pytest-metadata"
-version = "2.0.4"
+version = "3.0.0"
 description = "pytest plugin for test session metadata"
-category = "main"
 optional = false
-python-versions = ">=3.7,<4.0"
+python-versions = ">=3.7"
 files = [
-    {file = "pytest_metadata-2.0.4-py3-none-any.whl", hash = "sha256:acb739f89fabb3d798c099e9e0c035003062367a441910aaaf2281bc1972ee14"},
-    {file = "pytest_metadata-2.0.4.tar.gz", hash = "sha256:fcc653f65fe3035b478820b5284fbf0f52803622ee3f60a2faed7a7d3ba1f41e"},
+    {file = "pytest_metadata-3.0.0-py3-none-any.whl", hash = "sha256:a17b1e40080401dc23177599208c52228df463db191c1a573ccdffacd885e190"},
+    {file = "pytest_metadata-3.0.0.tar.gz", hash = "sha256:769a9c65d2884bd583bc626b0ace77ad15dbe02dd91a9106d47fd46d9c2569ca"},
 ]
 
 [package.dependencies]
-pytest = ">=3.0.0,<8.0.0"
+pytest = ">=7.0.0"
+
+[package.extras]
+test = ["black (>=22.1.0)", "flake8 (>=4.0.1)", "pre-commit (>=2.17.0)", "tox (>=3.24.5)"]
 
 [[package]]
 name = "pytest-timeout"
 version = "2.1.0"
 description = "pytest plugin to abort hanging tests"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -1265,7 +1217,6 @@ pytest = ">=5.0.0"
 name = "pytest-xdist"
 version = "3.2.0"
 description = "pytest xdist plugin for distributed testing, most importantly across multiple CPUs"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1286,7 +1237,6 @@ testing = ["filelock"]
 name = "python-dateutil"
 version = "2.8.2"
 description = "Extensions to the standard Python datetime module"
-category = "main"
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
 files = [
@@ -1301,7 +1251,6 @@ six = ">=1.5"
 name = "pytz"
 version = "2023.3"
 description = "World timezone definitions, modern and historical"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1313,7 +1262,6 @@ files = [
 name = "pyyaml"
 version = "6.0"
 description = "YAML parser and emitter for Python"
-category = "main"
 optional = false
 python-versions = ">=3.6"
 files = [
@@ -1363,7 +1311,6 @@ files = [
 name = "requests"
 version = "2.28.2"
 description = "Python HTTP for Humans."
-category = "main"
 optional = false
 python-versions = ">=3.7, <4"
 files = [
@@ -1385,7 +1332,6 @@ use-chardet-on-py3 = ["chardet (>=3.0.2,<6)"]
 name = "requests-unixsocket"
 version = "0.3.0"
 description = "Use requests to talk HTTP via a UNIX domain socket"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1400,7 +1346,6 @@ requests = ">=1.1"
 name = "retry"
 version = "0.9.2"
 description = "Easy to use retry decorator."
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1416,7 +1361,6 @@ py = ">=1.4.26,<2.0.0"
 name = "rfc3339-validator"
 version = "0.1.4"
 description = "A pure python RFC3339 validator"
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 files = [
@@ -1431,7 +1375,6 @@ six = "*"
 name = "s3transfer"
 version = "0.6.0"
 description = "An Amazon S3 Transfer Manager"
-category = "main"
 optional = false
 python-versions = ">= 3.7"
 files = [
@@ -1449,7 +1392,6 @@ crt = ["botocore[crt] (>=1.20.29,<2.0a.0)"]
 name = "setproctitle"
 version = "1.3.2"
 description = "A Python module to customize the process title"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1534,7 +1476,6 @@ test = ["pytest"]
 name = "sh"
 version = "1.14.2"
 description = "Python subprocess replacement"
-category = "main"
 optional = false
 python-versions = "*"
 files = [
@@ -1546,7 +1487,6 @@ files = [
 name = "six"
 version = "1.16.0"
 description = "Python 2 and 3 compatibility utilities"
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*"
 files = [
@@ -1558,7 +1498,6 @@ files = [
 name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1570,7 +1509,6 @@ files = [
 name = "tomlkit"
 version = "0.11.7"
 description = "Style preserving TOML library"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1582,7 +1520,6 @@ files = [
 name = "typing-extensions"
 version = "4.5.0"
 description = "Backported and Experimental Type Hints for Python 3.7+"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -1594,7 +1531,6 @@ files = [
 name = "urllib3"
 version = "1.26.14"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
-category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*"
 files = [
@@ -1611,7 +1547,6 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 name = "wrapt"
 version = "1.14.1"
 description = "Module for decorators, wrappers and monkey patching."
-category = "main"
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,>=2.7"
 files = [
@@ -1685,7 +1620,6 @@ files = [
 name = "yarl"
 version = "1.8.2"
 description = "Yet another URL library"
-category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [

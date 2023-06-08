@@ -97,7 +97,7 @@ where
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
     pub fn new(cid: u64, backend: B) -> super::Result<Vsock<B>> {
-        let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
+        let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
@@ -316,11 +316,11 @@ where
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
-        if self.queues.len() != defs::NUM_QUEUES {
+        if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.vsock.activate_fails.inc();
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
-                defs::NUM_QUEUES,
+                defs::VSOCK_NUM_QUEUES,
                 self.queues.len()
             );
             return Err(ActivateError::BadActivate);
