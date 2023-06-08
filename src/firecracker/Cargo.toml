@@ -27,5 +27,5 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-cargo_toml = "0.15.2"
+cargo_toml = "0.15.3"
 regex = { version = "1.8.3", default-features = false, features = ["std"] }
