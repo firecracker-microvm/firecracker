@@ -85,6 +85,7 @@ EOF
 
     # -comp zstd but guest kernel does not support
     rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
+    sudo mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
     sudo mksquashfs $rootfs $rootfs_img -all-root -noappend
     rootfs_ext4=$OUTPUT_DIR/$ROOTFS_NAME.ext4
     dir2ext4img $rootfs $rootfs_ext4
@@ -152,7 +153,9 @@ function build_linux {
     make -j $(nproc) $target
     LATEST_VERSION=$(cat include/config/kernel.release)
     flavour=$(basename $KERNEL_CFG .config |grep -Po "\d+\.\d+\K(-.*)" || true)
-    cp -v $binary_path $OUTPUT_DIR/vmlinux-$LATEST_VERSION$flavour
+    OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$LATEST_VERSION$flavour
+    cp -v $binary_path $OUTPUT_FILE
+    cp -v .config $OUTPUT_FILE.config
     popd &>/dev/null
 }
 

@@ -72,3 +72,6 @@ cat >> /etc/sysctl.conf <<EOF
 # This avoids a SPECTRE vuln
 kernel.unprivileged_bpf_disabled=1
 EOF
+
+# Build a manifest
+dpkg-query --show >/root/manifest
