@@ -20,8 +20,8 @@ use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 use super::device::Net;
-use super::{NUM_QUEUES, QUEUE_SIZE};
-use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
+use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
+use crate::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
 #[derive(Debug, Default, Clone, Versionize)]
@@ -77,8 +77,8 @@ pub struct NetConstructorArgs {
 }
 
 #[derive(Debug, derive_more::From)]
-pub enum Error {
-    CreateNet(super::Error),
+pub enum NetError {
+    CreateNet(super::NetError),
     CreateRateLimiter(io::Error),
     VirtioState(VirtioStateError),
     NoMmdsDataStore,
@@ -87,7 +87,7 @@ pub enum Error {
 impl Persist<'_> for Net {
     type State = NetState;
     type ConstructorArgs = NetConstructorArgs;
-    type Error = Error;
+    type Error = NetError;
 
     fn save(&self) -> Self::State {
         NetState {
@@ -129,7 +129,7 @@ impl Persist<'_> for Net {
                 MmdsNetworkStack::restore(
                     constructor_args
                         .mmds
-                        .map_or_else(|| Err(Error::NoMmdsDataStore), Ok)?,
+                        .map_or_else(|| Err(NetError::NoMmdsDataStore), Ok)?,
                     mmds_ns,
                 )
                 .unwrap(),
@@ -139,8 +139,8 @@ impl Persist<'_> for Net {
         net.queues = state.virtio_state.build_queues_checked(
             &constructor_args.mem,
             TYPE_NET,
-            NUM_QUEUES,
-            QUEUE_SIZE,
+            NET_NUM_QUEUES,
+            NET_QUEUE_SIZE,
         )?;
         net.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
@@ -219,7 +219,7 @@ mod tests {
                     assert_eq!(restored_net.rx_rate_limiter, RateLimiter::default());
                     assert_eq!(restored_net.tx_rate_limiter, RateLimiter::default());
                 }
-                Err(Error::NoMmdsDataStore) => assert!(has_mmds_ns && !allow_mmds_requests),
+                Err(NetError::NoMmdsDataStore) => assert!(has_mmds_ns && !allow_mmds_requests),
                 _ => unreachable!(),
             }
         }

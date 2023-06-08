@@ -93,7 +93,7 @@ pub struct BalloonConstructorArgs {
 impl Persist<'_> for Balloon {
     type State = BalloonState;
     type ConstructorArgs = BalloonConstructorArgs;
-    type Error = super::Error;
+    type Error = super::BalloonError;
 
     fn save(&self) -> Self::State {
         BalloonState {
@@ -116,7 +116,7 @@ impl Persist<'_> for Balloon {
         // num_pages because we will overwrite them after.
         let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s, true)?;
 
-        let mut num_queues = NUM_QUEUES;
+        let mut num_queues = BALLOON_NUM_QUEUES;
         // As per the virtio 1.1 specification, the statistics queue
         // should not exist if the statistics are not enabled.
         if state.stats_polling_interval_s == 0 {
@@ -124,7 +124,12 @@ impl Persist<'_> for Balloon {
         }
         balloon.queues = state
             .virtio_state
-            .build_queues_checked(&constructor_args.mem, TYPE_BALLOON, num_queues, QUEUE_SIZE)
+            .build_queues_checked(
+                &constructor_args.mem,
+                TYPE_BALLOON,
+                num_queues,
+                BALLOON_QUEUE_SIZE,
+            )
             .map_err(|_| Self::Error::QueueRestoreError)?;
         balloon.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
