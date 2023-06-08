@@ -839,7 +839,7 @@ mod tests {
     use super::*;
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
-    use crate::devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
+    use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::rng::Error as EntropyError;
     use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;

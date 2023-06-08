@@ -88,7 +88,7 @@ pub const TEST_TEMPLATE_JSON: &str = r#"{
             "bitmap": "0bx00111xxx1xxxx111xxxxx101xxxxxx1"
         },
         {
-            "addr": "2",
+            "addr": "0b11",
             "bitmap": "0bx00100xxx1xxxxxx0000000xxxxxxxx1"
         },
         {

@@ -33,7 +33,7 @@ const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
-    Error, NetQueue, Result, MAX_BUFFER_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
+    NetError, NetQueue, Result, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
 use crate::devices::virtio::{
     ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
@@ -64,7 +64,7 @@ const fn frame_hdr_len() -> usize {
 // function returns a slice which holds the L2 frame bytes without this header.
 fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8]> {
     if buf.len() < vnet_hdr_len() {
-        Err(Error::VnetHeaderMissing)
+        Err(NetError::VnetHeaderMissing)
     } else {
         Ok(&buf[vnet_hdr_len()..])
     }
@@ -72,7 +72,7 @@ fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8]> {
 
 fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8]> {
     if buf.len() < vnet_hdr_len() {
-        Err(Error::VnetHeaderMissing)
+        Err(NetError::VnetHeaderMissing)
     } else {
         Ok(&mut buf[vnet_hdr_len()..])
     }
@@ -151,8 +151,8 @@ impl Net {
 
         let mut queue_evts = Vec::new();
         let mut queues = Vec::new();
-        for &size in QUEUE_SIZES {
-            queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?);
+        for size in NET_QUEUE_SIZES {
+            queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?);
             queues.push(Queue::new(size));
         }
 
@@ -169,11 +169,11 @@ impl Net {
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_frame_headers: [0u8; frame_hdr_len()],
-            irq_trigger: IrqTrigger::new().map_err(Error::EventFd)?,
+            irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
             config_space,
             guest_mac,
             device_state: DeviceState::Inactive,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
         })
     }
@@ -186,17 +186,17 @@ impl Net {
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self> {
-        let tap = Tap::open_named(tap_if_name).map_err(Error::TapOpen)?;
+        let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
 
         // Set offload flags to match the virtio features below.
         tap.set_offload(
             net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
         )
-        .map_err(Error::TapSetOffload)?;
+        .map_err(NetError::TapSetOffload)?;
 
         let vnet_hdr_size = vnet_hdr_len() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(Error::TapSetVnetHdrSize)?;
+            .map_err(NetError::TapSetVnetHdrSize)?;
 
         Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
@@ -424,7 +424,7 @@ impl Net {
         let header_len = frame_iovec.read_at(headers, 0).ok_or_else(|| {
             error!("Received empty TX buffer");
             METRICS.net.tx_malformed_frames.inc();
-            Error::VnetHeaderMissing
+            NetError::VnetHeaderMissing
         })?;
 
         let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
@@ -489,7 +489,7 @@ impl Net {
             }
         }
 
-        self.read_tap().map_err(Error::IO)
+        self.read_tap().map_err(NetError::IO)
     }
 
     fn process_rx(&mut self) -> result::Result<(), DeviceError> {
@@ -504,7 +504,7 @@ impl Net {
                         break;
                     }
                 }
-                Err(Error::IO(err)) => {
+                Err(NetError::IO(err)) => {
                     // The tap device is non-blocking, so any error aside from EAGAIN is
                     // unexpected.
                     match err.raw_os_error() {
@@ -854,7 +854,7 @@ pub mod tests {
         default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
         TapTrafficSimulator, WriteTapMock,
     };
-    use crate::devices::virtio::net::QUEUE_SIZES;
+    use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::{
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
     };
@@ -1950,12 +1950,12 @@ pub mod tests {
 
         // Test queues count (TX and RX).
         let queues = net.queues();
-        assert_eq!(queues.len(), QUEUE_SIZES.len());
+        assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
         assert_eq!(queues[RX_INDEX].size, th.rxq.size());
         assert_eq!(queues[TX_INDEX].size, th.txq.size());
 
         // Test corresponding queues events.
-        assert_eq!(net.queue_events().len(), QUEUE_SIZES.len());
+        assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
 
         // Test interrupts.
         assert!(!&net.irq_trigger.has_pending_irq(IrqType::Vring));

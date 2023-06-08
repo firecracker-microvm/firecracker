@@ -20,9 +20,9 @@ use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
-use crate::devices::virtio::balloon::{Balloon, Error as BalloonError};
+use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::{Block, Error as BlockError};
+use crate::devices::virtio::block::{Block, BlockError};
 use crate::devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};

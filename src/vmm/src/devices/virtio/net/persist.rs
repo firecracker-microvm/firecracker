@@ -20,8 +20,8 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::device::Net;
-use super::{NUM_QUEUES, QUEUE_SIZE};
-use crate::devices::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
+use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
+use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::{DeviceState, TYPE_NET};
 
 #[derive(Debug, Default, Clone, Versionize)]
@@ -78,7 +78,7 @@ pub struct NetConstructorArgs {
 
 #[derive(Debug, derive_more::From)]
 pub enum Error {
-    CreateNet(super::Error),
+    CreateNet(super::NetError),
     CreateRateLimiter(io::Error),
     VirtioState(VirtioStateError),
     NoMmdsDataStore,
@@ -139,8 +139,8 @@ impl Persist<'_> for Net {
         net.queues = state.virtio_state.build_queues_checked(
             &constructor_args.mem,
             TYPE_NET,
-            NUM_QUEUES,
-            QUEUE_SIZE,
+            NET_NUM_QUEUES,
+            NET_QUEUE_SIZE,
         )?;
         net.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));

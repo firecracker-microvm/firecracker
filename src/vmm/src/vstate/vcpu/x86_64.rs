@@ -898,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
+    #[allow(clippy::cast_sign_loss, clippy::redundant_clone)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.

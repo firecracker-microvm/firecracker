@@ -83,7 +83,7 @@ use crate::cpu_config::templates::CpuConfiguration;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
-use crate::devices::virtio::balloon::Error as BalloonError;
+use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{
     Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
     TYPE_BLOCK, TYPE_NET,
