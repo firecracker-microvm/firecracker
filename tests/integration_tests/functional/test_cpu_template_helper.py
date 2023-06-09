@@ -326,7 +326,7 @@ def test_cpu_config_dump_vs_actual(
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
-def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
+def test_guest_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
     """
     Verify that the current guest CPU config has not changed since the baseline
     fingerprint was gathered.
@@ -350,13 +350,11 @@ def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path)
     # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
 
     # Compare with baseline
-    actual_cpu_config = json.loads(fingerprint_path.read_text(encoding="utf-8"))[
-        "guest_cpu_config"
-    ]
-    baseline_cpu_config = json.loads(baseline_path.read_text(encoding="utf-8"))[
-        "guest_cpu_config"
-    ]
-    assert actual_cpu_config == baseline_cpu_config
+    cpu_template_helper.fingerprint_compare(
+        baseline_path,
+        fingerprint_path,
+        ["guest_cpu_config"]
+    )
 
 
 @pytest.mark.nonci
