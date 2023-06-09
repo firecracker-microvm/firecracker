@@ -44,9 +44,10 @@ def build_group(test):
     """Build a Buildkite pipeline `group` step"""
     devtool_opts = test.pop("devtool_opts")
     test_path = test.pop("test_path")
+    retries = test.pop("retries")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci {test_path}",
+        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci --reruns {retries} {test_path}",
         agent_tags=["ag=1"],
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
@@ -72,12 +73,8 @@ for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
     test_data["env"] = dict(args.step_env)
+    test_data["retries"] = args.retries
     test_data.update(args.step_param)
-    if args.retries > 0:
-        # retry if the step fails
-        test_data.setdefault(
-            "retry", {"automatic": {"exit_status": 1, "limit": args.retries}}
-        )
     group_steps.append(build_group(test_data))
 
 pipeline = {
