@@ -75,6 +75,14 @@ for test_data in tests:
     test_data["env"] = dict(args.step_env)
     test_data["retries"] = args.retries
     test_data.update(args.step_param)
+    test_data["retry"] = {
+        "automatic": [
+            # Agent was lost, retry one time
+            # this can happen if we terminate the instance or the agent gets
+            # disconnected for whatever reason
+            {"exit_status": -1, "limit": 1},
+        ]
+    }
     group_steps.append(build_group(test_data))
 
 pipeline = {
