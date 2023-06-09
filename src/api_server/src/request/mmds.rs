@@ -37,7 +37,7 @@ fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
 
 pub(crate) fn parse_put_mmds(
     body: &Body,
-    path_second_token: Option<&&str>,
+    path_second_token: Option<&str>,
 ) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.mmds_count.inc();
     match path_second_token {
@@ -47,8 +47,8 @@ pub(crate) fn parse_put_mmds(
                 err
             })?,
         ))),
-        Some(&"config") => parse_put_mmds_config(body),
-        Some(&unrecognized) => {
+        Some("config") => parse_put_mmds_config(body),
+        Some(unrecognized) => {
             METRICS.put_api_requests.mmds_fails.inc();
             Err(Error::Generic(
                 StatusCode::BadRequest,
@@ -97,37 +97,37 @@ mod tests {
                 "network_interfaces": []
               }"#;
         let config_path = "config";
-        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
+        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_ok());
 
         let body = r#"{
                 "network_interfaces": []
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
+        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_ok());
 
         let body = r#"{
                 "version": "foo",
                 "ipv4_address": "169.254.170.2",
                 "network_interfaces": []
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
 
         let body = r#"{
                 "version": "V2"
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
 
         let body = r#"{
                 "ipv4_address": "",
                 "network_interfaces": []
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
 
         let invalid_config_body = r#"{
                 "invalid_config": "invalid_value"
               }"#;
-        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&config_path)).is_err());
-        assert!(parse_put_mmds(&Body::new(body), Some(&"invalid_path")).is_err());
-        assert!(parse_put_mmds(&Body::new(invalid_body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(body), Some("invalid_path")).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_body), Some(config_path)).is_err());
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
             "network_interfaces": []
         }"#;
         depr_action_from_req(
-            parse_put_mmds(&Body::new(body), Some(&config_path)).unwrap(),
+            parse_put_mmds(&Body::new(body), Some(config_path)).unwrap(),
             Some("PUT /mmds/config: V1 is deprecated. Use V2 instead.".to_string()),
         );
 
@@ -149,7 +149,7 @@ mod tests {
             "network_interfaces": []
         }"#;
         depr_action_from_req(
-            parse_put_mmds(&Body::new(body), Some(&config_path)).unwrap(),
+            parse_put_mmds(&Body::new(body), Some(config_path)).unwrap(),
             Some("PUT /mmds/config: V1 is deprecated. Use V2 instead.".to_string()),
         );
 
@@ -158,7 +158,7 @@ mod tests {
             "ipv4_address": "169.254.170.2",
             "network_interfaces": []
         }"#;
-        let (_, mut parsing_info) = parse_put_mmds(&Body::new(body), Some(&config_path))
+        let (_, mut parsing_info) = parse_put_mmds(&Body::new(body), Some(config_path))
             .unwrap()
             .into_parts();
         assert!(parsing_info.take_deprecation_message().is_none());
