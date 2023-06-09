@@ -10,13 +10,13 @@ use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 
-pub(crate) fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_balloon(path_second_token: Option<&str>) -> Result<ParsedRequest, Error> {
     match path_second_token {
-        Some(stats_path) => match *stats_path {
+        Some(stats_path) => match stats_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonStats)),
             _ => Err(Error::Generic(
                 StatusCode::BadRequest,
-                format!("Unrecognized GET request path `{}`.", *stats_path),
+                format!("Unrecognized GET request path `{}`.", stats_path),
             )),
         },
         None => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonConfig)),
@@ -31,16 +31,16 @@ pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
 
 pub(crate) fn parse_patch_balloon(
     body: &Body,
-    path_second_token: Option<&&str>,
+    path_second_token: Option<&str>,
 ) -> Result<ParsedRequest, Error> {
     match path_second_token {
-        Some(config_path) => match *config_path {
+        Some(config_path) => match config_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloonStatistics(
                 serde_json::from_slice::<BalloonUpdateStatsConfig>(body.raw())?,
             ))),
             _ => Err(Error::Generic(
                 StatusCode::BadRequest,
-                format!("Unrecognized PATCH request path `{}`.", *config_path),
+                format!("Unrecognized PATCH request path `{}`.", config_path),
             )),
         },
         None => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloon(
@@ -58,9 +58,9 @@ mod tests {
     fn test_parse_get_balloon_request() {
         assert!(parse_get_balloon(None).is_ok());
 
-        assert!(parse_get_balloon(Some(&"unrelated")).is_err());
+        assert!(parse_get_balloon(Some("unrelated")).is_err());
 
-        assert!(parse_get_balloon(Some(&"statistics")).is_ok());
+        assert!(parse_get_balloon(Some("statistics")).is_ok());
     }
 
     #[test]
@@ -94,7 +94,7 @@ mod tests {
         let body = r#"{
                 "amount_mib": 100
               }"#;
-        let res = parse_patch_balloon(&Body::new(body), Some(&"statistics"));
+        let res = parse_patch_balloon(&Body::new(body), Some("statistics"));
         assert!(res.is_err());
 
         // PATCH with missing amount_mib field.
@@ -122,7 +122,7 @@ mod tests {
         let body = r#"{
             "fields": "dummy_field"
           }"#;
-        assert!(parse_patch_balloon(&Body::new(body), Some(&"config")).is_err());
+        assert!(parse_patch_balloon(&Body::new(body), Some("config")).is_err());
 
         let body = r#"{
                 "amount_mib": 1
@@ -138,7 +138,7 @@ mod tests {
             }"#;
         #[allow(clippy::match_wild_err_arm)]
         match vmm_action_from_request(
-            parse_patch_balloon(&Body::new(body), Some(&"statistics")).unwrap(),
+            parse_patch_balloon(&Body::new(body), Some("statistics")).unwrap(),
         ) {
             VmmAction::UpdateBalloonStatistics(balloon_cfg) => {
                 assert_eq!(balloon_cfg.stats_polling_interval_s, 1)

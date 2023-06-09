@@ -24,10 +24,10 @@ pub const TOO_MANY_FIELDS: &str =
 
 pub(crate) fn parse_put_snapshot(
     body: &Body,
-    request_type_from_path: Option<&&str>,
+    request_type_from_path: Option<&str>,
 ) -> Result<ParsedRequest, Error> {
     match request_type_from_path {
-        Some(&request_type) => match request_type {
+        Some(request_type) => match request_type {
             "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
                 serde_json::from_slice::<CreateSnapshotParams>(body.raw())?,
             ))),
@@ -134,9 +134,8 @@ mod tests {
             version: Some(String::from("0.23.0")),
         };
 
-        match vmm_action_from_request(
-            parse_put_snapshot(&Body::new(body), Some(&"create")).unwrap(),
-        ) {
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap())
+        {
             VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
@@ -153,9 +152,8 @@ mod tests {
             version: None,
         };
 
-        match vmm_action_from_request(
-            parse_put_snapshot(&Body::new(body), Some(&"create")).unwrap(),
-        ) {
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap())
+        {
             VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
@@ -165,7 +163,7 @@ mod tests {
                 "mem_file_path": "bar"
               }"#;
 
-        assert!(parse_put_snapshot(&Body::new(invalid_body), Some(&"create")).is_err());
+        assert!(parse_put_snapshot(&Body::new(invalid_body), Some("create")).is_err());
 
         body = r#"{
                 "snapshot_path": "foo",
@@ -185,7 +183,7 @@ mod tests {
             resume_vm: false,
         };
 
-        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
@@ -215,7 +213,7 @@ mod tests {
             resume_vm: false,
         };
 
-        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
@@ -244,7 +242,7 @@ mod tests {
             resume_vm: true,
         };
 
-        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
@@ -270,7 +268,7 @@ mod tests {
             resume_vm: true,
         };
 
-        let parsed_request = parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap();
+        let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         match depr_action_from_req(parsed_request, Some(LOAD_DEPRECATION_MESSAGE.to_string())) {
             VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
@@ -284,7 +282,7 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load"))
+            parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
                 .unwrap()
                 .to_string(),
@@ -300,7 +298,7 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load"))
+            parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
                 .unwrap()
                 .to_string(),
@@ -318,7 +316,7 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load"))
+            parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
                 .unwrap()
                 .to_string(),
@@ -330,7 +328,7 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load"))
+            parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
                 .unwrap()
                 .to_string(),
@@ -345,7 +343,7 @@ mod tests {
               }"#;
 
         assert_eq!(
-            parse_put_snapshot(&Body::new(body), Some(&"load"))
+            parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
                 .unwrap()
                 .to_string(),
@@ -353,7 +351,7 @@ mod tests {
              `snapshot_path` at line 6 column 15."
         );
 
-        assert!(parse_put_snapshot(&Body::new(body), Some(&"invalid")).is_err());
+        assert!(parse_put_snapshot(&Body::new(body), Some("invalid")).is_err());
         assert!(parse_put_snapshot(&Body::new(body), None).is_err());
     }
 
