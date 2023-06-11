@@ -92,7 +92,6 @@ from pathlib import Path
 
 import pytest
 
-import framework.utils_cpuid as cpuid_utils
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
@@ -105,7 +104,6 @@ from framework.utils_cpu_templates import (
     SUPPORTED_CPU_TEMPLATES,
     SUPPORTED_CUSTOM_CPU_TEMPLATES,
 )
-from framework.with_filelock import with_filelock
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
 
@@ -125,32 +123,6 @@ if os.geteuid() != 0:
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 METRICS = get_metrics_logger()
-
-
-def pytest_configure(config):
-    """Pytest hook - initialization"""
-    config.addinivalue_line("markers", "nonci: mark test as nonci.")
-
-
-def pytest_addoption(parser):
-    """Pytest hook. Add command line options."""
-    parser.addoption("--nonci", action="store_true", help="run tests marked with nonci")
-
-
-def pytest_collection_modifyitems(config, items):
-    """Pytest hook. Skip some tests."""
-    skip_markers = {}
-
-    for skip_marker_name in ["nonci"]:
-        if not config.getoption(f"--{skip_marker_name}"):
-            skip_markers[skip_marker_name] = pytest.mark.skip(
-                reason=f"Skipping {skip_marker_name} test"
-            )
-
-    for item in items:
-        for skip_marker_name, skip_marker in skip_markers.items():
-            if skip_marker_name in item.keywords:
-                item.add_marker(skip_marker)
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -194,6 +166,7 @@ def pytest_runtest_logreport(report):
             "host_kernel": "linux-" + global_props.host_linux_version,
         }
         METRICS.set_property("result", report.outcome)
+        METRICS.set_property("location", report.location)
         for prop_name, prop_val in report.user_properties:
             METRICS.set_property(prop_name, prop_val)
         METRICS.set_dimensions(dimensions)
@@ -255,15 +228,6 @@ def test_fc_session_root_path():
     shutil.rmtree(fc_session_root_path)
 
 
-@with_filelock
-def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
-    """Build a source file with gcc."""
-    output_file = Path(output_file)
-    if not output_file.exists():
-        compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
-        utils.run_cmd(compile_cmd)
-
-
 @pytest.fixture(scope="session")
 def bin_cloner_path(test_fc_session_root_path):
     """Build a binary that `clone`s into the jailer.
@@ -272,7 +236,7 @@ def bin_cloner_path(test_fc_session_root_path):
     syscall directly.
     """
     cloner_bin_path = os.path.join(test_fc_session_root_path, "newpid_cloner")
-    _gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
+    build_tools.gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
     yield cloner_bin_path
 
 
@@ -280,7 +244,7 @@ def bin_cloner_path(test_fc_session_root_path):
 def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
-    _gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
+    build_tools.gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
     yield vsock_helper_bin_path
 
 
@@ -290,7 +254,7 @@ def change_net_config_space_bin(test_fc_session_root_path):
     change_net_config_space_bin = os.path.join(
         test_fc_session_root_path, "change_net_config_space"
     )
-    _gcc_compile(
+    build_tools.gcc_compile(
         "host_tools/change_net_config_space.c",
         change_net_config_space_bin,
         extra_flags="-static",
@@ -520,11 +484,6 @@ def rootfs_msrtools(request, record_property):
 def cpu_template(request, record_property):
     """Return all CPU templates supported by the vendor."""
     record_property("cpu_template", request.param)
-    if (
-        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
-        and not request.config.getoption("--nonci")
-    ):
-        pytest.skip("temporary skip on usual CI")
     return request.param
 
 
@@ -532,11 +491,6 @@ def cpu_template(request, record_property):
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
     record_property("custom_cpu_template", request.param)
-    if (
-        cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM
-        and not request.config.getoption("--nonci")
-    ):
-        pytest.skip("temporary skip on usual CI")
     return request.param
 
 

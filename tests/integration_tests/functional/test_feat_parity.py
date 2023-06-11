@@ -49,8 +49,6 @@ def vm_fxt(
 def test_feat_parity_cpuid_mpx(vm):
     """
     Verify that MPX (Memory Protection Extensions) is not enabled in any of the supported CPU templates.
-
-    @type: functional
     """
     # fmt: off
     must_be_set = []
@@ -77,8 +75,6 @@ def test_feat_parity_cpuid_inst_set(vm):
     """
     Verify that CPUID feature flags related to instruction sets are properly set
     for T2, T2CL and T2A CPU templates.
-
-    @type: functional
     """
 
     # fmt: off
@@ -155,8 +151,6 @@ def test_feat_parity_cpuid_sec(vm):
     """
     Verify that security-related CPUID feature flags are properly set
     for T2CL and T2A CPU templates.
-
-    @type: functional
     """
 
     # fmt: off
@@ -236,8 +230,6 @@ def test_feat_parity_cpuid_sec(vm):
 def test_feat_parity_msr_arch_cap(vm):
     """
     Verify availability and value of the IA32_ARCH_CAPABILITIES MSR for T2CL and T2A CPU templates.
-
-    @type: functional
     """
     arch_capabilities_addr = "0x10a"
     rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"

@@ -6,6 +6,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import framework.utils_cpuid as cpuid_utils
 
 # All existing CPU templates available on Intel
@@ -25,7 +27,7 @@ def get_supported_cpu_templates():
             # T2CL template is only supported on Cascade Lake and newer CPUs.
             skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
             if cpuid_utils.get_cpu_model_name() == skylake_model:
-                return set(INTEL_TEMPLATES) - set(["T2CL"])
+                return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
             return INTEL_TEMPLATES
         case cpuid_utils.CpuVendor.AMD:
             return AMD_TEMPLATES
@@ -77,3 +79,10 @@ def get_supported_custom_cpu_templates():
 
 
 SUPPORTED_CUSTOM_CPU_TEMPLATES = get_supported_custom_cpu_templates()
+
+
+def nonci_on_arm(func):
+    """Temporary decorator used to mark specific cpu template related tests as nonci on ARM platforms"""
+    if cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM:
+        return pytest.mark.nonci(func)
+    return func

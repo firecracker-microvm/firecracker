@@ -116,8 +116,6 @@ def _get_optional_fields_from_file(vm_config_file):
 def test_config_start_with_api(test_microvm_with_api, vm_config_file):
     """
     Test if a microvm configured from file boots successfully.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -139,8 +137,6 @@ def test_config_start_with_api(test_microvm_with_api, vm_config_file):
 def test_config_start_no_api(test_microvm_with_api, vm_config_file):
     """
     Test microvm start when API server thread is disabled.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -180,8 +176,6 @@ def test_config_start_no_api(test_microvm_with_api, vm_config_file):
 def test_config_bad_machine_config(test_microvm_with_api, vm_config_file):
     """
     Test microvm start when the `machine_config` is invalid.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -203,8 +197,6 @@ def test_config_bad_machine_config(test_microvm_with_api, vm_config_file):
 def test_config_machine_config_params(test_microvm_with_api, test_config):
     """
     Test microvm start with optional `machine_config` parameters.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -242,8 +234,6 @@ def test_config_machine_config_params(test_microvm_with_api, test_config):
 def test_config_start_with_limit(test_microvm_with_api, vm_config_file):
     """
     Negative test for customised request payload limit.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
 
@@ -277,8 +267,6 @@ def test_config_start_with_limit(test_microvm_with_api, vm_config_file):
 def test_config_with_default_limit(test_microvm_with_api, vm_config_file):
     """
     Test for request payload limit.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -315,8 +303,6 @@ def test_config_with_default_limit(test_microvm_with_api, vm_config_file):
 def test_start_with_metadata(test_microvm_with_api):
     """
     Test if metadata from file is available via MMDS.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     metadata_file = "../resources/tests/metadata.json"
@@ -341,8 +327,6 @@ def test_start_with_metadata(test_microvm_with_api):
 def test_start_with_metadata_limit(test_microvm_with_api):
     """
     Test that the metadata size limit is enforced when populating from a file.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"mmds-size-limit": "30"})
@@ -361,8 +345,6 @@ def test_start_with_metadata_limit(test_microvm_with_api):
 def test_start_with_metadata_default_limit(test_microvm_with_api):
     """
     Test that the metadata size limit defaults to the api payload limit.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"http-api-max-payload-size": "30"})
@@ -381,8 +363,6 @@ def test_start_with_metadata_default_limit(test_microvm_with_api):
 def test_start_with_missing_metadata(test_microvm_with_api):
     """
     Test if a microvm is configured with a missing metadata file.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     metadata_file = "../resources/tests/metadata_nonexisting.json"
@@ -404,8 +384,6 @@ def test_start_with_missing_metadata(test_microvm_with_api):
 def test_start_with_invalid_metadata(test_microvm_with_api):
     """
     Test if a microvm is configured with a invalid metadata file.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     metadata_file = "../resources/tests/metadata_invalid.json"
@@ -430,8 +408,6 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
 def test_config_start_and_mmds_with_api(test_microvm_with_api, vm_config_file):
     """
     Test MMDS behavior when the microvm is configured from file.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -501,8 +477,6 @@ def test_with_config_and_metadata_no_api(
 
     Ensures the metadata is stored successfully inside the MMDS and
     is available to reach from the guest's side.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 

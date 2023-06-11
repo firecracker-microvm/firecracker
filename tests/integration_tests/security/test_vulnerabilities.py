@@ -14,6 +14,7 @@ import requests
 from framework import utils
 from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
+from framework.utils_cpu_templates import nonci_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -101,8 +102,6 @@ def run_spectre_meltdown_checker_on_guest(
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
-
-    @type: security
     """
     utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
 
@@ -118,8 +117,6 @@ def test_spectre_meltdown_checker_on_guest(
 ):
     """
     Test with the spectre / meltdown checker on guest.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(test_microvm_with_spectre_meltdown, network_config)
 
@@ -141,8 +138,6 @@ def test_spectre_meltdown_checker_on_restored_guest(
 ):
     """
     Test with the spectre / meltdown checker on a restored guest.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_spectre_meltdown, network_config
@@ -160,6 +155,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -168,8 +164,6 @@ def test_spectre_meltdown_checker_on_guest_with_template(
 ):
     """
     Test with the spectre / meltdown checker on guest with CPU template.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(
         test_microvm_with_spectre_meltdown, network_config, cpu_template
@@ -185,6 +179,7 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -193,8 +188,6 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
 ):
     """
     Test with the spectre / meltdown checker on guest with a custom CPU template.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(
         test_microvm_with_spectre_meltdown,
@@ -212,6 +205,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -221,8 +215,6 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
 ):
     """
     Test with the spectre / meltdown checker on a restored guest with a CPU template.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_spectre_meltdown, network_config, cpu_template
@@ -240,6 +232,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
+@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -249,8 +242,6 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
 ):
     """
     Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_spectre_meltdown,
@@ -285,8 +276,6 @@ def test_vulnerabilities_files_on_guest(
 ):
     """
     Test vulnerabilities files on guest.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config)
 
@@ -300,8 +289,6 @@ def test_vulnerabilities_files_on_restored_guest(
 ):
     """
     Test vulnerabilities files on a restored guest.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(test_microvm_with_api, network_config)
 
@@ -310,6 +297,7 @@ def test_vulnerabilities_files_on_restored_guest(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -317,14 +305,13 @@ def test_vulnerabilities_files_on_guest_with_template(
 ):
     """
     Test vulnerabilities files on guest with CPU template.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(test_microvm_with_api, network_config, cpu_template)
 
     check_vulnerabilities_files_on_guest(microvm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_custom_template(
     test_microvm_with_api,
     network_config,
@@ -332,8 +319,6 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
 ):
     """
     Test vulnerabilities files on guest with a custom CPU template.
-
-    @type: security
     """
     microvm, _, _, _ = run_microvm(
         test_microvm_with_api,
@@ -344,6 +329,7 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -352,8 +338,6 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
 ):
     """
     Test vulnerabilities files on a restored guest with a CPU template.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_api, network_config, cpu_template
@@ -364,6 +348,7 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
+@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     test_microvm_with_api,
     network_config,
@@ -372,8 +357,6 @@ def test_vulnerabilities_files_on_restored_guest_with_custom_template(
 ):
     """
     Test vulnerabilities files on a restored guest with a custom CPU template.
-
-    @type: security
     """
     src_vm, tap, host_ip, guest_ip = run_microvm(
         test_microvm_with_api,

@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v58}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v60}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -590,7 +590,6 @@ cmd_test() {
     ensure_build_dir
 
     # If we got to here, we've got all we need to continue.
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Kernel version: $(uname -r)"
     say "Starting test run ..."
 
@@ -622,7 +621,6 @@ cmd_test() {
 
     ret=$?
 
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Finished test run ..."
 
     if [[ $ramdisk = true ]]; then

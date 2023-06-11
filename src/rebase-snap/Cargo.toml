@@ -6,6 +6,10 @@ edition = "2021"
 build = "../../build.rs"
 license = "Apache-2.0"
 
+[[bin]]
+name = "rebase-snap"
+bench = false
+
 [dependencies]
 libc = "0.2.117"
 

@@ -35,7 +35,7 @@ defaults = {
     "platforms": args.platforms,
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
-    "timeout_in_minutes": 30,
+    "timeout_in_minutes": 45,
     "env": dict(args.step_env),
 }
 defaults.update(args.step_param)

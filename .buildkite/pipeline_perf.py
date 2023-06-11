@@ -46,7 +46,7 @@ def build_group(test):
     test_path = test.pop("test_path")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test {devtool_opts} -- --nonci {test_path}",
+        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci {test_path}",
         agent_tags=["ag=1"],
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),

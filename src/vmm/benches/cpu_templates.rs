@@ -6,7 +6,6 @@
 //   * `CustomCpuTemplate` JSON serialization
 
 use std::mem::size_of_val;
-use std::path::Path;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
@@ -45,7 +44,7 @@ pub fn cpu_template_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = cpu_template_benches;
-    config = Criterion::default().sample_size(200).output_directory(Path::new("../../build/vmm_benchmark/cpu_templates"));
+    config = Criterion::default().sample_size(200).noise_threshold(0.05);
     targets = cpu_template_benchmark
 }
 

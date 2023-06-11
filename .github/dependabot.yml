@@ -3,8 +3,8 @@ updates:
   - package-ecosystem: "cargo" 
     directory: "/"
     schedule:
-      interval: "daily"
-    labels: 
-      - "Status: Awaiting review"
+      interval: "weekly"
+      day: "monday"
     allow:
       - dependency-type: "all"
+    open-pull-request-limit: 100

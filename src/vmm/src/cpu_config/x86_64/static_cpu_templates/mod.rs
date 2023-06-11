@@ -50,3 +50,25 @@ impl StaticCpuTemplate {
         self == &StaticCpuTemplate::None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cpu_config::test_utils::get_json_template;
+
+    #[test]
+    fn verify_consistency_with_json_templates() {
+        let static_templates = [
+            (c3::c3(), "c3.json"),
+            (t2::t2(), "t2.json"),
+            (t2s::t2s(), "t2s.json"),
+            (t2cl::t2cl(), "t2cl.json"),
+            (t2a::t2a(), "t2a.json"),
+        ];
+
+        for (hardcoded_template, filename) in static_templates {
+            let json_template = get_json_template(filename);
+            assert_eq!(hardcoded_template, json_template);
+        }
+    }
+}

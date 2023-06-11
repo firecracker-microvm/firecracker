@@ -10,14 +10,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 4,
-                                                    "target": 100
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 4,
-                                                    "target": 100
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 4,
                                                     "target": 100
@@ -38,18 +30,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 4,
-                                                    "target": 200
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 4,
-                                                    "target": 200
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 183
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 4,
                                                     "target": 200
@@ -82,14 +62,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 4,
-                                                    "target": 100
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 4,
-                                                    "target": 100
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 4,
                                                     "target": 100
@@ -110,18 +82,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 4,
-                                                    "target": 200
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 4,
-                                                    "target": 200
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 4,
-                                                    "target": 200
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 4,
                                                     "target": 200
@@ -156,14 +116,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 63
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 64
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 8,
                                                     "target": 63
@@ -184,18 +136,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 98
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 75
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 90
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 7,
                                                     "target": 86
@@ -228,14 +168,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 60
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 66
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 10,
                                                     "target": 53
@@ -256,18 +188,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 77
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 7,
                                                     "target": 77
@@ -302,14 +222,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2711
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 2026
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 9103
@@ -330,18 +242,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 3842
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 3056
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 3522
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 7688
@@ -374,14 +274,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2621
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2693
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 19097
@@ -402,18 +294,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 4303
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 3128
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 4369
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 7,
                                                     "target": 8377
@@ -457,14 +337,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -485,18 +357,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 11,
-                                                    "target": 90
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 179
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 121
@@ -529,14 +389,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -557,18 +409,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 149
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 13,
-                                                    "target": 83
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 171
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 105
@@ -603,14 +443,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 54
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 10,
-                                                    "target": 47
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 10,
                                                     "target": 54
@@ -631,18 +463,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 68
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 76
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 67
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 10,
                                                     "target": 63
@@ -675,14 +495,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 56
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 50
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 41
@@ -703,18 +515,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 9,
-                                                    "target": 68
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 76
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 60
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 10,
                                                     "target": 61
@@ -749,14 +549,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2187
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 1818
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 6844
@@ -777,18 +569,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2189
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2774
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2529
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 5774
@@ -821,14 +601,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2349
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2211
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 12400
@@ -849,18 +621,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 9,
-                                                    "target": 2690
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2758
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 2668
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 6043
@@ -900,14 +660,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 99
@@ -928,18 +680,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 197
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 14,
-                                                    "target": 92
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 183
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 119
@@ -972,14 +712,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -1000,18 +732,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 146
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 12,
-                                                    "target": 87
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 168
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 105
@@ -1046,14 +766,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 53
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 12,
-                                                    "target": 37
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 55
@@ -1074,18 +786,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 72
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 76
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 63
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 7,
                                                     "target": 71
@@ -1118,14 +818,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 54
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 12,
-                                                    "target": 41
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 11,
                                                     "target": 37
@@ -1146,18 +838,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 12,
-                                                    "target": 62
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 77
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 10,
-                                                    "target": 56
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 69
@@ -1192,14 +872,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 11,
-                                                    "target": 1202
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 56,
-                                                    "target": 454
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 4940
@@ -1220,18 +892,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 10,
-                                                    "target": 1252
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 1834
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 1424
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 5,
                                                     "target": 3663
@@ -1264,14 +924,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 1389
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 4,
-                                                    "target": 1257
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 9357
@@ -1292,18 +944,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 1540
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 1873
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 1707
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 5,
                                                     "target": 3887
@@ -1347,14 +987,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -1375,18 +1007,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 19,
-                                                    "target": 145
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 173
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 114
@@ -1419,14 +1039,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -1447,18 +1059,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 107
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 25,
-                                                    "target": 145
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 141
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 105
@@ -1493,14 +1093,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 12,
-                                                    "target": 47
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 43
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 16,
                                                     "target": 50
@@ -1521,18 +1113,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 8,
-                                                    "target": 69
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 69
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 64
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 9,
                                                     "target": 64
@@ -1565,14 +1145,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 49
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 11,
-                                                    "target": 42
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 14,
                                                     "target": 33
@@ -1593,18 +1165,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 11,
-                                                    "target": 46
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 68
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 10,
-                                                    "target": 61
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 9,
                                                     "target": 61
@@ -1639,14 +1199,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 17,
-                                                    "target": 2807
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2483
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 15,
                                                     "target": 9455
@@ -1667,18 +1219,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 13,
-                                                    "target": 2555
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 4047
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2934
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 7775
@@ -1711,14 +1251,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 3192
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2838
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 8,
                                                     "target": 17921
@@ -1739,18 +1271,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 3248
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 4040
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 4003
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 9,
                                                     "target": 7990
@@ -1794,14 +1314,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -1822,18 +1334,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 171
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 5,
                                                     "target": 198
@@ -1866,14 +1366,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 99
@@ -1894,18 +1386,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 197
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 5,
                                                     "target": 198
@@ -1940,14 +1420,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 63
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 63
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 60
@@ -1968,18 +1440,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 77
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 91
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 87
@@ -2012,14 +1472,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 63
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 67
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 8,
                                                     "target": 56
@@ -2040,18 +1492,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 82
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 79
@@ -2086,14 +1526,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2136
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 1558
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 5,
                                                     "target": 6300
@@ -2114,18 +1546,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 5,
-                                                    "target": 3168
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 2485
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2881
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 5974
@@ -2158,14 +1578,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2077
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2318
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 7,
                                                     "target": 13652
@@ -2186,18 +1598,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 3537
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 2803
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 3736
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 6708
@@ -2241,14 +1641,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 99
@@ -2269,18 +1661,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 188
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 48,
-                                                    "target": 110
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 174
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 120
@@ -2313,14 +1693,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 99
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 99
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 99
@@ -2341,18 +1713,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 23,
-                                                    "target": 115
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 64,
-                                                    "target": 85
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 163
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 105
@@ -2387,14 +1747,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 54
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 11,
-                                                    "target": 48
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 54
@@ -2415,18 +1767,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 8,
-                                                    "target": 71
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 71
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 68
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 62
@@ -2459,14 +1799,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 59
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 52
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 9,
                                                     "target": 41
@@ -2487,18 +1819,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 23,
-                                                    "target": 54
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 71
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 10,
-                                                    "target": 62
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 8,
                                                     "target": 59
@@ -2533,14 +1853,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2693
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2163
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 7,
                                                     "target": 8257
@@ -2561,18 +1873,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 2970
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 3330
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 3003
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 5,
                                                     "target": 6885
@@ -2605,14 +1905,6 @@
                                     "ubuntu-18.04.ext4": {
                                         "1vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 2902
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 2645
-                                                },
                                                 "vsock-p1024K-g2h": {
                                                     "delta_percentage": 6,
                                                     "target": 14312
@@ -2633,18 +1925,6 @@
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
-                                                "vsock-p1024-bd": {
-                                                    "delta_percentage": 12,
-                                                    "target": 2836
-                                                },
-                                                "vsock-p1024-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 3414
-                                                },
-                                                "vsock-p1024-h2g": {
-                                                    "delta_percentage": 11,
-                                                    "target": 3263
-                                                },
                                                 "vsock-p1024K-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 7167
@@ -2681,7 +1961,6 @@
             }
         }
     },
-    "load_factor": 1,
     "measurements": {
         "cpu_utilization_vcpus_total": {
             "statistics": [
@@ -2721,30 +2000,5 @@
             ],
             "unit": "Mbps"
         }
-    },
-    "modes": {
-        "bd": [
-            "",
-            "-R"
-        ],
-        "g2h": [
-            ""
-        ],
-        "h2g": [
-            "-R"
-        ]
-    },
-    "protocols": [
-        {
-            "name": "tcp",
-            "omit": 3,
-            "payload_length": [
-                "1024K",
-                "DEFAULT",
-                "1024"
-            ]
-        }
-    ],
-    "server_startup_time": 2,
-    "time": 20
+    }
 }

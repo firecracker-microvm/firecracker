@@ -11,20 +11,21 @@ See also: [boot protocol settings](boot-protocol.md)
 
 ## x86_64 common CPUID normalization
 
-| Description                                                                          | Leaf       | Subleaf | Register | Bits  |
-|--------------------------------------------------------------------------------------|:----------:|:-------:|:--------:|:-----:|
-| Set CLFLUSH line size                                                                | 0x1        | -       | EBX      | 15:8  |
-| Set maximum number of addressable IDs for logical processors in the physical package | 0x1        | -       | EBX      | 23:16 |
-| Set initial APIC ID                                                                  | 0x1        | -       | EBX      | 31:24 |
-| Disable PDCM (Perfmon and Debug Capability)                                          | 0x1        | -       | ECX      | 15    |
-| Enable TSC_DEADLINE                                                                  | 0x1        | -       | ECX      | 24    |
-| Enable HYPERVISOR                                                                    | 0x1        | -       | ECX      | 31    |
-| Set HTT value if the microVM's CPU count is greater than 1                           | 0x1        | -       | EDX      | 28    |
-| Insert leaf 0xb, subleaf 0x1 filled with `0` if it is not already present            | 0xb        | 0x1     | all      | all   |
-| Update extended topology enumeration                                                 | 0xb        | all     | EAX      | 4:0   |
-| Update extended topology enumeration                                                 | 0xb        | all     | EBX      | 15:0  |
-| Update extended topology enumeration                                                 | 0xb        | all     | ECX      | 15:8  |
-| Pass through cache information from host                                             | 0x80000006 | -       | all      | all   |
+| Description                                                                          | Leaf       | Subleaf | Register      | Bits  |
+|--------------------------------------------------------------------------------------|:----------:|:-------:|:-------------:|:-----:|
+| Pass through vendor ID from host                                                     | 0x0        | -       | EBX, ECX, EDX | all   |
+| Set CLFLUSH line size                                                                | 0x1        | -       | EBX           | 15:8  |
+| Set maximum number of addressable IDs for logical processors in the physical package | 0x1        | -       | EBX           | 23:16 |
+| Set initial APIC ID                                                                  | 0x1        | -       | EBX           | 31:24 |
+| Disable PDCM (Perfmon and Debug Capability)                                          | 0x1        | -       | ECX           | 15    |
+| Enable TSC_DEADLINE                                                                  | 0x1        | -       | ECX           | 24    |
+| Enable HYPERVISOR                                                                    | 0x1        | -       | ECX           | 31    |
+| Set HTT value if the microVM's CPU count is greater than 1                           | 0x1        | -       | EDX           | 28    |
+| Insert leaf 0xb, subleaf 0x1 filled with `0` if it is not already present            | 0xb        | 0x1     | all           | all   |
+| Update extended topology enumeration                                                 | 0xb        | all     | EAX           | 4:0   |
+| Update extended topology enumeration                                                 | 0xb        | all     | EBX           | 15:0  |
+| Update extended topology enumeration                                                 | 0xb        | all     | ECX           | 15:8  |
+| Pass through cache information from host                                             | 0x80000006 | -       | all           | all   |
 
 ## Intel-specific CPUID normalization
 

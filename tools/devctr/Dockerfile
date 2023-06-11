@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.68.2"
+ARG RUST_TOOLCHAIN="1.70.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -41,7 +41,8 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         musl-tools \
-        net-tools iproute2 iperf3 \
+        # needed for integration tests
+        net-tools iproute2 iperf3 socat fdisk \
         openssh-client \
         pkgconf \
         python3 python3-dev python3-pip \

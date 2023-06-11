@@ -12,7 +12,7 @@ use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
 
-use super::{NUM_QUEUES, QUEUE_SIZE, RNG_QUEUE};
+use super::{RNG_NUM_QUEUES, RNG_QUEUE, RNG_QUEUE_SIZE};
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_RNG};
@@ -50,13 +50,13 @@ pub struct Entropy {
 
 impl Entropy {
     pub fn new(rate_limiter: RateLimiter) -> Result<Self> {
-        let queues = vec![Queue::new(QUEUE_SIZE); NUM_QUEUES];
+        let queues = vec![Queue::new(RNG_QUEUE_SIZE); RNG_NUM_QUEUES];
         Self::new_with_queues(queues, rate_limiter)
     }
 
     pub fn new_with_queues(queues: Vec<Queue>, rate_limiter: RateLimiter) -> Result<Self> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
-        let queue_events = (0..NUM_QUEUES)
+        let queue_events = (0..RNG_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<std::result::Result<Vec<EventFd>, io::Error>>()?;
         let irq_trigger = IrqTrigger::new()?;
@@ -311,7 +311,7 @@ mod tests {
         }
 
         fn num_queues() -> usize {
-            NUM_QUEUES
+            RNG_NUM_QUEUES
         }
     }
 

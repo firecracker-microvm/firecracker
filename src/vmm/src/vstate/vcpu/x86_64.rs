@@ -783,29 +783,39 @@ mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (_vm, vcpu, _) = setup_vcpu(0x1000);
-        let mut state = vcpu.save_state().unwrap();
+        let (vm, vcpu, _mem) = setup_vcpu(0x10000);
+        vcpu.fd.set_cpuid2(vm.supported_cpuid()).unwrap();
+
         // Mutate the CPUID.
-        //
-        // The CPUID obtained with KVM_GET_CPUID2 is empty here, as vcpu configuration (including
-        // KVM_SET_CPUID2 call) has not been done yet.
-        state.cpuid = CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
-            function: 0,
-            index: 0,
-            flags: 0,
-            eax: 0x1234_5678,
-            ..Default::default()
-        }])
-        .unwrap();
+        // Leaf 0x3 / EAX that is an unused (reserved to be accurate) register, so it's harmless.
+        let mut state = vcpu.save_state().unwrap();
+        state.cpuid.as_mut_slice().iter_mut().for_each(|entry| {
+            if entry.function == 3 && entry.index == 0 {
+                entry.eax = 0x1234_5678;
+            }
+        });
+
+        // Restore the state into the existing vcpu.
         let result1 = vcpu.restore_state(&state);
         assert!(result1.is_ok(), "{}", result1.unwrap_err());
-
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let (_vm, vcpu, _) = setup_vcpu(0x1000);
+
+        // Restore the state into a new vcpu.
+        let (_vm, vcpu, _mem) = setup_vcpu(0x10000);
         let result2 = vcpu.restore_state(&state);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
-        // Validate the mutated cpuid is saved.
-        assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+
+        // Validate the mutated cpuid is restored correctly.
+        let state = vcpu.save_state().unwrap();
+        let cpuid = Cpuid::try_from(state.cpuid).unwrap();
+        let leaf3 = cpuid
+            .inner()
+            .get(&CpuidKey {
+                leaf: 0x3,
+                subleaf: 0x0,
+            })
+            .unwrap();
+        assert!(leaf3.result.eax == 0x1234_5678);
     }
 
     #[test]
@@ -888,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
+    #[allow(clippy::cast_sign_loss, clippy::redundant_clone)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.

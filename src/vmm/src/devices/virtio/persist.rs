@@ -19,7 +19,7 @@ use super::queue::*;
 use crate::devices::virtio::MmioTransport;
 
 #[derive(Debug)]
-pub enum Error {
+pub enum PersistError {
     InvalidInput,
 }
 
@@ -122,7 +122,7 @@ impl VirtioDeviceState {
         expected_device_type: u32,
         expected_num_queues: usize,
         expected_queue_max_size: u16,
-    ) -> std::result::Result<Vec<Queue>, Error> {
+    ) -> std::result::Result<Vec<Queue>, PersistError> {
         // Sanity check:
         // - right device type,
         // - acked features is a subset of available ones,
@@ -131,7 +131,7 @@ impl VirtioDeviceState {
             || (self.acked_features & !self.avail_features) != 0
             || self.queues.len() != expected_num_queues
         {
-            return Err(Error::InvalidInput);
+            return Err(PersistError::InvalidInput);
         }
 
         let uses_notif_suppression = (self.acked_features & 1u64 << VIRTIO_RING_F_EVENT_IDX) != 0;
@@ -151,14 +151,14 @@ impl VirtioDeviceState {
         for q in &queues {
             // Sanity check queue size and queue max size.
             if q.max_size != expected_queue_max_size || q.size > expected_queue_max_size {
-                return Err(Error::InvalidInput);
+                return Err(PersistError::InvalidInput);
             }
             // Snapshot can happen at any time, including during device configuration/activation
             // when fields are only partially configured.
             //
             // Only if the device was activated, check `q.is_valid()`.
             if self.activated && !q.is_valid(mem) {
-                return Err(Error::InvalidInput);
+                return Err(PersistError::InvalidInput);
             }
         }
         Ok(queues)

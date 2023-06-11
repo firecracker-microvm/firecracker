@@ -8,6 +8,10 @@ description = "Process for starting Firecracker in production scenarios; applies
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
+[[bin]]
+name = "jailer"
+bench = false
+
 [dependencies]
 libc = "0.2.117"
 nix = { version = "0.26.2", default-features = false, features = ["dir"] }

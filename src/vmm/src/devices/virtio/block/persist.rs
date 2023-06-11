@@ -120,7 +120,7 @@ pub struct BlockConstructorArgs {
 impl Persist<'_> for Block {
     type State = BlockState;
     type ConstructorArgs = BlockConstructorArgs;
-    type Error = Error;
+    type Error = BlockError;
 
     fn save(&self) -> Self::State {
         // Save device state.
@@ -142,7 +142,7 @@ impl Persist<'_> for Block {
     ) -> Result<Self, Self::Error> {
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter =
-            RateLimiter::restore((), &state.rate_limiter_state).map_err(Error::RateLimiter)?;
+            RateLimiter::restore((), &state.rate_limiter_state).map_err(BlockError::RateLimiter)?;
 
         let mut block = Block::new(
             state.id.clone(),
@@ -155,7 +155,7 @@ impl Persist<'_> for Block {
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
-            Error::FileEngine(io::Error::UnsupportedEngine(FileEngineType::Async)) => {
+            BlockError::FileEngine(io::Error::UnsupportedEngine(FileEngineType::Async)) => {
                 // If the kernel does not support `Async`, fallback to `Sync`.
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \
@@ -164,7 +164,7 @@ impl Persist<'_> for Block {
                 );
 
                 let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
-                    .map_err(Error::RateLimiter)?;
+                    .map_err(BlockError::RateLimiter)?;
                 Block::new(
                     state.id.clone(),
                     state.partuuid.clone(),
@@ -181,8 +181,13 @@ impl Persist<'_> for Block {
 
         block.queues = state
             .virtio_state
-            .build_queues_checked(&constructor_args.mem, TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
-            .map_err(Error::Persist)?;
+            .build_queues_checked(
+                &constructor_args.mem,
+                TYPE_BLOCK,
+                BLOCK_NUM_QUEUES,
+                BLOCK_QUEUE_SIZE,
+            )
+            .map_err(BlockError::Persist)?;
         block.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;

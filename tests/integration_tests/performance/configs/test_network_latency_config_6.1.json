@@ -30,32 +30,6 @@
                                         }
                                     }
                                 }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         },
                         "model": "ARM_NEOVERSE_V1"
@@ -91,32 +65,6 @@
                                         }
                                     }
                                 }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         },
                         "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz"
@@ -143,32 +91,6 @@
                                                 "ping": {
                                                     "delta_percentage": 2.1,
                                                     "target": 0.281
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
                                                 }
                                             }
                                         }
@@ -209,32 +131,6 @@
                                         }
                                     }
                                 }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         },
                         "model": "AMD EPYC 7R13 48-Core Processor"
@@ -265,32 +161,6 @@
                                                 "ping": {
                                                     "delta_percentage": 10.1,
                                                     "target": 0.03
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
                                                 }
                                             }
                                         }
@@ -331,32 +201,6 @@
                                         }
                                     }
                                 }
-                            },
-                            "pkt_loss": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
-                                        "1vcpu_1024mb.json": {
-                                            "Avg": {
-                                                "ping": {
-                                                    "delta_percentage": 0.1,
-                                                    "target": 0.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         },
                         "model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz"
@@ -374,15 +218,6 @@
                 }
             ],
             "unit": "ms"
-        },
-        "pkt_loss": {
-            "statistics": [
-                {
-                    "criteria": "EqualWith",
-                    "function": "Avg"
-                }
-            ],
-            "unit": "percentage"
         }
     }
 }

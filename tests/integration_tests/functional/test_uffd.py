@@ -91,8 +91,6 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
     """
     Test error scenario when socket path does not exist.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_bad_socket_path")
 
@@ -120,8 +118,6 @@ def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
 def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     """
     Test error scenario when PF handler has not yet called bind on socket.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_unbinded_socket")
 
@@ -153,8 +149,6 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
 def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test valid uffd handler scenario.
-
-    @type: functional
     """
     logger = logging.getLogger("uffd_valid_handler")
 
@@ -197,8 +191,6 @@ def test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_
     loaded into memory. In this case, Firecracker is designed to freeze,
     instead of silently switching to having the kernel handle page
     faults, so that it becomes obvious that something went wrong.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_malicious_handler")
 

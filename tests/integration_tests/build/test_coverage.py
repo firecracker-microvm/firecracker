@@ -25,9 +25,9 @@ def is_on_skylake():
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 83.66, "AMD": 83.24, "ARM": 83.11}
+    COVERAGE_DICT = {"Intel": 83.76, "AMD": 83.34, "ARM": 83.12}
 else:
-    COVERAGE_DICT = {"Intel": 80.90, "AMD": 80.45, "ARM": 80.13}
+    COVERAGE_DICT = {"Intel": 81.02, "AMD": 80.55, "ARM": 80.12}
 
 PROC_MODEL = proc.proc_type()
 
@@ -58,8 +58,6 @@ COVERAGE_MAX_DELTA = 0.05
 @pytest.mark.timeout(600)
 def test_coverage(monkeypatch, record_property, metrics):
     """Test code coverage
-
-    @type: build
     """
     # Get coverage target.
     processor_model = [item for item in COVERAGE_DICT if item in PROC_MODEL]

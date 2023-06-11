@@ -17,8 +17,6 @@ MAX_DEVICES_ATTACHED = 19
 def test_attach_maximum_devices(test_microvm_with_api, network_config):
     """
     Test attaching maximum number of devices to the microVM.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -52,8 +50,6 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
 def test_attach_too_many_devices(test_microvm_with_api, network_config):
     """
     Test attaching to a microVM more devices than available IRQs.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

@@ -27,7 +27,7 @@ pub enum BalloonConfigError {
     /// does not have the statistics enabled.
     StatsNotFound,
     /// Failed to create a balloon device.
-    CreateFailure(crate::devices::virtio::balloon::Error),
+    CreateFailure(crate::devices::virtio::balloon::BalloonError),
     /// Failed to update the configuration of the ballon device.
     UpdateFailure(std::io::Error),
 }
@@ -210,7 +210,7 @@ pub(crate) mod tests {
         use std::io;
 
         use super::BalloonConfigError::*;
-        let err = CreateFailure(crate::devices::virtio::balloon::Error::EventFd(
+        let err = CreateFailure(crate::devices::virtio::balloon::BalloonError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

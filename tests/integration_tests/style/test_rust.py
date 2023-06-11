@@ -21,8 +21,6 @@ def test_rust_order():
 def test_rust_style():
     """
     Test that rust code passes style checks.
-
-    @type: style
     """
 
     #  ../src/io_uring/src/bindings.rs
@@ -37,8 +35,6 @@ def test_rust_style():
 def test_ensure_mod_tests():
     """
     Check that files containing unit tests have a 'tests' module defined.
-
-    @type: style
     """
     excluding = [
         "_gen/",

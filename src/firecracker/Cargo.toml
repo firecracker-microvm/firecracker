@@ -8,6 +8,10 @@ description = "Firecracker enables you to deploy workloads in lightweight virtua
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
+[[bin]]
+name = "firecracker"
+bench = false
+
 [dependencies]
 event-manager = "0.3.0"
 libc = "0.2.117"

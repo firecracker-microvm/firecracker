@@ -71,7 +71,7 @@ pub enum StartMicrovmError {
     CreateGuestConfig(#[from] GuestConfigError),
     /// Internal errors are due to resource exhaustion.
     #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
-    CreateNetDevice(crate::devices::virtio::net::Error),
+    CreateNetDevice(crate::devices::virtio::net::NetError),
     /// Failed to create a `RateLimiter` object.
     #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
@@ -836,9 +836,9 @@ pub fn configure_system_for_boot(
 
     #[cfg(target_arch = "aarch64")]
     let cpu_config = {
-        let regs = vcpus[0]
-            .kvm_vcpu
-            .get_regs(&cpu_template.reg_list())
+        use crate::arch::aarch64::regs::get_registers;
+        let mut regs = vec![];
+        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
             .map_err(GuestConfigError)?;
         CpuConfiguration { regs }
     };
@@ -1688,7 +1688,7 @@ pub mod tests {
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateNetDevice(crate::devices::virtio::net::Error::EventFd(
+        let err = CreateNetDevice(crate::devices::virtio::net::NetError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

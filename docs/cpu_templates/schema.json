@@ -73,7 +73,7 @@
                 "type": "object",
                 "properties": {
                     "addr": {
-                        "description": "MSR address/identifier. Must be a string containing an integer.",
+                        "description": "ARM register address/identifier. Must be a string containing an integer. See https://docs.kernel.org/virt/kvm/api.html#kvm-set-one-reg .",
                         "type": "string",
                         "examples": ["0x603000000013c020"]
                     },

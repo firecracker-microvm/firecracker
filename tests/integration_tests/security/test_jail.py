@@ -1,6 +1,9 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
+
+# pylint: disable=redefined-outer-name
+
 import functools
 import http.client as http_client
 import os
@@ -57,8 +60,6 @@ def check_stats(filepath, stats, uid, gid):
 def test_default_chroot(test_microvm_with_api):
     """
     Test that the jailer assigns a default chroot if none is specified.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -75,8 +76,6 @@ def test_default_chroot(test_microvm_with_api):
 def test_empty_jailer_id(test_microvm_with_api):
     """
     Test that the jailer ID cannot be empty.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
     fc_binary, _ = build_tools.get_firecracker_binaries()
@@ -105,8 +104,6 @@ def test_empty_jailer_id(test_microvm_with_api):
 def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
     """
     Test the jailer option `--exec-file`
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -145,13 +142,11 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
         test_microvm.spawn()
 
 
-def test_default_chroot_hierarchy(test_microvm_with_initrd):
+def test_default_chroot_hierarchy(test_microvm_with_api):
     """
     Test the folder hierarchy created by default by the jailer.
-
-    @type: security
     """
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
 
     test_microvm.spawn()
 
@@ -198,13 +193,11 @@ def test_default_chroot_hierarchy(test_microvm_with_initrd):
     )
 
 
-def test_arbitrary_usocket_location(test_microvm_with_initrd):
+def test_arbitrary_usocket_location(test_microvm_with_api):
     """
     Test arbitrary location scenario for the api socket.
-
-    @type: security
     """
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args = {"api-sock": "api.socket"}
 
     test_microvm.spawn()
@@ -362,14 +355,11 @@ def check_limits(pid, no_file, fsize):
     assert hard == fsize
 
 
-def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
+def test_cgroups(test_microvm_with_api, sys_setup_cgroups):
     """
     Test the cgroups are correctly set by the jailer.
-
-    @type: security
     """
-    # pylint: disable=redefined-outer-name
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight.nice=10"]
@@ -401,14 +391,11 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
         )
 
 
-def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
+def test_cgroups_custom_parent(test_microvm_with_api, sys_setup_cgroups):
     """
     Test cgroups when a custom parent cgroup is used.
-
-    @type: security
     """
-    # pylint: disable=redefined-outer-name
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     test_microvm.jailer.parent_cgroup = "custom_cgroup/group2"
     if test_microvm.jailer.cgroup_ver == 2:
@@ -446,14 +433,11 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
         )
 
 
-def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
+def test_node_cgroups(test_microvm_with_api, sys_setup_cgroups):
     """
     Test the numa node cgroups are correctly set by the jailer.
-
-    @type: security
     """
-    # pylint: disable=redefined-outer-name
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
 
     # Retrieve CPUs from NUMA node 0.
@@ -478,14 +462,11 @@ def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
         )
 
 
-def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):
+def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
     """
     Test the cgroups are correctly set by the jailer, without numa assignment.
-
-    @type: security
     """
-    # pylint: disable=redefined-outer-name
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight=2"]
@@ -512,14 +493,11 @@ def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):
     cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
 )
 @pytest.mark.usefixtures("sys_setup_cgroups")
-def test_v1_default_cgroups(test_microvm_with_initrd):
+def test_v1_default_cgroups(test_microvm_with_api):
     """
     Test if the jailer is using cgroup-v1 by default.
-
-    @type: security
     """
-    # pylint: disable=redefined-outer-name
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroups = ["cpu.shares=2"]
 
     test_microvm.spawn()
@@ -533,13 +511,11 @@ def test_v1_default_cgroups(test_microvm_with_initrd):
     )
 
 
-def test_args_default_resource_limits(test_microvm_with_initrd):
+def test_args_default_resource_limits(test_microvm_with_api):
     """
     Test the default resource limits are correctly set by the jailer.
-
-    @type: security
     """
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
 
     test_microvm.spawn()
 
@@ -560,13 +536,11 @@ def test_args_default_resource_limits(test_microvm_with_initrd):
     assert hard == -1
 
 
-def test_args_resource_limits(test_microvm_with_initrd):
+def test_args_resource_limits(test_microvm_with_api):
     """
     Test the resource limits are correctly set by the jailer.
-
-    @type: security
     """
-    test_microvm = test_microvm_with_initrd
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
 
     test_microvm.spawn()
@@ -582,8 +556,6 @@ def test_args_resource_limits(test_microvm_with_initrd):
 def test_negative_file_size_limit(test_microvm_with_api):
     """
     Test creating snapshot file fails when size exceeds `fsize` limit.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["fsize=1024"]
@@ -626,8 +598,6 @@ def test_negative_file_size_limit(test_microvm_with_api):
 def test_negative_no_file_limit(test_microvm_with_api):
     """
     Test microVM is killed when exceeding `no-file` limit.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = ["no-file=3"]
@@ -645,8 +615,6 @@ def test_negative_no_file_limit(test_microvm_with_api):
 def test_new_pid_ns_resource_limits(test_microvm_with_api):
     """
     Test that Firecracker process inherits jailer resource limits.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -664,8 +632,6 @@ def test_new_pid_ns_resource_limits(test_microvm_with_api):
 def test_new_pid_namespace(test_microvm_with_api):
     """
     Test that Firecracker is spawned in a new PID namespace if requested.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 

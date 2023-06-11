@@ -17,8 +17,6 @@ from host_tools.cargo_build import cargo
 def test_cargo_audit():
     """
     Run cargo audit to check for crates with security vulnerabilities.
-
-    @type: security
     """
     # Run command and raise exception if non-zero return code
     cargo(

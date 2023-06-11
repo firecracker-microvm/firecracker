@@ -65,24 +65,6 @@ def _check_extended_cache_features(vm):
     assert cache_size > 0
 
 
-def _check_cpu_features_arm(test_microvm):
-    if cpuid_utils.get_instance_type() == "m6g.metal":
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
-        }
-    else:
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-            "sha512 asimdfhm dit uscat ilrcpc flagm ssbs",
-        }
-
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "lscpu", None, ":", expected_cpu_features
-    )
-
-
 def get_cpu_template_dir(cpu_template):
     """
     Utility function to return a valid string which will be used as
@@ -126,8 +108,6 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
 def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -169,8 +149,6 @@ def test_brand_string(test_microvm_with_api, network_config):
         AMD EPYC
     * For other CPUs, the guest brand string should be:
         ""
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -263,7 +241,7 @@ MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
 
 @pytest.fixture(
     name="msr_cpu_template",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES),
+    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES)),
 )
 def msr_cpu_template_fxt(request):
     """CPU template fixture for MSR read/write supported CPU templates"""
@@ -307,8 +285,6 @@ def test_cpu_rdmsr(
     Testing matrix:
     - All supported guest kernels and rootfs
     - Microvm: 1vCPU with 1024 MB RAM
-
-    @type: functional
     """
 
     vcpus, guest_mem_mib = 1, 1024
@@ -429,8 +405,6 @@ def test_cpu_wrmsr_snapshot(
 
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` MSR dump.
-
-    @type: functional
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
@@ -569,8 +543,6 @@ def test_cpu_wrmsr_restore(
 
     This part of the test is responsible for restoring from a snapshot and
     comparing two sets of MSR values.
-
-    @type: functional
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
@@ -649,8 +621,6 @@ def test_cpu_cpuid_snapshot(
 
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` CPUID dump.
-
-    @type: functional
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
@@ -739,8 +709,6 @@ def test_cpu_cpuid_restore(
 
     This part of the test is responsible for restoring from a snapshot and
     comparing two CPUIDs.
-
-    @type: functional
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
@@ -800,8 +768,6 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
     This test checks that all expected masked features are not present in the
     guest and that expected enabled features are present for each of the
     supported CPU templates.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

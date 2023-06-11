@@ -65,7 +65,7 @@ pub struct NetworkInterfaceUpdateConfig {
 pub enum NetworkInterfaceError {
     /// Could not create the network device.
     #[error("Could not create the network device: {0}")]
-    CreateNetworkDevice(#[from] crate::devices::virtio::net::Error),
+    CreateNetworkDevice(#[from] crate::devices::virtio::net::NetError),
     /// Failed to create a `RateLimiter` object
     #[error("Cannot create the rate limiter: {0}")]
     CreateRateLimiter(#[from] std::io::Error),
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(
-                crate::devices::virtio::net::Error::TapOpen(TapError::IfreqExecuteError(
+                crate::devices::virtio::net::NetError::TapOpen(TapError::IfreqExecuteError(
                     std::io::Error::from_raw_os_error(16),
                     host_dev_name_1.to_string()
                 ))
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(
-                crate::devices::virtio::net::Error::TapOpen(TapError::IfreqExecuteError(
+                crate::devices::virtio::net::NetError::TapOpen(TapError::IfreqExecuteError(
                     std::io::Error::from_raw_os_error(16),
                     host_dev_name_1.to_string()
                 ))

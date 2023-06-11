@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::{Display, Formatter, Result};
 use std::fs::File;
 use std::io;
 
@@ -38,31 +37,17 @@ pub struct BootSourceConfig {
 }
 
 /// Errors associated with actions on `BootSourceConfig`.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BootSourceConfigError {
     /// The kernel file cannot be opened.
+    #[error("The kernel file cannot be opened: {0}")]
     InvalidKernelPath(io::Error),
     /// The initrd file cannot be opened.
+    #[error("The initrd file cannot be opened due to invalid path or invalid permissions. {0}")]
     InvalidInitrdPath(io::Error),
     /// The kernel command line is invalid.
+    #[error("The kernel command line is invalid: {0}")]
     InvalidKernelCommandLine(String),
-}
-
-impl Display for BootSourceConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        use self::BootSourceConfigError::*;
-        match *self {
-            InvalidKernelPath(ref err) => write!(f, "The kernel file cannot be opened: {}", err),
-            InvalidInitrdPath(ref err) => write!(
-                f,
-                "The initrd file cannot be opened due to invalid path or invalid permissions. {}",
-                err,
-            ),
-            InvalidKernelCommandLine(ref err) => {
-                write!(f, "The kernel command line is invalid: {}", err.as_str())
-            }
-        }
-    }
 }
 
 /// Holds the kernel specification (both configuration as well as runtime details).

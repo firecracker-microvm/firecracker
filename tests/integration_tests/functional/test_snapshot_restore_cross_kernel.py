@@ -131,8 +131,6 @@ def test_snap_restore_from_artifacts(
     `create_snapshot_artifacts` devtool command. The base microVM snapshotted
     has been built from the config file at
     ~/firecracker/tools/create_snapshot_artifact/complex_vm_config.json.
-
-    @type: functional
     """
     logger = logging.getLogger("cross_kernel_snapshot_restore")
     builder = MicrovmBuilder(bin_cloner_path)

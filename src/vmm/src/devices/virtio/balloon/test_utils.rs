@@ -8,12 +8,12 @@ use std::u32;
 use crate::devices::virtio::test_utils::VirtQueue;
 #[cfg(test)]
 use crate::devices::virtio::{
-    balloon::NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
+    balloon::BALLOON_NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
 };
 
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
-    assert!(queue_index < NUM_QUEUES);
+    assert!(queue_index < BALLOON_NUM_QUEUES);
     // Trigger the queue event.
     b.queue_evts[queue_index].write(1).unwrap();
     // Handle event.

@@ -32,8 +32,6 @@ def verify_net_emulation_paused(metrics):
 def test_pause_resume(bin_cloner_path):
     """
     Test scenario: boot/pause/resume.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()
@@ -107,8 +105,6 @@ def test_pause_resume(bin_cloner_path):
 def test_describe_instance(bin_cloner_path):
     """
     Test scenario: DescribeInstance different states.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()
@@ -152,8 +148,6 @@ def test_describe_instance(bin_cloner_path):
 def test_pause_resume_preboot(bin_cloner_path):
     """
     Test pause/resume operations are not allowed pre-boot.
-
-    @type: negative
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()

@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 
 from framework.artifacts import NetIfaceConfig
-from framework.utils import check_entropy, get_kernel_version
-from framework.utils_cpuid import get_instance_type
+from framework.properties import global_props
+from framework.utils import check_entropy
 
-INSTANCE_TYPE = get_instance_type()
-HOST_KERNEL = get_kernel_version(level=1)
+if global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14":
+    pytestmark = pytest.mark.skip(reason="c7g requires no SVE 5.10 kernel")
 
 
 def _microvm_basic_config(microvm):
@@ -37,10 +37,6 @@ def _start_vm_without_rng(microvm):
     microvm.start()
 
 
-@pytest.mark.skipif(
-    INSTANCE_TYPE == "c7g.metal" and HOST_KERNEL == "4.14",
-    reason="c7g requires no SVE 5.10 kernel",
-)
 def test_rng_not_present(test_microvm_with_rng):
     """
     Test a guest microVM *without* an entropy device and ensure that
@@ -62,16 +58,10 @@ def test_rng_not_present(test_microvm_with_rng):
     assert ecode == 1
 
 
-@pytest.mark.skipif(
-    INSTANCE_TYPE == "c7g.metal" and HOST_KERNEL == "4.14",
-    reason="c7g requires no SVE 5.10 kernel",
-)
 def test_rng_present(test_microvm_with_rng):
     """
     Test a guest microVM with an entropy defined configured and ensure
     that we can access `/dev/hwrng`
-
-    @type: functional
     """
 
     vm = test_microvm_with_rng
@@ -80,16 +70,10 @@ def test_rng_present(test_microvm_with_rng):
     check_entropy(vm.ssh)
 
 
-@pytest.mark.skipif(
-    INSTANCE_TYPE == "c7g.metal" and HOST_KERNEL == "4.14",
-    reason="c7g requires no SVE 5.10 kernel",
-)
 def test_rng_snapshot(test_microvm_with_rng, microvm_factory):
     """
     Test that a virtio-rng device is functional after resuming from
     a snapshot
-
-    @type: functional
     """
 
     vm = test_microvm_with_rng
@@ -215,10 +199,6 @@ def _rate_limiter_id(rate_limiter):
     return "{} KB/sec".format(float(size) / float(refill_time))
 
 
-@pytest.mark.skipif(
-    INSTANCE_TYPE == "c7g.metal" and HOST_KERNEL == "4.14",
-    reason="c7g requires no SVE 5.10 kernel",
-)
 @pytest.mark.parametrize(
     "rate_limiter",
     [
@@ -231,8 +211,6 @@ def _rate_limiter_id(rate_limiter):
 def test_rng_bw_rate_limiter(test_microvm_with_rng, rate_limiter):
     """
     Test that rate limiter without initial burst budget works
-
-    @type: functional
     """
     vm = test_microvm_with_rng
     _start_vm_with_rng(vm, rate_limiter)

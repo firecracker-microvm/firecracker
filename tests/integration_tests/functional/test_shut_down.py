@@ -13,8 +13,6 @@ from framework import utils
 def test_reboot(test_microvm_with_api, network_config):
     """
     Test reboot from guest.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.jailer.daemonize = False
