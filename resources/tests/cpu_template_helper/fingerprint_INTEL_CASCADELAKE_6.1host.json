@@ -1,7 +1,7 @@
 {
   "firecracker_version": "1.5.0-dev",
-  "kernel_version": "6.1.25-37.47.amzn2023.x86_64",
-  "microcode_version": "0x5003302",
+  "kernel_version": "6.1.29-47.49.amzn2023.x86_64",
+  "microcode_version": "0x5003501",
   "bios_version": "1.0",
   "bios_revision": "3.65",
   "guest_cpu_config": {
@@ -1123,7 +1123,7 @@
       },
       {
         "addr": "0x10a",
-        "bitmap": "0b0000000000000000000000000000000000000000000000101010000011101011"
+        "bitmap": "0b0000000000000000000000000000000000000000000010101010000011101011"
       },
       {
         "addr": "0x140",
