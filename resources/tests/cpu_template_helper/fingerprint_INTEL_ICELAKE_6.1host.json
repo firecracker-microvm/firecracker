@@ -1,7 +1,7 @@
 {
   "firecracker_version": "1.5.0-dev",
-  "kernel_version": "6.1.25-37.47.amzn2023.x86_64",
-  "microcode_version": "0xd00037b",
+  "kernel_version": "6.1.29-47.49.amzn2023.x86_64",
+  "microcode_version": "0xd000390",
   "bios_version": "1.0",
   "bios_revision": "1.25",
   "guest_cpu_config": {
