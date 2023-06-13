@@ -73,7 +73,7 @@ fn run_shell_command(cmd: &str) -> Result<String, Error> {
         .args(["-c", cmd])
         .output()
         .map_err(|err| Error::ShellCommand(cmd.to_string(), err.to_string()))?;
-    println!("{:?}", output.status.code());
+
     if !output.status.success() {
         return Err(Error::ShellCommand(
             cmd.to_string(),
