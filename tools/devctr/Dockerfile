@@ -41,7 +41,8 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         musl-tools \
-        net-tools iproute2 iperf3 \
+        # needed for integration tests
+        net-tools iproute2 iperf3 socat fdisk \
         openssh-client \
         pkgconf \
         python3 python3-dev python3-pip \

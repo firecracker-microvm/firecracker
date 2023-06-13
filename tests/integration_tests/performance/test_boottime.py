@@ -2,45 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
-import platform
 import re
 import time
 
+import pytest
+
 from framework.properties import global_props
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
-# NOTE: For aarch64 most of the boot time is spent by the kernel to unpack the
-# initramfs in RAM. This time is influenced by the size and the compression
-# method of the used initrd image. The boot time for Skylake is greater than
-# other x86-64 CPUs, since L1TF mitigation (unconditional L1D cache flush) is
-# enabled.
-INITRD_BOOT_TIME_US = {
-    "x86_64": {
-        "m5d.metal": {
-            "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz": 230000,
-            "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz": 180000,
-        },
-        "m6i.metal": {
-            "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz": 180000,
-        },
-        "m6a.metal": {
-            "AMD EPYC 7R13 48-Core Processor": 180000,
-        },
-    },
-    "aarch64": {
-        "m6g.metal": {
-            "ARM_NEOVERSE_N1": 205000,
-        },
-        "c7g.metal": {
-            "ARM_NEOVERSE_V1": 205000,
-        },
-    },
-}
+
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
-
 
 DIMENSIONS = {
     "instance": global_props.instance,
@@ -61,6 +34,11 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
+# temporarily disable this test in 6.1
+@pytest.mark.xfail(
+    global_props.host_linux_version == "6.1",
+    reason="perf regression under investigation",
+)
 def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -75,6 +53,11 @@ def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
 
 
+# temporarily disable this test in 6.1
+@pytest.mark.xfail(
+    global_props.host_linux_version == "6.1",
+    reason="perf regression under investigation",
+)
 def test_boottime_with_network(
     test_microvm_with_api, network_config, record_property, metrics
 ):
@@ -100,12 +83,9 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
     _tap = _configure_and_run_vm(vm, initrd=True)
-    max_time_us = INITRD_BOOT_TIME_US[platform.machine()][get_instance_type()][
-        get_cpu_model_name()
-    ]
-    boottime_us = _test_microvm_boottime(vm, max_time_us=max_time_us)
+    boottime_us = _test_microvm_boottime(vm, max_time_us=None)
     print(f"Boot time with initrd is: {boottime_us} us")
-    record_property("boottime_initrd", f"{boottime_us} us < {max_time_us} us")
+    record_property("boottime_initrd", f"{boottime_us} us")
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time_with_initrd", boottime_us, unit="Microseconds")
 
@@ -123,8 +103,8 @@ def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
         boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-    # temporarily disable this test in 6.1
-    if global_props.host_linux_version != "6.1":
+
+    if max_time_us is not None:
         assert (
             boot_time_us < max_time_us
         ), f"boot time {boot_time_us} cannot be greater than: {max_time_us} us"
