@@ -27,7 +27,7 @@ def is_on_skylake():
 if utils.is_io_uring_supported():
     COVERAGE_DICT = {"Intel": 83.76, "AMD": 83.34, "ARM": 83.12}
 else:
-    COVERAGE_DICT = {"Intel": 81.02, "AMD": 80.55, "ARM": 80.12}
+    COVERAGE_DICT = {"Intel": 81.02, "AMD": 80.55, "ARM": 80.19}
 
 PROC_MODEL = proc.proc_type()
 
