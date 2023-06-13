@@ -13,9 +13,9 @@ name = "jailer"
 bench = false
 
 [dependencies]
-libc = "0.2.117"
+libc = "0.2.146"
 nix = { version = "0.26.2", default-features = false, features = ["dir"] }
-regex = { version = "1.8.3", default-features = false, features = ["std"] }
+regex = { version = "1.8.4", default-features = false, features = ["std"] }
 thiserror = "1.0.32"
 
 utils = { path = "../utils" }
