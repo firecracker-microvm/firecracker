@@ -84,7 +84,7 @@ class CpuTemplateHelper:
         """Compare two fingerprint files"""
         cmd = (
             f"{self.BINARY_PATH} fingerprint compare"
-            f" --prev {prev_path} -curr {curr_path}"
+            f" --prev {prev_path} --curr {curr_path}"
             f" --filters {' '.join(filters)}"
         )
         utils.run_cmd(cmd)
