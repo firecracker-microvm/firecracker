@@ -243,7 +243,7 @@ impl ApiServer {
                 response
             }
             Err(err) => {
-                error!("{}", err);
+                error!("{:?}", err);
                 err.into()
             }
         }
@@ -320,6 +320,29 @@ mod tests {
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     use super::*;
+    use crate::request::cpu_configuration::parse_put_cpu_config;
+
+    /// Test unescaped CPU template in JSON format.
+    /// Newlines injected into a field's value to
+    /// test deserialization and logging.
+    #[cfg(target_arch = "x86_64")]
+    const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "msr_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
+    #[cfg(target_arch = "aarch64")]
+    pub const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "reg_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
 
     #[test]
     fn test_serve_vmm_action_request() {
@@ -431,6 +454,30 @@ mod tests {
         let req = connection.pop_parsed_request().unwrap();
         let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_handle_request_logging() {
+        let cpu_template_json = TEST_UNESCAPED_JSON_TEMPLATE;
+        let result = parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes()));
+        assert!(result.is_err());
+        let result_error = result.unwrap_err();
+        let err_msg = format!("{}", result_error);
+        assert_ne!(
+            1,
+            err_msg.lines().count(),
+            "Error Body response:\n{}",
+            err_msg
+        );
+
+        let err_msg_with_debug = format!("{:?}", result_error);
+        // Check the loglines are on one line.
+        assert_eq!(
+            1,
+            err_msg_with_debug.lines().count(),
+            "Error Body response:\n{}",
+            err_msg_with_debug
+        );
     }
 
     #[test]
