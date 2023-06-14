@@ -18,4 +18,3 @@ thiserror = "1.0.32"
 vm-superio = "0.7.0"
 
 utils = { path = "../utils" }
-
