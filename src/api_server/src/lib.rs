@@ -101,7 +101,7 @@ impl ApiServer {
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
-    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use vmm::seccomp_filters::get_empty_filters;
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
@@ -113,7 +113,7 @@ impl ApiServer {
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    /// let seccomp_filters = get_empty_filters();
     /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
     /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
@@ -315,7 +315,7 @@ mod tests {
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
@@ -443,7 +443,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
@@ -491,7 +491,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()

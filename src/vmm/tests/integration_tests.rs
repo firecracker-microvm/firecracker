@@ -10,7 +10,7 @@ use utils::tempfile::TempFile;
 use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot, setup_serial_device};
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_filters, SeccompConfig};
+use vmm::seccomp_filters::get_empty_filters;
 use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
@@ -41,7 +41,7 @@ fn test_build_and_boot_microvm() {
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let empty_seccomp_filters = get_empty_filters();
 
         let vmm_ret = build_and_boot_microvm(
             &InstanceInfo::default(),
@@ -252,7 +252,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     use vmm::memory_snapshot::SnapshotMemory;
 
     let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let empty_seccomp_filters = get_empty_filters();
 
     // Deserialize microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();

@@ -3,6 +3,7 @@
 
 mod api_server_adapter;
 mod metrics;
+mod seccomp;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
@@ -17,13 +18,14 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
+
+use crate::seccomp::SeccompConfig;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -317,7 +319,7 @@ fn main_exitable() -> FcExitCode {
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
-    .and_then(get_filters)
+    .and_then(seccomp::get_filters)
     {
         Ok(filters) => filters,
         Err(err) => {
