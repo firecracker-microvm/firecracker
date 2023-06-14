@@ -7,5 +7,3 @@ license = "Apache-2.0"
 
 [lib]
 bench = false
-
-[dependencies]
