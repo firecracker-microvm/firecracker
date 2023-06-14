@@ -505,6 +505,7 @@ dependencies = [
  "seccompiler",
  "serde_json",
  "snapshot",
+ "thiserror",
  "timerfd",
  "utils",
  "vmm",
