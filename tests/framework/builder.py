@@ -214,7 +214,7 @@ class MicrovmBuilder:
             )
             vm.jailer.daemonize = daemonize
             vm.spawn(log_level="Error", use_ramdisk=use_ramdisk)
-            vm.api_session.untime()
+            vm.time_api_requests = False
 
         metrics_file_path = os.path.join(vm.path, "metrics.log")
         metrics_fifo = log_tools.Fifo(metrics_file_path)
