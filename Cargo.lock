@@ -1169,9 +1169,9 @@ dependencies = [
 
 [[package]]
 name = "timerfd"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28bec34eefd64bea12fe46971f5342234eb24807565f50728824301ba3271572"
+checksum = "3d3fd47d83ad0b5c7be2e8db0b9d712901ef6ce5afbcc6f676761004f5104ea2"
 dependencies = [
  "rustix",
 ]
