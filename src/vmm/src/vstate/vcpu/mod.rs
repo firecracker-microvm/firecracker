@@ -731,7 +731,7 @@ pub mod tests {
 
     use super::*;
     use crate::builder::StartMicrovmError;
-    use crate::seccomp_filters::{get_filters, SeccompConfig};
+    use crate::seccomp_filters::get_empty_filters;
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
@@ -989,7 +989,7 @@ pub mod tests {
             )
             .expect("failed to configure vcpu");
 
-        let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let mut seccomp_filters = get_empty_filters();
         let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
             .start_threaded(seccomp_filters.remove("vcpu").unwrap(), barrier.clone())

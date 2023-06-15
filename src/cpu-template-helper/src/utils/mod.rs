@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use vmm::builder::{build_microvm_for_boot, StartMicrovmError};
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_filters, SeccompConfig};
+use vmm::seccomp_filters::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::{EventManager, Vmm, HTTP_MAX_PAYLOAD_SIZE};
 
@@ -100,7 +100,7 @@ pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmRes
     let vm_resources = VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
         .map_err(Error::CreateVmResources)?;
     let mut event_manager = EventManager::new().unwrap();
-    let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let seccomp_filters = get_empty_filters();
 
     // Build a microVM.
     let vmm = build_microvm_for_boot(

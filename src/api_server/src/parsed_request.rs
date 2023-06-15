@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{error, info};
+use logger::{error, info, log_enabled, Level};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
@@ -232,15 +232,32 @@ fn log_received_api_request(api_description: String) {
 fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
         ("/mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, path),
-        (_, Some(value)) => format!(
-            "{:?} request on {:?} with body {:?}",
-            method,
-            path,
-            std::str::from_utf8(value.body.as_slice())
-                .unwrap_or("inconvertible to UTF-8")
-                .to_string()
-        ),
+        ("/cpu-config", Some(payload_value)) => {
+            // If the log level is at Debug or higher, include the CPU template in
+            // the log line.
+            if log_enabled!(Level::Debug) {
+                describe_with_body(method, path, payload_value)
+            } else {
+                format!(
+                    "{:?} request on {:?}. To view the CPU template received by the API, \
+                     configure log-level to DEBUG",
+                    method, path
+                )
+            }
+        }
+        (_, Some(payload_value)) => describe_with_body(method, path, payload_value),
     }
+}
+
+fn describe_with_body(method: Method, path: &str, payload_value: &Body) -> String {
+    format!(
+        "{:?} request on {:?} with body {:?}",
+        method,
+        path,
+        std::str::from_utf8(payload_value.body.as_slice())
+            .unwrap_or("inconvertible to UTF-8")
+            .to_string()
+    )
 }
 
 /// Generates a `GenericError` for each request method.

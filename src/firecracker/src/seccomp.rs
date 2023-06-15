@@ -1,11 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::sync::Arc;
 
-use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
+use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError};
+use vmm::seccomp_filters::get_empty_filters;
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -16,41 +15,20 @@ const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 const DESERIALIZATION_BYTES_LIMIT: Option<u64> = Some(100_000);
 
 /// Error retrieving seccomp filters.
-#[derive(fmt::Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FilterError {
-    /// Invalid SeccompConfig.
-    SeccompConfig(String),
     /// Filter deserialitaion error.
+    #[error("Filter deserialization failed: {0}")]
     Deserialization(DeserializationError),
     /// Invalid thread categories.
+    #[error("Invalid thread categories: {0}")]
     ThreadCategories(String),
     /// Missing Thread Category.
+    #[error("Missing thread category: {0}")]
     MissingThreadCategory(String),
-    /// Filter installation error.
-    Install(InstallationError),
     /// File open error.
+    #[error("Filter file open error: {0}")]
     FileOpen(std::io::Error),
-}
-
-impl fmt::Display for FilterError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::FilterError::*;
-
-        match *self {
-            SeccompConfig(ref message) => {
-                write!(f, "Invalid seccomp argument configuration: {}", message)
-            }
-            Deserialization(ref err) => write!(f, "Filter deserialization failed: {}", err),
-            ThreadCategories(ref categories) => {
-                write!(f, "Invalid thread categories: {}", categories)
-            }
-            MissingThreadCategory(ref category) => {
-                write!(f, "Missing thread category: {}", category)
-            }
-            Install(ref err) => write!(f, "Filter installation error: {}", err),
-            FileOpen(ref err) => write!(f, "Filter file open error: {}", err),
-        }
-    }
 }
 
 /// Seccomp filter configuration.
@@ -101,15 +79,6 @@ fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     filter_thread_categories(map)
 }
 
-/// Retrieve empty seccomp filters.
-fn get_empty_filters() -> BpfThreadMap {
-    let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
-    map
-}
-
 /// Retrieve custom seccomp filters.
 fn get_custom_filters<R: Read>(reader: R) -> Result<BpfThreadMap, FilterError> {
     let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
@@ -148,6 +117,8 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use seccompiler::BpfThreadMap;
     use utils::tempfile::TempFile;
 

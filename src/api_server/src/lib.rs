@@ -101,7 +101,7 @@ impl ApiServer {
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
-    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use vmm::seccomp_filters::get_empty_filters;
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
@@ -113,7 +113,7 @@ impl ApiServer {
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    /// let seccomp_filters = get_empty_filters();
     /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
     /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
@@ -243,7 +243,7 @@ impl ApiServer {
                 response
             }
             Err(err) => {
-                error!("{}", err);
+                error!("{:?}", err);
                 err.into()
             }
         }
@@ -315,11 +315,34 @@ mod tests {
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     use super::*;
+    use crate::request::cpu_configuration::parse_put_cpu_config;
+
+    /// Test unescaped CPU template in JSON format.
+    /// Newlines injected into a field's value to
+    /// test deserialization and logging.
+    #[cfg(target_arch = "x86_64")]
+    const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "msr_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
+    #[cfg(target_arch = "aarch64")]
+    pub const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "reg_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
 
     #[test]
     fn test_serve_vmm_action_request() {
@@ -434,6 +457,30 @@ mod tests {
     }
 
     #[test]
+    fn test_handle_request_logging() {
+        let cpu_template_json = TEST_UNESCAPED_JSON_TEMPLATE;
+        let result = parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes()));
+        assert!(result.is_err());
+        let result_error = result.unwrap_err();
+        let err_msg = format!("{}", result_error);
+        assert_ne!(
+            1,
+            err_msg.lines().count(),
+            "Error Body response:\n{}",
+            err_msg
+        );
+
+        let err_msg_with_debug = format!("{:?}", result_error);
+        // Check the loglines are on one line.
+        assert_eq!(
+            1,
+            err_msg_with_debug.lines().count(),
+            "Error Body response:\n{}",
+            err_msg_with_debug
+        );
+    }
+
+    #[test]
     fn test_bind_and_run() {
         let mut tmp_socket = TempFile::new().unwrap();
         tmp_socket.remove().unwrap();
@@ -443,7 +490,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
@@ -491,7 +538,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()

@@ -7,4 +7,4 @@ updates:
       day: "monday"
     allow:
       - dependency-type: "all"
-    open-pull-request-limit: 100
+    open-pull-requests-limit: 100
