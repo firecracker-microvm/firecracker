@@ -11,7 +11,7 @@ use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, derive_more::From, thiserror::Error)]
 pub enum Error {
     /// The host kernel reports an invalid KVM API version.
     #[error("The host kernel reports an invalid KVM API version: {0}")]
@@ -99,6 +99,14 @@ impl KvmContext {
     /// Get the maximum number of memory slots reported by this KVM context.
     pub fn max_memslots(&self) -> usize {
         self.max_memslots
+    }
+
+    // Currently we only use this from aarch64 code
+    #[cfg(target_arch = "aarch64")]
+    /// Check a KVM capability
+    pub(crate) fn check_capability(cap: kvm_ioctls::Cap) -> Result<bool> {
+        let kvm = Kvm::new()?;
+        Ok(kvm.check_extension(cap))
     }
 }
 

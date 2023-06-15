@@ -20,6 +20,7 @@ use crate::arch::aarch64::vcpu::{
 };
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::{Error as VcpuError, VcpuConfig};
+use crate::vstate::system::{Error as SystemError, KvmContext};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
@@ -42,6 +43,8 @@ pub enum Error {
     RestoreState(ArchError),
     #[error("Failed to save the state of the vcpu: {0}")]
     SaveState(ArchError),
+    #[error("Failed to retrieve KVM capability: {0}")]
+    GetCapability(#[from] SystemError),
 }
 
 pub type KvmVcpuConfigureError = Error;
@@ -130,6 +133,24 @@ impl KvmVcpu {
         if self.index > 0 {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
+
+        // If the host supports Pointer Authentication, enable it for the guest as well.
+        //
+        // KVM [implies](https://docs.kernel.org/virt/kvm/api.html#kvm-arm-vcpu-init) that
+        // it is not necessary that both KVM_CAP_ARM_PTRAUTH_(GENERIC,ADDRESS) are enabled
+        // but Linux requires both of those to be present in order to enable support. See:
+        //
+        // * Doc: https://www.kernel.org/doc/html/v5.10/arm64/pointer-authentication.html#virtualization
+        // * Code: https://elixir.bootlin.com/linux/v5.10.184/source/arch/arm64/kvm/reset.c#L86
+        //
+        // So here, we check if both are enabled in the host system.
+        if KvmContext::check_capability(Cap::ArmPtrAuthAddress)?
+            && KvmContext::check_capability(Cap::ArmPtrAuthGeneric)?
+        {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PTRAUTH_ADDRESS;
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PTRAUTH_GENERIC;
+        }
+
         self.fd.vcpu_init(&kvi).map_err(Error::Init)
     }
 

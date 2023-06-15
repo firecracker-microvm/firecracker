@@ -35,6 +35,8 @@ use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
+#[cfg(target_arch = "aarch64")]
+use crate::version_map::FC_V1_3_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -226,6 +228,10 @@ pub enum CreateSnapshotError {
          requested is {FC_V0_23_MAX_DEVICES}."
     )]
     TooManyDevices(usize),
+    #[cfg(target_arch = "aarch64")]
+    /// Target snapshot version does not support a KVM register
+    #[error("Cannot create snapshot. Target version does not support KVM registers for {0}")]
+    IncompatibleKvmRegister(&'static str),
 }
 
 /// Creates a Microvm snapshot.
@@ -331,6 +337,11 @@ pub fn get_snapshot_data_version(
     #[cfg(target_arch = "x86_64")]
     if data_version <= FC_V0_23_SNAP_VERSION {
         validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if data_version <= FC_V1_3_SNAP_VERSION {
+        return Err(CreateSnapshotError::IncompatibleKvmRegister("PAC"));
     }
 
     if data_version < FC_V1_1_SNAP_VERSION {

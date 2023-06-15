@@ -11,3 +11,4 @@ lto = true
 
 [patch.crates-io]
 kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.6.0-1", features = ["fam-wrappers"] }
+kvm-ioctls = { git = "https://github.com/bchalios/kvm-ioctls", branch = "expose_pac_capabilities"}
