@@ -5,8 +5,6 @@
 import requests
 from requests_unixsocket import DEFAULT_SCHEME, UnixAdapter
 
-from framework import decorators
-
 
 class Session(requests.Session):
     """Wrapper over requests_unixsocket.Session limiting the call duration.
@@ -75,30 +73,3 @@ class Session(requests.Session):
         self.is_status_bad_request = is_status_bad_request
         self.is_status_not_found = is_status_not_found
         self.is_status_payload_too_large = is_status_payload_too_large
-
-    @decorators.timed_request
-    def get(self, url, **kwargs):
-        """Wrap the GET call with duration limit."""
-        # pylint: disable=method-hidden
-        # The `untime` method overrides this, and pylint disapproves.
-        return super().get(url, **kwargs)
-
-    @decorators.timed_request
-    def patch(self, url, data=None, **kwargs):
-        """Wrap the PATCH call with duration limit."""
-        # pylint: disable=method-hidden
-        # The `untime` method overrides this, and pylint disapproves.
-        return super().patch(url, data=data, **kwargs)
-
-    @decorators.timed_request
-    def put(self, url, data=None, **kwargs):
-        """Wrap the PUT call with duration limit."""
-        # pylint: disable=method-hidden
-        # The `untime` method overrides this, and pylint disapproves.
-        return super().put(url, data=data, **kwargs)
-
-    def untime(self):
-        """Restore the HTTP methods to their un-timed selves."""
-        self.get = super().get
-        self.patch = super().patch
-        self.put = super().put
