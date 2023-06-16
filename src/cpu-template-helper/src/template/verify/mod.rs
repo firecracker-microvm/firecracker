@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 
-use crate::utils::{ModifierMapKey, ModifierMapValue};
+use vmm::cpu_config::templates::{Numeric, RegisterValueFilter};
+
+use crate::utils::{DiffString, ModifierMapKey};
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
@@ -27,20 +29,22 @@ pub enum Error {
 ///
 /// This function is an arch-agnostic part of CPU template verification. As template formats differ
 /// between x86_64 and aarch64, the arch-specific part converts the structure to an arch-agnostic
-/// `HashMap` implementing `ModifierMapKey` and `ModifierMapValue` for its key and value
-/// respectively before calling this arch-agnostic function.
-pub fn verify_common<K, V>(template: HashMap<K, V>, config: HashMap<K, V>) -> Result<(), Error>
+/// `HashMap` implementing `ModifierMapKey` before calling this arch-agnostic function.
+pub fn verify_common<K, V>(
+    template: HashMap<K, RegisterValueFilter<V>>,
+    config: HashMap<K, RegisterValueFilter<V>>,
+) -> Result<(), Error>
 where
     K: ModifierMapKey,
-    V: ModifierMapValue,
+    V: Numeric,
 {
     for (key, template_value_filter) in template {
         let config_value_filter = config
             .get(&key)
             .ok_or(Error::KeyNotFound(key.to_string()))?;
 
-        let template_value = template_value_filter.value() & template_value_filter.filter();
-        let config_value = config_value_filter.value() & template_value_filter.filter();
+        let template_value = template_value_filter.value & template_value_filter.filter;
+        let config_value = config_value_filter.value & template_value_filter.filter;
 
         if template_value != config_value {
             return Err(Error::ValueMismatched(
@@ -56,7 +60,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
+    use crate::utils::tests::{mock_modifier, MockModifierMapKey};
 
     #[test]
     fn test_verify_modifier_map_with_non_existing_key() {
