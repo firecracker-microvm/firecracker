@@ -17,7 +17,6 @@ In order to test the vsock device connection state machine, these tests will:
 import os.path
 from socket import timeout as SocketTimeout
 
-import host_tools.logging as log_tools
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -93,12 +92,6 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     vm.basic_config()
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
-
-    # Configure metrics to assert against `sigpipe` count.
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    vm.api.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-
     vm.start()
 
     # Generate the random data blob file, 20MB
@@ -114,7 +107,7 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     # are closed with in flight data.
     negative_test_host_connections(vm, path, blob_path, blob_hash)
 
-    metrics = vm.flush_metrics(metrics_fifo)
+    metrics = vm.flush_metrics()
     # Validate that at least 1 `SIGPIPE` signal was received.
     # Since we are reusing the existing echo server which triggers
     # reads/writes on the UDS backend connections, these might be closed

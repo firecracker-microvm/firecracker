@@ -10,7 +10,6 @@ from subprocess import check_output
 import pytest
 
 import host_tools.drive as drive_tools
-import host_tools.logging as log_tools
 from framework import utils
 
 MB = 1024 * 1024
@@ -318,18 +317,10 @@ def test_no_flush(test_microvm_with_api):
         test_microvm.rootfs_file,
         is_root_device=True,
     )
-
-    # Configure the metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-
     test_microvm.start()
 
     # Verify all flush commands were ignored during boot.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["block"]["flush_count"] == 0
 
     # Have the guest drop the caches to generate flush requests.
@@ -339,7 +330,7 @@ def test_no_flush(test_microvm_with_api):
 
     # Verify all flush commands were ignored even after
     # dropping the caches.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["block"]["flush_count"] == 0
 
 
@@ -359,14 +350,6 @@ def test_flush(uvm_plain_rw):
         is_root_device=True,
         cache_type="Writeback",
     )
-
-    # Configure metrics, to get later the `flush_count`.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-
     test_microvm.start()
 
     # Have the guest drop the caches to generate flush requests.
@@ -376,7 +359,7 @@ def test_flush(uvm_plain_rw):
 
     # On average, dropping the caches right after boot generates
     # about 6 block flush requests.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["block"]["flush_count"] > 0
 
 

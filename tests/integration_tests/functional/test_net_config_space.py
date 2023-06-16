@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests on devices config space."""
 
-import os
 import platform
 import random
 import re
@@ -10,7 +9,6 @@ import string
 import subprocess
 from threading import Thread
 
-import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # pylint: disable=global-statement
@@ -30,14 +28,6 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     test_microvm.add_net_iface()
     # Control interface ('eth1' in guest).
     test_microvm.add_net_iface()
-
-    # Configure metrics, to get later the `tx_spoofed_mac_count`.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-
     test_microvm.start()
 
     # Create the control ssh connection.
@@ -51,7 +41,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     iterations = 1
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
 
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
     # Change the MAC address of the network data interface.
@@ -68,7 +58,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
 
     # `tx_spoofed_mac_count` metric was incremented due to the MAC address
     # change.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] > 0
 
     net_addr_base = _get_net_mem_addr_base(ssh_conn, guest_if1_name)
@@ -91,15 +81,15 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     # Discard any parasite data exchange which might've been
     # happened on the emulation thread while the config space
     # was changed on the vCPU thread.
-    test_microvm.flush_metrics(metrics_fifo)
+    test_microvm.flush_metrics()
 
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
     # Try again, just to be extra sure.
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
 

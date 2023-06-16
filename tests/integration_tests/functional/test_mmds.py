@@ -3,15 +3,12 @@
 """Tests that verify MMDS related functionality."""
 
 # pylint: disable=too-many-lines
-import json
-import os
 import random
 import string
 import time
 
 import pytest
 
-import host_tools.logging as log_tools
 from framework.properties import global_props
 from framework.utils import (
     configure_mmds,
@@ -759,13 +756,6 @@ def test_deprecated_mmds_config(test_microvm_with_api):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
-
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-
     # Attach network device.
     test_microvm.add_net_iface()
     # Use the default version, which is 1 for backwards compatibility.
@@ -779,18 +769,12 @@ def test_deprecated_mmds_config(test_microvm_with_api):
     assert "deprecation" not in response.headers
 
     test_microvm.start()
-    lines = metrics_fifo.sequential_reader(100)
+    datapoints = test_microvm.get_all_metrics()
 
     assert (
         sum(
-            list(
-                map(
-                    lambda line: json.loads(line)["deprecated_api"][
-                        "deprecated_http_api_calls"
-                    ],
-                    lines,
-                )
-            )
+            datapoint["deprecated_api"]["deprecated_http_api_calls"]
+            for datapoint in datapoints
         )
         == 2
     )
