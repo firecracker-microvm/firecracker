@@ -19,19 +19,16 @@ import select
 import shutil
 import time
 import uuid
-import weakref
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from threading import Lock
 from typing import Optional
 
 from retry import retry
 
 import host_tools.cargo_build as build_tools
-import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
@@ -42,7 +39,6 @@ from framework.jailer import JailerContext
 from framework.properties import global_props
 
 LOG = logging.getLogger("microvm")
-data_lock = Lock()
 
 
 class SnapshotType(Enum):
@@ -147,7 +143,6 @@ class Microvm:
     """
 
     SCREEN_LOGFILE = "/tmp/screen-{}.log"
-    __log_data = ""
 
     def __init__(
         self,
@@ -201,7 +196,6 @@ class Microvm:
         )
 
         # Initialize the logging subsystem.
-        self.logging_thread = None
         self._screen_pid = None
         self._screen_log = None
 
@@ -213,6 +207,7 @@ class Microvm:
             self.memory_monitor = mem_tools.MemoryMonitor()
 
         self.api = None
+        self.log_file = None
 
         # device dictionaries
         self.iface = {}
@@ -234,8 +229,6 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
-        if self.logging_thread is not None:
-            self.logging_thread.stop()
 
         if (
             self.expect_kill_by_signal is False
@@ -346,14 +339,10 @@ class Microvm:
 
     @property
     def log_data(self):
-        """Return the log data.
-
-        !!!!OBS!!!!: Do not use this to check for message existence and
-        rather use self.check_log_message.
-        """
-        with data_lock:
-            log_data = self.__log_data
-        return log_data
+        """Return the log data."""
+        if self.log_file is None:
+            return ""
+        return self.log_file.read_text()
 
     @property
     def state(self):
@@ -394,11 +383,6 @@ class Microvm:
         # Empty the metrics pipe.
         self.api.actions.put(action_type="FlushMetrics")
         return metrics_fifo.sequential_reader(1000)
-
-    def append_to_log_data(self, data):
-        """Append a message to the log data."""
-        with data_lock:
-            self.__log_data += data
 
     def copy_to_jail_ramfs(self, src):
         """Copy a file to a jail ramfs."""
@@ -468,8 +452,7 @@ class Microvm:
 
     def spawn(
         self,
-        create_logger=True,
-        log_file="log_fifo",
+        log_file="fc.log",
         log_level="Debug",
         use_ramdisk=False,
         metrics_path=None,
@@ -479,15 +462,14 @@ class Microvm:
         self.jailer.setup(use_ramdisk=use_ramdisk)
         self.api = Api(self.jailer.api_socket_path())
 
-        if create_logger:
-            log_fifo_path = os.path.join(self.path, log_file)
-            log_fifo = log_tools.Fifo(log_fifo_path)
-            self.create_jailed_resource(log_fifo.path, create_jail=True)
+        if log_file is not None:
+            self.log_file = Path(self.path) / log_file
+            self.log_file.touch()
+            self.create_jailed_resource(self.log_file, create_jail=True)
             # The default value for `level`, when configuring the
             # logger via cmd line, is `Warning`. We set the level
-            # to `Info` to also have the boot time printed in fifo.
+            # to `Debug` to also have the boot time printed in fifo.
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
-            self.start_console_logger(log_fifo)
 
         if metrics_path is not None:
             self.create_jailed_resource(metrics_path, create_jail=True)
@@ -539,7 +521,7 @@ class Microvm:
         # and leave 0.2 delay between them.
         if "no-api" not in self.jailer.extra_args:
             self._wait_create()
-        if create_logger:
+        if self.log_file:
             self.check_log_message("Running Firecracker")
 
     @retry(delay=0.2, tries=5)
@@ -845,47 +827,6 @@ class Microvm:
     def ssh(self):
         """Return a cached SSH connection on the 1st interface"""
         return self.ssh_iface(0)
-
-    def start_console_logger(self, log_fifo):
-        """
-        Start a thread that monitors the microVM console.
-
-        The console output will be redirected to the log file.
-        """
-
-        def monitor_fd(microvm, path):
-            try:
-                fd = open(path, "r", encoding="utf-8")
-                while True:
-                    try:
-                        if microvm().logging_thread.stopped():
-                            return
-                        data = fd.readline()
-                        if data:
-                            microvm().append_to_log_data(data)
-                    except AttributeError as _:
-                        # This means that the microvm object was destroyed and
-                        # we are using a None reference.
-                        return
-            except IOError as error:
-                # pylint: disable=W0150
-                try:
-                    LOG.error(
-                        "[%s] IOError while monitoring fd:" " %s", microvm().id, error
-                    )
-                    microvm().append_to_log_data(str(error))
-                except AttributeError as _:
-                    # This means that the microvm object was destroyed and
-                    # we are using a None reference.
-                    pass
-                finally:
-                    return
-
-        self.logging_thread = utils.StoppableThread(
-            target=monitor_fd, args=(weakref.ref(self), log_fifo.path), daemon=True
-        )
-        self.logging_thread.daemon = True
-        self.logging_thread.start()
 
 
 class Serial:
