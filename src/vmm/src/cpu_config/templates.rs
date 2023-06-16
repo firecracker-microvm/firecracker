@@ -102,7 +102,7 @@ pub trait Numeric:
     + std::ops::BitAnd<Output = Self>
     + std::ops::BitOr<Output = Self>
     + std::ops::BitOrAssign<Self>
-    + std::ops::Shl<Output = Self>
+    + std::ops::Shl<u32, Output = Self>
     + std::ops::AddAssign<Self>
 {
     /// Number of bits for type
@@ -120,7 +120,7 @@ macro_rules! impl_numeric {
         impl Numeric for $type {
             const BITS: u32 = $type::BITS;
             fn bit(&self, pos: u32) -> bool {
-                (self & (1 << pos)) != 0
+                (self & (Self::one() << pos)) != 0
             }
             fn zero() -> Self {
                 0
@@ -188,7 +188,7 @@ where
         let stripped_str = original_str.strip_prefix("0b").unwrap_or(&original_str);
 
         let (mut filter, mut value) = (V::zero(), V::zero());
-        let mut i = V::zero();
+        let mut i = 0;
         for s in stripped_str.as_bytes().iter().rev() {
             match s {
                 b'_' => continue,
@@ -207,7 +207,7 @@ where
                     )))
                 }
             }
-            i += V::one();
+            i += 1;
         }
         Ok(RegisterValueFilter { filter, value })
     }
