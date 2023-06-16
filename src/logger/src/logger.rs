@@ -400,9 +400,9 @@ pub enum LoggerError {
 
 /// Implements the "Log" trait from the externally used "log" crate.
 impl Log for Logger {
-    // This is currently not used.
     fn enabled(&self, _metadata: &Metadata) -> bool {
-        unreachable!();
+        // No filtering beyond what the log crate already does based on level.
+        true
     }
 
     fn log(&self, record: &Record) {
