@@ -2,11 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
-import os
-
 import pytest
-
-import host_tools.logging as log_tools
 
 
 def verify_net_emulation_paused(metrics):
@@ -44,12 +40,6 @@ def test_pause_resume(uvm_nano):
     with pytest.raises(RuntimeError):
         microvm.api.vm.patch(state="Resumed")
 
-    # Configure metrics system and start microVM.
-    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    microvm.api.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
-    )
     microvm.start()
 
     # Verify guest is active.
@@ -60,7 +50,7 @@ def test_pause_resume(uvm_nano):
     microvm.api.vm.patch(state="Paused")
 
     # Flush and reset metrics as they contain pre-pause data.
-    microvm.flush_metrics(metrics_fifo)
+    microvm.flush_metrics()
 
     # Verify guest is no longer active.
     exit_code, _, _ = microvm.ssh.execute_command("ls")
@@ -68,7 +58,7 @@ def test_pause_resume(uvm_nano):
 
     # Verify emulation was indeed paused and no events from either
     # guest or host side were handled.
-    verify_net_emulation_paused(microvm.flush_metrics(metrics_fifo))
+    verify_net_emulation_paused(microvm.flush_metrics())
 
     # Verify guest is no longer active.
     exit_code, _, _ = microvm.ssh.execute_command("ls")

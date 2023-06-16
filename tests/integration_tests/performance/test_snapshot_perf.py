@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
-import json
-import os
 import platform
 
 import pytest
 
-import host_tools.logging as log_tools
 from framework.artifacts import kernel_params
 from framework.properties import global_props
 from framework.stats import consumer, producer, types
@@ -34,10 +31,10 @@ only_one_guest_kernel = pytest.mark.parametrize(
 )
 
 
-def snapshot_create_producer(vm, target_version, metrics_fifo):
+def snapshot_create_producer(vm, target_version):
     """Produce results for snapshot create tests."""
     vm.snapshot_full(target_version=target_version)
-    metrics = vm.flush_metrics(metrics_fifo)
+    metrics = vm.flush_metrics()
 
     value = metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
 
@@ -46,7 +43,7 @@ def snapshot_create_producer(vm, target_version, metrics_fifo):
     return value
 
 
-def snapshot_resume_producer(microvm_factory, snapshot, metrics_fifo):
+def snapshot_resume_producer(microvm_factory, snapshot):
     """Produce results for snapshot resume tests."""
 
     microvm = microvm_factory.build()
@@ -60,10 +57,9 @@ def snapshot_resume_producer(microvm_factory, snapshot, metrics_fifo):
 
     value = 0
     # Parse all metric data points in search of load_snapshot time.
-    metrics = microvm.get_all_metrics(metrics_fifo)
+    metrics = microvm.get_all_metrics()
     for data_point in metrics:
-        metrics = json.loads(data_point)
-        cur_value = metrics["latencies_us"]["load_snapshot"] / USEC_IN_MSEC
+        cur_value = data_point["latencies_us"]["load_snapshot"] / USEC_IN_MSEC
         if cur_value > 0:
             value = cur_value
             break
@@ -102,9 +98,7 @@ def test_older_snapshot_resume_latency(
         fc_binary_path=firecracker_release.path,
         jailer_binary_path=firecracker_release.jailer,
     )
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    vm.spawn(metrics_path=metrics_fifo_path)
+    vm.spawn()
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
@@ -124,7 +118,6 @@ def test_older_snapshot_resume_latency(
         func_kwargs={
             "microvm_factory": microvm_factory,
             "snapshot": snapshot,
-            "metrics_fifo": metrics_fifo,
         },
     )
 
@@ -154,9 +147,7 @@ def test_snapshot_create_latency(
     vcpus = 2
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    vm.spawn(metrics_path=metrics_fifo_path)
+    vm.spawn()
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
@@ -188,7 +179,6 @@ def test_snapshot_create_latency(
         func_kwargs={
             "vm": vm,
             "target_version": None,
-            "metrics_fifo": metrics_fifo,
         },
     )
 

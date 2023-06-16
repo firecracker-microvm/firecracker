@@ -208,6 +208,7 @@ class Microvm:
 
         self.api = None
         self.log_file = None
+        self.metrics_file = None
 
         # device dictionaries
         self.iface = {}
@@ -363,26 +364,15 @@ class Microvm:
         # Read the PID stored inside the file.
         return int(pid_file_path.read_text(encoding="ascii"))
 
-    def flush_metrics(self, metrics_fifo):
-        """Flush the microvm metrics.
-
-        Requires specifying the configured metrics file.
-        """
-        # Empty the metrics pipe.
-        _ = metrics_fifo.sequential_reader(100)
+    def flush_metrics(self):
+        """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")
-        lines = metrics_fifo.sequential_reader(100)
-        assert len(lines) == 1
-        return json.loads(lines[0])
+        # get the latest metrics
+        return self.get_all_metrics()[-1]
 
-    def get_all_metrics(self, metrics_fifo):
-        """Return all metric data points written by FC.
-
-        Requires specifying the configured metrics file.
-        """
-        # Empty the metrics pipe.
-        self.api.actions.put(action_type="FlushMetrics")
-        return metrics_fifo.sequential_reader(1000)
+    def get_all_metrics(self):
+        """Return all metric data points written by FC."""
+        return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
     def copy_to_jail_ramfs(self, src):
         """Copy a file to a jail ramfs."""
@@ -455,7 +445,7 @@ class Microvm:
         log_file="fc.log",
         log_level="Debug",
         use_ramdisk=False,
-        metrics_path=None,
+        metrics_path="fc.ndjson",
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -472,9 +462,10 @@ class Microvm:
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
 
         if metrics_path is not None:
-            self.create_jailed_resource(metrics_path, create_jail=True)
-            metrics_path = Path(metrics_path)
-            self.jailer.extra_args.update({"metrics-path": metrics_path.name})
+            self.metrics_file = Path(self.path) / metrics_path
+            self.metrics_file.touch()
+            self.create_jailed_resource(self.metrics_file, create_jail=True)
+            self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):

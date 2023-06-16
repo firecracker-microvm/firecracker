@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that the --seccomp-filter parameter works as expected."""
 
-import json
 import os
 import platform
 import tempfile
@@ -12,7 +11,6 @@ import psutil
 import pytest
 import requests
 
-import host_tools.logging as log_tools
 from framework import utils
 from host_tools.cargo_build import run_seccompiler_bin
 
@@ -179,14 +177,7 @@ def test_failing_filter(test_microvm_with_api):
     )
 
     test_microvm.spawn()
-
     test_microvm.basic_config(vcpu_count=1)
-
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
 
     # Try to start the VM with error checking off, because it will fail.
     try:
@@ -206,11 +197,11 @@ def test_failing_filter(test_microvm_with_api):
     )
 
     # Check the metrics
-    lines = metrics_fifo.sequential_reader(100)
+    datapoints = test_microvm.get_all_metrics()
 
     num_faults = 0
-    for line in lines:
-        num_faults += json.loads(line)["seccomp"]["num_faults"]
+    for datapoint in datapoints:
+        num_faults += datapoint["seccomp"]["num_faults"]
 
     assert num_faults >= 1
 
