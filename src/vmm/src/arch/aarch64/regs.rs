@@ -132,18 +132,30 @@ pub enum RegSize {
     U2048,
 }
 
+impl RegSize {
+    const U8_SIZE: u64 = 1;
+    const U16_SIZE: u64 = 2;
+    const U32_SIZE: u64 = 4;
+    const U64_SIZE: u64 = 8;
+    const U128_SIZE: u64 = 16;
+    const U256_SIZE: u64 = 32;
+    const U512_SIZE: u64 = 64;
+    const U1024_SIZE: u64 = 128;
+    const U2048_SIZE: u64 = 256;
+}
+
 impl From<u64> for RegSize {
     fn from(value: u64) -> Self {
         match value {
-            1 => RegSize::U8,
-            2 => RegSize::U16,
-            4 => RegSize::U32,
-            8 => RegSize::U64,
-            16 => RegSize::U128,
-            32 => RegSize::U256,
-            64 => RegSize::U512,
-            128 => RegSize::U1024,
-            256 => RegSize::U2048,
+            RegSize::U8_SIZE => RegSize::U8,
+            RegSize::U16_SIZE => RegSize::U16,
+            RegSize::U32_SIZE => RegSize::U32,
+            RegSize::U64_SIZE => RegSize::U64,
+            RegSize::U128_SIZE => RegSize::U128,
+            RegSize::U256_SIZE => RegSize::U256,
+            RegSize::U512_SIZE => RegSize::U512,
+            RegSize::U1024_SIZE => RegSize::U1024,
+            RegSize::U2048_SIZE => RegSize::U2048,
             _ => unreachable!("Registers bigger then 2048 bits are not supported"),
         }
     }
@@ -152,15 +164,15 @@ impl From<u64> for RegSize {
 impl From<RegSize> for u64 {
     fn from(value: RegSize) -> Self {
         match value {
-            RegSize::U8 => 1,
-            RegSize::U16 => 2,
-            RegSize::U32 => 4,
-            RegSize::U64 => 8,
-            RegSize::U128 => 16,
-            RegSize::U256 => 32,
-            RegSize::U512 => 64,
-            RegSize::U1024 => 128,
-            RegSize::U2048 => 256,
+            RegSize::U8 => RegSize::U8_SIZE,
+            RegSize::U16 => RegSize::U16_SIZE,
+            RegSize::U32 => RegSize::U32_SIZE,
+            RegSize::U64 => RegSize::U64_SIZE,
+            RegSize::U128 => RegSize::U128_SIZE,
+            RegSize::U256 => RegSize::U256_SIZE,
+            RegSize::U512 => RegSize::U512_SIZE,
+            RegSize::U1024 => RegSize::U1024_SIZE,
+            RegSize::U2048 => RegSize::U2048_SIZE,
         }
     }
 }
@@ -271,7 +283,18 @@ impl Versionize for Aarch64RegisterVec {
         Self: Sized,
     {
         let inner = Aarch64RegisterVecInner::deserialize(reader, version_map, source_version)?;
-        let total_size: u64 = inner.ids.iter().map(|id| reg_size(*id)).sum();
+        let mut total_size: u64 = 0;
+        for id in inner.ids.iter() {
+            let reg_size = reg_size(*id);
+            if RegSize::U2048_SIZE < reg_size {
+                return Err(VersionizeError::Deserialize(
+                    "Failed to deserialize aarch64 registers. Registers bigger then 2048 bits are \
+                     not supported"
+                        .to_string(),
+                ));
+            }
+            total_size += reg_size;
+        }
         if total_size as usize != inner.data.len() {
             Err(VersionizeError::Deserialize(
                 "Failed to deserialize aarch64 registers. Sum of registers sizes is not equal to \
@@ -481,7 +504,12 @@ impl<'a> TryFrom<&Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
                 std::mem::size_of::<u128>(),
             )
         };
-        match RegSize::from(reg_size(value.id)) {
+
+        let reg_size = reg_size(value.id);
+        if RegSize::U2048_SIZE < reg_size {
+            return Err("Registers bigger then 2048 bits are not supported");
+        }
+        match RegSize::from(reg_size) {
             RegSize::U32 => Ok(Self::new(value.id, &data_ref[..std::mem::size_of::<u32>()])),
             RegSize::U64 => Ok(Self::new(value.id, &data_ref[..std::mem::size_of::<u64>()])),
             RegSize::U128 => Ok(Self::new(value.id, data_ref)),
@@ -584,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aarch64_register_vec_serde_invalid() {
+    fn test_aarch64_register_vec_serde_invalid_regs_size_sum() {
         let mut v = Aarch64RegisterVec::default();
 
         let reg1_bytes = 1_u8.to_le_bytes();
@@ -608,6 +636,36 @@ mod tests {
 
         // Total size of registers according IDs are 16 + 16 = 32,
         // but actual data size is 8 + 16 = 24.
+        assert!(<Aarch64RegisterVec as Versionize>::deserialize(
+            &mut buf.as_slice(),
+            &version_map,
+            1
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_aarch64_register_vec_serde_invalid_reg_size() {
+        let mut v = Aarch64RegisterVec::default();
+
+        let reg_bytes = [0_u8; 512];
+        // Creating invalid register with incompatible size.
+        // 512 bytes for 4096 bit wide register.
+        let reg = Aarch64RegisterRef {
+            id: 0x0090000000000000,
+            data: &reg_bytes,
+        };
+
+        v.push(reg);
+
+        let mut buf = vec![0; 10000];
+        let version_map = VersionMap::new();
+
+        assert!(v
+            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .is_ok());
+
+        // 4096 bit wide registers are not supported.
         assert!(<Aarch64RegisterVec as Versionize>::deserialize(
             &mut buf.as_slice(),
             &version_map,
@@ -784,6 +842,15 @@ mod tests {
 
         let old_reg = Aarch64RegisterOld {
             id: KVM_REG_SIZE_U256,
+            data: 69,
+        };
+
+        let reg_ref: Result<Aarch64RegisterRef, _> = (&old_reg).try_into();
+        assert!(reg_ref.is_err());
+
+        // 4096 bit wide reg ID.
+        let old_reg = Aarch64RegisterOld {
+            id: 0x0090000000000000,
             data: 69,
         };
 
