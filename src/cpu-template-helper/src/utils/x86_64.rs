@@ -10,7 +10,7 @@ use vmm::cpu_config::x86_64::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
 
-use super::{ModifierMapKey, ModifierMapValue};
+use super::ModifierMapKey;
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct CpuidModifierMapKey {
@@ -34,23 +34,8 @@ impl Display for CpuidModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct CpuidModifierMapValue(pub RegisterValueFilter<u32>);
-
-impl ModifierMapValue for CpuidModifierMapValue {
-    type Type = u32;
-
-    fn filter(&self) -> Self::Type {
-        self.0.filter
-    }
-
-    fn value(&self) -> Self::Type {
-        self.0.value
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
-pub struct CpuidModifierMap(pub HashMap<CpuidModifierMapKey, CpuidModifierMapValue>);
+pub struct CpuidModifierMap(pub HashMap<CpuidModifierMapKey, RegisterValueFilter<u32>>);
 
 impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
     fn from(leaf_modifiers: Vec<CpuidLeafModifier>) -> Self {
@@ -64,7 +49,7 @@ impl From<Vec<CpuidLeafModifier>> for CpuidModifierMap {
                         flags: leaf_modifier.flags,
                         register: reg_modifier.register,
                     },
-                    CpuidModifierMapValue(reg_modifier.bitmap),
+                    reg_modifier.bitmap,
                 );
             }
         }
@@ -85,7 +70,7 @@ impl From<CpuidModifierMap> for Vec<CpuidLeafModifier> {
             if let Some(leaf_modifier) = leaf_modifier {
                 leaf_modifier.modifiers.push(CpuidRegisterModifier {
                     register: modifier_key.register,
-                    bitmap: modifier_value.0,
+                    bitmap: modifier_value,
                 });
             } else {
                 leaf_modifiers.push(CpuidLeafModifier {
@@ -94,7 +79,7 @@ impl From<CpuidModifierMap> for Vec<CpuidLeafModifier> {
                     flags: modifier_key.flags,
                     modifiers: vec![CpuidRegisterModifier {
                         register: modifier_key.register,
-                        bitmap: modifier_value.0,
+                        bitmap: modifier_value,
                     }],
                 });
             }
@@ -120,32 +105,14 @@ impl Display for MsrModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct MsrModifierMapValue(pub RegisterValueFilter<u64>);
-
-impl ModifierMapValue for MsrModifierMapValue {
-    type Type = u64;
-
-    fn filter(&self) -> Self::Type {
-        self.0.filter
-    }
-
-    fn value(&self) -> Self::Type {
-        self.0.value
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
-pub struct MsrModifierMap(pub HashMap<MsrModifierMapKey, MsrModifierMapValue>);
+pub struct MsrModifierMap(pub HashMap<MsrModifierMapKey, RegisterValueFilter<u64>>);
 
 impl From<Vec<RegisterModifier>> for MsrModifierMap {
     fn from(modifiers: Vec<RegisterModifier>) -> Self {
         let mut map = HashMap::new();
         for modifier in modifiers {
-            map.insert(
-                MsrModifierMapKey(modifier.addr),
-                MsrModifierMapValue(modifier.bitmap),
-            );
+            map.insert(MsrModifierMapKey(modifier.addr), modifier.bitmap);
         }
         MsrModifierMap(map)
     }
@@ -158,7 +125,7 @@ impl From<MsrModifierMap> for Vec<RegisterModifier> {
             .into_iter()
             .map(|(modifier_key, modifier_value)| RegisterModifier {
                 addr: modifier_key.0,
-                bitmap: modifier_value.0,
+                bitmap: modifier_value,
             })
             .collect::<Vec<_>>();
         modifier_vec.sort_by_key(|modifier| modifier.addr);
@@ -238,10 +205,10 @@ mod tests {
                     flags: $flags,
                     register: $register,
                 },
-                CpuidModifierMapValue(RegisterValueFilter {
+                RegisterValueFilter {
                     filter: u32::MAX.into(),
                     value: $value,
-                }),
+                },
             )
         };
     }
@@ -250,10 +217,10 @@ mod tests {
         ($addr:expr, $value:expr) => {
             (
                 MsrModifierMapKey($addr),
-                MsrModifierMapValue(RegisterValueFilter {
+                RegisterValueFilter {
                     filter: u64::MAX.into(),
                     value: $value,
-                }),
+                },
             )
         };
     }

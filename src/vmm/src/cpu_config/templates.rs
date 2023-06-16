@@ -98,6 +98,7 @@ pub trait Numeric:
     Sized
     + Copy
     + PartialEq<Self>
+    + std::fmt::Binary
     + std::ops::Not<Output = Self>
     + std::ops::BitAnd<Output = Self>
     + std::ops::BitOr<Output = Self>

@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 
-use crate::utils::{ModifierMapKey, ModifierMapValue};
+use vmm::cpu_config::templates::{Numeric, RegisterValueFilter};
+
+use crate::utils::ModifierMapKey;
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
@@ -22,10 +24,10 @@ pub enum Error {
     NumberOfInputs,
 }
 
-fn strip_common<K, V>(maps: &mut [HashMap<K, V>]) -> Result<(), Error>
+fn strip_common<K, V>(maps: &mut [HashMap<K, RegisterValueFilter<V>>]) -> Result<(), Error>
 where
     K: ModifierMapKey,
-    V: ModifierMapValue,
+    V: Numeric,
 {
     if maps.len() < 2 {
         return Err(Error::NumberOfInputs);
@@ -48,7 +50,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
+    use crate::utils::tests::{mock_modifier, MockModifierMapKey};
 
     #[test]
     fn test_strip_common_with_single_input() {
