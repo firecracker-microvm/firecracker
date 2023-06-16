@@ -11,7 +11,6 @@ import platform
 import re
 import signal
 import subprocess
-import threading
 import time
 import typing
 from collections import defaultdict, namedtuple
@@ -236,27 +235,6 @@ class CmdBuilder:
         for flag, value in self._args.items():
             cmd += f"{flag} {value} "
         return cmd
-
-
-class StoppableThread(threading.Thread):
-    """
-    Thread class with a stop() method.
-
-    The thread itself has to check regularly for the stopped() condition.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """Set up a Stoppable thread."""
-        super().__init__(*args, **kwargs)
-        self._should_stop = False
-
-    def stop(self):
-        """Set that the thread should stop."""
-        self._should_stop = True
-
-    def stopped(self):
-        """Check if the thread was stopped."""
-        return self._should_stop
 
 
 # pylint: disable=R0903

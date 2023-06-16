@@ -5,13 +5,12 @@
 It checks the response of the API configuration calls and the logs that show
 up in the configured logging FIFO.
 """
-import os
+
 import re
+from pathlib import Path
 from time import strptime
 
 import pytest
-
-import host_tools.logging as log_tools
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
@@ -119,19 +118,20 @@ def test_log_config_failure(test_microvm_with_api):
     Check passing invalid FIFOs is detected and reported as an error.
     """
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn(log_file=None)
     microvm.basic_config()
+
+    # only works if log level is Debug
+    microvm.time_api_requests = False
 
     expected_msg = re.escape("No such file or directory (os error 2)")
     with pytest.raises(RuntimeError, match=expected_msg):
         microvm.api.logger.put(
-            log_path="invalid log fifo",
+            log_path="invalid log file",
             level="Info",
             show_level=True,
             show_log_origin=True,
         )
-    # only works if log level is Debug
-    microvm.time_api_requests = False
 
 
 def test_api_requests_logs(test_microvm_with_api):
@@ -139,22 +139,21 @@ def test_api_requests_logs(test_microvm_with_api):
     Test that API requests are logged.
     """
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn(log_file=None)
     microvm.basic_config()
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, "log_fifo")
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
+    log_path = Path(microvm.path) / "log"
+    log_path.touch()
     microvm.api.logger.put(
-        log_path=microvm.create_jailed_resource(log_fifo.path),
+        log_path=microvm.create_jailed_resource(log_path),
         level="Info",
         show_level=True,
         show_log_origin=True,
     )
+    microvm.log_file = log_path
     # only works if log level is Debug
     microvm.time_api_requests = False
-    microvm.start_console_logger(log_fifo)
 
     # Check that a Patch request on /machine-config is logged.
     microvm.api.machine_config.patch(vcpu_count=4)
@@ -205,20 +204,20 @@ def test_api_requests_logs(test_microvm_with_api):
 # pylint: disable=W0102
 def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=True):
     """Exercises different scenarios for testing the logging config."""
-    microvm.spawn(create_logger=False)
+    microvm.spawn(log_file=None)
     # only works if log level is Debug
     microvm.time_api_requests = False
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, "log_fifo")
-    log_fifo = log_tools.Fifo(log_fifo_path)
+    log_path = Path(microvm.path) / "log"
+    log_path.touch()
     microvm.api.logger.put(
-        log_path=microvm.create_jailed_resource(log_fifo.path),
+        log_path=microvm.create_jailed_resource(log_path),
         level=log_level,
         show_level=show_level,
         show_log_origin=show_origin,
     )
-    microvm.start_console_logger(log_fifo)
+    microvm.log_file = log_path
 
     microvm.basic_config()
     microvm.start()

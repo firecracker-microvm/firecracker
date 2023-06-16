@@ -557,7 +557,8 @@ def test_negative_file_size_limit(uvm_plain):
     Test creating snapshot file fails when size exceeds `fsize` limit.
     """
     test_microvm = uvm_plain
-    test_microvm.jailer.resource_limits = ["fsize=1024"]
+    # limit to 1MB, to account for logs and metrics
+    test_microvm.jailer.resource_limits = [f"fsize={2**20}"]
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.start()
