@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.
 //! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
@@ -11,7 +12,6 @@ mod request;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::{fmt, io};
 
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
@@ -27,6 +27,7 @@ use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
 use crate::parsed_request::{ParsedRequest, RequestAction};
+use crate::Error::ServerCreation;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -34,29 +35,10 @@ pub type ApiRequest = Box<VmmAction>;
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Errors thrown when binding the API server to the socket path.
+#[derive(Debug)]
 pub enum Error {
-    /// IO related error.
-    Io(io::Error),
-    /// EventFD related error.
-    Eventfd(io::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
+    /// HTTP Server creation related error.
+    ServerCreation(ServerError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -119,7 +101,7 @@ impl ApiServer {
     /// use utils::eventfd::EventFd;
     /// use utils::tempfile::TempFile;
     /// use vmm::rpc_interface::VmmData;
-    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use vmm::seccomp_filters::get_empty_filters;
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use vmm::HTTP_MAX_PAYLOAD_SIZE;
     ///
@@ -131,7 +113,7 @@ impl ApiServer {
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    /// let seccomp_filters = get_empty_filters();
     /// let payload_limit = HTTP_MAX_PAYLOAD_SIZE;
     /// let (socket_ready_sender, socket_ready_receiver): (Sender<bool>, Receiver<bool>) = channel();
     ///
@@ -140,7 +122,7 @@ impl ApiServer {
     ///     .spawn(move || {
     ///         ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
     ///             .bind_and_run(
-    ///                 PathBuf::from(api_thread_path_to_socket),
+    ///                 &PathBuf::from(api_thread_path_to_socket),
     ///                 time_reporter,
     ///                 seccomp_filters.get("api").unwrap(),
     ///                 payload_limit,
@@ -164,16 +146,14 @@ impl ApiServer {
     /// ```
     pub fn bind_and_run(
         &mut self,
-        path: PathBuf,
+        path: &PathBuf,
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
         api_payload_limit: usize,
         socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).unwrap_or_else(|err| {
-            error!("Error creating the HTTP server: {}", err);
-            std::process::exit(vmm::FcExitCode::GenericError as i32);
-        });
+        let mut server = HttpServer::new(path).map_err(ServerCreation)?;
+
         // Announce main thread that the socket path was created.
         // As per the doc, "A send operation can only fail if the receiving end of a channel is
         // disconnected". so this means that the main thread has exited.
@@ -263,7 +243,7 @@ impl ApiServer {
                 response
             }
             Err(err) => {
-                error!("{}", err);
+                error!("{:?}", err);
                 err.into()
             }
         }
@@ -335,39 +315,34 @@ mod tests {
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     use super::*;
+    use crate::request::cpu_configuration::parse_put_cpu_config;
 
-    #[test]
-    fn test_error_messages() {
-        let err = Error::Io(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
-        );
-        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
-        );
-    }
-
-    #[test]
-    fn test_error_debug() {
-        let err = Error::Io(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", err),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
-        );
-        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", err),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
-        );
-    }
+    /// Test unescaped CPU template in JSON format.
+    /// Newlines injected into a field's value to
+    /// test deserialization and logging.
+    #[cfg(target_arch = "x86_64")]
+    const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "msr_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
+    #[cfg(target_arch = "aarch64")]
+    pub const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
+      "reg_modifiers": [
+        {
+          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+          "bitmap": "0b00"
+        }
+      ]
+    }"#;
 
     #[test]
     fn test_serve_vmm_action_request() {
@@ -384,7 +359,12 @@ mod tests {
         let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
 
-        let start_time_us = utils::time::get_time_us(ClockType::Monotonic);
+        // Since the vmm side is mocked out in this test, the call to serve_vmm_action_request can
+        // complete very fast (under 1us, the resolution of our metrics). In these cases, the
+        // latencies_us.pause_vm metric can be set to 0, failing the assertion below. By
+        // subtracting 1 we assure that the metric will always be set to at least 1 (if it gets set
+        // at all, which is what this test is trying to prove).
+        let start_time_us = utils::time::get_time_us(ClockType::Monotonic) - 1;
         assert_eq!(METRICS.latencies_us.pause_vm.fetch(), 0);
         to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
         let response =
@@ -477,6 +457,30 @@ mod tests {
     }
 
     #[test]
+    fn test_handle_request_logging() {
+        let cpu_template_json = TEST_UNESCAPED_JSON_TEMPLATE;
+        let result = parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes()));
+        assert!(result.is_err());
+        let result_error = result.unwrap_err();
+        let err_msg = format!("{}", result_error);
+        assert_ne!(
+            1,
+            err_msg.lines().count(),
+            "Error Body response:\n{}",
+            err_msg
+        );
+
+        let err_msg_with_debug = format!("{:?}", result_error);
+        // Check the loglines are on one line.
+        assert_eq!(
+            1,
+            err_msg_with_debug.lines().count(),
+            "Error Body response:\n{}",
+            err_msg_with_debug
+        );
+    }
+
+    #[test]
     fn test_bind_and_run() {
         let mut tmp_socket = TempFile::new().unwrap();
         tmp_socket.remove().unwrap();
@@ -486,7 +490,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
@@ -494,7 +498,7 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
                     .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
+                        &PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         vmm::HTTP_MAX_PAYLOAD_SIZE,
@@ -534,7 +538,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let seccomp_filters = get_empty_filters();
         let (socket_ready_sender, socket_ready_receiver) = channel();
 
         thread::Builder::new()
@@ -542,7 +546,7 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
                     .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
+                        &PathBuf::from(&api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         50,

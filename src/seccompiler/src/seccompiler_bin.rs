@@ -37,12 +37,12 @@ mod common;
 mod compiler;
 mod syscall_table;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use std::{fmt, io, process};
+use std::{io, process};
 
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
@@ -55,38 +55,25 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error("Bincode (de)serialization failed: {0}")]
     Bincode(BincodeError),
-    FileOpen(PathBuf, io::Error),
+    #[error("{0}")]
     FileFormat(FilterFormatError),
+    #[error("{}", format!("Failed to open file {:?}: {1}", .0, .1).replace('\"', ""))]
+    FileOpen(PathBuf, io::Error),
+    #[error("Error parsing JSON: {0}")]
     Json(JSONError),
+    #[error("Missing input file.")]
     MissingInputFile,
+    #[error("Missing target arch.")]
     MissingTargetArch,
-    Arch(TargetArchError),
+    #[error("{0}")]
+    Arch(#[from] TargetArchError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            Bincode(ref err) => write!(f, "Bincode (de)serialization failed: {}", err),
-            FileFormat(ref err) => write!(f, "{}", err),
-            FileOpen(ref path, ref err) => write!(
-                f,
-                "{}",
-                format!("Failed to open file {:?}: {}", path, err).replace("\"", "")
-            ),
-            Json(ref err) => write!(f, "Error parsing JSON: {}", err),
-            MissingInputFile => write!(f, "Missing input file."),
-            MissingTargetArch => write!(f, "Missing target arch."),
-            Arch(ref err) => write!(f, "{}", err),
-        }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 struct Arguments {
@@ -155,7 +142,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     })
 }
 
-fn parse_json(reader: &mut dyn Read) -> Result<JsonFile> {
+fn parse_json(reader: impl Read) -> Result<JsonFile> {
     serde_json::from_reader(reader).map_err(Error::Json)
 }
 
@@ -167,7 +154,9 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: HashMap<String, BpfProgram> = compiler.compile_blob(filters.0, args.is_basic)?;
+    let bpf_data: BTreeMap<String, BpfProgram> = compiler
+        .compile_blob(filters.0, args.is_basic)
+        .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)
@@ -213,6 +202,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::collections::HashMap;
     use std::io;
     use std::io::Write;
@@ -230,9 +220,8 @@ mod tests {
     use crate::backend::SeccompCmpOp::{Le, *};
     use crate::backend::{SeccompAction, SeccompCondition as Cond, TargetArch, TargetArchError};
 
-    // test helper for generating correct JSON input data
-    fn get_correct_json_input() -> String {
-        r#"
+    // Correct JSON input data
+    static CORRECT_JSON_INPUT: &str = r#"
         {
             "thread_1": {
                 "default_action": {
@@ -327,9 +316,7 @@ mod tests {
                 ]
             }
         }
-        "#
-        .to_string()
-    }
+    "#;
 
     #[test]
     fn test_error_messages() {
@@ -367,7 +354,7 @@ mod tests {
                 path,
                 io::Error::from_raw_os_error(2)
             )
-            .replace("\"", "")
+            .replace('\"', "")
         );
         assert_eq!(
             format!(
@@ -395,6 +382,7 @@ mod tests {
             format!("{}", TargetArchError::InvalidString("lala".to_string()))
         );
     }
+
     #[test]
     fn test_get_argument_values() {
         let arg_parser = build_arg_parser();
@@ -532,70 +520,51 @@ mod tests {
             .is_err());
     }
 
-    #[allow(clippy::useless_asref)]
     #[test]
     fn test_parse_json() {
         // test with malformed JSON
         {
             // empty file
-            let mut json_input = "".to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            assert!(parse_json(std::io::empty()).is_err());
 
             // not json
-            let mut json_input = "hjkln".to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input = "hjkln";
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // top-level array
-            let mut json_input = "[]".to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input = "[]";
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // thread key must be a string
-            let mut json_input = "{1}".to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input = "{1}";
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // empty Filter object
-            let mut json_input = r#"{"a": {}}"#.to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input = r#"{"a": {}}"#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // missing 'filter' field
-            let mut json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"log"}}"#.to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input = r#"{"a": {"filter_action": "allow", "default_action":"log"}}"#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // wrong key 'filters'
-            let mut json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"log", "filters": []}}"#
-                    .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"log", "filters": []}}"#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // wrong action 'logs'
-            let mut json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"logs", "filter": []}}"#
-                    .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"logs", "filter": []}}"#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // action that expects a value
-            let mut json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"errno", "filter": []}}"#
-                    .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            let json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"errno", "filter": []}}"#;
+
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // overflowing u64 value
-            let mut json_input = r#"
+            let json_input = r#"
             {
                 "thread_2": {
                     "default_action": "trap",
@@ -615,13 +584,11 @@ mod tests {
                     ]
                 }
             }
-            "#
-            .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            "#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // negative integer value
-            let mut json_input = r#"
+            let json_input = r#"
             {
                 "thread_2": {
                     "default_action": "trap",
@@ -641,13 +608,11 @@ mod tests {
                     ]
                 }
             }
-            "#
-            .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            "#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // float value
-            let mut json_input = r#"
+            let json_input = r#"
             {
                 "thread_2": {
                     "default_action": "trap",
@@ -667,13 +632,11 @@ mod tests {
                     ]
                 }
             }
-            "#
-            .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            "#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
 
             // duplicate filter keys
-            let mut json_input = r#"
+            let json_input = r#"
             {
                 "thread_1": {
                     "default_action": "trap",
@@ -686,32 +649,22 @@ mod tests {
                     "filter": []
                 }
             }
-            "#
-            .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_err());
+            "#;
+            assert!(parse_json(json_input.as_bytes()).is_err());
         }
 
         // test with correctly formed JSON
         {
             // empty JSON file
-            let mut json_input = "{}".to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
-            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().0.len(), 0);
+            let json_input = "{}";
+            assert_eq!(parse_json(json_input.as_bytes()).unwrap().0.len(), 0);
 
             // empty Filter
-            let mut json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"log", "filter": []}}"#
-                    .to_string();
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            assert!(parse_json(&mut json_input.as_ref()).is_ok());
+            let json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"log", "filter": []}}"#;
+            assert!(parse_json(json_input.as_bytes()).is_ok());
 
             // correctly formed JSON filter
-            let mut json_input = get_correct_json_input();
-            // safe because we know the string is UTF-8
-            let json_input = unsafe { json_input.as_bytes_mut() };
-
             let mut filters = HashMap::new();
             filters.insert(
                 "thread_1".to_string(),
@@ -764,7 +717,7 @@ mod tests {
             let mut v1: Vec<_> = filters.into_iter().collect();
             v1.sort_by(|x, y| x.0.cmp(&y.0));
 
-            let mut v2: Vec<_> = parse_json(&mut json_input.as_ref())
+            let mut v2: Vec<_> = parse_json(CORRECT_JSON_INPUT.as_bytes())
                 .unwrap()
                 .0
                 .into_iter()
@@ -799,10 +752,10 @@ mod tests {
             let in_file = TempFile::new().unwrap();
             let out_file = TempFile::new().unwrap();
 
-            let mut json_input = get_correct_json_input();
-            // safe because we know the string is UTF-8
-            let json_input = unsafe { json_input.as_bytes_mut() };
-            in_file.as_file().write_all(json_input).unwrap();
+            in_file
+                .as_file()
+                .write_all(CORRECT_JSON_INPUT.as_bytes())
+                .unwrap();
 
             let arguments = Arguments {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),

@@ -46,6 +46,17 @@ curl --unix-socket ${socket} -i \
              \"path_on_host\": \"${ro_drive_path}\",
              \"is_root_device\": false,
              \"is_read_only\": true
+             \"rate_limiter\": {
+                \"bandwidth\": {
+                        \"size\": 100000,
+                        \"one_time_burst\": 4096,
+                        \"refill_time\": 150
+                },
+                \"ops\": {
+                        \"size\": 10,
+                        \"refill_time\": 250
+                }
+            }
          }"
 # Finish configuring and start the microVM. Wait for the guest to boot.
 

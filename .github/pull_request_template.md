@@ -1,35 +1,33 @@
-# Reason for This PR
+## Changes
 
-`[Author TODO: add issue #.]`
-`[Open the PR after the related issue has a clear conclusion.]`
-`[If there is no issue which states the need for this PR, create one first.]`
-Fixes #
+...
 
-## Description of Changes
+## Reason
 
-`[Author TODO: add description of changes.]`
-
-- [ ] This functionality can be added in [`rust-vmm`][1].
+...
 
 ## License Acceptance
 
 By submitting this pull request, I confirm that my contribution is made under
-the terms of the Apache 2.0 license.
+the terms of the Apache 2.0 license. For more information on following
+Developer Certificate of Origin and signing off your commits, please check
+[`CONTRIBUTING.md`][3].
 
 ## PR Checklist
 
-`[Author TODO: Meet these criteria.]`
-`[Reviewer TODO: Verify that these criteria are met. Request changes if not]`
-
-- [ ] All commits in this PR are signed (`git commit -s`).
-- [ ] The issue which led to this PR has a clear conclusion.
-- [ ] This PR follows the solution outlined in the related issue.
+- [ ] If a specific issue led to this PR, this PR closes the issue.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Any required documentation changes (code and docs) are included in this PR.
-- [ ] Any newly added `unsafe` code is properly documented.
-- [ ] Any API changes follow the [Runbook for Firecracker API changes][2].
-- [ ] Any user-facing changes are mentioned in `CHANGELOG.md`.
+- [ ] API changes follow the [Runbook for Firecracker API changes][2].
+- [ ] User-facing changes are mentioned in `CHANGELOG.md`.
 - [ ] All added/changed functionality is tested.
+- [ ] New `TODO`s link to an issue.
+- [ ] Commits meet [contribution quality standards](https://github.com/firecracker-microvm/firecracker/blob/main/CONTRIBUTING.md#contribution-quality-standards).
+
+---
+
+- [ ] This functionality cannot be added in [`rust-vmm`][1].
 
 [1]: https://github.com/rust-vmm
-[2]: ../docs/api-change-runbook.md
+[2]: https://github.com/firecracker-microvm/firecracker/blob/main/docs/api-change-runbook.md
+[3]: https://github.com/firecracker-microvm/firecracker/blob/main/CONTRIBUTING.md

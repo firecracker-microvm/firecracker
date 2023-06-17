@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use logger::{LevelFilter, LOGGER};
@@ -12,13 +11,14 @@ use super::{open_file_nonblock, FcLineWriter};
 use crate::vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum LoggerLevel {
     /// When the level is set to `Error`, the logger will only contain entries
     /// that come from the `error` macro.
     Error,
     /// When the level is set to `Warning`, the logger will only contain entries
     /// that come from the `error` and `warn` macros.
+    #[default]
     Warning,
     /// When the level is set to `Info`, the logger will only contain entries
     /// that come from the `error`, `warn` and `info` macros.
@@ -38,12 +38,6 @@ impl LoggerLevel {
             "debug" => Ok(LoggerLevel::Debug),
             _ => Err(LoggerConfigError::InitializationFailure(level)),
         }
-    }
-}
-
-impl Default for LoggerLevel {
-    fn default() -> LoggerLevel {
-        LoggerLevel::Warning
     }
 }
 
@@ -74,7 +68,7 @@ where
 }
 
 /// Strongly typed structure used to describe the logger.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
@@ -111,19 +105,11 @@ impl LoggerConfig {
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
+    #[error("{}", format!("{:?}", .0).replace('\"', ""))]
     InitializationFailure(String),
-}
-
-impl Display for LoggerConfigError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::LoggerConfigError::*;
-        match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
-        }
-    }
 }
 
 /// Configures the logger as described in `logger_cfg`.
@@ -155,13 +141,13 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use devices::pseudo::BootTimer;
-    use devices::BusDevice;
     use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 
     use super::*;
+    use crate::devices::pseudo::BootTimer;
+    use crate::devices::BusDevice;
 
     #[test]
     fn test_init_logger() {
@@ -221,26 +207,13 @@ mod tests {
     }
 
     #[test]
-    fn test_error_display() {
-        assert_eq!(
-            format!(
-                "{}",
-                LoggerConfigError::InitializationFailure(String::from(
-                    "Failed to initialize logger"
-                ))
-            ),
-            "Failed to initialize logger"
-        );
-    }
-
-    #[test]
     fn test_new_logger_config() {
         let logger_config =
             LoggerConfig::new(PathBuf::from("log"), LoggerLevel::Debug, false, true);
         assert_eq!(logger_config.log_path, PathBuf::from("log"));
         assert_eq!(logger_config.level, LoggerLevel::Debug);
-        assert_eq!(logger_config.show_level, false);
-        assert_eq!(logger_config.show_log_origin, true);
+        assert!(!logger_config.show_level);
+        assert!(logger_config.show_log_origin);
     }
 
     #[test]

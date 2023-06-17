@@ -4,7 +4,6 @@
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
 use std::ffi::CString;
-use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::io::AsRawFd;
@@ -13,36 +12,41 @@ use std::os::unix::prelude::FromRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-#[cfg(target_arch = "x86_64")]
-use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
-use devices::virtio::TYPE_NET;
 use libc::memfd_create;
-use logger::{error, info};
+use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
+use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{GuestMemory, GuestMemoryMmap};
 
-use crate::builder::{self, StartMicrovmError};
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+use crate::builder::{self, BuildMicrovmFromSnapshotError};
+use crate::cpu_config::templates::StaticCpuTemplate;
+#[cfg(target_arch = "x86_64")]
+use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
+#[cfg(target_arch = "x86_64")]
+use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
+use crate::devices::virtio::TYPE_NET;
 use crate::memory_snapshot::{mem_dump_dirty, GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
+use crate::rpc_interface::LoadSnapshotError;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
-use crate::vstate::vcpu::VcpuState;
+use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
 use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManager, Vmm};
 
@@ -50,11 +54,70 @@ use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManag
 const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Versionize, Serialize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// smt information
+    #[version(start = 2, default_fn = "def_smt", ser_fn = "ser_smt")]
+    pub smt: bool,
+    /// CPU template type
+    #[version(
+        start = 2,
+        default_fn = "def_cpu_template",
+        ser_fn = "ser_cpu_template"
+    )]
+    pub cpu_template: StaticCpuTemplate,
+    /// Boot source information.
+    #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
+    pub boot_source: BootSourceConfig,
+}
+
+impl VmInfo {
+    fn def_smt(_: u16) -> bool {
+        warn!("SMT field not found in snapshot.");
+        false
+    }
+
+    fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include smt info.
+        warn!("Saving to older snapshot version, SMT information will not be saved.");
+        Ok(())
+    }
+
+    fn def_cpu_template(_: u16) -> StaticCpuTemplate {
+        warn!("CPU template field not found in snapshot.");
+        StaticCpuTemplate::default()
+    }
+
+    fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include cpu template info.
+        warn!("Saving to older snapshot version, CPU template information will not be saved.");
+        Ok(())
+    }
+
+    fn def_boot_source(_: u16) -> BootSourceConfig {
+        warn!("Boot source information not found in snapshot.");
+        BootSourceConfig::default()
+    }
+
+    fn ser_boot_source(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1.1 and older versions do not include boot source info.
+        warn!("Saving to older snapshot version, boot source information will not be saved.");
+        Ok(())
+    }
+}
+
+impl From<&VmResources> for VmInfo {
+    fn from(value: &VmResources) -> Self {
+        Self {
+            mem_size_mib: value.vm_config.mem_size_mib as u64,
+            smt: value.vm_config.smt,
+            cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+            boot_source: value.boot_source_config().clone(),
+        }
+    }
 }
 
 /// Contains the necesary state for saving/restoring a microVM.
@@ -93,191 +156,86 @@ pub struct GuestRegionUffdMapping {
 }
 
 /// Errors related to saving and restoring Microvm state.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MicrovmStateError {
     /// Compatibility checks failed.
+    #[error("Compatibility checks failed: {0}")]
     IncompatibleState(String),
     /// Provided MicroVM state is invalid.
+    #[error("Provided MicroVM state is invalid.")]
     InvalidInput,
     /// Operation not allowed.
+    #[error("Operation not allowed: {0}")]
     NotAllowed(String),
     /// Failed to restore devices.
+    #[error("Cannot restore devices: {0:?}")]
     RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
+    #[error("Cannot restore Vcpu state: {0:?}")]
     RestoreVcpuState(vstate::vcpu::Error),
     /// Failed to restore VM state.
+    #[error("Cannot restore Vm state: {0:?}")]
     RestoreVmState(vstate::vm::Error),
     /// Failed to save Vcpu state.
+    #[error("Cannot save Vcpu state: {0:?}")]
     SaveVcpuState(vstate::vcpu::Error),
     /// Failed to save VM state.
+    #[error("Cannot save Vm state: {0:?}")]
     SaveVmState(vstate::vm::Error),
     /// Failed to send event.
-    SignalVcpu(vstate::vcpu::Error),
+    #[error("Cannot signal Vcpu: {0:?}")]
+    SignalVcpu(VcpuSendEventError),
     /// Vcpu is in unexpected state.
+    #[error("Vcpu is in unexpected state.")]
     UnexpectedVcpuResponse,
 }
 
-impl Display for MicrovmStateError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::MicrovmStateError::*;
-        match self {
-            IncompatibleState(msg) => write!(f, "Compatibility checks failed: {}", msg),
-            InvalidInput => write!(f, "Provided MicroVM state is invalid."),
-            NotAllowed(msg) => write!(f, "Operation not allowed: {}", msg),
-            RestoreDevices(err) => write!(f, "Cannot restore devices: {:?}", err),
-            RestoreVcpuState(err) => write!(f, "Cannot restore Vcpu state: {:?}", err),
-            RestoreVmState(err) => write!(f, "Cannot restore Vm state: {:?}", err),
-            SaveVcpuState(err) => write!(f, "Cannot save Vcpu state: {:?}", err),
-            SaveVmState(err) => write!(f, "Cannot save Vm state: {:?}", err),
-            SignalVcpu(err) => write!(f, "Cannot signal Vcpu: {:?}", err),
-            UnexpectedVcpuResponse => write!(f, "Vcpu is in unexpected state."),
-        }
-    }
-}
-
 /// Errors associated with creating a snapshot.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
+    #[error("Cannot get dirty bitmap: {0}")]
     DirtyBitmap(VmmError),
     /// The virtio devices uses a features that is incompatible with older versions of Firecracker.
+    #[error(
+        "The virtio devices use a features that is incompatible with older versions of \
+         Firecracker: {0}"
+    )]
     IncompatibleVirtioFeature(&'static str),
     /// Invalid microVM version format
+    #[error("Invalid microVM version format")]
     InvalidVersionFormat,
     /// MicroVM version does not support snapshot.
+    #[error("Cannot translate microVM version to snapshot data version")]
     UnsupportedVersion,
     /// Failed to write memory to snapshot.
+    #[error("Cannot write memory file: {0}")]
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
+    #[error("Cannot perform {0} on the memory backing file: {1}")]
     MemoryBackingFile(&'static str, io::Error),
     /// Failed to save MicrovmState.
+    #[error("Cannot save the microVM state: {0}")]
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
+    #[error("Cannot serialize the microVM state: {0}")]
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
+    #[error("Cannot perform {0} on the snapshot backing file: {1}")]
     SnapshotBackingFile(&'static str, io::Error),
-    #[cfg(target_arch = "x86_64")]
     /// Number of devices exceeds the maximum supported devices for the snapshot data version.
+    #[cfg(target_arch = "x86_64")]
+    #[error(
+        "Too many devices attached: {0}. The maximum number allowed for the snapshot data version \
+         requested is {FC_V0_23_MAX_DEVICES}."
+    )]
     TooManyDevices(usize),
-}
-
-impl Display for CreateSnapshotError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::CreateSnapshotError::*;
-        match self {
-            DirtyBitmap(err) => write!(f, "Cannot get dirty bitmap: {}", err),
-            IncompatibleVirtioFeature(feature) => write!(
-                f,
-                "The virtio devices use a features that is incompatible with older versions of \
-                 Firecracker: {}",
-                feature
-            ),
-            InvalidVersionFormat => write!(f, "Invalid microVM version format"),
-            UnsupportedVersion => write!(
-                f,
-                "Cannot translate microVM version to snapshot data version",
-            ),
-            Memory(err) => write!(f, "Cannot write memory file: {}", err),
-            MemoryBackingFile(action, err) => write!(
-                f,
-                "Cannot perform {} on the memory backing file: {}",
-                action, err
-            ),
-            MicrovmState(err) => write!(f, "Cannot save the microVM state: {}", err),
-            SerializeMicrovmState(err) => {
-                write!(f, "Cannot serialize the microVM state: {:?}", err)
-            }
-            SnapshotBackingFile(action, err) => write!(
-                f,
-                "Cannot perform {} on the snapshot backing file: {}",
-                action, err
-            ),
-            #[cfg(target_arch = "x86_64")]
-            TooManyDevices(val) => write!(
-                f,
-                "Too many devices attached: {}. The maximum number allowed for the snapshot data \
-                 version requested is {}.",
-                val, FC_V0_23_MAX_DEVICES
-            ),
-        }
-    }
-}
-
-/// Errors associated with loading a snapshot.
-#[derive(Debug)]
-pub enum LoadSnapshotError {
-    /// Failed to build a microVM from snapshot.
-    BuildMicroVm(StartMicrovmError),
-    /// Snapshot cpu vendor differs than host cpu vendor.
-    CpuVendorCheck(String),
-    /// Failed to create an UFFD Builder.
-    CreateUffdBuilder(userfaultfd::Error),
-    /// Failed to deserialize memory.
-    DeserializeMemory(memory_snapshot::Error),
-    /// Failed to deserialize microVM state.
-    DeserializeMicrovmState(snapshot::Error),
-    /// Snapshot failed sanity checks.
-    InvalidSnapshot(String),
-    /// Failed to open memory backing file.
-    MemoryBackingFile(io::Error),
-    /// Failed to resume Vm after loading snapshot.
-    ResumeMicroVm(VmmError),
-    /// Failed to open the snapshot backing file.
-    SnapshotBackingFile(&'static str, io::Error),
-    /// Unable to connect to UDS in order to send information regarding
-    /// handling guest memory page-fault events.
-    UdsConnection(io::Error),
-    /// We didn't get the memfd when handshaking with the uffd manager
-    NoMemFdReceived,
-    /// Failed to register guest memory regions to UFFD.
-    UffdMemoryRegionsRegister(userfaultfd::Error),
-    /// Failed to send guest memory layout and path to user fault FD used to handle
-    /// guest memory page faults. This information is sent to a UDS where a custom
-    /// page-fault handler process is listening.
-    UffdSend(kvm_ioctls::Error),
-}
-
-impl Display for LoadSnapshotError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::LoadSnapshotError::*;
-        match self {
-            BuildMicroVm(err) => write!(f, "Cannot build a microVM from snapshot: {}", err),
-            CreateUffdBuilder(err) => write!(f, "Cannot create UFFD builder: {:?}", err),
-            CpuVendorCheck(err) => write!(f, "CPU vendor check failed: {}", err),
-            DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
-            DeserializeMicrovmState(err) => {
-                write!(f, "Cannot deserialize the microVM state: {:?}", err)
-            }
-            InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
-            MemoryBackingFile(err) => write!(f, "Cannot open the memory file: {}", err),
-            NoMemFdReceived => write!(f, "No memory file descriptor received"),
-            ResumeMicroVm(err) => write!(
-                f,
-                "Failed to resume microVM after loading snapshot: {}",
-                err
-            ),
-            SnapshotBackingFile(action, err) => write!(
-                f,
-                "Cannot perform {} on the snapshot backing file: {}",
-                action, err
-            ),
-            UdsConnection(err) => write!(
-                f,
-                "Cannot connect to UDS in order to send information on handling guest memory \
-                 page-faults due to: {}",
-                err
-            ),
-            UffdMemoryRegionsRegister(err) => {
-                write!(f, "Cannot register memory regions to UFFD: {:?}.", err)
-            }
-            UffdSend(err) => write!(f, "Cannot send FD and memory layout to UFFD: {}", err),
-        }
-    }
 }
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
     vmm: &mut Vmm,
+    vm_info: &VmInfo,
     params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
@@ -285,7 +243,7 @@ pub fn create_snapshot(
     let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, vmm)?;
 
     let microvm_state = vmm
-        .save_state()
+        .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
 
     snapshot_state_to_file(
@@ -312,6 +270,7 @@ fn snapshot_state_to_file(
     let mut snapshot_file = OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
@@ -358,8 +317,7 @@ fn snapshot_memory_to_file(
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    // Set the length of the file to the full size of the memory area.
-    file.set_len((mem_size_mib * 1024 * 1024) as u64)
+    file.set_len(mem_size_mib * 1024 * 1024)
         .map_err(|err| MemoryBackingFile("set_length", err))?;
 
     match snapshot_type {
@@ -422,91 +380,133 @@ pub fn get_snapshot_data_version(
     Ok(data_version)
 }
 
+/// Error type for [`validate_cpu_vendor`].
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ValidateCpuVendorError {
+    /// Failed to read host vendor.
+    #[error("Failed to read host vendor: {0}")]
+    Host(#[from] crate::cpu_config::x86_64::cpuid::common::GetCpuidError),
+    /// Failed to read snapshot vendor.
+    #[error("Failed to read snapshot vendor")]
+    Snapshot,
+}
+
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
+///
+/// # Errors
+///
+/// When:
+/// - Failed to read host vendor.
+/// - Failed to read snapshot vendor.
 #[cfg(target_arch = "x86_64")]
 pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
-) -> std::result::Result<(), LoadSnapshotError> {
-    let host_vendor_id = get_vendor_id_from_host().map_err(|_| {
-        LoadSnapshotError::CpuVendorCheck("Failed to read vendor from host.".to_owned())
-    })?;
+) -> std::result::Result<bool, ValidateCpuVendorError> {
+    let host_vendor_id = get_vendor_id_from_host()?;
 
-    let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
-        .map_err(|_| {
-            error!("Snapshot CPU vendor is missing.");
-            LoadSnapshotError::CpuVendorCheck("Failed to read vendor from CPUID.".to_owned())
-        })?;
+    let snapshot_vendor_id = microvm_state.vcpu_states[0]
+        .cpuid
+        .vendor_id()
+        .ok_or(ValidateCpuVendorError::Snapshot)?;
 
-    if host_vendor_id != snapshot_vendor_id {
-        let error_string = format!(
+    if host_vendor_id == snapshot_vendor_id {
+        info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
+        Ok(true)
+    } else {
+        error!(
             "Host CPU vendor id: {:?} differs from the snapshotted one: {:?}",
             &host_vendor_id, &snapshot_vendor_id
         );
-        error!("{}", error_string);
-        return Err(LoadSnapshotError::CpuVendorCheck(error_string));
-    } else {
-        info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
+        Ok(false)
     }
+}
 
-    Ok(())
+/// Error type for [`validate_cpu_manufacturer_id`].
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ValidateCpuManufacturerIdError {
+    /// Failed to read host vendor.
+    #[error("Failed to get manufacturer ID from host: {0}")]
+    Host(String),
+    /// Failed to read host vendor.
+    #[error("Failed to get manufacturer ID from state: {0}")]
+    Snapshot(String),
 }
 
 /// Validate that Snapshot Manufacturer ID matches
 /// the one from the Host
 ///
 /// The manufacturer ID for the Snapshot is taken from each VCPU state.
+/// # Errors
+///
+/// When:
+/// - Failed to read host vendor.
+/// - Failed to read snapshot vendor.
 #[cfg(target_arch = "aarch64")]
 pub fn validate_cpu_manufacturer_id(
     microvm_state: &MicrovmState,
-) -> std::result::Result<(), LoadSnapshotError> {
+) -> std::result::Result<bool, ValidateCpuManufacturerIdError> {
     let host_man_id = get_manufacturer_id_from_host()
-        .map_err(|err| LoadSnapshotError::CpuVendorCheck(err.to_string()))?;
+        .map_err(|err| ValidateCpuManufacturerIdError::Host(err.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
-        let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
-            .map_err(|err| LoadSnapshotError::CpuVendorCheck(err.to_string()))?;
+        let state_man_id = get_manufacturer_id_from_state(&state.regs)
+            .map_err(|err| ValidateCpuManufacturerIdError::Snapshot(err.to_string()))?;
 
         if host_man_id != state_man_id {
-            let error_string = format!(
+            error!(
                 "Host CPU manufacturer ID: {} differs from snapshotted one: {}",
                 &host_man_id, &state_man_id
             );
-            error!("{}", error_string);
-            return Err(LoadSnapshotError::CpuVendorCheck(error_string));
+            return Ok(false);
         } else {
             info!("Snapshot CPU manufacturer ID: {:?}", &state_man_id);
         }
     }
-
-    Ok(())
+    Ok(true)
+}
+/// Error type for [`snapshot_state_sanity_check`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SnapShotStateSanityCheckError {
+    /// Invalid vCPU count.
+    #[error("Invalid vCPU count.")]
+    InvalidVcpuCount,
+    /// No memory region defined.
+    #[error("No memory region defined.")]
+    NoMemory,
+    /// Failed to validate vCPU vendor.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Failed to validate vCPU vendor: {0}")]
+    ValidateCpuVendor(#[from] ValidateCpuVendorError),
+    /// Failed to validate vCPU manufacturer id.
+    #[error("Failed to validate vCPU manufacturer id: {0}")]
+    #[cfg(target_arch = "aarch64")]
+    ValidateCpuManufacturerId(#[from] ValidateCpuManufacturerIdError),
 }
 
 /// Performs sanity checks against the state file and returns specific errors.
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
-) -> std::result::Result<(), LoadSnapshotError> {
+) -> std::result::Result<(), SnapShotStateSanityCheckError> {
     // Check if the snapshot contains at least 1 vCPU state entry.
     if microvm_state.vcpu_states.is_empty()
         || microvm_state.vcpu_states.len() > MAX_SUPPORTED_VCPUS.into()
     {
-        return Err(LoadSnapshotError::InvalidSnapshot(
-            "Invalid vCPU count.".to_owned(),
-        ));
+        return Err(SnapShotStateSanityCheckError::InvalidVcpuCount);
     }
 
     // Check if the snapshot contains at least 1 mem region.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
     if microvm_state.memory_state.regions.is_empty() {
-        return Err(LoadSnapshotError::InvalidSnapshot(
-            "No memory region defined.".to_owned(),
-        ));
+        return Err(SnapShotStateSanityCheckError::NoMemory);
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_cpu_vendor(&microvm_state)?;
+    validate_cpu_vendor(microvm_state)?;
     #[cfg(target_arch = "aarch64")]
-    validate_cpu_manufacturer_id(&microvm_state)?;
+    validate_cpu_manufacturer_id(microvm_state)?;
 
     Ok(())
 }
@@ -521,6 +521,34 @@ pub enum MemoryDescriptor {
     File(Arc<File>),
 }
 
+/// Error type for [`restore_from_snapshot`].
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreFromSnapshotError {
+    /// Failed to get snapshot state from file.
+    #[error("Failed to get snapshot state from file: {0}")]
+    File(#[from] SnapshotStateFromFileError),
+    /// Invalid snapshot state.
+    #[error("Invalid snapshot state: {0}")]
+    Invalid(#[from] SnapShotStateSanityCheckError),
+    /// Failed to load guest memory
+    #[error("Failed to load guest memory: {0}")]
+    GuestMemory(#[from] RestoreFromSnapshotGuestMemoryError),
+    /// Failed to build microVM from snapshot.
+    #[error("Failed to build microVM from snapshot: {0}")]
+    Build(#[from] BuildMicrovmFromSnapshotError),
+}
+/// Sub-Error type for [`restore_from_snapshot`] to contain either [`GuestMemoryFromFileError`] or
+/// [`GuestMemoryFromUffdError`] within [`RestoreFromSnapshotError`].
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreFromSnapshotGuestMemoryError {
+    /// Error creating guest memory from file.
+    #[error("Error creating guest memory from file: {0}")]
+    File(#[from] GuestMemoryFromFileError),
+    /// Error creating guest memory from uffd.
+    #[error("Error creating guest memory from uffd: {0}")]
+    Uffd(#[from] GuestMemoryFromUffdError),
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
     instance_info: &InstanceInfo,
@@ -529,8 +557,7 @@ pub fn restore_from_snapshot(
     params: &LoadSnapshotParams,
     version_map: VersionMap,
     vm_resources: &mut VmResources,
-) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
-    use self::LoadSnapshotError::*;
+) -> std::result::Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
 
     // Some sanity checks before building the microvm.
@@ -542,12 +569,14 @@ pub fn restore_from_snapshot(
     let (guest_memory, memory_descriptor) = match params.mem_backend.backend_type {
         MemBackendType::File => {
             let (guest_memory, file) =
-                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)?;
+                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
+                    .map_err(RestoreFromSnapshotGuestMemoryError::File)?;
             (guest_memory, Some(MemoryDescriptor::File(Arc::new(file))))
         }
         MemBackendType::Uffd => {
             let (guest_memory, uffd) =
-                guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)?;
+                guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)
+                    .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?;
 
             (guest_memory, uffd.map(MemoryDescriptor::Uffd))
         }
@@ -562,61 +591,107 @@ pub fn restore_from_snapshot(
         seccomp_filters,
         vm_resources,
     )
-    .map_err(BuildMicroVm)
+    .map_err(RestoreFromSnapshotError::Build)
+}
+
+/// Error type for [`snapshot_state_from_file`]
+#[derive(Debug, thiserror::Error)]
+pub enum SnapshotStateFromFileError {
+    /// Failed to open snapshot file.
+    #[error("Failed to open snapshot file: {0}")]
+    Open(std::io::Error),
+    /// Failed to read snapshot file metadata.
+    #[error("Failed to read snapshot file metadata: {0}")]
+    Meta(std::io::Error),
+    /// Failed to load snapshot state from file.
+    #[error("Failed to load snapshot state from file: {0}")]
+    Load(#[from] snapshot::Error),
 }
 
 fn snapshot_state_from_file(
     snapshot_path: &Path,
     version_map: VersionMap,
-) -> std::result::Result<MicrovmState, LoadSnapshotError> {
-    use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
+) -> std::result::Result<MicrovmState, SnapshotStateFromFileError> {
     let mut snapshot_reader =
-        File::open(snapshot_path).map_err(|err| SnapshotBackingFile("open", err))?;
-    let metadata = std::fs::metadata(snapshot_path)
-        .map_err(|err| SnapshotBackingFile("metadata retrieval", err))?;
+        File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
+    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
     let snapshot_len = metadata.len() as usize;
-    Snapshot::load(&mut snapshot_reader, snapshot_len, version_map).map_err(DeserializeMicrovmState)
+    Snapshot::load(&mut snapshot_reader, snapshot_len, version_map)
+        .map_err(SnapshotStateFromFileError::Load)
+}
+
+/// Error type for [`guest_memory_from_file`].
+#[derive(Debug, thiserror::Error)]
+pub enum GuestMemoryFromFileError {
+    /// Failed to load guest memory.
+    #[error("Failed to load guest memory: {0}")]
+    File(#[from] std::io::Error),
+    /// Failed to restore guest memory.
+    #[error("Failed to restore guest memory: {0}")]
+    Restore(#[from] crate::memory_snapshot::Error),
 }
 
 fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-) -> std::result::Result<(GuestMemoryMmap, File), LoadSnapshotError> {
-    use self::LoadSnapshotError::{DeserializeMemory, MemoryBackingFile};
-    let mem_file = OpenOptions::new()
-        .write(true)
-        .read(true)
-        .open(mem_file_path)
-        .map_err(MemoryBackingFile)?;
+) -> std::result::Result<(GuestMemoryMmap, File), GuestMemoryFromFileError> {
+    let mem_file = File::open(mem_file_path)?;
 
     Ok((
         GuestMemoryMmap::restore(Some(&mem_file), mem_state, track_dirty_pages)
-            .map_err(DeserializeMemory)?,
+            .map_err(GuestMemoryFromFileError::Restore)?,
         mem_file,
     ))
+}
+
+/// Error type for [`guest_memory_from_uffd`]
+#[derive(Debug, thiserror::Error)]
+pub enum GuestMemoryFromUffdError {
+    /// Failed to restore guest memory.
+    #[error("Failed to restore guest memory: {0}")]
+    Restore(#[from] crate::memory_snapshot::Error),
+    /// Failed to UFFD object.
+    #[error("Failed to UFFD object: {0}")]
+    Create(userfaultfd::Error),
+    /// Failed to register memory address range with the userfaultfd object.
+    #[error("Failed to register memory address range with the userfaultfd object: {0}")]
+    Register(userfaultfd::Error),
+    /// Failed to connect to UDS Unix stream.
+    #[error("Failed to connect to UDS Unix stream: {0}")]
+    Connect(#[from] std::io::Error),
+    /// Failed to send file descriptor.
+    #[error("Failed to sends file descriptor: {0}")]
+    Send(#[from] utils::errno::Error),
+
+    /// No memfd received
+    #[error("No memfd received")]
+    NoMemFdReceived,
+    /// Receiving memfd went wrong
+    #[error("Failed to receive memfd: {0}")]
+    Receive(utils::errno::Error),
 }
 
 pub(crate) fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), LoadSnapshotError> {
-    use self::LoadSnapshotError::{CreateUffdBuilder, DeserializeMemory, UdsConnection, UffdSend};
+) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
+    use self::GuestMemoryFromUffdError::{Connect, Create, Receive, Restore, Send};
 
-    let mut socket = UnixStream::connect(mem_uds_path).map_err(UdsConnection)?;
+    let mut socket = UnixStream::connect(mem_uds_path).map_err(Connect)?;
 
     let mut buf = [0u8; 8];
-    let (_, memfd) = socket.recv_with_fd(&mut buf).map_err(UffdSend)?;
+    let (_, memfd) = socket.recv_with_fd(&mut buf).map_err(Receive)?;
 
     if memfd.is_none() {
-        return Err(LoadSnapshotError::NoMemFdReceived);
+        return Err(GuestMemoryFromUffdError::NoMemFdReceived);
     }
 
     let memfd = memfd.unwrap();
 
-    let guest_memory = GuestMemoryMmap::restore(Some(&memfd), mem_state, track_dirty_pages)
-        .map_err(DeserializeMemory)?;
+    let guest_memory =
+        GuestMemoryMmap::restore(Some(&memfd), mem_state, track_dirty_pages).map_err(Restore)?;
 
     let uffd = UffdBuilder::new()
         .require_features(
@@ -630,7 +705,7 @@ pub(crate) fn guest_memory_from_uffd(
         )
         .user_mode_only(false)
         .create()
-        .map_err(CreateUffdBuilder)?;
+        .map_err(Create)?;
 
     let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
     for (mem_region, state_region) in guest_memory.iter().zip(mem_state.regions.iter()) {
@@ -683,12 +758,12 @@ pub(crate) fn guest_memory_from_uffd(
             // uffd will still be alive but with no one to serve faults, leading to guest freeze.
             uffd.as_raw_fd(),
         )
-        .map_err(UffdSend)?;
+        .map_err(Send)?;
 
     // Wait for UFFD to be ready.
     // TODO: maybe add a timeout?
     let mut buf = [0; 2];
-    socket.read_exact(&mut buf).map_err(UdsConnection)?;
+    socket.read_exact(&mut buf).map_err(Connect)?;
 
     Ok((guest_memory, Some(uffd)))
 }
@@ -810,7 +885,10 @@ mod tests {
             device_states: states,
             memory_state,
             vcpu_states,
-            vm_info: VmInfo { mem_size_mib: 1u64 },
+            vm_info: VmInfo {
+                mem_size_mib: 1u64,
+                ..Default::default()
+            },
             #[cfg(target_arch = "aarch64")]
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
@@ -883,7 +961,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use vm_memory::GuestMemoryError;
+        use utils::vm_memory::GuestMemoryError;
 
         use crate::persist::CreateSnapshotError::*;
 
@@ -921,31 +999,6 @@ mod tests {
     }
 
     #[test]
-    fn test_load_snapshot_error_display() {
-        use crate::persist::LoadSnapshotError::*;
-
-        let err = BuildMicroVm(StartMicrovmError::InitrdLoad);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = DeserializeMemory(memory_snapshot::Error::FileHandle(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = DeserializeMicrovmState(snapshot::Error::Io(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = CpuVendorCheck(String::new());
-        let _ = format!("{}{:?}", err, err);
-    }
-
-    #[test]
     fn test_microvm_state_error_display() {
         use crate::persist::MicrovmStateError::*;
 
@@ -970,7 +1023,7 @@ mod tests {
         let err = SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SignalVcpu(vstate::vcpu::Error::SignalVcpu(errno::Error::new(0)));
+        let err = SignalVcpu(VcpuSendEventError(errno::Error::new(0)));
         let _ = format!("{}{:?}", err, err);
 
         let err = UnexpectedVcpuResponse;

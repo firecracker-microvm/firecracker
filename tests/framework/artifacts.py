@@ -2,21 +2,47 @@
 # SPDX-License-Identifier: Apache-2.0
 """Define classes for interacting with CI artifacts in s3."""
 
+import functools
 import os
 import platform
 import tempfile
-from shutil import copyfile
+from dataclasses import dataclass
 from enum import Enum
-from stat import S_IREAD, S_IWRITE
 from pathlib import Path
+from shutil import copyfile
+from stat import S_IREAD, S_IWRITE
+
 import boto3
 import botocore.client
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, SUPPORTED_KERNELS
-from framework.utils import compare_versions
-from host_tools.snapshot_helper import merge_memory_bitmaps
 
+import host_tools.network as net_tools
+from framework.defs import (
+    DEFAULT_TEST_SESSION_ROOT_PATH,
+    SUPPORTED_KERNELS,
+    SUPPORTED_KERNELS_NO_SVE,
+)
+from framework.utils import compare_versions, get_kernel_version
+from framework.utils_cpuid import get_instance_type
+from host_tools.cargo_build import run_rebase_snap_bin
 
 ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
+
+
+def select_supported_kernels():
+    """Select guest kernels supported by the current combination of kernel and instance type."""
+    supported_kernels = SUPPORTED_KERNELS
+    host_kernel_version = get_kernel_version(level=1)
+    try:
+        instance_type = get_instance_type()
+    # in case we are not in EC2, return the default
+    # pylint: disable=broad-except
+    except Exception:
+        return supported_kernels
+
+    if instance_type == "c7g.metal" and host_kernel_version == "4.14":
+        supported_kernels = SUPPORTED_KERNELS_NO_SVE
+
+    return supported_kernels
 
 
 class ArtifactType(Enum):
@@ -86,15 +112,18 @@ class Artifact:
             platform.machine(),
         )
 
-    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False):
+    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False, perms=None):
         """Save the artifact in the folder specified target_path."""
         assert self.bucket is not None
         self._local_folder = target_folder
-        Path(self.local_dir()).mkdir(parents=True, exist_ok=True)
-        if force or not os.path.exists(self.local_path()):
-            self._bucket.download_file(self._key, self.local_path())
-            # Artifacts are read only by design.
-            os.chmod(self.local_path(), S_IREAD)
+        local_path = Path(self.local_path())
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        if force or not local_path.exists():
+            self._bucket.download_file(self._key, local_path)
+            # Artifacts are read-only by design.
+            if perms is None:
+                perms = 0o400
+            local_path.chmod(perms)
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -153,116 +182,6 @@ class Artifact:
             self.cleanup()
 
 
-class SnapshotArtifact:
-    """Manages snapshot S3 artifact objects."""
-
-    def __init__(self, bucket, key, artifact_type=ArtifactType.SNAPSHOT):
-        """Initialize bucket, key and type."""
-        self._bucket = bucket
-        self._type = artifact_type
-        self._key = key
-
-        self._mem = Artifact(
-            self._bucket, "{}vm.mem".format(key), artifact_type=ArtifactType.MISC
-        )
-        self._vmstate = Artifact(
-            self._bucket, "{}vm.vmstate".format(key), artifact_type=ArtifactType.MISC
-        )
-        self._ssh_key = Artifact(
-            self._bucket, "{}ssh_key".format(key), artifact_type=ArtifactType.SSH_KEY
-        )
-        self._disks = []
-
-        disk_prefix = "{}disk".format(key)
-        snaphot_disks = self._bucket.objects.filter(Prefix=disk_prefix)
-
-        for disk in snaphot_disks:
-            artifact = Artifact(self._bucket, disk.key, artifact_type=ArtifactType.DISK)
-            self._disks.append(artifact)
-
-        # Get the name of the snapshot folder.
-        snapshot_name = self.name
-        self._local_folder = os.path.join(
-            ARTIFACTS_LOCAL_ROOT, self.type.value, snapshot_name
-        )
-
-    @property
-    def type(self):
-        """Return the artifact type."""
-        return self._type
-
-    @property
-    def key(self):
-        """Return the artifact key."""
-        return self._key
-
-    @property
-    def mem(self):
-        """Return the memory artifact."""
-        return self._mem
-
-    @property
-    def vmstate(self):
-        """Return the vmstate artifact."""
-        return self._vmstate
-
-    @property
-    def ssh_key(self):
-        """Return the vmstate artifact."""
-        return self._ssh_key
-
-    @property
-    def disks(self):
-        """Return the disk artifacts."""
-        return self._disks
-
-    @property
-    def name(self):
-        """Return the name of the artifact."""
-        return self._key.strip("/").split("/")[-1]
-
-    def download(self):
-        """Download artifacts and return a Snapshot object."""
-        self.mem.download(self._local_folder)
-        self.vmstate.download(self._local_folder)
-        # SSH key is not needed by microvm, it is needed only by
-        # test functions.
-        self.ssh_key.download(self._local_folder)
-
-        for disk in self.disks:
-            disk.download(self._local_folder)
-            os.chmod(disk.local_path(), 0o700)
-
-    def copy(self, vm_root_folder):
-        """Copy artifacts and return a Snapshot object."""
-        assert self._local_folder is not None
-
-        dst_mem_path = os.path.join(vm_root_folder, self.mem.name())
-        dst_state_file = os.path.join(vm_root_folder, self.vmstate.name())
-        dst_ssh_key = os.path.join(vm_root_folder, self.ssh_key.name())
-
-        # Copy mem, state & ssh_key.
-        copyfile(self.mem.local_path(), dst_mem_path)
-        copyfile(self.vmstate.local_path(), dst_state_file)
-        copyfile(self.ssh_key.local_path(), dst_ssh_key)
-        # Set proper permissions for ssh key.
-        os.chmod(dst_ssh_key, 0o400)
-
-        disk_paths = []
-        for disk in self.disks:
-            dst_disk_path = os.path.join(vm_root_folder, disk.name())
-            copyfile(disk.local_path(), dst_disk_path)
-            disk_paths.append(dst_disk_path)
-
-        return Snapshot(
-            dst_mem_path,
-            dst_state_file,
-            disks=disk_paths,
-            net_ifaces=None,
-            ssh_key=dst_ssh_key,
-        )
-
-
 class DiskArtifact(Artifact):
     """Provides access to associated ssh key artifact."""
 
@@ -270,17 +189,23 @@ class DiskArtifact(Artifact):
         """Return a ssh key artifact."""
         # Replace extension.
         key_file_path = str(Path(self.key).with_suffix(".id_rsa"))
-        return Artifact(self.bucket, key_file_path, artifact_type=ArtifactType.SSH_KEY)
+        return Artifact(
+            self.bucket,
+            key_file_path,
+            artifact_type=ArtifactType.SSH_KEY,
+            local_folder=self._local_folder,
+        )
 
 
 class FirecrackerArtifact(Artifact):
     """Provides access to associated jailer artifact."""
 
+    @functools.lru_cache
     def jailer(self):
         """Return a jailer binary artifact."""
         # Jailer and FC binaries have different extensions and share
         # file name when stored in S3:
-        # Firecracker binary: v0.22.firecrcker
+        # Firecracker binary: v0.22.firecracker
         # Jailer binary: v0.23.0.jailer
         jailer_path = str(Path(self.key).with_suffix(".jailer"))
         return Artifact(self.bucket, jailer_path, artifact_type=ArtifactType.JAILER)
@@ -290,6 +215,25 @@ class FirecrackerArtifact(Artifact):
         """Return the artifact's version: `X.Y.Z`."""
         # Get the filename, remove the extension and trim the leading 'v'.
         return os.path.splitext(os.path.basename(self.key))[0][1:]
+
+    @property
+    def version_tuple(self):
+        """Return the artifact's version as a tuple `(X, Y, Z)`."""
+        return tuple(int(x) for x in self.version.split("."))
+
+    @property
+    def snapshot_version_tuple(self):
+        """Return the artifact's snapshot version as a tuple: `X.Y.0`."""
+        return self.version_tuple[:2] + (0,)
+
+    @property
+    def snapshot_version(self):
+        """Return the artifact's snapshot version: `X.Y.0`.
+
+        Due to how Firecracker maps release versions to snapshot versions, we
+        have to request the minor version instead of the actual version.
+        """
+        return ".".join(str(x) for x in self.snapshot_version_tuple)
 
 
 class ArtifactCollection:
@@ -338,43 +282,6 @@ class ArtifactCollection:
                 )
         return artifacts
 
-    def snapshots(self, keyword=None):
-        """Return snapshot artifacts for the current arch."""
-        # Snapshot artifacts are special since they need to contain
-        # a variable number of files: mem, state, disks, ssh key.
-        # To simplify the way we retrieve and store snapshot artifacts
-        # we are going to group all snapshot file in a folder and the
-        # "keyword" parameter will filter this folder name.
-        #
-        # Naming convention for files within the snapshot below.
-        # Snapshot folder /ci-artifacts/snapshots/x86_64/fc_snapshot_v0.22:
-        # - vm.mem
-        # - vm.vmstate
-        # - disk0 <---- this is the root disk
-        # - disk1
-        # - diskN
-        # - ssh_key
-
-        artifacts = []
-        prefix = ArtifactCollection.ARTIFACTS_ROOT
-        prefix += ArtifactCollection.ARTIFACTS_SNAPSHOTS
-        snaphot_dirs = self.bucket.objects.filter(Prefix=prefix)
-        for snapshot_dir in snaphot_dirs:
-            key = snapshot_dir.key
-            # Filter out the snapshot artifacts root folder.
-            # Select only files with specified keyword.
-            if (
-                key[-1] == "/"
-                and key != prefix
-                and (keyword is None or keyword in snapshot_dir.key)
-            ):
-                artifact_type = ArtifactType.SNAPSHOT
-                artifacts.append(
-                    SnapshotArtifact(self.bucket, key, artifact_type=artifact_type)
-                )
-
-        return artifacts
-
     def microvms(self, keyword=None):
         """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
@@ -385,7 +292,9 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-    def firecrackers(self, keyword=None, min_version=None, max_version=None):
+    def firecrackers(
+        self, keyword=None, min_version=None, max_version=None, max_version_open=None
+    ):
         """Return fc/jailer artifacts for the current arch."""
         firecrackers = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_BINARIES,
@@ -395,25 +304,29 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        # Filter out binaries with versions older than the `min_version` arg.
-        if min_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, min_version) >= 0,
-                    firecrackers,
-                )
-            )
+        res = []
+        for fc in firecrackers:
+            # Filter out binaries with versions older than `min_version`
+            if (
+                min_version is not None
+                and compare_versions(fc.version, min_version) < 0
+            ):
+                continue
+            # Filter out binaries with versions newer than `max_version`
+            if (
+                max_version is not None
+                and compare_versions(fc.version, max_version) > 0
+            ):
+                continue
 
-        # Filter out binaries with versions newer than the `max_version` arg.
-        if max_version is not None:
-            return list(
-                filter(
-                    lambda fc: compare_versions(fc.version, max_version) <= 0,
-                    firecrackers,
-                )
-            )
+            if (
+                max_version_open is not None
+                and compare_versions(fc.version, max_version_open) >= 0
+            ):
+                continue
+            res.append(fc)
 
-        return firecrackers
+        return res
 
     def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
@@ -425,7 +338,7 @@ class ArtifactCollection:
         ]
 
     def kernels(self, keyword=None):
-        """Return kernel artifacts for the current arch."""
+        """Return guest kernel artifacts for the current arch."""
         kernels = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_KERNELS,
             ArtifactCollection.MICROVM_KERNEL_EXTENSION,
@@ -434,11 +347,11 @@ class ArtifactCollection:
             keyword=keyword,
         )
 
-        valid_kernels = list(
-            filter(
-                lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS), kernels
-            )
-        )
+        supported_kernels = {f"vmlinux-{sup}.bin" for sup in select_supported_kernels()}
+        valid_kernels = [
+            kernel for kernel in kernels if Path(kernel.key).name in supported_kernels
+        ]
+
         return valid_kernels
 
     def disks(self, keyword=None):
@@ -450,33 +363,6 @@ class ArtifactCollection:
             DiskArtifact,
             keyword=keyword,
         )
-
-
-class ArtifactSet:
-    """Manages a set of artifacts with the same type."""
-
-    def __init__(self, artifacts):
-        """Initialize type and artifact array."""
-        self._type = None
-        self._artifacts = []
-        self.insert(artifacts)
-
-    def insert(self, artifacts):
-        """Add artifacts to set."""
-        if artifacts is not None and len(artifacts) > 0:
-            self._type = self._type or artifacts[0].type
-        for artifact in artifacts:
-            assert artifact.type == self._type
-            self._artifacts.append(artifact)
-
-    @property
-    def artifacts(self):
-        """Return the artifacts array."""
-        return self._artifacts
-
-    def __len__(self):
-        """Return the artifacts array len."""
-        return len(self._artifacts)
 
 
 class SnapshotType(Enum):
@@ -516,7 +402,7 @@ class Snapshot:
 
     def rebase_snapshot(self, base):
         """Rebases current incremental snapshot onto a specified base layer."""
-        merge_memory_bitmaps(base.mem, self.mem)
+        run_rebase_snap_bin(base.mem, self.mem)
         self._mem = base.mem
 
     def cleanup(self):
@@ -560,63 +446,30 @@ DEFAULT_NETMASK = 30
 
 def create_net_devices_configuration(num):
     """Define configuration for the requested number of net devices."""
-    host_ip = "192.168.{}.1"
-    guest_ip = "192.168.{}.2"
-    tap_name = "tap{}"
-    dev_name = "eth{}"
-
-    net_ifaces = []
-    for i in range(num):
-        net_iface = NetIfaceConfig(
-            host_ip=host_ip.format(i),
-            guest_ip=guest_ip.format(i),
-            tap_name=tap_name.format(i),
-            dev_name=dev_name.format(i),
-        )
-        net_ifaces.append(net_iface)
-
-    return net_ifaces
+    return [NetIfaceConfig.with_id(i) for i in range(num)]
 
 
+@dataclass(frozen=True, repr=True)
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
-    def __init__(
-        self,
-        host_ip=DEFAULT_HOST_IP,
-        guest_ip=DEFAULT_GUEST_IP,
-        tap_name=DEFAULT_TAP_NAME,
-        dev_name=DEFAULT_DEV_NAME,
-        netmask=DEFAULT_NETMASK,
-    ):
-        """Initialize object."""
-        self._host_ip = host_ip
-        self._guest_ip = guest_ip
-        self._tap_name = tap_name
-        self._dev_name = dev_name
-        self._netmask = netmask
+    host_ip: str = DEFAULT_HOST_IP
+    guest_ip: str = DEFAULT_GUEST_IP
+    tap_name: str = DEFAULT_TAP_NAME
+    dev_name: str = DEFAULT_DEV_NAME
+    netmask: int = DEFAULT_NETMASK
 
     @property
-    def host_ip(self):
-        """Return the host IP."""
-        return self._host_ip
+    def guest_mac(self):
+        """Return the guest MAC address."""
+        return net_tools.mac_from_ip(self.guest_ip)
 
-    @property
-    def guest_ip(self):
-        """Return the guest IP."""
-        return self._guest_ip
-
-    @property
-    def tap_name(self):
-        """Return the tap device name."""
-        return self._tap_name
-
-    @property
-    def dev_name(self):
-        """Return the guest device name."""
-        return self._dev_name
-
-    @property
-    def netmask(self):
-        """Return the netmask."""
-        return self._netmask
+    @staticmethod
+    def with_id(i):
+        """Define network iface with id `i`."""
+        return NetIfaceConfig(
+            host_ip=f"192.168.{i}.1",
+            guest_ip=f"192.168.{i}.2",
+            tap_name=f"tap{i}",
+            dev_name=f"eth{i}",
+        )

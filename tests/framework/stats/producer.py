@@ -4,7 +4,8 @@
 """Producer of statistics."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Any
+from typing import Any, Callable
+
 from framework import utils
 
 
@@ -32,30 +33,6 @@ class SSHCommand(Producer):
         assert stderr.read() == ""
 
         return stdout.read()
-
-    @property
-    def ssh_connection(self):
-        """Return the ssh connection used by the producer.
-
-        The ssh connection used by the producer to execute commands on
-        the guest.
-        """
-        return self._ssh_connection
-
-    @ssh_connection.setter
-    def ssh_connection(self, ssh_connection):
-        """Set the ssh connection used by the producer."""
-        self._ssh_connection = ssh_connection
-
-    @property
-    def cmd(self):
-        """Return the command executed on guest."""
-        return self._cmd
-
-    @cmd.setter
-    def cmd(self, cmd):
-        """Set the command executed on guest."""
-        self._cmd = cmd
 
 
 class HostCommand(Producer):

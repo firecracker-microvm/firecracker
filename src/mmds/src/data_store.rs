@@ -19,16 +19,11 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MmdsVersion {
+    #[default]
     V1,
     V2,
-}
-
-impl Default for MmdsVersion {
-    fn default() -> Self {
-        MmdsVersion::V1
-    }
 }
 
 impl Display for MmdsVersion {
@@ -46,28 +41,18 @@ pub enum OutputFormat {
     Imds,
 }
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The MMDS patch request doesn't fit.")]
     DataStoreLimitExceeded,
+    #[error("The MMDS resource does not exist.")]
     NotFound,
+    #[error("The MMDS data store is not initialized.")]
     NotInitialized,
-    TokenAuthority(TokenError),
+    #[error("Token Authority error: {0}")]
+    TokenAuthority(#[from] TokenError),
+    #[error("Cannot retrieve value. The value has an unsupported type.")]
     UnsupportedValueType,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
-            Error::NotFound => write!(f, "The MMDS resource does not exist."),
-            Error::NotInitialized => write!(f, "The MMDS data store is not initialized."),
-            Error::TokenAuthority(err) => write!(f, "Token Authority error: {}", err),
-            Error::UnsupportedValueType => write!(
-                f,
-                "Cannot retrieve value. The value has an unsupported type."
-            ),
-        }
-    }
 }
 
 // Used for ease of use in tests.
@@ -544,7 +529,7 @@ mod tests {
         assert!(mmds.patch_data(data_store).is_ok());
 
         let data = "{\"new_key2\" : \"smth\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert_eq!(
             mmds.patch_data(data_store).unwrap_err().to_string(),
             Error::DataStoreLimitExceeded.to_string()
@@ -552,13 +537,13 @@ mod tests {
         assert!(!mmds.get_data_str().contains("smth"));
 
         let data = "{\"new_key\" : \"smth\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert!(mmds.patch_data(data_store).is_ok());
         assert!(mmds.get_data_str().contains("smth"));
         assert_eq!(mmds.get_data_str().len(), 53);
 
         let data = "{\"new_key2\" : \"smth2\"}";
-        let data_store: Value = serde_json::from_str(&data).unwrap();
+        let data_store: Value = serde_json::from_str(data).unwrap();
         assert!(mmds.patch_data(data_store).is_ok());
         assert!(mmds.get_data_str().contains("smth2"));
         assert_eq!(mmds.get_data_str().len(), 72);

@@ -2,52 +2,62 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test that the process startup time up to socket bind is within spec."""
 
+# pylint: disable=redefined-outer-name
+
 import json
 import os
 import time
-import platform
+
+import pytest
 
 import host_tools.logging as log_tools
+from framework.properties import global_props
 from host_tools.cargo_build import run_seccompiler_bin
 
-MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3400}
-""" The maximum acceptable startup time in CPU us. """
-# TODO: Keep a `current` startup time in S3 and validate we don't regress
+
+@pytest.fixture
+def startup_time(metrics, record_property):
+    """Fixture to capture the startup time"""
+    metrics.set_dimensions(
+        {
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_kernel": "linux-" + global_props.host_linux_version,
+        }
+    )
+
+    def record_startup_time(startup_time):
+        metrics.put_metric("startup_time", startup_time, unit="Microseconds")
+        record_property("startup_time_μs", startup_time)
+
+    return record_startup_time
 
 
-def test_startup_time_new_pid_ns(test_microvm_with_api):
+def test_startup_time_new_pid_ns(test_microvm_with_api, startup_time):
     """
     Check startup time when jailer is spawned in a new PID namespace.
-
-    @type: performance
     """
     microvm = test_microvm_with_api
     microvm.bin_cloner_path = None
     microvm.jailer.new_pid_ns = True
-    return _test_startup_time(microvm)
+    startup_time(_test_startup_time(microvm))
 
 
-def test_startup_time_daemonize(test_microvm_with_api):
+def test_startup_time_daemonize(test_microvm_with_api, startup_time):
     """
-    Check startup time when jailer spawns Firecracker in a new PID ns.
-
-    @type: performance
+    Check startup time when jailer detaches Firecracker from the controlling terminal.
     """
     microvm = test_microvm_with_api
-    return _test_startup_time(microvm)
+    startup_time(_test_startup_time(microvm))
 
 
-def test_startup_time_custom_seccomp(test_microvm_with_api):
+def test_startup_time_custom_seccomp(test_microvm_with_api, startup_time):
     """
     Check the startup time when using custom seccomp filters.
-
-    @type: performance
     """
     microvm = test_microvm_with_api
-
     _custom_filter_setup(microvm)
-
-    return _test_startup_time(microvm)
+    startup_time(_test_startup_time(microvm))
 
 
 def _test_startup_time(microvm):
@@ -80,11 +90,8 @@ def _test_startup_time(microvm):
         )
     )
 
-    max_startup_time = MAX_STARTUP_TIME_CPU_US[platform.machine()]
     assert cpu_startup_time_us > 0
-    assert cpu_startup_time_us <= max_startup_time
-
-    return f"{cpu_startup_time_us} us", f"<= {max_startup_time} us"
+    return cpu_startup_time_us
 
 
 def _custom_filter_setup(test_microvm):

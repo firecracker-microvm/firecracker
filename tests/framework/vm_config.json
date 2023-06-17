@@ -22,10 +22,12 @@
     "smt": false,
     "track_dirty_pages": false
   },
+  "cpu-config": null,
   "balloon": null,
   "network-interfaces": [],
   "vsock": null,
   "logger": null,
   "metrics": null,
-  "mmds-config": null
+  "mmds-config": null,
+  "entropy": null
 }

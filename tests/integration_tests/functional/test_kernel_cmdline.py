@@ -11,8 +11,6 @@ def test_init_params(test_microvm_with_api):
 
     Test that init's parameters (the ones present after "--") do not get
     altered or misplaced.
-
-    @type: negative
     """
     vm = test_microvm_with_api
     vm.jailer.daemonize = False

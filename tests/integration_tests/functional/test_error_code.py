@@ -4,7 +4,9 @@
 
 import os
 import platform
+
 import pytest
+
 from framework.utils import wait_process_termination
 
 
@@ -16,8 +18,6 @@ from framework.utils import wait_process_termination
 def test_enosys_error_code(test_microvm_with_initrd):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.
-
-    @type: functional
     """
     # On aarch64 we trigger this error by adding to initrd a C program that
     # maps a file into memory and then tries to load the content from an
@@ -28,7 +28,7 @@ def test_enosys_error_code(test_microvm_with_initrd):
     vm.spawn()
     vm.memory_monitor = None
 
-    vm.initrd_file = os.path.join(vm.path, "fsfiles/", "initrd_enosys.img")
+    vm.initrd_file = os.path.join(vm.path, "fsfiles", "initrd_enosys.img")
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,

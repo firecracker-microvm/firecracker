@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Some common defines used in different modules of the testing framework."""
 
+import os
 from pathlib import Path
 
 # URL prefix used for the API calls through a UNIX domain socket
@@ -34,9 +35,6 @@ MICROVM_KERNEL_RELPATH = "kernel/"
 # Relative path to the location of the filesystems
 MICROVM_FSFILES_RELPATH = "fsfiles/"
 
-# The s3 bucket that holds global Firecracker specifications
-SPEC_S3_BUCKET = "spec.ccfc.min"
-
 # The default s3 bucket that holds Firecracker microvm test images
 DEFAULT_TEST_IMAGES_S3_BUCKET = "spec.ccfc.min"
 
@@ -57,4 +55,12 @@ FC_PID_FILE_NAME = "firecracker.pid"
 # Firecracker.
 MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
 
+SUPPORTED_HOST_KERNELS = ["4.14", "5.10", "6.1"]
+
 SUPPORTED_KERNELS = ["4.14", "5.10"]
+SUPPORTED_KERNELS_NO_SVE = ["4.14", "5.10-no-sve"]
+
+
+def _test_images_s3_bucket():
+    """Auxiliary function for getting this session's bucket name."""
+    return os.environ.get(ENV_TEST_IMAGES_S3_BUCKET, DEFAULT_TEST_IMAGES_S3_BUCKET)

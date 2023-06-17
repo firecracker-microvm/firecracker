@@ -5,18 +5,15 @@
 import logging
 import os
 import socket
-from subprocess import TimeoutExpired
-
 import stat
+from subprocess import TimeoutExpired
 
 import requests
 import urllib3
 
 from framework.artifacts import SnapshotMemBackendType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.utils import run_cmd, UffdHandler
-
-import host_tools.network as net_tools
+from framework.utils import UffdHandler, run_cmd
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 
@@ -36,10 +33,9 @@ def create_snapshot(bin_cloner_path):
     assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.execute_command("sync")
     assert exit_code == 0
 
     # Create a snapshot builder from a microvm.
@@ -95,8 +91,6 @@ def spawn_pf_handler(vm, handler_path, mem_path):
 def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
     """
     Test error scenario when socket path does not exist.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_bad_socket_path")
 
@@ -115,17 +109,15 @@ def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
 
     assert vm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "Load microVM snapshot error: Cannot connect to UDS in order to "
-        "send information on handling guest memory page-faults due to: "
-        "No such file or directory (os error 2)" in response.text
-    )
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: No "
+        "such file or directory (os error 2)"
+    ) in response.text
 
 
 def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     """
     Test error scenario when PF handler has not yet called bind on socket.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_unbinded_socket")
 
@@ -148,17 +140,15 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
 
     assert vm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "Load microVM snapshot error: Cannot connect to UDS in order to"
-        " send information on handling guest memory page-faults due to: "
-        "Connection refused (os error 111)" in response.text
-    )
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: "
+        "Connection refused (os error 111)"
+    ) in response.text
 
 
 def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test valid uffd handler scenario.
-
-    @type: functional
     """
     logger = logging.getLogger("uffd_valid_handler")
 
@@ -188,8 +178,7 @@ def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_path
     assert vm.api_session.is_status_no_content(response.status_code)
 
     # Verify if guest can run commands.
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = vm.ssh.execute_command("sync")
     assert exit_code == 0
 
 
@@ -202,8 +191,6 @@ def test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_
     loaded into memory. In this case, Firecracker is designed to freeze,
     instead of silently switching to having the kernel handle page
     faults, so that it becomes obvious that something went wrong.
-
-    @type: negative
     """
     logger = logging.getLogger("uffd_malicious_handler")
 

@@ -4,12 +4,12 @@
 
 import json
 import os
-from signal import SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS
-from time import sleep
 import resource as res
+from signal import SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ
+from time import sleep
+
 import pytest
 
-import host_tools.network as net_tools
 from framework import utils
 
 signum_str = {
@@ -30,8 +30,6 @@ signum_str = {
 def test_generic_signal_handler(test_microvm_with_api, signum):
     """
     Test signal handling for all handled signals.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn()
@@ -83,8 +81,6 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
 def test_sigxfsz_handler(test_microvm_with_api):
     """
     Test intercepting and handling SIGXFSZ.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn()
@@ -137,8 +133,6 @@ def test_sigxfsz_handler(test_microvm_with_api):
 def test_handled_signals(test_microvm_with_api, network_config):
     """
     Test that handled signals don't kill the microVM.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn()
@@ -155,10 +149,9 @@ def test_handled_signals(test_microvm_with_api, network_config):
     firecracker_pid = int(microvm.jailer_clone_pid)
 
     # Open a SSH connection to validate the microVM stays alive.
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
     # Just validate a simple command: `nproc`
     cmd = "nproc"
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = microvm.ssh.execute_command(cmd)
     assert stderr.read() == ""
     assert int(stdout.read()) == 2
 
@@ -169,6 +162,6 @@ def test_handled_signals(test_microvm_with_api, network_config):
     os.kill(firecracker_pid, 35)
 
     # Validate the microVM is still up and running.
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = microvm.ssh.execute_command(cmd)
     assert stderr.read() == ""
     assert int(stdout.read()) == 2

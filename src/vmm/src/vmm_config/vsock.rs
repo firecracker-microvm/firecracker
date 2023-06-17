@@ -5,8 +5,9 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use serde::{Deserialize, Serialize};
+
+use crate::devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
@@ -35,7 +36,7 @@ type Result<T> = std::result::Result<T, VsockConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VsockDeviceConfig {
     #[serde(default)]
@@ -123,10 +124,10 @@ impl VsockBuilder {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use devices::virtio::vsock::VSOCK_DEV_ID;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
 
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {
@@ -159,7 +160,7 @@ pub(crate) mod tests {
         vsock_config.guest_cid = new_cid;
         store.insert(vsock_config).unwrap();
         let vsock = store.get().unwrap();
-        assert_eq!(vsock.lock().unwrap().cid(), new_cid as u64);
+        assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
     }
 
     #[test]
@@ -180,12 +181,12 @@ pub(crate) mod tests {
         use std::io;
 
         use super::VsockConfigError::*;
-        let err = CreateVsockBackend(devices::virtio::VsockUnixBackendError::EpollAdd(
+        let err = CreateVsockBackend(crate::devices::virtio::VsockUnixBackendError::EpollAdd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateVsockDevice(devices::virtio::VsockError::EventFd(
+        let err = CreateVsockDevice(crate::devices::virtio::VsockError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

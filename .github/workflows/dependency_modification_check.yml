@@ -1,0 +1,17 @@
+name: Check no dependencies were modified
+
+on: pull_request
+
+jobs:
+  dependency_changed_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: "Check Cargo.lock not in changeset" 
+        run: |
+          git fetch origin
+          git diff origin/$GITHUB_BASE_REF.. --name-only| ( ! grep "Cargo.lock")

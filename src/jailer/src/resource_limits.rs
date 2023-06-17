@@ -26,7 +26,17 @@ pub enum Resource {
 impl From<Resource> for u32 {
     fn from(resource: Resource) -> u32 {
         match resource {
+            #[allow(clippy::unnecessary_cast)]
+            // Definition of libc::RLIMIT_FSIZE depends on the target_env:
+            //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
+            //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
+            //        c_uint (which is an u32)
             Resource::RlimitFsize => libc::RLIMIT_FSIZE as u32,
+            #[allow(clippy::unnecessary_cast)]
+            // Definition of libc::RLIMIT_NOFILE depends on the target_env:
+            //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
+            //      * when equals to "gnu" -> libc::RLIMIT_NOFILE is __rlimit_resource_t which is a
+            //        c_uint (which is an u32)
             Resource::RlimitNoFile => libc::RLIMIT_NOFILE as u32,
         }
     }
@@ -74,6 +84,8 @@ impl ResourceLimits {
             rlim_max: target,
         };
 
+        // SAFETY: Safe because `resource` is a known-valid constant, and `&rlim`
+        // is non-dangling.
         SyscallReturnCode(unsafe { libc::setrlimit(u32::from(resource) as _, &rlim) })
             .into_empty_result()
             .map_err(|_| Error::Setrlimit(resource.to_string()))
@@ -90,12 +102,17 @@ impl ResourceLimits {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
     #[test]
+    #[allow(clippy::unnecessary_cast)]
     fn test_from_resource() {
-        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as _);
-        assert_eq!(u32::from(Resource::RlimitNoFile), libc::RLIMIT_NOFILE as _);
+        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as u32);
+        assert_eq!(
+            u32::from(Resource::RlimitNoFile),
+            libc::RLIMIT_NOFILE as u32
+        );
     }
 
     #[test]

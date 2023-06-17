@@ -79,7 +79,7 @@
 use std::io::{sink, stderr, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
-use std::{fmt, result, thread};
+use std::{result, thread};
 
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
@@ -391,33 +391,25 @@ impl Logger {
 }
 
 /// Describes the errors which may occur while handling logging scenarios.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerError {
     /// Initialization Error.
+    #[error("Logger initialization failure: {0}")]
     Init(init::Error),
-}
-
-impl fmt::Display for LoggerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match *self {
-            LoggerError::Init(ref err) => format!("Logger initialization failure: {}", err),
-        };
-        write!(f, "{}", printable)
-    }
 }
 
 /// Implements the "Log" trait from the externally used "log" crate.
 impl Log for Logger {
-    // This is currently not used.
     fn enabled(&self, _metadata: &Metadata) -> bool {
-        unreachable!();
+        // No filtering beyond what the log crate already does based on level.
+        true
     }
 
     fn log(&self, record: &Record) {
         let msg = format!(
             "{} {} {}",
             LocalTime::now(),
-            self.create_prefix(&record),
+            self.create_prefix(record),
             record.args()
         );
         self.write_log(msg, record.metadata().level());
@@ -531,8 +523,8 @@ mod tests {
     #[test]
     fn test_default_values() {
         let l = Logger::new();
-        assert_eq!(l.show_line_numbers(), true);
-        assert_eq!(l.show_level(), true);
+        assert!(l.show_line_numbers());
+        assert!(l.show_level());
     }
 
     #[test]
@@ -749,7 +741,7 @@ mod tests {
             })
             .unwrap();
         let r = custom_thread.join();
-        assert_eq!(r.is_ok(), true);
+        assert!(r.is_ok());
     }
 
     #[test]

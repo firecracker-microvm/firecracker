@@ -1,7 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 mod api_server_adapter;
 mod metrics;
+mod seccomp;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
@@ -16,12 +18,14 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
+use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
+
+use crate::seccomp::SeccompConfig;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -41,6 +45,10 @@ pub fn enable_ssbd_mitigation() {
     const PR_SPEC_STORE_BYPASS: u64 = 0;
     const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
 
+    // SAFETY: Parameters are valid since they are copied verbatim
+    // from the kernel's UAPI.
+    // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
+    // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
             PR_SET_SPECULATION_CTRL,
@@ -193,6 +201,11 @@ fn main_exitable() -> FcExitCode {
                     "Whether or not to include the file path and line number of the log's origin.",
                 ),
         )
+        .arg(
+            Argument::new("metrics-path")
+                .takes_value(true)
+                .help("Path to a fifo or a file used for configuring the metrics on startup."),
+        )
         .arg(Argument::new("boot-timer").takes_value(false).help(
             "Whether or not to load boot timer device for logging elapsed time since \
              InstanceStart command.",
@@ -289,7 +302,16 @@ fn main_exitable() -> FcExitCode {
             show_log_origin,
         );
         if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger:: {}", err));
+            return generic_error_exit(&format!("Could not initialize logger: {}", err));
+        };
+    }
+
+    if let Some(metrics_path) = arguments.single_value("metrics-path") {
+        let metrics_config = MetricsConfig {
+            metrics_path: PathBuf::from(metrics_path),
+        };
+        if let Err(err) = init_metrics(metrics_config) {
+            return generic_error_exit(&format!("Could not initialize metrics: {}", err));
         };
     }
 
@@ -297,7 +319,7 @@ fn main_exitable() -> FcExitCode {
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
-    .and_then(get_filters)
+    .and_then(seccomp::get_filters)
     {
         Ok(filters) => filters,
         Err(err) => {
@@ -473,7 +495,7 @@ fn build_microvm_from_json(
                 vmm::FcExitCode::BadConfiguration
             })?;
     vm_resources.boot_timer = boot_timer_enabled;
-    let vmm = vmm::builder::build_microvm_for_boot(
+    let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
         event_manager,

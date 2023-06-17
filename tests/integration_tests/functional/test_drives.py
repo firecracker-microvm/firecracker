@@ -5,11 +5,9 @@
 import os
 import platform
 
-from framework import utils
-
 import host_tools.drive as drive_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
+from framework import utils
 
 PARTUUID = {"x86_64": "f647d602-01", "aarch64": "69d7c052-01"}
 MB = 1024 * 1024
@@ -18,8 +16,6 @@ MB = 1024 * 1024
 def test_rescan_file(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a file-backed virtio device.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -43,19 +39,18 @@ def test_rescan_file(test_microvm_with_api, network_config):
 
     test_microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    _check_block_size(ssh_connection, "/dev/vdb", fs.size())
+    _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
     # Check if reading from the entire disk results in a file of the same size
     # or errors out, after a truncate on the host.
     truncated_size = block_size // 2
     utils.run_cmd(f"truncate --size {truncated_size}M {fs.path}")
     block_copy_name = "dev_vdb_copy"
-    _, _, stderr = ssh_connection.execute_command(
+    _, _, stderr = test_microvm.ssh.execute_command(
         f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}"
     )
     assert "dd: error reading '/dev/vdb': Input/output error" in stderr.read()
-    _check_file_size(ssh_connection, f"{block_copy_name}", truncated_size * MB)
+    _check_file_size(test_microvm.ssh, f"{block_copy_name}", truncated_size * MB)
 
     response = test_microvm.drive.patch(
         drive_id="scratch",
@@ -63,7 +58,7 @@ def test_rescan_file(test_microvm_with_api, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    _check_block_size(ssh_connection, "/dev/vdb", fs.size())
+    _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
 
 def test_device_ordering(test_microvm_with_api, network_config):
@@ -72,8 +67,6 @@ def test_device_ordering(test_microvm_with_api, network_config):
 
     The root device should correspond to /dev/vda in the guest and
     the order of the other devices should match their configuration order.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -112,7 +105,7 @@ def test_device_ordering(test_microvm_with_api, network_config):
     # However, the rootfs is the root device and goes first,
     # so we expect to see this order: rootfs, fs1, fs2.
     # The devices are identified by their size.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = test_microvm.ssh
     _check_block_size(ssh_connection, "/dev/vda", rootfs_size)
     _check_block_size(ssh_connection, "/dev/vdb", fs1.size())
     _check_block_size(ssh_connection, "/dev/vdc", fs2.size())
@@ -121,8 +114,6 @@ def test_device_ordering(test_microvm_with_api, network_config):
 def test_rescan_dev(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a device-backed virtio device.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -141,9 +132,7 @@ def test_rescan_dev(test_microvm_with_api, network_config):
 
     test_microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
-    _check_block_size(ssh_connection, "/dev/vdb", fs1.size())
+    _check_block_size(test_microvm.ssh, "/dev/vdb", fs1.size())
 
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "fs2"), size=512
@@ -159,9 +148,9 @@ def test_rescan_dev(test_microvm_with_api, network_config):
             drive_id="scratch",
             path_on_host=test_microvm.create_jailed_resource(loopback_device),
         )
-        assert session.is_status_no_content(response.status_code)
+        assert session.is_status_no_content(response.status_code), response.content
 
-        _check_block_size(ssh_connection, "/dev/vdb", fs2.size())
+        _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
     finally:
         if loopback_device:
             utils.run_cmd(["losetup", "--detach", loopback_device])
@@ -170,8 +159,6 @@ def test_rescan_dev(test_microvm_with_api, network_config):
 def test_non_partuuid_boot(test_microvm_with_api, network_config):
     """
     Test the output reported by blockdev when booting from /dev/vda.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -206,8 +193,6 @@ def test_non_partuuid_boot(test_microvm_with_api, network_config):
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """
     Test the output reported by blockdev when booting with PARTUUID.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_partuuid
     test_microvm.spawn()
@@ -241,8 +226,6 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
 def test_partuuid_update(test_microvm_with_api, network_config):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -279,8 +262,6 @@ def test_partuuid_update(test_microvm_with_api, network_config):
 def test_patch_drive(test_microvm_with_api, network_config):
     """
     Test replacing the backing filesystem after guest boot works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -305,13 +286,11 @@ def test_patch_drive(test_microvm_with_api, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
     # The `lsblk` command should output 2 lines to STDOUT: "SIZE" and the size
     # of the device, in bytes.
     blksize_cmd = "lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
-    _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
+    _, stdout, stderr = test_microvm.ssh.execute_command(blksize_cmd)
     assert stderr.read() == ""
     stdout.readline()  # skip "SIZE"
     assert stdout.readline().strip() == size_bytes_str
@@ -320,8 +299,6 @@ def test_patch_drive(test_microvm_with_api, network_config):
 def test_no_flush(test_microvm_with_api, network_config):
     """
     Verify default block ignores flush.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -352,9 +329,8 @@ def test_no_flush(test_microvm_with_api, network_config):
     assert fc_metrics["block"]["flush_count"] == 0
 
     # Have the guest drop the caches to generate flush requests.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
-    _, _, stderr = ssh_connection.execute_command(cmd)
+    _, _, stderr = test_microvm.ssh.execute_command(cmd)
     assert stderr.read() == ""
 
     # Verify all flush commands were ignored even after
@@ -366,8 +342,6 @@ def test_no_flush(test_microvm_with_api, network_config):
 def test_flush(test_microvm_with_api, network_config):
     """
     Verify block with flush actually flushes.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -395,9 +369,8 @@ def test_flush(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Have the guest drop the caches to generate flush requests.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
-    _, _, stderr = ssh_connection.execute_command(cmd)
+    _, _, stderr = test_microvm.ssh.execute_command(cmd)
     assert stderr.read() == ""
 
     # On average, dropping the caches right after boot generates
@@ -409,8 +382,6 @@ def test_flush(test_microvm_with_api, network_config):
 def test_block_default_cache_old_version(test_microvm_with_api):
     """
     Verify that saving a snapshot for old versions works correctly.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -478,8 +449,6 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 def test_patch_drive_limiter(test_microvm_with_api, network_config):
     """
     Test replacing the drive rate-limiter after guest boot works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
@@ -507,14 +476,13 @@ def test_patch_drive_limiter(test_microvm_with_api, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Validate IOPS stays within above configured limits.
     # For example, the below call will validate that reading 1000 blocks
     # of 512b will complete in at 0.8-1.2 seconds ('dd' is not very accurate,
     # so we target to stay within 30% error).
-    check_iops_limit(ssh_connection, 512, 1000, 0.7, 1.3)
-    check_iops_limit(ssh_connection, 4096, 1000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 512, 1000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 4096, 1000, 0.7, 1.3)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
@@ -526,8 +494,8 @@ def test_patch_drive_limiter(test_microvm_with_api, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 2000, 0.7, 1.3)
-    check_iops_limit(ssh_connection, 4096, 2000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 512, 2000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 4096, 2000, 0.7, 1.3)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
@@ -535,8 +503,8 @@ def test_patch_drive_limiter(test_microvm_with_api, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 10000, 0.7, 1.3)
-    check_iops_limit(ssh_connection, 4096, 10000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 512, 10000, 0.7, 1.3)
+    check_iops_limit(test_microvm.ssh, 4096, 10000, 0.7, 1.3)
 
 
 def _check_block_size(ssh_connection, dev_path, size):
@@ -568,8 +536,6 @@ def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
 
 
 def _check_drives(test_microvm, assert_dict, keys_array):
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
-    _, stdout, stderr = ssh_connection.execute_command("blockdev --report")
+    _, stdout, stderr = test_microvm.ssh.execute_command("blockdev --report")
     assert stderr.read() == ""
     _process_blockdev_output(stdout.read(), assert_dict, keys_array)

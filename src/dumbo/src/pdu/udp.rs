@@ -28,7 +28,7 @@ pub const UDP_HEADER_SIZE: usize = 8;
 const IPV4_MAX_UDP_PACKET_SIZE: usize = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,
@@ -139,7 +139,7 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
             return Err(Error::PayloadTooBig);
         }
 
-        packet.bytes.shrink_unchecked(len as usize);
+        packet.bytes.shrink_unchecked(len);
         packet.payload_mut().copy_from_slice(payload);
         packet.set_len(len as u16);
 

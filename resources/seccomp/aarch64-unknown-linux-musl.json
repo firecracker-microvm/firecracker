@@ -25,6 +25,10 @@
                 "syscall": "write"
             },
             {
+                "syscall": "writev",
+                "comment": "Used by the VirtIO net device to write to tap"
+            },
+            {
                 "syscall": "fsync"
             },
             {
@@ -97,6 +101,10 @@
             {
                 "syscall": "sigaltstack",
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
+            },
+            {
+              "syscall": "getrandom",
+              "comment": "getrandom is used by aws-lc library which we consume in virtio-rng"
             },
             {
                 "syscall": "accept4",
@@ -178,6 +186,19 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
                     }
@@ -185,16 +206,7 @@
             },
             {
                 "syscall": "madvise",
-                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads",
-                "args": [
-                    {
-                        "index": 2,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 4,
-                        "comment": "libc::MADV_DONTNEED"
-                    }
-                ]
+                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms." 
             },
             {
                 "syscall": "mmap",
@@ -412,6 +424,10 @@
                         "comment": "KVM_GET_DEVICE_ATTR"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     },
@@ -552,6 +568,19 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
                     }
@@ -673,6 +702,10 @@
                         "comment": "FIONBIO"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     },
@@ -763,6 +796,19 @@
                         "op": "eq",
                         "val": 128,
                         "comment": "FUTEX_WAIT_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
                     }
                 ]
             },
@@ -938,6 +984,10 @@
                         "comment": "KVM_GET_REG_LIST"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     }

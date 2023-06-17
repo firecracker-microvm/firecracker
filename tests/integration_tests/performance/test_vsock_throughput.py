@@ -2,33 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
-import os
-import json
-import logging
-import time
 import concurrent.futures
+import json
+import os
+import time
 
 import pytest
-from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.matrix import TestMatrix, TestContext
-from framework.builder import MicrovmBuilder
-from framework.stats import core, consumer, producer
+
+from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
-    CpuMap,
     CmdBuilder,
-    run_cmd,
+    CpuMap,
+    DictQuery,
     get_cpu_percent,
     get_kernel_version,
-    DictQuery,
+    run_cmd,
 )
-from framework.utils_cpuid import get_cpu_model_name, get_instance_type
-from framework.utils_vsock import make_host_port_path, VSOCK_UDS_PATH
-import host_tools.network as net_tools
+from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure
 
 TEST_ID = "vsock_throughput"
 kernel_version = get_kernel_version(level=1)
@@ -36,7 +29,8 @@ CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
-SERVER_STARTUP_TIME = CONFIG_DICT["server_startup_time"]
+# Number of seconds to wait for the iperf3 server to start
+SERVER_STARTUP_TIME_SEC = 2
 IPERF3 = "iperf3-vsock"
 THROUGHPUT = "throughput"
 DURATION = "duration"
@@ -51,6 +45,18 @@ THROUGHPUT_UNIT = "Mbps"
 DURATION_UNIT = "seconds"
 CPU_UTILIZATION_UNIT = "percentage"
 
+# How many clients/servers should be spawned per vcpu
+LOAD_FACTOR = 1
+
+# Time (in seconds) for which iperf "warms up"
+WARMUP_SEC = 3
+
+# Time (in seconds) for which iperf runs after warmup is done
+RUNTIME_SEC = 20
+
+# Dictionary mapping modes (guest-to-host, host-to-guest, bidirectional) to arguments passed to the iperf3 clients spawned
+MODE_MAP = {"bd": ["", "-R"], "g2h": [""], "h2g": ["-R"]}
+
 
 # pylint: disable=R0903
 class VsockThroughputBaselineProvider(BaselineProvider):
@@ -61,17 +67,8 @@ class VsockThroughputBaselineProvider(BaselineProvider):
 
     def __init__(self, env_id, iperf_id):
         """Vsock throughput baseline provider initialization."""
-        cpu_model_name = get_cpu_model_name()
-        baselines = list(
-            filter(
-                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-                CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"],
-            )
-        )
-        super().__init__(DictQuery({}))
-        if len(baselines) > 0:
-            super().__init__(DictQuery(baselines[0]))
-
+        baseline = self.read_baseline(CONFIG_DICT)
+        super().__init__(DictQuery(baseline))
         self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
     def get(self, ms_name: str, st_name: str) -> dict:
@@ -116,7 +113,7 @@ def produce_iperf_output(
         current_avail_cpu += 1
 
     # Wait for iperf3 servers to start.
-    time.sleep(SERVER_STARTUP_TIME)
+    time.sleep(SERVER_STARTUP_TIME_SEC)
 
     # Start `vcpus` iperf3 clients. We can not use iperf3 parallel streams
     # due to non deterministic results and lack of scaling.
@@ -147,17 +144,16 @@ def produce_iperf_output(
         cpu_load_future = executor.submit(
             get_cpu_percent,
             basevm.jailer_clone_pid,
-            runtime - SERVER_STARTUP_TIME,
+            runtime - SERVER_STARTUP_TIME_SEC,
             omit,
         )
 
         modes_len = len(modes)
-        ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
         for client_idx in range(load_factor * basevm.vcpus_count):
             futures.append(
                 executor.submit(
                     spawn_iperf_client,
-                    ssh_connection,
+                    basevm.ssh,
                     client_idx,
                     # Distribute the modes evenly.
                     modes[client_idx % modes_len],
@@ -176,7 +172,7 @@ def produce_iperf_output(
 
         # We expect a single emulation thread tagged with `firecracker` name.
         tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) == 1
+        assert tag in cpu_load and len(cpu_load[tag]) > 0
         thread_id = list(cpu_load[tag])[0]
         data = cpu_load[tag][thread_id]
         vmm_util = sum(data) / len(data)
@@ -220,145 +216,107 @@ def consume_iperf_output(cons, result):
         cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
 
 
-def pipes(basevm, current_avail_cpu, env_id):
+def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
     """Producer/Consumer pipes generator."""
-    for mode in CONFIG_DICT["modes"]:
-        # We run bi-directional tests only on uVM with more than 2 vCPus
-        # because we need to pin one iperf3/direction per vCPU, and since we
-        # have two directions, we need at least two vCPUs.
-        if mode == "bd" and basevm.vcpus_count < 2:
-            continue
+    iperf_guest_cmd_builder = (
+        CmdBuilder(IPERF3)
+        .with_arg("--vsock")
+        .with_arg("-c", 2)
+        .with_arg("--json")
+        .with_arg("--omit", WARMUP_SEC)
+        .with_arg("--time", RUNTIME_SEC)
+    )
 
-        for protocol in CONFIG_DICT["protocols"]:
-            for payload_length in protocol["payload_length"]:
-                iperf_guest_cmd_builder = (
-                    CmdBuilder(IPERF3)
-                    .with_arg("--vsock")
-                    .with_arg("-c", 2)
-                    .with_arg("--json")
-                    .with_arg("--omit", protocol["omit"])
-                    .with_arg("--time", CONFIG_DICT["time"])
-                )
+    if payload_length != "DEFAULT":
+        iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
+            "--len", f"{payload_length}"
+        )
 
-                if payload_length != "DEFAULT":
-                    iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
-                        "--len", f"{payload_length}"
-                    )
+    iperf3_id = f"vsock-p{payload_length}-{mode}"
 
-                iperf3_id = f"vsock-p{payload_length}-{mode}"
+    cons = consumer.LambdaConsumer(
+        metadata_provider=DictMetadataProvider(
+            CONFIG_DICT["measurements"],
+            VsockThroughputBaselineProvider(env_id, iperf3_id),
+        ),
+        func=consume_iperf_output,
+    )
 
-                cons = consumer.LambdaConsumer(
-                    metadata_provider=DictMetadataProvider(
-                        CONFIG_DICT["measurements"],
-                        VsockThroughputBaselineProvider(env_id, iperf3_id),
-                    ),
-                    func=consume_iperf_output,
-                )
-
-                prod_kwargs = {
-                    "guest_cmd_builder": iperf_guest_cmd_builder,
-                    "basevm": basevm,
-                    "current_avail_cpu": current_avail_cpu,
-                    "runtime": CONFIG_DICT["time"],
-                    "omit": protocol["omit"],
-                    "load_factor": CONFIG_DICT["load_factor"],
-                    "modes": CONFIG_DICT["modes"][mode],
-                }
-                prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
-                yield cons, prod, f"{env_id}/{iperf3_id}"
+    prod_kwargs = {
+        "guest_cmd_builder": iperf_guest_cmd_builder,
+        "basevm": basevm,
+        "current_avail_cpu": current_avail_cpu,
+        "runtime": RUNTIME_SEC,
+        "omit": WARMUP_SEC,
+        "load_factor": LOAD_FACTOR,
+        "modes": MODE_MAP[mode],
+    }
+    prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
+    return cons, prod, f"{env_id}/{iperf3_id}"
 
 
 @pytest.mark.nonci
 @pytest.mark.timeout(1200)
-@pytest.mark.parametrize("results_file_dumper", [CONFIG_NAME_ABS], indirect=True)
-def test_vsock_throughput(bin_cloner_path, results_file_dumper):
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize(
+    "payload_length", ["DEFAULT", "1024K"], ids=["pDEFAULT", "p1024K"]
+)
+@pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
+def test_vsock_throughput(
+    microvm_factory,
+    network_config,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    payload_length,
+    mode,
+    st_core,
+):
     """
     Test vsock throughput for multiple vm configurations.
-
-    @type: performance
     """
-    logger = logging.getLogger(TEST_ID)
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
-    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
-    logger.info("Testing on processor %s", get_cpu_model_name())
+    # We run bi-directional tests only on uVM with more than 2 vCPus
+    # because we need to pin one iperf3/direction per vCPU, and since we
+    # have two directions, we need at least two vCPUs.
+    if mode == "bd" and vcpus < 2:
+        pytest.skip("bidrectional test only done with at least 2 vcpus")
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        "builder": MicrovmBuilder(bin_cloner_path),
-        "logger": logger,
-        "name": TEST_ID,
-        "results_file_dumper": results_file_dumper,
-    }
-
-    test_matrix = TestMatrix(
-        context=test_context,
-        artifact_sets=[microvm_artifacts, kernel_artifacts, disk_artifacts],
-    )
-    test_matrix.run_test(iperf_workload)
-
-
-def iperf_workload(context):
-    """Run a statistic exercise."""
-    vm_builder = context.custom["builder"]
-    logger = context.custom["logger"]
-    file_dumper = context.custom["results_file_dumper"]
-
-    # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from artifacts.
-    vm_instance = vm_builder.build(
-        kernel=context.kernel, disks=[rw_disk], ssh_key=ssh_key, config=context.microvm
-    )
-    basevm = vm_instance.vm
+    mem_size_mib = 1024
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
+    vm.ssh_network_config(network_config, "1")
     # Create a vsock device
-    basevm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    vm.start()
 
-    basevm.start()
-
-    st_core = core.Core(
-        name=TEST_ID, iterations=1, custom={"cpu_model_name": get_cpu_model_name()}
-    )
+    guest_config = f"{vcpus}vcpu_{mem_size_mib}mb.json"
+    st_core.name = TEST_ID
+    st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
-    assert CpuMap.len() >= 2 + basevm.vcpus_count
+    assert CpuMap.len() >= 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     current_avail_cpu = 0
-    assert basevm.pin_vmm(current_avail_cpu), "Failed to pin firecracker thread."
+    assert vm.pin_vmm(current_avail_cpu), "Failed to pin firecracker thread."
     current_avail_cpu += 1
-    assert basevm.pin_api(current_avail_cpu), "Failed to pin fc_api thread."
-    for i in range(basevm.vcpus_count):
+    assert vm.pin_api(current_avail_cpu), "Failed to pin fc_api thread."
+    for i in range(vm.vcpus_count):
         current_avail_cpu += 1
-        assert basevm.pin_vcpu(
-            i, current_avail_cpu
-        ), f"Failed to pin fc_vcpu {i} thread."
+        assert vm.pin_vcpu(i, current_avail_cpu), f"Failed to pin fc_vcpu {i} thread."
 
-    logger.info(
-        'Testing with microvm: "{}", kernel {}, disk {}'.format(
-            context.microvm.name(), context.kernel.name(), context.disk.name()
-        )
-    )
-
-    for cons, prod, tag in pipes(
-        basevm,
+    cons, prod, tag = pipe(
+        vm,
         current_avail_cpu + 1,
-        f"{context.kernel.name()}/{context.disk.name()}/" f"{context.microvm.name()}",
-    ):
-        st_core.add_pipe(prod, cons, tag)
+        f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}",
+        mode,
+        payload_length,
+    )
+    st_core.add_pipe(prod, cons, tag)
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    try:
-        result = st_core.run_exercise()
-    except core.CoreException as err:
-        handle_failure(file_dumper, err)
-
-    file_dumper.dump(result)
+    st_core.run_exercise()

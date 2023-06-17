@@ -3,6 +3,7 @@
 """Tests checking against the existence of licenses in each file."""
 
 import datetime
+
 from framework import utils
 
 AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
@@ -23,7 +24,7 @@ TUNTAP_LICENSE = (
 ALIBABA_COPYRIGHT = "Copyright (C) 2019 Alibaba Cloud Computing. All rights reserved."
 ALIBABA_LICENSE = "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
 
-EXCLUDE = ["build", ".kernel"]
+EXCLUDE = ["build", ".kernel", ".git"]
 
 
 def _has_amazon_copyright(string):
@@ -49,13 +50,15 @@ def _validate_license(filename):
     Python and Rust files should have the licenses on the first 2 lines
     Shell files license is located on lines 3-4 to account for shebang
     """
-    with open(filename, "r+", encoding="utf-8") as file:
-        if filename.endswith(".sh"):
-            # Move iterator to third line without reading file into memory
-            file.readline()
-            file.readline()
-        # The copyright message is always on the first line.
-        copyright_info = file.readline()
+    with open(filename, "r", encoding="utf-8") as file:
+        # Find the copyright line
+        while True:
+            line = file.readline()
+            if line.startswith(("// Copyright", "# Copyright")):
+                copyright_info = line
+                break
+            if line == "":
+                return False
 
         has_amazon_copyright = _has_amazon_copyright(
             copyright_info
@@ -86,8 +89,6 @@ def _validate_license(filename):
 def test_for_valid_licenses():
     """
     Test that all *.py, *.rs and *.sh files contain a valid license.
-
-    @type: style
     """
     python_files = utils.get_files_from(
         find_path="..", pattern="*.py", exclude_names=EXCLUDE
@@ -103,5 +104,9 @@ def test_for_valid_licenses():
     error_msg = []
     for file in all_files:
         if _validate_license(file) is False:
-            error_msg.append("{}".format(str(file)))
-    assert not error_msg, "Files {} have invalid licenses".format((error_msg))
+            error_msg.append(file)
+    assert not error_msg, f"Files {error_msg} have invalid licenses"
+
+
+if __name__ == "__main__":
+    test_for_valid_licenses()

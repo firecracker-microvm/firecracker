@@ -1,0 +1,2004 @@
+{
+    "hosts": {
+        "instances": {
+            "c7g.metal": {
+                "cpus": [
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 5,
+                                                    "target": 200
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 125
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 11,
+                                                    "target": 155
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 126
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 158
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 93
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 92
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 93
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 99
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 92
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 10,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 99
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 98
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 99
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 100
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 41810
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 52238
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 40947
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 51318
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 41543
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 40795
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 51346
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 39022
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 39017
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 48501
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 12,
+                                                    "target": 43147
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 51949
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 11,
+                                                    "target": 41247
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 51993
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 43936
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 42389
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 51576
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 43517
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 40666
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 49141
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "ARM_NEOVERSE_V1"
+                    }
+                ]
+            },
+            "m5d.metal": {
+                "cpus": [
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 27,
+                                                    "target": 87
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 70
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 12,
+                                                    "target": 121
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 29,
+                                                    "target": 97
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 184
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 15,
+                                                    "target": 118
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 13,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 192
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 9,
+                                                    "target": 86
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 79
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 114
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 101
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 9,
+                                                    "target": 186
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 117
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 9,
+                                                    "target": 102
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 189
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 90
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 88
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 91
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 95
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 93
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 96
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 96
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 26751
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 32582
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 25616
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 30295
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 26238
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 25879
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 30963
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 25421
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 25169
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 29356
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 27453
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 32818
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 27001
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 30183
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 9,
+                                                    "target": 28471
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 27208
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 32610
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 28156
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 26321
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 30292
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
+                    },
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 83
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 139
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 126
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 187
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 9,
+                                                    "target": 139
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 107
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 193
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 91
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 85
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 120
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 112
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 184
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 10,
+                                                    "target": 125
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 112
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 193
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 89
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 95
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 88
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 94
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 96
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 33019
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 38065
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 31729
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 35757
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 5,
+                                                    "target": 31949
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 32020
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 36337
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 31093
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 31038
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 34735
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 32555
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 38457
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 32371
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 36308
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 34138
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 32228
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 37436
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 5,
+                                                    "target": 33482
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 31681
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 35414
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz"
+                    }
+                ]
+            },
+            "m6a.metal": {
+                "cpus": [
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 92,
+                                                    "target": 77
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 197
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 16,
+                                                    "target": 188
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 196
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 45,
+                                                    "target": 162
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 34,
+                                                    "target": 180
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 22,
+                                                    "target": 190
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 36,
+                                                    "target": 162
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 32,
+                                                    "target": 48
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 38,
+                                                    "target": 52
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 12,
+                                                    "target": 86
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 36,
+                                                    "target": 48
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 9,
+                                                    "target": 85
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 91
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 29,
+                                                    "target": 81
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 11,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 21,
+                                                    "target": 85
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 12,
+                                                    "target": 84
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 30,
+                                                    "target": 52
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 13,
+                                                    "target": 85
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 32,
+                                                    "target": 52
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 19,
+                                                    "target": 80
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 27,
+                                                    "target": 77
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 21,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 13,
+                                                    "target": 88
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 21,
+                                                    "target": 20035
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 12,
+                                                    "target": 23813
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 53,
+                                                    "target": 53246
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 22,
+                                                    "target": 22570
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 37,
+                                                    "target": 55937
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 31,
+                                                    "target": 59736
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 47065
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 26,
+                                                    "target": 62269
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 21,
+                                                    "target": 59628
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 33,
+                                                    "target": 49105
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 69,
+                                                    "target": 53897
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 10,
+                                                    "target": 23740
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 47,
+                                                    "target": 56551
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 18,
+                                                    "target": 22546
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 9,
+                                                    "target": 45015
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 28,
+                                                    "target": 60587
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 46705
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 49,
+                                                    "target": 57957
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 27,
+                                                    "target": 58302
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 50,
+                                                    "target": 58405
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "AMD EPYC 7R13 48-Core Processor"
+                    }
+                ]
+            },
+            "m6g.metal": {
+                "cpus": [
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 20,
+                                                    "target": 49
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 184
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 126
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 196
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 195
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 117
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 189
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 123
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 195
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 5,
+                                                    "target": 195
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 117
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 200
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 99
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 94
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 98
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 99
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 99
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 97
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 98
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 98
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 97
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 100
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 24027
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 29377
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 23086
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 28084
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 24330
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 23123
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 28464
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 23308
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 22483
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 26328
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 24280
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 29080
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 23890
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 28333
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 25194
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 23891
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 28812
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 24532
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 5,
+                                                    "target": 23335
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 27150
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "ARM_NEOVERSE_N1"
+                    }
+                ]
+            },
+            "m6i.metal": {
+                "cpus": [
+                    {
+                        "baselines": {
+                            "cpu_utilization_vcpus_total": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 23,
+                                                    "target": 86
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 180
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 122
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 194
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 185
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 18,
+                                                    "target": 101
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 198
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 4,
+                                                    "target": 100
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 130
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 123
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 191
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 123
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 110
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 5,
+                                                    "target": 199
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "cpu_utilization_vmm": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 93
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 87
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 90
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 89
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 95
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 84
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 88
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 95
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "Avg": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 94
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 92
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 94
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 6,
+                                                    "target": 95
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 91
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 97
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "throughput": {
+                                "vmlinux-4.14.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 8,
+                                                    "target": 56352
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 50730
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 7,
+                                                    "target": 45642
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 50192
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 48120
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 13,
+                                                    "target": 44335
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 49934
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 7,
+                                                    "target": 43968
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 10,
+                                                    "target": 38460
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 48813
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "vmlinux-5.10.bin": {
+                                    "ubuntu-18.04.ext4": {
+                                        "1vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 6,
+                                                    "target": 50018
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 7,
+                                                    "target": 50458
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 13,
+                                                    "target": 50106
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 6,
+                                                    "target": 50615
+                                                }
+                                            }
+                                        },
+                                        "2vcpu_1024mb.json": {
+                                            "total": {
+                                                "tcp-p1024K-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 51255
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 9,
+                                                    "target": 46339
+                                                },
+                                                "tcp-p1024K-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 9,
+                                                    "target": 51954
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-bd": {
+                                                    "delta_percentage": 8,
+                                                    "target": 47523
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-g2h": {
+                                                    "delta_percentage": 9,
+                                                    "target": 39809
+                                                },
+                                                "tcp-pDEFAULT-wsDEFAULT-h2g": {
+                                                    "delta_percentage": 8,
+                                                    "target": 50728
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz"
+                    }
+                ]
+            }
+        }
+    },
+    "measurements": {
+        "cpu_utilization_vcpus_total": {
+            "statistics": [
+                {
+                    "criteria": "EqualWith",
+                    "function": "ValuePlaceholder",
+                    "name": "Avg"
+                }
+            ],
+            "unit": "percentage"
+        },
+        "cpu_utilization_vmm": {
+            "statistics": [
+                {
+                    "criteria": "EqualWith",
+                    "function": "ValuePlaceholder",
+                    "name": "Avg"
+                }
+            ],
+            "unit": "percentage"
+        },
+        "duration": {
+            "statistics": [
+                {
+                    "function": "Avg"
+                }
+            ],
+            "unit": "seconds"
+        },
+        "throughput": {
+            "statistics": [
+                {
+                    "criteria": "EqualWith",
+                    "function": "Sum",
+                    "name": "total"
+                }
+            ],
+            "unit": "Mbps"
+        }
+    }
+}

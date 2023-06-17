@@ -71,7 +71,7 @@ bitflags! {
 }
 
 /// Describes the errors which may occur while handling TCP segments.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,
@@ -527,6 +527,9 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
                 return Err(Error::EmptyPayload);
             }
 
+            // Copy `room_for_payload` bytes into `payload_buf` using `offset=0`.
+            // Guaranteed not to panic since we checked above that:
+            // `offset + room_for_payload <= payload_buf.len()`.
             payload_buf.read_to_slice(
                 0,
                 &mut segment.bytes[segment_len..segment_len + room_for_payload],
@@ -704,7 +707,7 @@ mod tests {
                 TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
             assert_eq!(
                 segment.parse_mss_option_unchecked(header_len),
-                Ok(Some(NonZeroU16::new(mss_left as u16).unwrap()))
+                Ok(Some(NonZeroU16::new(mss_left).unwrap()))
             );
         }
 

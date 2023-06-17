@@ -3,10 +3,10 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import os
+
+import host_tools.logging as log_tools
 from framework.builder import MicrovmBuilder
 from framework.resources import DescribeInstance
-import host_tools.logging as log_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 def verify_net_emulation_paused(metrics):
@@ -32,8 +32,6 @@ def verify_net_emulation_paused(metrics):
 def test_pause_resume(bin_cloner_path):
     """
     Test scenario: boot/pause/resume.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()
@@ -56,10 +54,8 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
     microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
     # Verify guest is active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # Pausing the microVM after it's been started is successful.
@@ -70,7 +66,7 @@ def test_pause_resume(bin_cloner_path):
     microvm.flush_metrics(metrics_fifo)
 
     # Verify guest is no longer active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code != 0
 
     # Verify emulation was indeed paused and no events from either
@@ -78,7 +74,7 @@ def test_pause_resume(bin_cloner_path):
     verify_net_emulation_paused(microvm.flush_metrics(metrics_fifo))
 
     # Verify guest is no longer active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code != 0
 
     # Pausing the microVM when it is already `Paused` is allowed
@@ -91,7 +87,7 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Verify guest is active again.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     # Resuming the microVM when it is already `Resumed` is allowed
@@ -100,7 +96,7 @@ def test_pause_resume(bin_cloner_path):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Verify guest is still active.
-    exit_code, _, _ = ssh_connection.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.execute_command("ls")
     assert exit_code == 0
 
     microvm.kill()
@@ -109,8 +105,6 @@ def test_pause_resume(bin_cloner_path):
 def test_describe_instance(bin_cloner_path):
     """
     Test scenario: DescribeInstance different states.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()
@@ -154,8 +148,6 @@ def test_describe_instance(bin_cloner_path):
 def test_pause_resume_preboot(bin_cloner_path):
     """
     Test pause/resume operations are not allowed pre-boot.
-
-    @type: negative
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()

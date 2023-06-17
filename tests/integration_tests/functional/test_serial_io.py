@@ -9,13 +9,14 @@ import subprocess
 import termios
 import time
 
+import host_tools.logging as log_tools
+from framework import utils
+from framework.artifacts import SnapshotType
+from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.microvm import Serial
 from framework.state_machine import TestState
-from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.artifacts import SnapshotType
-from framework import utils
-import host_tools.logging as log_tools
-import host_tools.network as net_tools
+
+PLATFORM = platform.machine()
 
 
 class WaitTerminal(TestState):  # pylint: disable=too-few-public-methods
@@ -50,24 +51,21 @@ class TestFinished(TestState):  # pylint: disable=too-few-public-methods
 def test_serial_after_snapshot(bin_cloner_path):
     """
     Serial I/O after restoring from a snapshot.
-
-    @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano(
-        diff_snapshots=False,
         daemonize=False,
     )
     microvm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
 
-    microvm.start()
     serial = Serial(microvm)
     serial.open()
+    microvm.start()
 
     # Image used for tests on aarch64 has autologon
-    if platform.machine() == "x86_64":
+    if PLATFORM == "x86_64":
         serial.rx(token="login: ")
         serial.tx("root")
         serial.rx("Password: ")
@@ -76,15 +74,17 @@ def test_serial_after_snapshot(bin_cloner_path):
     serial.rx("#")
 
     snapshot_builder = SnapshotBuilder(microvm)
-    disks = [root_disk.local_path()]
-    # Create diff snapshot.
-    snapshot = snapshot_builder.create(disks, ssh_key, SnapshotType.FULL)
+
+    # Create snapshot.
+    snapshot = snapshot_builder.create(
+        [root_disk.local_path()], ssh_key, SnapshotType.FULL
+    )
     # Kill base microVM.
     microvm.kill()
 
     # Load microVM clone from snapshot.
     test_microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=True, diff_snapshots=False, daemonize=False
+        snapshot, resume=True, daemonize=False
     )
     serial = Serial(test_microvm)
     serial.open()
@@ -100,8 +100,6 @@ def test_serial_after_snapshot(bin_cloner_path):
 def test_serial_console_login(test_microvm_with_api):
     """
     Test serial console login.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
@@ -150,8 +148,6 @@ def send_bytes(tty, bytes_count, timeout=60):
 def test_serial_dos(test_microvm_with_api):
     """
     Test serial console behavior under DoS.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
@@ -184,8 +180,6 @@ def test_serial_dos(test_microvm_with_api):
 def test_serial_block(test_microvm_with_api, network_config):
     """
     Test that writing to stdout never blocks the vCPU thread.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
@@ -209,7 +203,6 @@ def test_serial_block(test_microvm_with_api, network_config):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Get an initial reading of missed writes to the serial.
     fc_metrics = test_microvm.flush_metrics(metrics_fifo)
@@ -220,16 +213,16 @@ def test_serial_block(test_microvm_with_api, network_config):
     subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
 
     # Generate a random text file.
-    exit_code, _, _ = ssh_connection.execute_command(
+    exit_code, _, _ = test_microvm.ssh.execute_command(
         "base64 /dev/urandom | head -c 100000 > file.txt"
     )
 
     # Dump output to terminal
-    exit_code, _, _ = ssh_connection.execute_command("cat file.txt > /dev/ttyS0")
+    exit_code, _, _ = test_microvm.ssh.execute_command("cat file.txt > /dev/ttyS0")
     assert exit_code == 0
 
     # Check that the vCPU isn't blocked.
-    exit_code, _, _ = ssh_connection.execute_command("cd /")
+    exit_code, _, _ = test_microvm.ssh.execute_command("cd /")
     assert exit_code == 0
 
     # Check the metrics to see if the serial missed bytes.

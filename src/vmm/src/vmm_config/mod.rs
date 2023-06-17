@@ -17,6 +17,8 @@ pub mod balloon;
 pub mod boot_source;
 /// Wrapper for configuring the block devices.
 pub mod drive;
+/// Wrapper for configuring the entropy device attached to the microVM.
+pub mod entropy;
 /// Wrapper over the microVM general information attached to the microVM.
 pub mod instance_info;
 /// Wrapper for configuring the logger.
@@ -45,7 +47,7 @@ pub mod vsock;
 
 /// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
 /// (live) object.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TokenBucketConfig {
     /// See TokenBucket::size.
     pub size: u64,
@@ -71,7 +73,7 @@ impl From<&TokenBucket> for TokenBucketConfig {
 
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimiterConfig {
     /// Data used to initialize the RateLimiter::bandwidth bucket.
@@ -172,7 +174,7 @@ fn open_file_nonblock(path: &Path) -> Result<File> {
         .custom_flags(O_NONBLOCK)
         .read(true)
         .write(true)
-        .open(&path)
+        .open(path)
 }
 
 type FcLineWriter = io::LineWriter<File>;
@@ -243,7 +245,7 @@ mod tests {
         let mut fw = FcLineWriter::new(maybe_fifo.unwrap());
 
         let msg = String::from("some message");
-        assert!(fw.write(&msg.as_bytes()).is_ok());
+        assert!(fw.write(msg.as_bytes()).is_ok());
         assert!(fw.flush().is_ok());
     }
 }

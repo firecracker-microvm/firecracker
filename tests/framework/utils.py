@@ -4,26 +4,30 @@
 import asyncio
 import functools
 import glob
+import json
 import logging
 import os
+import platform
 import re
 import subprocess
 import threading
-import typing
 import time
-import platform
-
-from collections import namedtuple, defaultdict
+import typing
+from collections import defaultdict, namedtuple
 from pathlib import Path
+from typing import Dict
+
+import packaging.version
 import psutil
 from retry import retry
 from retry.api import retry_call
-from framework import utils
+
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
+FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
-GET_CPU_LOAD = "top -bn1 -H -p {} | tail -n+8"
+GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
 
 
 class ProcessManager:
@@ -54,7 +58,7 @@ class ProcessManager:
         return psutil.Process(pid).cpu_affinity(real_cpulist)
 
     @staticmethod
-    def get_cpu_percent(pid: int) -> float:
+    def get_cpu_percent(pid: int) -> Dict[str, Dict[str, float]]:
         """Return the instant process CPU utilization percent."""
         _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
         cpu_percentages = {}
@@ -62,11 +66,15 @@ class ProcessManager:
         # Take all except the last line
         lines = stdout.strip().split(sep="\n")
         for line in lines:
+            # sometimes the firecracker process will have gone away, in which case top does not return anything
+            if not line:
+                continue
+
             info = line.strip().split()
             # We need at least CPU utilization and threads names cols (which
             # might be two cols e.g `fc_vcpu 0`).
             info_len = len(info)
-            assert info_len > 11
+            assert info_len > 11, line
 
             cpu_percent = float(info[8])
             task_id = info[0]
@@ -92,7 +100,7 @@ class UffdHandler:
     def spawn(self):
         """Spawn handler process using arguments provided."""
         self._proc = subprocess.Popen(
-            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1
+            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
     def proc(self):
@@ -104,7 +112,7 @@ class UffdHandler:
         self._proc.kill()
 
 
-# pylint: disable=R0903
+# pylint: disable=too-few-public-methods
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
@@ -132,21 +140,26 @@ class CpuMap:
         return len(CpuMap.arr)
 
     @classmethod
-    def _cpuset_mountpoint(cls):
-        """Obtain the cpuset mountpoint."""
-        cmd = "cat /proc/mounts | grep cgroup | grep cpuset | cut -d' ' -f2"
-        _, stdout, _ = run_cmd(cmd)
-        return stdout.strip()
-
-    @classmethod
     def _cpus(cls):
         """Obtain the real processor map.
 
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
         """
-        cmd = "cat {}/cpuset.cpus".format(CpuMap._cpuset_mountpoint())
-        _, cpulist, _ = run_cmd(cmd)
+        # The real processor map is found at different paths based on cgroups version:
+        #  - cgroupsv1: /cpuset.cpus
+        #  - cgroupsv2: /cpuset.cpus.effective
+        # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
+        cpulist = None
+        for path in [
+            Path("/sys/fs/cgroup/cpuset/cpuset.cpus"),
+            Path("/sys/fs/cgroup/cpuset.cpus.effective"),
+        ]:
+            if path.exists():
+                cpulist = path.read_text("ascii").strip()
+                break
+        else:
+            raise RuntimeError("Could not find cgroups cpuset")
         return ListFormatParser(cpulist).parse()
 
 
@@ -219,7 +232,7 @@ class CmdBuilder:
     def build(self):
         """Build the command."""
         cmd = self._bin_path + " "
-        for (flag, value) in self._args.items():
+        for flag, value in self._args.items():
             cmd += f"{flag} {value} "
         return cmd
 
@@ -506,33 +519,6 @@ def run_cmd_list_async(cmd_list):
     loop.run_until_complete(asyncio.gather(*cmds))
 
 
-def configure_git_safe_directory():
-    """
-    Add the root firecracker git folder to safe.directory config.
-
-    Firecracker root git folder in the container is
-    bind-mounted to a folder on the host which is mapped to a
-    user that is different from the user which runs the integ tests.
-    This difference in ownership is validated against by git.
-    https://github.blog/2022-04-12-git-security-vulnerability-announced/
-
-    :return: none
-    """
-    # devtool script will set the working directory to FC_ROOT/tests.
-    # We will need the parent for safe.directory configuration
-    working_dir = Path(os.getcwd())
-
-    try:
-        utils.run_cmd(
-            "git config --global " "--add safe.directory {}".format(working_dir.parent)
-        )
-    except ChildProcessError as error:
-        raise Exception(
-            "Failure to set the safe.directory "
-            "git config to [{}] required for gitlint tests".format(working_dir.parent)
-        ) from error
-
-
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     """
     Run a command using the sync function that logs the output.
@@ -580,7 +566,7 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
         current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
         assert len(current_cpu_percentages) > 0
 
-        for (thread_name, task_ids) in current_cpu_percentages.items():
+        for thread_name, task_ids in current_cpu_percentages.items():
             if not cpu_percentages.get(thread_name):
                 cpu_percentages[thread_name] = {}
             for task_id in task_ids:
@@ -589,6 +575,14 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
                 cpu_percentages[thread_name][task_id].append(task_ids[task_id])
         time.sleep(1)  # 1 second granularity.
     return cpu_percentages
+
+
+def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
+    """Runs a shell command at the remote accessible via SSH"""
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ""
+    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stdout == expected
 
 
 @retry(delay=0.5, tries=5)
@@ -614,11 +608,9 @@ def get_firecracker_version_from_toml():
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
-
-    rc, stdout, _ = run_cmd(cmd)
-    assert rc == 0
-
-    return stdout
+    rc, stdout, stderr = run_cmd(cmd)
+    assert rc == 0, stderr
+    return packaging.version.parse(stdout)
 
 
 def compare_versions(first, second):
@@ -756,6 +748,20 @@ def configure_mmds(
     return response
 
 
+def populate_data_store(test_microvm, data_store):
+    """Populate the MMDS data store of the microvm with the provided data"""
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
     """Start binary process into a screen session."""
     start_cmd = "screen -L -Logfile {logfile} " "-dmS {session} {binary} {params}"
@@ -783,14 +789,55 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         delay=1,
     ).group(1)
 
-    binary_clone_pid = int(
-        open("/proc/{0}/task/{0}/children".format(screen_pid), encoding="utf-8")
-        .read()
-        .strip()
-    )
+    # Make sure the screen process launched successfully
+    # As the parent process for the binary.
+    screen_ps = psutil.Process(int(screen_pid))
+    wait_process_running(screen_ps)
 
     # Configure screen to flush stdout to file.
-    flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
-    run_cmd(flush_cmd.format(session=session_name))
+    run_cmd(FLUSH_CMD.format(session=session_name))
 
-    return screen_pid, binary_clone_pid
+    children_count = len(screen_ps.children())
+    if children_count != 1:
+        raise RuntimeError(
+            f"Failed to retrieve child process id for binary {binary_path}. "
+            f"screen session process had [{children_count}]"
+        )
+
+    return screen_pid, screen_ps.children()[0].pid
+
+
+def guest_run_fio_iteration(ssh_connection, iteration):
+    """Start FIO workload into a microVM."""
+    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
+        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
+        --output /tmp/fio{} > /dev/null &""".format(
+        iteration
+    )
+    exit_code, _, stderr = ssh_connection.execute_command(fio)
+    assert exit_code == 0, stderr.read()
+
+
+def check_filesystem(ssh_connection, disk_fmt, disk):
+    """Check for filesystem corruption inside a microVM."""
+    cmd = "fsck.{} -n {}".format(disk_fmt, disk)
+    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    assert exit_code == 0, stderr.read()
+
+
+def check_entropy(ssh_connection):
+    """Check that we can get random numbers from /dev/hwrng"""
+    cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
+    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    assert exit_code == 0, stderr.read()
+
+
+@retry(delay=0.5, tries=5)
+def wait_process_running(process):
+    """Wait for a process to run.
+
+    Will return successfully if the process is in
+    a running state and will otherwise raise an exception.
+    """
+    assert process.is_running()

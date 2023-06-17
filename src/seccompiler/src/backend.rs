@@ -4,10 +4,8 @@
 //! This module defines the data structures used for the intermmediate representation (IR),
 //! as well as the logic for compiling the filter into BPF code, the final form of the filter.
 
-use core::fmt::Formatter;
 use std::collections::BTreeMap;
 use std::convert::{Into, TryFrom, TryInto};
-use std::fmt::Display;
 
 use serde::{Deserialize, Deserializer};
 
@@ -97,36 +95,23 @@ impl<'de> Deserialize<'de> for Comment {
 }
 
 /// Seccomp errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum Error {
     /// Attempting to add an empty vector of rules to the rule chain of a syscall.
+    #[error("The seccomp rules vector is empty.")]
     EmptyRulesVector,
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    #[error("The seccomp filter contains too many BPF instructions.")]
     FilterTooLarge,
     /// Argument number that exceeds the maximum value.
+    #[error("The seccomp rule contains an invalid argument number.")]
     InvalidArgumentNumber,
     /// Error related to the target arch.
+    #[error("{0:?}")]
     Arch(TargetArchError),
     /// Conflicting rules in filter.
+    #[error("Syscall {0} has conflicting rules.")]
     ConflictingRules(i64),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-
-        match *self {
-            EmptyRulesVector => write!(f, "The seccomp rules vector is empty."),
-            FilterTooLarge => write!(f, "The seccomp filter contains too many BPF instructions."),
-            InvalidArgumentNumber => {
-                write!(f, "The seccomp rule contains an invalid argument number.")
-            }
-            Arch(ref err) => write!(f, "{:?}", err),
-            ConflictingRules(ref syscall_number) => {
-                write!(f, "Syscall {} has conflicting rules.", syscall_number)
-            }
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -142,20 +127,11 @@ pub(crate) enum TargetArch {
 }
 
 /// Errors related to target arch.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub(crate) enum TargetArchError {
     /// Invalid string.
+    #[error("Invalid target arch string: {0}")]
     InvalidString(String),
-}
-
-impl Display for TargetArchError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::TargetArchError::*;
-
-        match *self {
-            InvalidString(ref arch) => write!(f, "Invalid target arch string: {}", arch),
-        }
-    }
 }
 
 impl TargetArch {
@@ -738,7 +714,7 @@ impl SeccompFilter {
         let mut built_syscall = Vec::with_capacity(1 + chain_len + 1);
         built_syscall.push(BPF_JUMP(
             BPF_JMP + BPF_JEQ + BPF_K,
-            syscall_number as u32,
+            u32::try_from(syscall_number).unwrap(),
             0,
             1,
         ));
@@ -876,6 +852,7 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::env::consts::ARCH;
     use std::thread;
 
@@ -977,8 +954,12 @@ mod tests {
         }
 
         // Build seccomp filter.
-        let filter =
-            SeccompFilter::new(rule_map, SeccompAction::Errno(failure_code as u32), ARCH).unwrap();
+        let filter = SeccompFilter::new(
+            rule_map,
+            SeccompAction::Errno(u32::try_from(failure_code).unwrap()),
+            ARCH,
+        )
+        .unwrap();
 
         // We need to run the validation inside another thread in order to avoid setting
         // the seccomp filter for the entire unit tests process.

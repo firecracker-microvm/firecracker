@@ -2,17 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that the --seccomp-filter parameter works as expected."""
 
+import json
 import os
 import platform
-import json
 import tempfile
 import time
+
 import psutil
 import pytest
 import requests
-from framework import utils
-import host_tools.logging as log_tools
 
+import host_tools.logging as log_tools
+from framework import utils
 from host_tools.cargo_build import run_seccompiler_bin
 
 
@@ -48,8 +49,6 @@ def _config_file_setup(test_microvm, vm_config_file):
 def test_allow_all(test_microvm_with_api):
     """
     Test --seccomp-filter, allowing all syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -88,8 +87,6 @@ def test_allow_all(test_microvm_with_api):
 def test_working_filter(test_microvm_with_api):
     """
     Test --seccomp-filter, rejecting some dangerous syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -151,8 +148,6 @@ def test_working_filter(test_microvm_with_api):
 def test_failing_filter(test_microvm_with_api):
     """
     Test --seccomp-filter, denying some needed syscalls.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 
@@ -228,8 +223,6 @@ def test_failing_filter(test_microvm_with_api):
 def test_invalid_bpf(test_microvm_with_api, vm_config_file):
     """
     Test that FC does not start, given an invalid binary filter.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
 

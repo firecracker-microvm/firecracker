@@ -3,8 +3,8 @@
 """Tests scenario for adding the maximum number of devices to a microVM."""
 
 import platform
+
 import pytest
-import host_tools.network as net_tools
 
 # IRQs are available from 5 to 23, so the maximum number of devices
 # supported at the same time is 19.
@@ -17,8 +17,6 @@ MAX_DEVICES_ATTACHED = 19
 def test_attach_maximum_devices(test_microvm_with_api, network_config):
     """
     Test attaching maximum number of devices to the microVM.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -41,9 +39,8 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
     # Test that network devices attached are operational.
     for i in range(MAX_DEVICES_ATTACHED - 1):
         test_microvm.ssh_config["hostname"] = guest_ips[i]
-        ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
         # Verify if guest can run commands.
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
         assert exit_code == 0
 
 
@@ -53,8 +50,6 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
 def test_attach_too_many_devices(test_microvm_with_api, network_config):
     """
     Test attaching to a microVM more devices than available IRQs.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -75,7 +70,7 @@ def test_attach_too_many_devices(test_microvm_with_api, network_config):
     response = test_microvm.actions.put(action_type="InstanceStart")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     error_str = (
-        "failed to allocate requested resource: The requested resource"
+        "Failed to allocate requested resource: The requested resource"
         " is not available."
     )
     assert error_str in response.text

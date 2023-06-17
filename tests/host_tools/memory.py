@@ -1,9 +1,9 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for measuring memory utilization for a process."""
-from queue import Queue
 import time
-from threading import Thread, Lock
+from queue import Queue
+from threading import Lock, Thread
 
 from framework import utils
 
@@ -11,36 +11,41 @@ from framework import utils
 class MemoryUsageExceededException(Exception):
     """A custom exception containing details on excessive memory usage."""
 
-    def __init__(self, usage, threshold):
+    def __init__(self, usage, threshold, out):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            "Memory usage ({} KiB) exceeded maximum threshold ({} KiB).\n".format(
-                usage, threshold
-            )
+            f"Memory usage ({usage} KiB) exceeded maximum threshold "
+            f"({threshold} KiB).\n {out} \n"
         )
 
 
 class MemoryMonitor(Thread):
-    """Class to represent a RSS memory monitor for a Firecracker process.
+    """Class to represent an RSS memory monitor for a Firecracker process.
 
     The guest's memory region is skipped, as the main interest is the
     VMM memory usage.
     """
 
     MEMORY_THRESHOLD = 5 * 1024
-    MEMORY_SAMPLE_TIMEOUT_S = 1
+    MEMORY_SAMPLE_TIMEOUT_S = 0.05
+    X86_MEMORY_GAP_START = 3407872
 
     def __init__(self):
         """Initialize monitor attributes."""
         Thread.__init__(self)
         self._pid = None
         self._guest_mem_mib = None
-        self._guest_mem_start = None
+        self._guest_mem_start_1 = None
+        self._guest_mem_end_1 = None
+        self._guest_mem_start_2 = None
+        self._guest_mem_end_2 = None
         self._exceeded_queue = Queue()
+        self._pmap_out = None
         self._threshold = self.MEMORY_THRESHOLD
         self._should_stop = False
         self._current_rss = 0
         self._lock = Lock()
+        self.daemon = True
 
     @property
     def pid(self):
@@ -109,36 +114,65 @@ class MemoryMonitor(Thread):
                 except ValueError:
                     # This line doesn't contain memory related information.
                     continue
-                if (
-                    self._guest_mem_start is None
-                    and total_size == self.guest_mem_mib * 1024
-                ):
-                    # This is the start of the guest's memory region.
-                    self._guest_mem_start = address
+                if self.update_guest_mem_regions(address, total_size):
                     continue
-                if self.is_in_guest_mem_region(address):
+                if self.is_in_guest_mem_regions(address):
                     continue
                 mem_total += rss
             with self._lock:
                 self._current_rss = mem_total
             if mem_total > self.threshold:
                 self.exceeded_queue.put(mem_total)
+                self._pmap_out = stdout
                 return
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
 
-    def is_in_guest_mem_region(self, address):
-        """Check if the address is inside the guest memory region."""
-        if self._guest_mem_start is None:
-            return False
-        guest_mem_end = self._guest_mem_start + self.guest_mem_mib
-        return self._guest_mem_start <= address < guest_mem_end
+    def update_guest_mem_regions(self, address, size_kib):
+        """
+        If the address is recognised as a guest memory region,
+        cache it and return True, otherwise return False.
+        """
+
+        # If x86_64 guest memory exceeds 3328M, it will be split
+        # in 2 regions: 3328M and the rest. We have 3 cases here
+        # to recognise a guest memory region:
+        #  - its size matches the guest memory exactly
+        #  - its size is 3328M
+        #  - its size is guest memory minus 3328M.
+        if size_kib in (
+            self.guest_mem_mib * 1024,
+            self.X86_MEMORY_GAP_START,
+            self.guest_mem_mib * 1024 - self.X86_MEMORY_GAP_START,
+        ):
+            if not self._guest_mem_start_1:
+                self._guest_mem_start_1 = address
+                self._guest_mem_end_1 = address + size_kib * 1024
+                return True
+            if not self._guest_mem_start_2:
+                self._guest_mem_start_2 = address
+                self._guest_mem_end_2 = address + size_kib * 1024
+                return True
+        return False
+
+    def is_in_guest_mem_regions(self, address):
+        """Check if the address is inside a guest memory region."""
+        for guest_mem_start, guest_mem_end in [
+            (self._guest_mem_start_1, self._guest_mem_end_1),
+            (self._guest_mem_start_2, self._guest_mem_end_2),
+        ]:
+            if (
+                guest_mem_start is not None
+                and guest_mem_start <= address < guest_mem_end
+            ):
+                return True
+        return False
 
     def check_samples(self):
         """Check that there are no samples over the threshold."""
         if not self.exceeded_queue.empty():
             raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold
+                self.exceeded_queue.get(), self.threshold, self._pmap_out
             )
 
     @property

@@ -1,5 +1,101 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added support for custom CPU templates allowing users to adjust vCPU features
+  exposed to the guest via CPUID, MSRs and ARM registers.
+- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
+  as Neoverse N1.
+- Added a `cpu-template-helper` tool for assisting with creating and managing
+  custom CPU templates.
+- Added support for the `virtio-rng` entropy device. The device is optional. A
+  single device can be enabled per VM using the `/entropy` endpoint.
+
+### Changed
+
+- Updated deserialization of `bitmap` for custom CPU templates to allow usage
+  of '_' as a separator.
+
+### Fixed
+
+- Fixed feature flags in T2S CPU template on Intel Ice Lake.
+- Fixed CPUID leaf 0xb to be exposed to guests running on AMD host.
+- Fixed a performance regression in the jailer logic for closing open file
+  descriptors. Related to:
+  [#3542](https://github.com/firecracker-microvm/firecracker/issues/3542).
+- A race condition that has been identified between the API thread and the VMM
+  thread due to a misconfiguration of the `api_event_fd`.
+- Fixed CPUID leaf 0x1 to disable perfmon and debug feature on x86 host.
+- Fixed passing through cache information from host in CPUID leaf 0x80000006.
+
+## [1.3.0]
+
+### Added
+
+- Introduced T2CL (Intel) and T2A (AMD) CPU templates to provide
+  instruction set feature parity between Intel and AMD CPUs when using
+  these templates.
+- Added Graviton3 support (c7g instance type).
+
+### Changed
+
+- Improved error message when invalid network backend provided.
+- Improved TCP throughput by between 5% and 15% (depending on CPU) by using
+  scatter-gather I/O in the net device's TX path.
+- Upgraded Rust toolchain from 1.64.0 to 1.66.0.
+- Made seccompiler output bit-reproducible.
+
+### Fixed
+
+- Fixed feature flags in T2 CPU template on Intel Ice Lake.
+
+## [1.2.0]
+
+### Added
+
+- Added a new CPU template called `T2S`. This exposes the same CPUID as `T2` to
+  the Guest and also overwrites the `ARCH_CAPABILITIES` MSR to expose a reduced
+  set of capabilities. With regards to hardware vulnerabilities and mitigations,
+  the Guest vCPU will apear to look like a Skylake CPU, making it safe to
+  snapshot uVMs running on a newer host CPU (Cascade Lake) and restore on a host
+  that has a Skylake CPU.
+- Added a new CLI option `--metrics-path PATH`. It accepts a file parameter
+  where metrics will be sent to.
+- Added baselines for m6i.metal and m6a.metal for all long running performance
+  tests.
+- Releases now include debuginfo files.
+
+### Changed
+
+- Changed the jailer option `--exec-file` to fail if the filename does not
+  contain the string `firecracker` to prevent from running non-firecracker
+  binaries.
+- Upgraded Rust toolchain from 1.52.1 to 1.64.0.
+- Switched to specifying our dependencies using caret requirements instead
+  of comparison requirements.
+- Updated all dependencies to their respective newest versions.
+
+### Fixed
+
+- Made the `T2` template more robust by explicitly disabling additional
+  CPUID flags that should be off but were missed initially or that were
+  not available in the spec when the template was created.
+- Now MAC address is correctly displayed when queried with GET `/vm/config`
+  if left unspecified in both pre and post snapshot states.
+- Fixed a self-DoS scenario in the virtio-queue code by reporting and
+  terminating execution when the number of available descriptors reported
+  by the driver is higher than the queue size.
+- Fixed the bad handling of kernel cmdline parameters when init arguments were
+  provided in the `boot_args` field of the JSON body of the PUT `/boot-source`
+  request.
+- Fixed a bug on ARM64 hosts where the upper 64bits of the V0-V31 FL/SIMD
+  registers were not saved correctly when taking a snapshot, potentially
+  leading to data loss. This change invalidates all ARM64 snapshots taken
+  with versions of Firecracker <= 1.1.3.
+- Improved stability and security when saving CPU MSRs in snapshots.
+
 ## [1.1.0]
 
 ### Added

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.
 

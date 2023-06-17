@@ -1,26 +1,15 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Errors associated with the `Init` struct.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The component is already initialized.")]
     AlreadyInitialized,
+    #[error("The component is initializing. Can't perform the requested action right now.")]
     InitializationInProgress,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match self {
-            Error::AlreadyInitialized => "The component is already initialized.".to_string(),
-            Error::InitializationInProgress => "The component is initializing. Can't perform the \
-                                                requested action right now."
-                .to_string(),
-        };
-        f.write_str(&msg)
-    }
 }
 
 /// A helper structure which can be used to run a one-time initialization.

@@ -22,7 +22,7 @@ pub const MSS_DEFAULT: u16 = 536;
 /// Describes whether a particular entity (a [`Connection`] for example) has segments to send.
 ///
 /// [`Connection`]: connection/struct.Connection.html
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum NextSegmentStatus {
     /// At least one segment is available immediately.
     Available,
@@ -35,7 +35,7 @@ pub enum NextSegmentStatus {
 /// Represents the configuration of the sequence number and `ACK` number fields for outgoing
 /// `RST` segments.
 #[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum RstConfig {
     /// The `RST` segment will carry the specified sequence number, and will not have
     /// the `ACK` flag set.

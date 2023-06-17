@@ -1,5 +1,11 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# Pytest fixtures and redefined-outer-name don't mix well. Disable it.
+# pylint:disable=redefined-outer-name
+# We import some fixtures that are unused. Disable that too.
+# pylint:disable=unused-import
+
 """Imported by pytest at the start of every test session.
 
 # Fixture Goals
@@ -75,33 +81,38 @@ be run on every microvm image in the bucket, each as a separate test case.
   by the MicrovmImageFetcher, but not by the fixture template.
 """
 
+import inspect
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
-import uuid
-import json
-import re
+from pathlib import Path
 
 import pytest
 
 import host_tools.cargo_build as build_tools
-import host_tools.network as net_tools
-from host_tools import proc
-from framework import utils
-from framework import defs
-from framework.artifacts import ArtifactCollection
+from framework import defs, utils
+from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
+from framework.defs import _test_images_s3_bucket
 from framework.microvm import Microvm
+from framework.properties import global_props
 from framework.s3fetcher import MicrovmImageS3Fetcher
-from framework.scheduler import PytestScheduler
+from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
+from framework.utils_cpu_templates import (
+    SUPPORTED_CPU_TEMPLATES,
+    SUPPORTED_CUSTOM_CPU_TEMPLATES,
+)
+from host_tools.ip_generator import network_config, subnet_generator
+from host_tools.metrics import get_metrics_logger
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
 
-# This codebase uses Python features available in Python 3.6 or above
-if sys.version_info < (3, 6):
-    raise SystemError("This codebase requires Python 3.6 or above.")
+# This codebase uses Python features available in Python 3.10 or above
+if sys.version_info < (3, 10):
+    raise SystemError("This codebase requires Python 3.10 or above.")
 
 
 # Some tests create system-level resources; ensure we run as root.
@@ -109,133 +120,97 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-# Style related tests and dependency enforcements are run only on Intel.
-if "Intel" not in proc.proc_type():
-    TEST_DIR = "integration_tests"
-    collect_ignore = [
-        os.path.join(SCRIPT_FOLDER, "{}/style".format(TEST_DIR)),
-        os.path.join(SCRIPT_FOLDER, "{}/build/test_dependencies.py".format(TEST_DIR)),
-    ]
-
-
-def _test_images_s3_bucket():
-    """Auxiliary function for getting this session's bucket name."""
-    return os.environ.get(
-        defs.ENV_TEST_IMAGES_S3_BUCKET, defs.DEFAULT_TEST_IMAGES_S3_BUCKET
-    )
-
-
 ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
+METRICS = get_metrics_logger()
 
 
-# pylint: disable=too-few-public-methods
-class ResultsDumperInterface:
-    """Interface for dumping results to file."""
+@pytest.fixture(scope="function", autouse=True)
+def record_props(request, record_property):
+    """Decorate test results with additional properties.
 
-    def dump(self, result):
-        """Dump the results in JSON format."""
+    Note: there is no need to call this fixture explicitly
+    """
+    # Augment test result with global properties
+    for prop_name, prop_val in global_props.__dict__.items():
+        # if record_testsuite_property worked with xdist we could use that
+        # https://docs.pytest.org/en/7.1.x/reference/reference.html#record-testsuite-property
+        # to record the properties once per report. But here we record each
+        # prop per test. It just results in larger report files.
+        record_property(prop_name, prop_val)
+
+    # Extract attributes from the docstrings
+    function_docstring = inspect.getdoc(request.function)
+    description = []
+    attributes = {}
+    for line in function_docstring.split("\n"):
+        # extract tags like @type, @issue, etc
+        match = re.match(r"\s*@(?P<attr>\w+):\s*(?P<value>\w+)", line)
+        if match:
+            attr, value = match["attr"], match["value"]
+            attributes[attr] = value
+        else:
+            description.append(line)
+    for attr_name, attr_value in attributes.items():
+        record_property(attr_name, attr_value)
+    record_property("description", "".join(description))
 
 
-# pylint: disable=too-few-public-methods
-class NopResultsDumper(ResultsDumperInterface):
-    """Interface for dummy dumping results to file."""
-
-    def dump(self, result):
-        """Do not do anything."""
-
-
-# pylint: disable=too-few-public-methods
-class JsonFileDumper(ResultsDumperInterface):
-    """Class responsible with outputting test results to files."""
-
-    def __init__(self, request):
-        """Initialize the instance."""
-        self._results_file = None
-
-        test_name = request.node.originalname
-        self._root_path = defs.TEST_RESULTS_DIR
-        # Create the root directory, if it doesn't exist.
-        self._root_path.mkdir(exist_ok=True)
-        self._results_file = os.path.join(
-            self._root_path,
-            "{}_results_{}.json".format(test_name, utils.get_kernel_version(level=1)),
+def pytest_runtest_logreport(report):
+    """Send general test metrics to CloudWatch"""
+    if report.when == "call":
+        dimensions = {
+            "test": report.nodeid,
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_kernel": "linux-" + global_props.host_linux_version,
+        }
+        METRICS.set_property("result", report.outcome)
+        METRICS.set_property("location", report.location)
+        for prop_name, prop_val in report.user_properties:
+            METRICS.set_property(prop_name, prop_val)
+        METRICS.set_dimensions(dimensions)
+        METRICS.put_metric(
+            "duration",
+            report.duration,
+            unit="Seconds",
         )
-
-    @staticmethod
-    def __dump_pretty_json(file, data, flags):
-        """Write the `data` dictionary to the output file in pretty format."""
-        with open(file, flags, encoding="utf-8") as file_fd:
-            json.dump(data, file_fd, indent=4)
-            file_fd.write("\n")  # Add newline cause Py JSON does not
-            file_fd.flush()
-
-    def dump(self, result):
-        """Dump the results in JSON format."""
-        if self._results_file:
-            self.__dump_pretty_json(self._results_file, result, "a")
+        METRICS.put_metric(
+            "failed",
+            1 if report.outcome == "failed" else 0,
+            unit="Count",
+        )
+        METRICS.flush()
 
 
-def init_microvm(root_path, bin_cloner_path, fc_binary=None, jailer_binary=None):
-    """Auxiliary function for instantiating a microvm and setting it up."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-    microvm_id = str(uuid.uuid4())
+@pytest.fixture()
+def metrics(request):
+    """Fixture to pass the metrics scope
 
-    # Update permissions for custom binaries.
-    if fc_binary is not None:
-        os.chmod(fc_binary, 0o555)
-    if jailer_binary is not None:
-        os.chmod(jailer_binary, 0o555)
+    We use a fixture instead of the @metrics_scope decorator as that conflicts
+    with tests.
 
-    if fc_binary is None or jailer_binary is None:
-        fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
+    Due to how aws-embedded-metrics works, this fixture is per-test rather
+    than per-session, and we flush the metrics after each test.
 
-    # Make sure we always have both binaries.
-    assert fc_binary
-    assert jailer_binary
-
-    vm = Microvm(
-        resource_path=root_path,
-        fc_binary_path=fc_binary,
-        jailer_binary_path=jailer_binary,
-        microvm_id=microvm_id,
-        bin_cloner_path=bin_cloner_path,
-    )
-    vm.setup()
-    return vm
-
-
-def pytest_configure(config):
-    """Pytest hook - initialization.
-
-    Initialize the test scheduler and IPC services.
+    Ref: https://github.com/awslabs/aws-embedded-metrics-python
     """
-    config.addinivalue_line("markers", "nonci: mark test as nonci.")
-    PytestScheduler.instance().register_mp_singleton(
-        net_tools.UniqueIPv4Generator.instance()
-    )
-    config.pluginmanager.register(PytestScheduler.instance())
+    metrics_logger = get_metrics_logger()
+    for prop_name, prop_val in request.node.user_properties:
+        metrics_logger.set_property(prop_name, prop_val)
+    yield metrics_logger
+    metrics_logger.flush()
 
 
-def pytest_addoption(parser):
-    """Pytest hook. Add command line options."""
-    parser.addoption(
-        "--dump-results-to-file",
-        action="store_true",
-        help="Flag to dump test results to the test_results folder.",
-    )
-    return PytestScheduler.instance().do_pytest_addoption(parser)
+@pytest.fixture
+def record_property(record_property, metrics):
+    """Override pytest's record_property to also set a property in our metrics context."""
 
+    def sub(key, value):
+        record_property(key, value)
+        metrics.set_property(key, value)
 
-def test_session_root_path():
-    """Create and return the testrun session root directory.
-
-    Testrun session root directory confines any other test temporary file.
-    If it exists, consider this as a noop.
-    """
-    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
-    return defs.DEFAULT_TEST_SESSION_ROOT_PATH
+    return sub
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -245,37 +220,12 @@ def test_fc_session_root_path():
     Create a unique temporary session directory. This is important, since the
     scheduler will run multiple pytest sessions concurrently.
     """
+    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
     fc_session_root_path = tempfile.mkdtemp(
-        prefix="fctest-", dir=f"{test_session_root_path()}"
+        prefix="fctest-", dir=defs.DEFAULT_TEST_SESSION_ROOT_PATH
     )
     yield fc_session_root_path
     shutil.rmtree(fc_session_root_path)
-
-
-@pytest.fixture
-def test_session_tmp_path(test_fc_session_root_path):
-    """Yield a random temporary directory. Destroyed on teardown."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-
-    tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
-    yield tmp_path
-    shutil.rmtree(tmp_path)
-
-
-@pytest.fixture
-def results_file_dumper(request):
-    """Yield the custom --dump-results-to-file test flag."""
-    if request.config.getoption("--dump-results-to-file"):
-        return JsonFileDumper(request)
-
-    return NopResultsDumper()
-
-
-def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
-    """Build a source file with gcc."""
-    compile_cmd = "gcc {} -o {} {}".format(src_file, output_file, extra_flags)
-    utils.run_cmd(compile_cmd)
 
 
 @pytest.fixture(scope="session")
@@ -285,34 +235,29 @@ def bin_cloner_path(test_fc_session_root_path):
     It's necessary because Python doesn't interface well with the `clone()`
     syscall directly.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     cloner_bin_path = os.path.join(test_fc_session_root_path, "newpid_cloner")
-    _gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
+    build_tools.gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
     yield cloner_bin_path
 
 
 @pytest.fixture(scope="session")
 def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
-    _gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
+    build_tools.gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
     yield vsock_helper_bin_path
 
 
 @pytest.fixture(scope="session")
 def change_net_config_space_bin(test_fc_session_root_path):
     """Build a binary that changes the MMIO config space."""
-    # pylint: disable=redefined-outer-name
     change_net_config_space_bin = os.path.join(
         test_fc_session_root_path, "change_net_config_space"
     )
-    _gcc_compile(
+    build_tools.gcc_compile(
         "host_tools/change_net_config_space.c",
         change_net_config_space_bin,
-        extra_flags="",
+        extra_flags="-static",
     )
     yield change_net_config_space_bin
 
@@ -327,8 +272,6 @@ def bin_seccomp_paths(test_fc_session_root_path):
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     seccomp_build_path = os.path.join(
         test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
     )
@@ -367,8 +310,6 @@ def bin_seccomp_paths(test_fc_session_root_path):
 @pytest.fixture(scope="session")
 def uffd_handler_paths(test_fc_session_root_path):
     """Build UFFD handler binaries."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
     uffd_build_path = os.path.join(
         test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
     )
@@ -402,159 +343,155 @@ def uffd_handler_paths(test_fc_session_root_path):
 @pytest.fixture()
 def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
-    vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
+    vm = Microvm(
+        resource_path=test_fc_session_root_path,
+        bin_cloner_path=bin_cloner_path,
+    )
     yield vm
     vm.kill()
     shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
 
 
 @pytest.fixture
-def network_config():
-    """Yield a UniqueIPv4Generator."""
-    yield net_tools.UniqueIPv4Generator.instance()
+def fc_tmp_path(test_fc_session_root_path):
+    """A tmp_path substitute
 
-
-@pytest.fixture(params=MICROVM_S3_FETCHER.list_microvm_images(capability_filter=["*"]))
-def test_microvm_any(request, microvm):
-    """Yield a microvm that can have any image in the spec bucket.
-
-    A test case using this fixture will run for every microvm image.
-
-    When using a pytest parameterized fixture, a test case is created for each
-    parameter in the list. We generate the list dynamically based on the
-    capability filter. This will result in
-    `len(MICROVM_S3_FETCHER.list_microvm_images(capability_filter=['*']))`
-    test cases for each test that depends on this fixture, each receiving a
-    microvm instance with a different microvm image.
+    We should use pytest's tmp_path fixture instead of this, but this can create
+    very long paths, which can run into the UDS 108 character limit.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-
-    MICROVM_S3_FETCHER.init_vm_resources(request.param, microvm)
-    yield microvm
+    return Path(tempfile.mkdtemp(dir=test_fc_session_root_path))
 
 
-@pytest.fixture
-def test_multiple_microvms(test_fc_session_root_path, context, bin_cloner_path):
-    """Yield one or more microvms based on the context provided.
+@pytest.fixture()
+def microvm_factory(fc_tmp_path, bin_cloner_path):
+    """Fixture to create microvms simply.
 
-    `context` is a dynamically parameterized fixture created inside the special
-    function `pytest_generate_tests` and it holds a tuple containing the name
-    of the guest image used to spawn a microvm and the number of microvms
-    to spawn.
+    In order to avoid running out of space when instantiating many microvms,
+    we remove the directory manually when the fixture is destroyed
+    (that is after every test).
+    One can comment the removal line, if it helps with debugging.
     """
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-    microvms = []
-    (microvm_resources, how_many) = context
 
-    # When the context specifies multiple microvms, we use the first vm to
-    # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-    MICROVM_S3_FETCHER.init_vm_resources(microvm_resources, first_vm)
-    microvms.append(first_vm)
+    class MicroVMFactory:
+        """MicroVM factory"""
 
-    # It is safe to do this as the dynamically generated fixture `context`
-    # asserts that the `how_many` parameter is always positive
-    # (i.e strictly greater than 0).
-    for _ in range(how_many - 1):
-        vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
-        MICROVM_S3_FETCHER.hardlink_vm_resources(microvm_resources, first_vm, vm)
-        microvms.append(vm)
+        def __init__(self, tmp_path, bin_cloner):
+            self.tmp_path = Path(tmp_path)
+            self.bin_cloner_path = bin_cloner
+            self.vms = []
 
-    yield microvms
+        def build(self, kernel=None, rootfs=None, **kwargs):
+            """Build a microvm"""
+            vm = Microvm(
+                resource_path=self.tmp_path,
+                bin_cloner_path=self.bin_cloner_path,
+                **kwargs,
+            )
+            self.vms.append(vm)
+            if kernel is not None:
+                kernel_path = Path(kernel.local_path())
+                vm.kernel_file = kernel_path
+            if rootfs is not None:
+                rootfs_path = Path(rootfs.local_path())
+                rootfs_path2 = Path(vm.path) / rootfs_path.name
+                # TBD only iff ext4 / rw
+                shutil.copyfile(rootfs_path, rootfs_path2)
+                vm.rootfs_file = rootfs_path2
+                vm.ssh_config["ssh_key_path"] = rootfs.ssh_key().local_path()
+            return vm
 
-    for i in range(how_many):
-        microvms[i].kill()
-        shutil.rmtree(os.path.join(test_fc_session_root_path, microvms[i].id))
+        def kill(self):
+            """Clean up all built VMs"""
+            for vm in self.vms:
+                vm.kill()
+            shutil.rmtree(self.tmp_path)
 
-
-@pytest.fixture(autouse=True, scope="session")
-def test_spectre_mitigations():
-    """Check the kernel is compiled with SPECTREv2 mitigations."""
-
-    def check_retpoline(body):
-        # We check for full retpoline support by checking if the kernel was:
-        # 1. compiled with CONFIG_RETPOLINE
-        # 2. built with a retpoline-capable compiler
-
-        _, stdout, _ = utils.run_cmd("uname -r")
-        opt_config = "/boot/config-{}".format(stdout.rstrip())
-        assert os.path.exists(opt_config)
-        code, _, _ = utils.run_cmd(
-            "grep -q '^CONFIG_RETPOLINE' {}".format(opt_config), ignore_return_code=True
-        )
-        if code != 0:
-            return False
-
-        # As per the spectre-meltdown-checker, if retpoline or retpolines exist as
-        # whole words and minimial is not found, then it's full retpoline.
-        words = re.split(" |; |, |: |\n", body)
-        if ("retpoline" in words or "retpolines" in words) and "minimal" not in words:
-            return True
-        return False
-
-    def x86_64(body):
-        return ("IBPB: conditional" in body or "IBPB: always-on" in body) and (
-            "Enhanced IBRS" in body or check_retpoline(body.lower())
-        )
-
-    def aarch64(body):
-        return "Mitigation: CSV2, BHB" in body or "Not affected" in body
-
-    arch = platform.machine()
-    assert arch in ("x86_64", "aarch64"), f"Unsupported arch {arch}"
-
-    body = open(
-        "/sys/devices/system/cpu/vulnerabilities/spectre_v2", encoding="utf-8"
-    ).read()
-
-    mitigated = x86_64(body) if arch == "x86_64" else aarch64(body)
-    assert mitigated, "SPECTREv2 not mitigated {}".format(body)
+    uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
+    yield uvm_factory
+    uvm_factory.kill()
 
 
-def pytest_generate_tests(metafunc):
-    """Implement customized parametrization scheme.
+def firecracker_id(fc):
+    """Render a nice ID for pytest parametrize."""
+    if isinstance(fc, FirecrackerArtifact):
+        return f"firecracker-{fc.version}"
+    return None
 
-    This is a special hook which is called by the pytest infrastructure when
-    collecting a test function. The `metafunc` contains the requesting test
-    context. Amongst other things, the `metafunc` provides the list of fixture
-    names that the calling test function is using.  If we find a fixture that
-    is called `context`, we check the calling function through the
-    `metafunc.function` field for the `_pool_size` attribute which we
-    previously set with a decorator. Then we create the list of parameters
-    for this fixture.
-    The parameter will be a list of tuples of the form (cap, pool_size).
-    For each parameter from the list (i.e. tuple) a different test case
-    scenario will be created.
+
+def firecracker_artifacts(*args, **kwargs):
+    """Return all supported firecracker binaries."""
+    version = get_firecracker_version_from_toml()
+    # until the next minor version (but not including)
+    max_version = (version.major, version.minor + 1, 0)
+    params = {
+        "min_version": "1.2.0",
+        "max_version_open": ".".join(str(x) for x in max_version),
+    }
+    params.update(kwargs)
+    return ARTIFACTS_COLLECTION.firecrackers(*args, **params)
+
+
+@pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)
+def firecracker_release(request, record_property):
+    """Return all supported firecracker binaries."""
+    firecracker = request.param
+    firecracker.download(perms=0o555)
+    firecracker.jailer().download(perms=0o555)
+    record_property("firecracker_release", firecracker.version)
+    return firecracker
+
+
+@pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
+def guest_kernel(request, record_property):
+    """Return all supported guest kernels."""
+    kernel = request.param
+    # linux-major.minor
+    kernel.prop = "linux-" + kernel.name().removesuffix(".bin").split("-")[-1]
+    record_property("guest_kernel", kernel.prop)
+    kernel.download()
+    return kernel
+
+
+@pytest.fixture(params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda fs: fs.name())
+def rootfs(request, record_property):
+    """Return all supported rootfs."""
+    fs = request.param
+    record_property("rootfs", fs.name())
+    fs.download()
+    fs.ssh_key().download()
+    return fs
+
+
+@pytest.fixture(
+    params=ARTIFACTS_COLLECTION.disks("bionic-msrtools"),
+    ids=lambda fs: fs.name() if isinstance(fs, DiskArtifact) else None,
+)
+def rootfs_msrtools(request, record_property):
+    """Common disk fixture for tests needing msrtools
+
+    When we regenerate the rootfs, we should include this always
     """
-    if "context" in metafunc.fixturenames:
-        # In order to create the params for the current fixture, we need the
-        # capability and the number of vms we want to spawn.
+    fs = request.param
+    record_property("rootfs", fs.name())
+    fs.download()
+    fs.ssh_key().download()
+    return fs
 
-        # 1. Look if the test function set the pool size through the decorator.
-        # If it did not, we set it to 1.
-        how_many = int(getattr(metafunc.function, "_pool_size", None))
-        assert how_many > 0
 
-        # 2. Check if the test function set the capability field through
-        # the decorator. If it did not, we set it to any.
-        cap = getattr(metafunc.function, "_capability", "*")
+@pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
+def cpu_template(request, record_property):
+    """Return all CPU templates supported by the vendor."""
+    record_property("cpu_template", request.param)
+    return request.param
 
-        # 3. Before parametrization, get the list of images that have the
-        # desired capability. By parametrize-ing the fixture with it, we
-        # trigger tests cases for each of them.
-        image_list = MICROVM_S3_FETCHER.list_microvm_images(capability_filter=[cap])
-        metafunc.parametrize(
-            "context",
-            [(item, how_many) for item in image_list],
-            ids=["{}, {} instance(s)".format(item, how_many) for item in image_list],
-        )
+
+@pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
+def custom_cpu_template(request, record_property):
+    """Return all dummy custom CPU templates supported by the vendor."""
+    record_property("custom_cpu_template", request.param)
+    return request.param
 
 
 TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
@@ -581,3 +518,11 @@ for capability in MICROVM_S3_FETCHER.enum_capabilities():
     # pylint: disable=exec-used
     # This is the most straightforward way to achieve this result.
     exec(TEST_MICROVM_CAP_FIXTURE)
+
+
+@pytest.fixture(params=["Sync", "Async"])
+def io_engine(request):
+    """All supported io_engines"""
+    if request.param == "Async" and not is_io_uring_supported():
+        pytest.skip("io_uring not supported in this kernel")
+    return request.param

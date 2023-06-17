@@ -18,8 +18,8 @@ Firecracker virtual machine manager (VMM).
 
 1. Firecracker can safely run workloads from different customers on the same
    machine.
-1. Customers can create microVMs with any combination of vCPU and memory to
-   match their application requirements.
+1. Customers can create microVMs with any combination of vCPU (up to 32)
+   and memory to match their application requirements.
 1. Firecracker microVMs can oversubscribe host CPU and memory. The degree of
    oversubscription is controlled by customers, who may factor in workload
    correlation and load in order to ensure smooth host system operation.
@@ -115,12 +115,10 @@ KVM supports.
 
 #### Exposing the CPU to the guest
 
-Firecracker allows the exposure of either the host processor information or any
-other family/model/stepping as a way to keep compatibility for services that
-were not running on top of it. In addition, Firecracker supports feature
-masking via CPUID. To simplify customer operation, CPU feature templates can be
-set via the Firecracker API. Currently, the available feature templates to
-choose from are EC2 C3 and EC2 T2 instance types.
+Firecracker allows control of what processor information is exposed
+to the guest by using [CPU templates](cpu_templates/cpu-templates.md).
+CPU templates can be set via the Firecracker API. Users can choose from
+existing static CPU templates and/or creating their own custom CPU templates.
 
 #### Clocksources available to guests
 

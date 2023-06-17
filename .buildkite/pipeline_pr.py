@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Generate Buildkite pipelines dynamically"""
+
+import subprocess
+from pathlib import Path
+
+from common import COMMON_PARSER, group, pipeline_to_json
+
+# Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
+# scheduled jobs and other batch jobs.
+DEFAULT_PRIORITY = 1
+
+
+def get_changed_files(branch):
+    """
+    Get all files changed since `branch`
+    """
+    stdout = subprocess.check_output(["git", "diff", "--name-only", branch])
+    return [Path(line) for line in stdout.decode().splitlines()]
+
+
+args = COMMON_PARSER.parse_args()
+
+step_style = {
+    "command": "./tools/devtool -y test -- ../tests/integration_tests/style/",
+    "label": "🪶 Style",
+    "priority": DEFAULT_PRIORITY,
+}
+
+defaults = {
+    "instances": args.instances,
+    "platforms": args.platforms,
+    # buildkite step parameters
+    "priority": DEFAULT_PRIORITY,
+    "timeout_in_minutes": 45,
+    "env": dict(args.step_env),
+}
+defaults.update(args.step_param)
+
+build_grp = group(
+    "📦 Build",
+    "./tools/devtool -y test -- ../tests/integration_tests/build/",
+    **defaults,
+)
+
+functional_1_grp = group(
+    "⚙ Functional [a-n]",
+    "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[a-n]*.py`",
+    **defaults,
+)
+
+functional_2_grp = group(
+    "⚙ Functional [o-z]",
+    "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[o-z]*.py`",
+    **defaults,
+)
+
+security_grp = group(
+    "🔒 Security",
+    "./tools/devtool -y test -- ../tests/integration_tests/security/",
+    **defaults,
+)
+
+defaults_for_performance = defaults.copy()
+defaults_for_performance.update(
+    # We specify higher priority so the ag=1 jobs get picked up before the ag=n
+    # jobs in ag=1 agents
+    priority=DEFAULT_PRIORITY + 1,
+    agent_tags=["ag=1"],
+)
+
+performance_grp = group(
+    "⏱ Performance",
+    "./tools/devtool -y test -- ../tests/integration_tests/performance/",
+    **defaults_for_performance,
+)
+
+steps = [step_style]
+changed_files = get_changed_files("main")
+# run the whole test suite if either of:
+# - any file changed that is not documentation nor GitHub action config file
+# - no files changed
+if not changed_files or any(
+    x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
+    for x in changed_files
+):
+    steps += [
+        build_grp,
+        functional_1_grp,
+        functional_2_grp,
+        security_grp,
+        performance_grp,
+    ]
+
+pipeline = {"steps": steps}
+print(pipeline_to_json(pipeline))

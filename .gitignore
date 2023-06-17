@@ -9,3 +9,5 @@ __pycache__
 .vscode
 test_results/*
 *.core
+*.profraw
+.DS_Store

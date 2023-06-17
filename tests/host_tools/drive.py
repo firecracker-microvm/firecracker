@@ -34,6 +34,9 @@ class FilesystemFile:
         utils.run_cmd("mkfs.ext4 -qF " + path)
         self.path = path
 
+    def __repr__(self):
+        return f"<FilesystemFile path={self.path} size={self.size()}>"
+
     def resize(self, new_size):
         """Resize the filesystem."""
         utils.run_cmd("truncate --size " + str(new_size) + "M " + self.path)

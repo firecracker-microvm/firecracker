@@ -1,15 +1,21 @@
 [package]
 name = "jailer"
-version = "1.1.0"
+version = "1.5.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 description = "Process for starting Firecracker in production scenarios; applies a cgroup/namespace isolation barrier and then drops privileges."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
+[[bin]]
+name = "jailer"
+bench = false
+
 [dependencies]
-libc = ">=0.2.39"
-regex = { version = ">=1.5.5", default-features = false, features = ["std"] }
+libc = "0.2.146"
+nix = { version = "0.26.2", default-features = false, features = ["dir"] }
+regex = { version = "1.8.4", default-features = false, features = ["std"] }
+thiserror = "1.0.32"
 
 utils = { path = "../utils" }

@@ -4,10 +4,11 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-pub use devices::virtio::balloon::device::BalloonStats;
-pub use devices::virtio::BALLOON_DEV_ID;
-use devices::virtio::{Balloon, BalloonConfig};
 use serde::{Deserialize, Serialize};
+
+pub use crate::devices::virtio::balloon::device::BalloonStats;
+pub use crate::devices::virtio::BALLOON_DEV_ID;
+use crate::devices::virtio::{Balloon, BalloonConfig};
 
 type MutexBalloon = Arc<Mutex<Balloon>>;
 
@@ -26,7 +27,7 @@ pub enum BalloonConfigError {
     /// does not have the statistics enabled.
     StatsNotFound,
     /// Failed to create a balloon device.
-    CreateFailure(devices::virtio::balloon::Error),
+    CreateFailure(crate::devices::virtio::balloon::BalloonError),
     /// Failed to update the configuration of the ballon device.
     UpdateFailure(std::io::Error),
 }
@@ -57,7 +58,7 @@ type Result<T> = std::result::Result<T, BalloonConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from balloon related requests.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonDeviceConfig {
     /// Target balloon size in MiB.
@@ -81,7 +82,7 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
 
 /// The data fed into a balloon update request. Currently, only the number
 /// of pages and the stats polling interval can be updated.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonUpdateConfig {
     /// Target balloon size in MiB.
@@ -92,7 +93,7 @@ pub struct BalloonUpdateConfig {
 /// Note that the state of the statistics cannot be changed from ON to OFF
 /// or vice versa after boot, only the interval of polling can be changed
 /// if the statistics were activated in the device configuration.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonUpdateStatsConfig {
     /// Interval in seconds between refreshing statistics.
@@ -100,15 +101,9 @@ pub struct BalloonUpdateStatsConfig {
 }
 
 /// A builder for `Balloon` devices from 'BalloonDeviceConfig'.
+#[cfg_attr(not(test), derive(Default))]
 pub struct BalloonBuilder {
     inner: Option<MutexBalloon>,
-}
-
-#[cfg(not(test))]
-impl Default for BalloonBuilder {
-    fn default() -> BalloonBuilder {
-        BalloonBuilder { inner: None }
-    }
 }
 
 impl BalloonBuilder {
@@ -215,7 +210,7 @@ pub(crate) mod tests {
         use std::io;
 
         use super::BalloonConfigError::*;
-        let err = CreateFailure(devices::virtio::balloon::Error::EventFd(
+        let err = CreateFailure(crate::devices::virtio::balloon::BalloonError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{}{:?}", err, err);

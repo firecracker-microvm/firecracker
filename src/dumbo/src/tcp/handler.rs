@@ -20,7 +20,7 @@ use crate::tcp::{NextSegmentStatus, RstConfig};
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
 /// Describes events which may occur when the handler receives packets.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum RecvEvent {
     /// The local endpoint is done communicating, and has been removed.
     EndpointDone,
@@ -43,7 +43,7 @@ pub enum RecvEvent {
 }
 
 /// Describes events which may occur when the handler writes packets.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum WriteEvent {
     /// The local `Endpoint` transitioned to being done after this segment was written.
     EndpointDone,
@@ -57,7 +57,7 @@ pub enum WriteEvent {
 /// [`receive_packet`]: struct.TcpIPv4Handler.html#method.receive_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
 #[derive(derive_more::From)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum RecvError {
     /// The inner segment has an invalid destination port.
     InvalidPort,
@@ -70,7 +70,7 @@ pub enum RecvError {
 ///
 /// [`write_next_packet`]: struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
-#[derive(Debug, PartialEq, derive_more::From)]
+#[derive(Debug, PartialEq, Eq, derive_more::From)]
 pub enum WriteNextError {
     /// There was an error while writing the contents of the IPv4 packet.
     IPv4Packet(IPv4PacketError),
@@ -368,7 +368,7 @@ impl TcpIPv4Handler {
     }
 
     fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<T>) {
-        self.enqueue_rst_config(tuple, RstConfig::new(&s));
+        self.enqueue_rst_config(tuple, RstConfig::new(s));
     }
 
     /// Attempts to write one packet, from either the `RST` queue or one of the existing endpoints,
@@ -507,8 +507,8 @@ mod tests {
     use crate::pdu::bytes::NetworkBytesMut;
     use crate::tcp::tests::mock_callback;
 
-    fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
-        p: &'a mut IPv4Packet<'b, T>,
+    fn inner_tcp_mut<'a, T: NetworkBytesMut>(
+        p: &'a mut IPv4Packet<'_, T>,
     ) -> TcpSegment<'a, &'a mut [u8]> {
         TcpSegment::from_bytes(p.payload_mut(), None).unwrap()
     }

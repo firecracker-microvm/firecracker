@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the metrics system.
-use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use logger::METRICS;
@@ -11,26 +10,18 @@ use serde::{Deserialize, Serialize};
 use super::{open_file_nonblock, FcLineWriter};
 
 /// Strongly typed structure used to describe the metrics system.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MetricsConfig {
     /// Named pipe or file used as output for metrics.
     pub metrics_path: PathBuf,
 }
 
 /// Errors associated with actions on the `MetricsConfig`.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MetricsConfigError {
     /// Cannot initialize the metrics system due to bad user input.
+    #[error("{}", format!("{:?}", .0).replace('\"', ""))]
     InitializationFailure(String),
-}
-
-impl Display for MetricsConfigError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::MetricsConfigError::*;
-        match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
-        }
-    }
 }
 
 /// Configures the metrics as described in `metrics_cfg`.
@@ -66,18 +57,5 @@ mod tests {
 
         assert!(init_metrics(desc.clone()).is_ok());
         assert!(init_metrics(desc).is_err());
-    }
-
-    #[test]
-    fn test_error_display() {
-        assert_eq!(
-            format!(
-                "{}",
-                MetricsConfigError::InitializationFailure(String::from(
-                    "Failed to initialize metrics"
-                ))
-            ),
-            "Failed to initialize metrics"
-        );
     }
 }

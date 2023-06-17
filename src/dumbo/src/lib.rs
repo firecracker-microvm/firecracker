@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
 pub mod pdu;
@@ -24,11 +25,11 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
 
-    /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
+    /// Reads `buf.len()` bytes from `self` into `buf`, starting at `offset`.
     ///
     /// # Panics
     ///
-    /// Panics if `offset + buf.len()` < `self.len()`.
+    /// Panics if `offset + buf.len()` > `self.len()`.
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]);
 }
 
@@ -66,7 +67,7 @@ mod tests {
         let a = [1u8, 2, 3];
         let mut b = [0u8; 2];
         assert_eq!(bb_len(a.as_ref()), a.len());
-        assert_eq!(bb_is_empty(a.as_ref()), false);
+        assert!(!bb_is_empty(a.as_ref()));
         bb_read_from_1(a.as_ref(), b.as_mut());
         assert_eq!(b, [2, 3]);
     }

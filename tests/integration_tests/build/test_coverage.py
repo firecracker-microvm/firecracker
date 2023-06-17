@@ -1,27 +1,23 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests pertaining to line/branch test coverage for the Firecracker code base.
+"""Tests enforcing code coverage for production code."""
 
-# TODO
-
-- Put the coverage in `s3://spec.firecracker` and update it automatically.
-  target should be put in `s3://spec.firecracker` and automatically updated.
-"""
-
-
-import os
-import platform
-import re
-import shutil
 import pytest
 
+import framework.utils_cpuid as cpuid_utils
 from framework import utils
-import host_tools.cargo_build as host  # pylint: disable=import-error
 from host_tools import proc
+from host_tools.cargo_build import cargo
 
 # We have different coverages based on the host kernel version. This is
 # caused by io_uring, which is only supported by FC for kernels newer
 # than 5.10.
+
+
+def is_on_skylake():
+    """Test is executed on a Skylake host."""
+    return "8175M CPU" in cpuid_utils.get_cpu_model_name()
+
 
 # AMD has a slightly different coverage due to
 # the appearance of the brand string. On Intel,
@@ -29,114 +25,115 @@ from host_tools import proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.is_io_uring_supported():
-    COVERAGE_DICT = {"Intel": 84.77, "AMD": 84.26, "ARM": 83.86}
+    COVERAGE_DICT = {"Intel": 83.76, "AMD": 83.34, "ARM": 83.18}
 else:
-    COVERAGE_DICT = {"Intel": 81.89, "AMD": 81.37, "ARM": 80.95}
+    COVERAGE_DICT = {"Intel": 81.02, "AMD": 80.55, "ARM": 80.19}
 
 PROC_MODEL = proc.proc_type()
 
+# Toolchain target architecture.
+if "Intel" in PROC_MODEL:
+    VENDOR = "Intel"
+    ARCH = "x86_64"
+elif "AMD" in PROC_MODEL:
+    VENDOR = "AMD"
+    ARCH = "x86_64"
+elif "ARM" in PROC_MODEL:
+    VENDOR = "ARM"
+    ARCH = "aarch64"
+else:
+    raise Exception(f"Unsupported processor model ({PROC_MODEL})")
+
+# Toolchain target.
+# Currently profiling with `aarch64-unknown-linux-musl` is unsupported (see
+# https://github.com/rust-lang/rustup/issues/3095#issuecomment-1280705619) therefore we profile and
+# run coverage with the `gnu` toolchains and run unit tests with the `musl` toolchains.
+TARGET = f"{ARCH}-unknown-linux-gnu"
+
+# We allow coverage to have a max difference of `COVERAGE_MAX_DELTA` as percentage before failing
+# the test (currently 0.05%).
 COVERAGE_MAX_DELTA = 0.05
 
-CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, "kcov")
 
-KCOV_COVERAGE_FILE = "index.js"
-"""kcov will aggregate coverage data in this file."""
-
-KCOV_COVERED_LINES_REGEX = r'"covered_lines":"(\d+)"'
-"""Regex for extracting number of total covered lines found by kcov."""
-
-KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
-"""Regex for extracting number of total executable lines found by kcov."""
-
-SECCOMPILER_BUILD_DIR = "../build/seccompiler"
-
-
-@pytest.mark.timeout(400)
-def test_coverage(test_fc_session_root_path, test_session_tmp_path):
-    """Test line coverage for rust tests is within bounds.
-
-    The result is extracted from the $KCOV_COVERAGE_FILE file created by kcov
-    after a coverage run.
-
-    @type: build
+@pytest.mark.timeout(600)
+def test_coverage(monkeypatch, record_property, metrics):
+    """Test code coverage
     """
-    proc_model = [item for item in COVERAGE_DICT if item in PROC_MODEL]
-    assert len(proc_model) == 1, "Could not get processor model!"
-    coverage_target_pct = COVERAGE_DICT[proc_model[0]]
-    exclude_pattern = (
-        "${CARGO_HOME:-$HOME/.cargo/},"
-        "build/,"
-        "tests/,"
-        "usr/lib/gcc,"
-        "lib/x86_64-linux-gnu/,"
-        "test_utils.rs,"
-        # The following files/directories are auto-generated
-        "bootparam.rs,"
-        "elf.rs,"
-        "mpspec.rs,"
-        "msr_index.rs,"
-        "bindings.rs,"
-        "_gen"
-    )
-    exclude_region = "'mod tests {'"
-    target = "{}-unknown-linux-musl".format(platform.machine())
+    # Get coverage target.
+    processor_model = [item for item in COVERAGE_DICT if item in PROC_MODEL]
+    assert len(processor_model) == 1, "Could not get processor model!"
+    coverage_target = COVERAGE_DICT[processor_model[0]]
 
-    cmd = (
-        'CARGO_WRAPPER="kcov" RUSTFLAGS="{}" CARGO_TARGET_DIR={} '
-        "cargo kcov --all "
-        "--target {} --output {} -- "
-        "--exclude-pattern={} "
-        "--exclude-region={} --verify"
-    ).format(
-        host.get_rustflags(),
-        os.path.join(test_fc_session_root_path, CARGO_KCOV_REL_PATH),
-        target,
-        test_session_tmp_path,
-        exclude_pattern,
-        exclude_region,
+    # Re-direct to repository root.
+    monkeypatch.chdir("..")
+
+    # Generate test profiles.
+    cargo(
+        "test",
+        f"--all --target {TARGET}",
+        "--test-threads=1",
+        env={
+            "RUSTFLAGS": "-Cinstrument-coverage",
+            "LLVM_PROFILE_FILE": "coverage-%p-%m.profraw",
+        },
     )
-    # We remove the seccompiler custom build directory, created by the
-    # vmm-level `build.rs`.
-    # If we don't delete it before and after running the kcov command, we will
-    # run into linker errors.
-    shutil.rmtree(SECCOMPILER_BUILD_DIR, ignore_errors=True)
-    # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
-    # to kcov. To pass others arguments, we need to include the defaults.
+
+    # Generate coverage report.
+    cmd = f"""
+        grcov . \
+            -s . \
+            --binary-path ./build/cargo_target/{TARGET}/debug/ \
+            --excl-start "mod tests" \
+            --ignore "build/*" \
+            --ignore "**/tests/*" \
+            --ignore "**/test_utils*" \
+            --ignore "**/mock_*" \
+            -t html \
+            --ignore-not-existing \
+            -o ./build/cargo_target/{TARGET}/debug/coverage"""
+
+    # Ignore code not relevant for the intended platform
+    # - CPUID and CPU template
+    # - Static CPU templates intended for specific CPU vendors
+    if "AMD" == VENDOR:
+        cmd += " \
+            --ignore **/intel* \
+            --ignore *t2* \
+            --ignore *t2s* \
+            --ignore *t2cl* \
+            --ignore *c3* \
+            "
+    elif "Intel" == VENDOR:
+        cmd += " \
+            --ignore **/amd* \
+            --ignore *t2a* \
+            "
+
     utils.run_cmd(cmd)
 
-    shutil.rmtree(SECCOMPILER_BUILD_DIR)
-
-    coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
-    with open(coverage_file, encoding="utf-8") as cov_output:
-        contents = cov_output.read()
-        covered_lines = int(re.findall(KCOV_COVERED_LINES_REGEX, contents)[0])
-        total_lines = int(re.findall(KCOV_TOTAL_LINES_REGEX, contents)[0])
-        coverage = covered_lines / total_lines * 100
-    print("Number of executable lines: {}".format(total_lines))
-    print("Number of covered lines: {}".format(covered_lines))
-    print("Thus, coverage is: {:.2f}%".format(coverage))
-
-    coverage_low_msg = (
-        "Current code coverage ({:.2f}%) is >{:.2f}% below the target ({}%).".format(
-            coverage, COVERAGE_MAX_DELTA, coverage_target_pct
-        )
+    # Extract coverage from html report.
+    #
+    # The line looks like `<abbr title="44724 / 49237">90.83 %</abbr></p>` and is the first
+    # occurrence of the `<abbr>` element in the file.
+    #
+    # When we update grcov to 0.8.* we can update this to pull the coverage from a generated .json
+    # file.
+    index = open(
+        f"./build/cargo_target/{TARGET}/debug/coverage/index.html", encoding="utf-8"
     )
+    index_contents = index.read()
+    end = index_contents.find(" %</abbr></p>")
+    start = index_contents[:end].rfind(">")
+    coverage_str = index_contents[start + 1 : end]
+    coverage = float(coverage_str)
 
-    assert coverage >= coverage_target_pct - COVERAGE_MAX_DELTA, coverage_low_msg
-
-    # Get the name of the variable that needs updating.
-    namespace = globals()
-    cov_target_name = [name for name in namespace if namespace[name] is COVERAGE_DICT][
-        0
-    ]
-
-    coverage_high_msg = (
-        "Current code coverage ({:.2f}%) is >{:.2f}% above the target ({}%).\n"
-        "Please update the value of {}.".format(
-            coverage, COVERAGE_MAX_DELTA, coverage_target_pct, cov_target_name
-        )
+    # Record coverage.
+    record_property(
+        "coverage", f"{coverage}% {coverage_target}% ±{COVERAGE_MAX_DELTA:.2f}%"
     )
+    metrics.set_dimensions({"cpu_arch": ARCH})
+    metrics.put_metric("code_coverage", coverage, unit="Percent")
 
-    assert coverage <= coverage_target_pct + COVERAGE_MAX_DELTA, coverage_high_msg
-
-    return (f"{coverage}%", f"{coverage_target_pct}% +/- {COVERAGE_MAX_DELTA * 100}%")
+    assert coverage == pytest.approx(
+        coverage_target, abs=COVERAGE_MAX_DELTA
+    ), f"Current code coverage ({coverage:.2f}%) deviates more than {COVERAGE_MAX_DELTA:.2f}% from target ({coverage_target:.2f})"

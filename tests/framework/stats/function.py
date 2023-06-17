@@ -4,11 +4,11 @@
 """Module for statistical functions."""
 
 from abc import ABC, abstractmethod
-from typing import Any, List
+from pydoc import locate
 
 # pylint: disable=E0611
 from statistics import mean, stdev
-from pydoc import locate
+from typing import Any, List
 
 
 # pylint: disable=R0903

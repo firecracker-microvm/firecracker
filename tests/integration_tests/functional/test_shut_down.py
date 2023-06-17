@@ -1,22 +1,18 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
-import os
-import time
 import json
+import os
 import platform
-
-from framework import utils
+import time
 
 import host_tools.logging as log_tools
-import host_tools.network as net_tools  # pylint: disable=import-error
+from framework import utils
 
 
 def test_reboot(test_microvm_with_api, network_config):
     """
     Test reboot from guest.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.jailer.daemonize = False
@@ -54,9 +50,7 @@ def test_reboot(test_microvm_with_api, network_config):
     assert len(lines) == 1
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
-    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
-
-    ssh_connection.execute_command("reboot")
+    vm.ssh.execute_command("reboot")
 
     while True:
         # Pytest's timeout will kill the test even if the loop doesn't exit.

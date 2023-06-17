@@ -1,151 +1,112 @@
+#!/bin/env python3
 # Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Script used to calculate baselines from raw performance test output."""
 
-# We need to call sys.path.append(os.path.join(os.getcwd(), 'tests'))
-# before importing SUPPORTED_KERNELS. But this results in a pyling error.
-# pylint: disable=wrong-import-position
+"""Script used to calculate baselines from raw performance test output.
+
+The script expects to find at least 2 files containing test results in
+the provided data folder
+  (e.g. test_results/test_vsock_throughput_results_m5d.metal_5.10.json).
+"""
 
 import argparse
-import os
-import tempfile
 import json
-from typing import List
-import sys
+import re
+from pathlib import Path
 
-from providers.types import FileDataProvider
-from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
+from providers.iperf3 import Iperf3DataParser
+from providers.latency import LatencyDataParser
 from providers.snapshot_restore import SnapshotRestoreDataParser
-
-sys.path.append(os.path.join(os.getcwd(), "tests"))
-
-from framework.defs import SUPPORTED_KERNELS  # noqa: E402
-
-OUTPUT_FILENAMES = {
-    "vsock_throughput": ["test_vsock_throughput"],
-    "network_tcp_throughput": ["test_network_tcp_throughput"],
-    "block_performance": [
-        "test_block_performance_sync",
-        "test_block_performance_async",
-    ],
-    "snapshot_restore_performance": ["test_snap_restore_performance"],
-}
 
 DATA_PARSERS = {
     "vsock_throughput": Iperf3DataParser,
     "network_tcp_throughput": Iperf3DataParser,
     "block_performance": BlockDataParser,
     "snapshot_restore_performance": SnapshotRestoreDataParser,
+    "network_latency": LatencyDataParser,
 }
 
 
-def get_data_files(args) -> List[str]:
-    """Return a list of files that contain results for this test."""
-    assert os.path.isdir(args.data_folder)
-
-    file_list = []
-    res_files = [
-        f"{filename}_results_{args.kernel}.json"
-        for filename in OUTPUT_FILENAMES[args.test]
-    ]
-    # Get all files in the dir tree that have the right name.
-    for root, _, files in os.walk(args.data_folder):
-        for file in files:
-            if file in res_files:
-                file_list.append(os.path.join(root, file))
-
-    # We need at least one file.
-    assert len(file_list) > 0
-
-    return file_list
+def read_data_files(data_dir):
+    """Return all JSON objects contained in the files of this dir, organized per test/instance/kv."""
+    data_dir = Path(data_dir)
+    assert data_dir.is_dir()
+    data = {}
+    # Get all files in the dir tree that match a test.
+    for file in data_dir.rglob("*.ndjson"):
+        match = re.search(
+            "test_(?P<test>.+)_results_(?P<instance>.+)_(?P<kv>.+).ndjson",
+            str(file.name),
+        )
+        test, instance, kv = match.groups()
+        for line in file.open(encoding="utf-8"):
+            data.setdefault((test, instance, kv), []).append(json.loads(line))
+    return data
 
 
-def concatenate_data_files(data_files: List[str]):
-    """Create temp file to hold all concatenated results for this test."""
-    outfile = tempfile.NamedTemporaryFile()
+def overlay(dict_old, dict_new):
+    """
+    Overlay one dictionary on top of another
 
-    for filename in data_files:
-        with open(filename, encoding="utf-8") as infile:
-            outfile.write(str.encode(infile.read()))
+    >>> a = {'a': {'b': 1, 'c': 1}}
+    >>> b = {'a': {'b': 2, 'd': 2}}
+    >>> overlay(a, b)
+    {'a': {'b': 2, 'c': 1, 'd': 2}}
+    """
+    res = dict_old.copy()
+    for key, val in dict_new.items():
+        if key in dict_old and isinstance(val, dict):
+            res[key] = overlay(dict_old[key], dict_new[key])
+        else:
+            res[key] = val
+    return res
 
-    return outfile
+
+def update_baseline(test, instance, kernel, test_data):
+    """Parse and update the baselines"""
+    baselines_path = Path(
+        f"./tests/integration_tests/performance/configs/test_{test}_config_{kernel}.json"
+    )
+    json_baselines = json.loads(baselines_path.read_text("utf-8"))
+    old_cpus = json_baselines["hosts"]["instances"][instance]["cpus"]
+
+    # Instantiate the right data parser.
+    parser = DATA_PARSERS[test](test_data)
+    cpus = parser.parse()
+
+    for cpu in cpus:
+        model = cpu["model"]
+        for old_cpu in old_cpus:
+            if old_cpu["model"] == model:
+                old_cpu["baselines"] = overlay(old_cpu["baselines"], cpu["baselines"])
+
+    baselines_path.write_text(
+        json.dumps(json_baselines, indent=4, sort_keys=True), encoding="utf-8"
+    )
+
+    # Warn against the fact that not all CPUs pertaining to
+    # some arch were updated.
+    assert len(cpus) == len(old_cpus), (
+        "It may be that only a subset of CPU types were updated! "
+        "Need to run again! Nevertheless we updated the baselines..."
+    )
 
 
 def main():
-    """Run the main logic.
-
-    This script needs to be run from Firecracker's root since
-    it depends on functionality found in tests/ framework.
-    The script expects to find at least 2 files containing test results in
-    the provided data folder
-     (e.q test_results/buildX/test_vsock_throughput_results_5.10.json).
-    """
-    parser = argparse.ArgumentParser()
+    """Run the main logic"""
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "-d",
         "--data-folder",
         help="Path to folder containing raw test data.",
-        action="store",
-        required=True,
-    )
-    parser.add_argument(
-        "-t",
-        "--test",
-        help="Performance test for which baselines \
-                            are calculated.",
-        action="store",
-        choices=[
-            "vsock_throughput",
-            "network_tcp_throughput",
-            "block_performance",
-            "snapshot_restore_performance",
-        ],
-        required=True,
-    )
-    parser.add_argument(
-        "-k",
-        "--kernel",
-        help="Host kernel version on which baselines \
-                            are obtained.",
-        action="store",
-        choices=SUPPORTED_KERNELS,
-        required=True,
-    )
-    parser.add_argument(
-        "-i",
-        "--instance",
-        help="Instance type on which the baselines \
-                            were obtained.",
-        action="store",
-        choices=["m5d.metal", "m6gd.metal"],
         required=True,
     )
     args = parser.parse_args()
-
-    # Create the concatenated data file.
-    data_file = concatenate_data_files(get_data_files(args))
-
-    # Instantiate a file data provider.
-    data_provider = FileDataProvider(data_file.name)
-
-    # Instantiate the right data parser.
-    parser = DATA_PARSERS[args.test](data_provider)
-
-    # Finally, parse and update the baselines.
-    with open(
-        f"./tests/integration_tests/performance/configs/"
-        f"test_{args.test}_config_{args.kernel}.json",
-        "r+",
-        encoding="utf8",
-    ) as baselines_file:
-        json_baselines = json.load(baselines_file)
-        cpus = parser.parse()
-        json_baselines["hosts"]["instances"][args.instance] = {"cpus": cpus}
-
-        baselines_file.truncate(0)
-        baselines_file.seek(0, 0)
-        json.dump(json_baselines, baselines_file, indent=4)
+    data = read_data_files(args.data_folder)
+    for test, instance, kv in data:
+        test_data = data[test, instance, kv]
+        update_baseline(test, instance, kv, test_data)
 
 
 if __name__ == "__main__":

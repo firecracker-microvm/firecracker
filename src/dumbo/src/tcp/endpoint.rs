@@ -142,7 +142,7 @@ impl Endpoint {
         // match the size of the buffer. When space frees up, we'll advance the window
         // accordingly.
         let (value, status) = match self.connection.receive_segment(
-            &s,
+            s,
             &mut self.receive_buf[self.receive_buf_left..],
             now,
         ) {

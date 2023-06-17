@@ -16,8 +16,20 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    you've ever built Firecracker from source.
 1. Access to both an `x86_64` and `aarch64` machines to build the container
    images.
+1. Ensure `aws --version` is >=1.17.10.
 
 ## Steps
+
+### **[optional]** Update `poetry.lock`
+
+This step is optional but recommended, to be on top of Python package changes.
+
+```sh
+./tools/devtool shell --privileged
+poetry update --lock --directory tools/devctr/
+```
+
+This will change `poetry.lock`, which you can commit with your changes.
 
 ### `x86_64`
 
@@ -29,6 +41,14 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    | docker login --username AWS --password-stdin public.ecr.aws
     ```
 
+   For non-TTY devices, although not recommended a less secure approach can be
+   used:
+
+   ```bash
+   docker login --username AWS --password \
+   $(aws ecr-public get-login-password --region us-east-1) public.ecr.aws
+   ```
+
 1. Navigate to the Firecracker directory. Verify that you have the latest
    container image locally.
 
@@ -39,26 +59,15 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     ```
 
 1. Make your necessary changes, if any, to the
-   [Dockerfile](https://docs.docker.com/engine/reference/builder/)(s). There's
-   one for each supported architecture in the Firecracker source tree.
+   [Dockerfile](https://docs.docker.com/engine/reference/builder/). There's
+   one for all the architectures in the Firecracker source tree.
 
 1. Commit the changes, if any.
 
 1. Build a new container image with the updated Dockerfile.
 
-   a: Additionally also checks for any outdated python packages
-   and tries to update them. This makes sure that python packages
-   versions are up to date with latest versions.
-
    ```bash
     tools/devtool build_devctr
-   ```
-
-   b: Builds a container image but skips performing updates of python
-   packages. The container image will use the locked versions of python packages.
-
-   ```bash
-    tools/devtool build_devctr --no-python-package-update
    ```
 
 1. Verify that the new image exists.
@@ -70,11 +79,29 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
     ```
 
-1. Tag the new image with the next available version and the architecture
-   you're on.
+1. Tag the new image with the next available version `X` and the architecture
+   you're on. Note that this will not always be "current version in devtool + 1",
+   as sometimes that version might already be used on feature branches. Always
+   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
+   to make sure you do not accidentally overwrite an existing image.
+
+   As a sanity check, run:
+
+   ```bash
+   docker pull public.ecr.aws/firecracker/fcuvm:vX
+   ```
+
+   and verify that you get an error message along the lines of
+
+   ```
+   Error response from daemon: manifest for public.ecr.aws/firecracker/fcuvm:vX not
+   found: manifest unknown: Requested image not found
+   ```
+
+   This means the version you've chosen does not exist yet, and you are good to go.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_x86_64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
 
     docker images
     REPOSITORY                         TAG          IMAGE ID       CREATED
@@ -112,11 +139,29 @@ Then continue with the above steps:
     public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
     ```
 
-1. Tag the new image with the next available version and the architecture
-   you're on.
+1. Tag the new image with the next available version `X` and the architecture
+   you're on. Note that this will not always be "current version in devtool + 1",
+   as sometimes that version might already be used on feature branches. Always
+   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
+   to make sure you do not accidentally overwrite an existing image.
+
+   As a sanity check, run:
+
+   ```bash
+   docker pull public.ecr.aws/firecracker/fcuvm:vX
+   ```
+
+   and verify that you get an error message along the lines of
+
+   ```
+   Error response from daemon: manifest for public.ecr.aws/firecracker/fcuvm:vX not
+   found: manifest unknown: Requested image not found
+   ```
+
+   This means the version you've chosen does not exist yet, and you are good to go.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_aarch64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
     docker images
     REPOSITORY                         TAG            IMAGE ID

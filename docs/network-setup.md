@@ -4,6 +4,9 @@ This is a very simple quick-start guide to getting a Firecracker guest connected
 to the network. If you're using Firecracker in production, or even want to run
 multiple guests, you'll need to adapt this setup.
 
+**Note**
+Currently firecracker supports only TUN/TAP network backend with no multi queue support.
+
 The simple steps in this guide assume that your internet-facing interface is
 `eth0`, you have nothing else using `tap0` and no other `iptables` rules.
 Check out the *Advanced:* sections if that doesn't work for you.

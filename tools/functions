@@ -1,0 +1,153 @@
+# -*- shell-script[bash] -*-
+
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+###################
+# Logging helpers #
+###################
+
+# Naming things is hard
+ARG0=${BASH_SOURCE[-1]}
+MY_NAME="Firecracker $(basename "$ARG0")"
+
+# Send a decorated message to stdout, followed by a new line
+#
+say() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 2)[$MY_NAME $(date -Iseconds)]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a decorated message to stdout, without a trailing new line
+#
+say_noln() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a text message to stderr
+#
+say_err() {
+    [ -t 2 ] && [ -n "$TERM" ] \
+        && echo -e "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo -e "[$MY_NAME] $*" 1>&2
+}
+
+# Send a warning-highlighted text to stdout
+say_warn() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Exit with an error message and (optional) code
+# Usage: die [-c <error code>] <error message>
+#
+die() {
+    code=1
+    [[ "$1" = "-c" ]] && {
+        code="$2"
+        shift 2
+    }
+    say_err "$@"
+    exit $code
+}
+
+# Exit with an error message if the last exit code is not 0
+#
+ok_or_die() {
+    code=$?
+    [[ $code -eq 0 ]] || die -c $code "$@"
+}
+
+# ANSI output helper
+# https://en.wikipedia.org/wiki/ANSI_escape_code
+function SGR {
+    local codes=$*
+    printf "\e[%sm" "${codes// /;}"
+}
+
+# Prompt the user for confirmation before proceeding.
+# Args:
+#   $1  prompt text.
+#       Default: Continue? (y/n)
+#   $2  confirmation input.
+#       Default: y
+# Return:
+#   exit code 0 for successful confirmation
+#   exit code != 0 if the user declined
+#
+OPT_UNATTENDED=false
+get_user_confirmation() {
+
+    # Pass if running unattended
+    [[ "$OPT_UNATTENDED" = true ]] && return 0
+
+    # Fail if STDIN is not a terminal (there's no user to confirm anything)
+    [[ -t 0 ]] || return 1
+
+    # Otherwise, ask the user
+    #
+    msg=$([ -n "${1:-}" ] && echo -n "$1" || echo -n "Continue? (y/n) ")
+    yes=$([ -n "${2:-}" ] && echo -n "$2" || echo -n "y")
+    say_noln "$msg"
+    read c && [ "$c" = "$yes" ] && return 0
+    return 1
+}
+
+#######################################
+# Release automation common functions #
+#######################################
+
+# Get version from the swagger file
+function get_swagger_version {
+    local file=${1:-"$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"}
+    grep -oP 'version: \K.*' "$file"
+}
+
+function check_local_branch_is_release_branch {
+    local LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    local RELEASE_BRANCH=firecracker-v$(echo "$version" |cut -d. -f-2)
+
+    if [ "$LOCAL_BRANCH" != "$RELEASE_BRANCH" ]; then
+        cat <<EOF
+ERROR: The current branch '$LOCAL_BRANCH' should be '$RELEASE_BRANCH'
+Bailing out.
+You can fix this by checking out the expected release branch and rerunning:
+
+    git checkout -B $RELEASE_BRANCH
+EOF
+        exit 1
+    fi
+}
+
+# Validate the user supplied version number.
+# It must start with 3 groups of integers separated by dot and
+# must not contain `wip` or `dirty`.
+function validate_version {
+    declare version_regex="^([0-9]+\.){2}[0-9]+"
+    local version="$1"
+
+    if [ -z "$version" ]; then
+        die "Version cannot be empty."
+    elif [[ ! "$version" =~ $version_regex ]]; then
+        die "Invalid version number: $version. Version should start with \$Major.\$Minor.\$Build, see
+        https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md for more information."
+    elif [[ "$version" == *"wip"* ]] || [[ "$version" == *"dirty"* ]]; then
+        die "Invalid version number: $version. Version should not contain \`wip\` or \`dirty\`."
+    fi
+}
+
+#########################
+# Firecracker functions #
+#########################
+
+# Check if /dev/kvm exists. Exit if it doesn't.
+# Upon returning from this call, the caller can be certain /dev/kvm is
+# available.
+#
+ensure_kvm() {
+    [[ -c /dev/kvm ]] || die "/dev/kvm not found. Aborting."
+}

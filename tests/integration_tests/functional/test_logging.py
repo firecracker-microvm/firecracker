@@ -7,11 +7,9 @@ up in the configured logging FIFO.
 """
 import os
 import re
-
 from time import strptime
 
 import host_tools.logging as log_tools
-
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
@@ -48,7 +46,7 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
     e.g. with THREAD NAME as TN
     `2018-09-09T12:52:00.123456789 [MYID:TN:WARN:/path/to/file.rs:52] warning`
     """
-    (timestamp, tag, _) = log_str.split(" ")[:3]
+    timestamp, tag_and_msg = log_str.split(" ", maxsplit=1)
     timestamp = timestamp[:-10]
     strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
 
@@ -58,9 +56,9 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         pattern += ":(" + "|".join(LOG_LEVELS) + ")"
     if show_origin:
         pattern += ":([^:]+/[^:]+):([0-9]+)"
-    pattern += "\\]"
+    pattern += "\\].*"
 
-    mo = re.match(pattern, tag)
+    mo = re.match(pattern, tag_and_msg)
     assert mo is not None
 
     if show_level:
@@ -73,8 +71,6 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
 def test_no_origin_logs(test_microvm_with_api):
     """
     Check that logs do not contain the origin (i.e file and line number).
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api, show_level=True, show_origin=False)
 
@@ -82,8 +78,6 @@ def test_no_origin_logs(test_microvm_with_api):
 def test_no_level_logs(test_microvm_with_api):
     """
     Check that logs do not contain the level.
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=True)
 
@@ -91,8 +85,6 @@ def test_no_level_logs(test_microvm_with_api):
 def test_no_nada_logs(test_microvm_with_api):
     """
     Check that logs do not contain either level or origin.
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=False)
 
@@ -100,8 +92,6 @@ def test_no_nada_logs(test_microvm_with_api):
 def test_info_logs(test_microvm_with_api):
     """
     Check output of logs when minimum level to be displayed is info.
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api)
 
@@ -109,8 +99,6 @@ def test_info_logs(test_microvm_with_api):
 def test_warn_logs(test_microvm_with_api):
     """
     Check output of logs when minimum level to be displayed is warning.
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api, log_level="Warning")
 
@@ -118,8 +106,6 @@ def test_warn_logs(test_microvm_with_api):
 def test_error_logs(test_microvm_with_api):
     """
     Check output of logs when minimum level of logs displayed is error.
-
-    @type: functional
     """
     _test_log_config(microvm=test_microvm_with_api, log_level="Error")
 
@@ -127,8 +113,6 @@ def test_error_logs(test_microvm_with_api):
 def test_log_config_failure(test_microvm_with_api):
     """
     Check passing invalid FIFOs is detected and reported as an error.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn(create_logger=False)
@@ -140,6 +124,8 @@ def test_log_config_failure(test_microvm_with_api):
         show_level=True,
         show_log_origin=True,
     )
+    # only works if log level is Debug
+    microvm.time_api_requests = False
     assert microvm.api_session.is_status_bad_request(response.status_code)
     assert response.json()["fault_message"]
 
@@ -147,8 +133,6 @@ def test_log_config_failure(test_microvm_with_api):
 def test_api_requests_logs(test_microvm_with_api):
     """
     Test that API requests are logged.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn(create_logger=False)
@@ -164,6 +148,8 @@ def test_api_requests_logs(test_microvm_with_api):
         show_level=True,
         show_log_origin=True,
     )
+    # only works if log level is Debug
+    microvm.time_api_requests = False
     assert microvm.api_session.is_status_no_content(response.status_code)
     microvm.start_console_logger(log_fifo)
 
@@ -224,6 +210,8 @@ def test_api_requests_logs(test_microvm_with_api):
 def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=True):
     """Exercises different scenarios for testing the logging config."""
     microvm.spawn(create_logger=False)
+    # only works if log level is Debug
+    microvm.time_api_requests = False
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, "log_fifo")

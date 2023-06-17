@@ -6,9 +6,10 @@ import os
 import shutil
 import stat
 from pathlib import Path
+
 from retry.api import retry_call
-from framework import utils
-from framework import defs
+
+from framework import defs, utils
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.
@@ -155,6 +156,11 @@ class JailerContext:
         """Return the MicroVM chroot ramfs subfolder path."""
         return os.path.join(self.chroot_path(), self.ramfs_subdir_name)
 
+    @property
+    def uses_ramfs(self):
+        """Is this jailer using ramfs?"""
+        return self._ramfs_path is not None
+
     def jailed_path(self, file_path, create=False, create_jail=False):
         """Create a hard link or block special device owned by uid:gid.
 
@@ -162,28 +168,29 @@ class JailerContext:
         changes the owner to uid:gid, and returns a path to the file which is
         valid within the jail.
         """
-        file_name = os.path.basename(file_path)
-        global_p = os.path.join(self.chroot_path(), file_name)
+        file_path = Path(file_path)
+        chroot_path = Path(self.chroot_path())
+        global_p = chroot_path / file_path.name
         if create_jail:
-            os.makedirs(self.chroot_path(), exist_ok=True)
-        jailed_p = os.path.join("/", file_name)
+            chroot_path.mkdir(parents=True, exist_ok=True)
+        jailed_p = Path("/") / file_path.name
         if create:
-            stat_result = os.stat(file_path)
-            if stat.S_ISBLK(stat_result.st_mode):
-                cmd = [
-                    "mknod",
-                    global_p,
-                    "b",
-                    str(os.major(stat_result.st_rdev)),
-                    str(os.minor(stat_result.st_rdev)),
-                ]
-                utils.run_cmd(cmd)
+            stat_src = file_path.stat()
+            if file_path.is_block_device():
+                perms = stat.S_IRUSR | stat.S_IWUSR
+                os.mknod(global_p, mode=stat.S_IFBLK | perms, device=stat_src.st_rdev)
             else:
-                cmd = "ln -f {} {}".format(file_path, global_p)
-                utils.run_cmd(cmd)
-            cmd = "chown {}:{} {}".format(self.uid, self.gid, global_p)
-            utils.run_cmd(cmd)
-        return jailed_p
+                stat_dst = chroot_path.stat()
+                if stat_src.st_dev == stat_dst.st_dev:
+                    # if they are in the same device, hardlink
+                    global_p.unlink(missing_ok=True)
+                    global_p.hardlink_to(file_path)
+                else:
+                    # otherwise, copy
+                    shutil.copyfile(file_path, global_p)
+
+            os.chown(global_p, self.uid, self.gid)
+        return str(jailed_p)
 
     def copy_into_root(self, file_path, create_jail=False):
         """Copy a file in the jail root, owned by uid:gid.
@@ -249,7 +256,13 @@ class JailerContext:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
-            utils.run_cmd("ip netns del {}".format(self.netns))
+            try:
+                utils.run_cmd("ip netns del {}".format(self.netns))
+            except ChildProcessError:
+                # Sometimes, a race condition in pytest causes this destructor to run twice.
+                # Long-term, we'll want to do cleanup properly, but for now we ignore
+                # the exception
+                pass
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,

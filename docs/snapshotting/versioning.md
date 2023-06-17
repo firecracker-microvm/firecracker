@@ -19,6 +19,7 @@ some version translations would not be possible.
 ![Version graph](
 ../images/version_graph.png?raw=true
 "Version graph")
+
 A non-exhaustive list of how cross-version snapshot support can be used:
 
 Example scenario #1 - load snapshot from older version:
@@ -184,18 +185,13 @@ architecture. They are only compatible if the CPU features exposed to the guest
 are an invariant when saving and restoring the snapshot. The trivial scenario
 is creating and restoring snapshots on hosts that have the same CPU model.
 
-To make snapshots more portable across Intel CPUs Firecracker provides an API
-to select a CPU template which is only available for Intel - T2 and C3.
-Firecracker CPU templates mask CPUID to restrict the exposed features to a
-common denominator of multiple CPU models. These templates are mapped as close
-as possible to AWS T2/C3 instances in terms of CPU features. There are no
-templates available for AMD or ARM64.
+Restoring from an Intel snapshot on AMD (or vice-versa) is not supported.
 
 It is important to note that guest workloads can still execute instructions
-that are being masked by CPUID and restoring and saving of such workloads will
-lead to undefined result. Firecracker retrieves the state of a discrete list
-MSRs from KVM, more specifically the MSRs corresponding to the guest
-exposed features.
+that are being [masked](../cpu_templates/cpu-templates.md) by CPUID and
+restoring and saving of such workloads will lead to undefined result.
+Firecracker retrieves the state of a discrete list of MSRs from KVM, more
+specifically, the MSRs corresponding to the guest exposed features.
 
 ## Implementation
 

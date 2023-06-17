@@ -15,23 +15,21 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
-
 from socket import timeout as SocketTimeout
+
+import host_tools.logging as log_tools
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils_vsock import (
-    make_blob,
-    check_host_connections,
-    check_guest_connections,
-    check_vsock_device,
-    _copy_vsock_data_to_guest,
-    make_host_port_path,
-    HostEchoWorker,
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
+    HostEchoWorker,
+    _copy_vsock_data_to_guest,
+    check_guest_connections,
+    check_host_connections,
+    check_vsock_device,
+    make_blob,
+    make_host_port_path,
 )
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-
-from host_tools.network import SSHConnection
-import host_tools.logging as log_tools
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
@@ -44,8 +42,6 @@ def test_vsock(
     Test guest and host vsock initiated connections.
 
     Check the module docstring for details on the setup.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -56,9 +52,7 @@ def test_vsock(
 
     vm.start()
 
-    conn = SSHConnection(vm.ssh_config)
-
-    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, conn)
+    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
 
 
 def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
@@ -68,9 +62,8 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     `NEGATIVE_TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
     Closes the UDS sockets while data is in flight.
     """
-    conn = SSHConnection(vm.ssh_config)
     cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = conn.execute_command(cmd)
+    ecode, _, _ = vm.ssh.execute_command(cmd)
     assert ecode == 0
 
     workers = []
@@ -84,7 +77,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
         wrk.join()
 
     # Validate that Firecracker is still up and running.
-    ecode, _, _ = conn.execute_command("sync")
+    ecode, _, _ = vm.ssh.execute_command("sync")
     # Should fail if Firecracker exited from SIGPIPE handler.
     assert ecode == 0
 
@@ -98,8 +91,6 @@ def test_vsock_epipe(
 ):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
-
-    @type: negative
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -120,10 +111,9 @@ def test_vsock_epipe(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    conn = SSHConnection(vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
     # Negative test for host-initiated connections that
@@ -160,8 +150,6 @@ def test_vsock_transport_reset(
        Else, the connection was not closed and the test fails.
     6. Close VM -> Load VM from Snapshot -> check that vsock
        device is still working.
-
-    @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
@@ -182,16 +170,14 @@ def test_vsock_transport_reset(
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    conn = SSHConnection(test_vm.ssh_config)
     # Set up a tmpfs drive on the guest, so we can copy the blob there.
     # Guest-initiated connections (echo workers) will use this blob.
-    _copy_vsock_data_to_guest(conn, blob_path, vm_blob_path, bin_vsock_path)
+    _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     # Start guest echo server.
     path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    conn = SSHConnection(test_vm.ssh_config)
-    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = conn.execute_command(cmd)
+    cmd = f"vsock_helper echosrv -d {ECHO_SERVER_PORT}"
+    ecode, _, _ = test_vm.ssh.run(cmd)
     assert ecode == 0
 
     # Start host workers that connect to the guest server.

@@ -3,11 +3,13 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import platform
-import pytest
-from framework.artifacts import NetIfaceConfig
-from framework.builder import SnapshotBuilder, MicrovmBuilder
 
-import host_tools.network as net_tools  # pylint: disable=import-error
+import pytest
+
+from framework.artifacts import NetIfaceConfig
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import get_firecracker_version_from_toml, run_cmd
+from host_tools.cargo_build import get_firecracker_binaries
 
 # Firecracker v0.23 used 16 IRQ lines. For virtio devices,
 # IRQs are available from 5 to 23, so the maximum number
@@ -33,42 +35,9 @@ def _create_and_start_microvm_with_net_devices(
     test_microvm.start()
 
     if network_config is not None:
-        ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
         # Verify if guest can run commands.
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
         assert exit_code == 0
-
-
-@pytest.mark.skipif(
-    platform.machine() != "aarch64", reason="Exercises specific x86_64 functionality."
-)
-def test_create_v0_23_snapshot(test_microvm_with_api):
-    """
-    Exercise creating a snapshot targeting v0.23 on aarch64.
-
-    @type: functional
-    """
-    test_microvm = test_microvm_with_api
-
-    _create_and_start_microvm_with_net_devices(test_microvm)
-
-    snapshot_builder = SnapshotBuilder(test_microvm)
-    # Create directory and files for saving snapshot state and memory.
-    _snapshot_dir = snapshot_builder.create_snapshot_dir()
-
-    # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state="Paused")
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.snapshot.create(
-        mem_file_path="/snapshot/vm.mem",
-        snapshot_path="/snapshot/vm.vmstate",
-        diff=True,
-        version="0.23.0",
-    )
-
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot translate microVM version to snapshot data version" in response.text
 
 
 @pytest.mark.skipif(
@@ -77,8 +46,6 @@ def test_create_v0_23_snapshot(test_microvm_with_api):
 def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     """
     Create snapshot with unexpected device count for previous versions.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
 
@@ -112,8 +79,6 @@ def test_create_with_too_many_devices(test_microvm_with_api, network_config):
 def test_create_invalid_version(bin_cloner_path):
     """
     Test scenario: create snapshot targeting invalid version.
-
-    @type: functional
     """
     # Use a predefined vm instance.
     builder = MicrovmBuilder(bin_cloner_path)
@@ -149,11 +114,47 @@ def test_create_invalid_version(bin_cloner_path):
         assert False, "Negative test failed"
 
 
+def test_snapshot_current_version(bin_cloner_path):
+    """Tests taking a snapshot at the version specified in Cargo.toml
+
+    Check that it is possible to take a snapshot at the version of the upcoming
+    release (during the release process this ensures that if we release version
+    x.y, then taking a snapshot at version x.y works - something we'd otherwise
+    only be able to test once the x.y binary has been uploaded to S3, at which
+    point it is too late, see also the 1.3 release).
+    """
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano(diff_snapshots=True)
+    vm = vm_instance.vm
+    vm.start()
+
+    version = get_firecracker_version_from_toml()
+    # normalize to a snapshot version
+    target_version = f"{version.major}.{version.minor}.0"
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(vm)
+    disks = [vm_instance.disks[0].local_path()]
+    snapshot = snapshot_builder.create(
+        disks,
+        vm_instance.ssh_key,
+        snapshot_type=SnapshotType.FULL,
+        target_version=target_version,
+    )
+
+    # Fetch Firecracker binary for the latest version
+    fc_binary, _ = get_firecracker_binaries()
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
+
+    code, stdout, stderr = run_cmd(cmd)
+    assert code == 0, stderr
+    assert stderr == ""
+    assert target_version in stdout
+
+
 def test_create_with_newer_virtio_features(bin_cloner_path):
     """
     Attempt to create a snapshot with newer virtio features.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     test_microvm = builder.build_vm_nano().vm
@@ -163,7 +164,7 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
     # we can be sure that the block device was activated.
     iface = NetIfaceConfig()
     test_microvm.ssh_config["hostname"] = iface.guest_ip
-    _ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    test_microvm.ssh.run("true")
 
     # Create directory and files for saving snapshot state and memory.
     snapshot_builder = SnapshotBuilder(test_microvm)

@@ -3,17 +3,16 @@
 """Tests the metrics system."""
 
 import datetime
-import os
 import math
+import os
 import platform
+
 import host_tools.logging as log_tools
 
 
 def test_flush_metrics(test_microvm_with_api):
     """
     Check the `FlushMetrics` vmm action.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     microvm.spawn()
@@ -52,6 +51,7 @@ def test_flush_metrics(test_microvm_with_api):
         "uart",
         "signals",
         "vsock",
+        "entropy",
     ]
 
     if platform.machine() == "aarch64":

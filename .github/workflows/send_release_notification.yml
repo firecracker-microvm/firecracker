@@ -1,0 +1,16 @@
+name: Send notification on release created
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  send_notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: notify
+        run: |
+          curl -X POST ${{ secrets.SLACK_RELEASE_NOTIFICATION_WEBHOOK }} \
+               -H 'Content-Type: application/json' \
+               -d '{ "GITHUB_RELEASE_URL": "${{ github.event.release.url }}",
+                     "GITHUB_RELEASE_TAG": "${{ github.event.release.tag_name }}"}'

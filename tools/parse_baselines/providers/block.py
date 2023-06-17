@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Implement the DataParser for block device performance tests."""
 
-import statistics
 import math
+import statistics
 from collections.abc import Iterator
 from typing import List
+
 from providers.types import DataParser
 
 # We add a small extra percentage margin, to account for small variations

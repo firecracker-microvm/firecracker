@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Defines classes for all the resources a microvm could need attaching."""
 
-import urllib
 import re
+import urllib
 
-from framework.utils import compare_versions, is_io_uring_supported, run_cmd
 from framework.defs import API_USOCKET_URL_PREFIX
+from framework.utils import compare_versions, run_cmd
 
 
 class Actions:
@@ -143,6 +143,34 @@ class BootSource:
         return datax
 
 
+class CpuConfigure:
+    """Facility for configuring the CPU capabilities."""
+
+    CPU_CFG_RESOURCE = "cpu-config"
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
+
+        self._cpu_cfg_url = api_url + self.CPU_CFG_RESOURCE
+        self._api_session = api_session
+        self._datax = {}
+
+    def put(self, args):
+        """Specify the details of the CPU configuration."""
+        self._datax = self.create_json(args)
+        return self._api_session.put("{}".format(self._cpu_cfg_url), json=self._datax)
+
+    def get(self):
+        """Get CPU configuration."""
+        return self._api_session.get(self._cpu_cfg_url)
+
+    def create_json(self, config):
+        """Compose the json associated to this type of API request."""
+        return config
+
+
 # Too few public methods (1/2) (too-few-public-methods)
 # pylint: disable=R0903
 class DescribeInstance:
@@ -164,27 +192,16 @@ class Drive:
 
     DRIVE_CFG_RESOURCE = "drives"
 
-    def __init__(self, api_usocket_full_name, api_session, firecracker_version):
+    def __init__(self, api_usocket_full_name, api_session):
         """Specify the information needed for sending API requests."""
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
 
         self._drive_cfg_url = api_url + self.DRIVE_CFG_RESOURCE
         self._api_session = api_session
-        self._firecracker_version = firecracker_version
 
     def put(self, **args):
         """Attach a block device or update the details of a previous one."""
-        # Default the io engine to Async on kernels > 5.10 so that we
-        # make sure to exercise both Sync and Async behaviour in the CI.
-        # Also check the FC version to make sure that it has support for
-        # configurable io_engine.
-        if (
-            is_io_uring_supported()
-            and compare_versions(self._firecracker_version, "0.25.0") > 0
-            and ("io_engine" not in args or args["io_engine"] is None)
-        ):
-            args["io_engine"] = "Async"
 
         datax = self.create_json(**args)
 
@@ -364,7 +381,6 @@ class SnapshotCreate:
 
     def put(self, **args):
         """Create a snapshot of the microvm."""
-        self._api_session.untime()
         datax = self.create_json(**args)
         return self._api_session.put("{}".format(self._snapshot_cfg_url), json=datax)
 
@@ -735,5 +751,32 @@ class Vsock:
         datax = {"guest_cid": guest_cid, "uds_path": uds_path}
         if vsock_id:
             datax["vsock_id"] = vsock_id
+
+        return datax
+
+
+class Entropy:
+    """Facility for handling virtio-rng configuration for a microvm."""
+
+    ENTROPY_CFG_RESOURCE = "entropy"
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests"""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
+
+        self._entropy_cfg_url = api_url + self.ENTROPY_CFG_RESOURCE
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Attach a new rng device."""
+        datax = self.create_json(**args)
+
+        return self._api_session.put(self._entropy_cfg_url, json=datax)
+
+    @staticmethod
+    def create_json(rate_limiter=None):
+        """Create the json object for entropy specific API requests."""
+        datax = {"rate_limiter": rate_limiter}
 
         return datax

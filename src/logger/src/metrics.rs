@@ -9,7 +9,7 @@
 //! which we are capturing specific metrics.
 //!
 //! ## JSON example with metrics:
-//! ```bash
+//! ```json
 //! {
 //!  "utc_timestamp_ms": 1541591155180,
 //!  "api_server": {
@@ -61,7 +61,6 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -157,7 +156,7 @@ impl<T: Serialize> Metrics<T> {
                         // detected (and we always end with a newline the
                         // current write).
                         guard
-                            .write_all(&(format!("{}\n", msg)).as_bytes())
+                            .write_all(format!("{msg}\n",).as_bytes())
                             .map_err(MetricsError::Write)
                             .map(|_| true)
                     } else {
@@ -188,30 +187,20 @@ impl<T: Serialize> Deref for Metrics<T> {
 }
 
 /// Describes the errors which may occur while handling metrics scenarios.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MetricsError {
     /// First attempt at initialization failed.
+    #[error("{0}")]
     NeverInitialized(String),
     /// The metrics system does not allow reinitialization.
+    #[error("Reinitialization of metrics not allowed.")]
     AlreadyInitialized,
     /// Error in the serialization of metrics instance.
+    #[error("{0}")]
     Serde(String),
     /// Writing the specified buffer failed.
+    #[error("Failed to write metrics: {0}")]
     Write(std::io::Error),
-}
-
-impl fmt::Display for MetricsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match *self {
-            MetricsError::NeverInitialized(ref err) => err.to_string(),
-            MetricsError::AlreadyInitialized => {
-                "Reinitialization of metrics not allowed.".to_string()
-            }
-            MetricsError::Serde(ref err) => err.to_string(),
-            MetricsError::Write(ref err) => format!("Failed to write metrics: {}", err),
-        };
-        write!(f, "{}", printable)
-    }
 }
 
 /// Used for defining new types of metrics that act as a counter (i.e they are continuously updated
@@ -403,10 +392,10 @@ pub struct PutRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedIncMetric,
-    /// Number of PUTs for setting memory backing file.
-    pub memory_backend_cfg_count: SharedIncMetric,
-    /// Number of failures in configuring the machine.
-    pub memory_backend_cfg_fails: SharedIncMetric,
+    /// Number of PUTs for configuring a guest's vCPUs.
+    pub cpu_cfg_count: SharedIncMetric,
+    /// Number of failures in configuring a guest's vCPUs.
+    pub cpu_cfg_fails: SharedIncMetric,
     /// Number of PUTs for initializing the metrics system.
     pub metrics_count: SharedIncMetric,
     /// Number of failures in initializing the metrics system.
@@ -423,6 +412,11 @@ pub struct PutRequestsMetrics {
     pub vsock_count: SharedIncMetric,
     /// Number of failures in creating a vsock device.
     pub vsock_fails: SharedIncMetric,
+
+    /// Number of PUTs for setting the memory backend
+    pub memory_backend_cfg_count: SharedIncMetric,
+    /// Number of failures in setting the memory backend
+    pub memory_backend_cfg_fails: SharedIncMetric,
 }
 
 /// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
@@ -746,8 +740,6 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
-    /// Failures in configuring the CPUID.
-    pub filter_cpuid: SharedIncMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.
@@ -802,6 +794,24 @@ pub struct VsockDeviceMetrics {
     pub tx_write_fails: SharedIncMetric,
     /// Number of times read() has failed.
     pub rx_read_fails: SharedIncMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct EntropyDeviceMetrics {
+    /// Number of device activation failures
+    pub activate_fails: SharedIncMetric,
+    /// Number of entropy queue event handling failures
+    pub entropy_event_fails: SharedIncMetric,
+    /// Number of entropy requests handled
+    pub entropy_event_count: SharedIncMetric,
+    /// Number of entropy bytes provided to guest
+    pub entropy_bytes: SharedIncMetric,
+    /// Number of errors while getting random bytes on host
+    pub host_rng_fails: SharedIncMetric,
+    /// Number of times an entropy request was rate limited
+    pub entropy_rate_limiter_throttled: SharedIncMetric,
+    /// Number of events associated with the rate limiter
+    pub rate_limiter_event_count: SharedIncMetric,
 }
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
@@ -859,6 +869,8 @@ pub struct FirecrackerMetrics {
     pub signals: SignalMetrics,
     /// Metrics related to virtio-vsockets.
     pub vsock: VsockDeviceMetrics,
+    /// Metrics related to virtio-rng entropy device.
+    pub entropy: EntropyDeviceMetrics,
 }
 
 #[cfg(test)]

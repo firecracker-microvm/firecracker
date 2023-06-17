@@ -3,13 +3,12 @@
 
 use std::convert::TryInto;
 use std::fs::File;
+use std::io;
 use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
-use std::{fmt, io};
 
-use aes_gcm::aead::NewAead;
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use logger::warn;
 use serde::{Deserialize, Serialize};
@@ -46,44 +45,31 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Failed to extract entropy from /dev/urandom entropy pool: {0}.")]
     /// Failed to extract entropy from pool.
-    EntropyPool(io::Error),
+    EntropyPool(#[from] io::Error),
     /// Failed to extract expiry from token sequence.
+    #[error("Failed to extract expiry value from token.")]
     ExpiryExtraction,
     /// Token authority has invalid state.
+    #[error("Invalid token authority state.")]
     InvalidState,
     /// Time to live value for token is invalid.
+    #[error(
+        "Invalid time to live value provided for token: {0}. Please provide a value between {} \
+         and {}.",
+        MIN_TOKEN_TTL_SECONDS,
+        MAX_TOKEN_TTL_SECONDS
+    )]
     InvalidTtlValue(u32),
     /// Token serialization failed.
-    Serialization(BincodeError),
+    #[error("Bincode serialization failed: {0}.")]
+    Serialization(#[from] BincodeError),
     /// Failed to encrypt token.
+    #[error("Failed to encrypt token.")]
     TokenEncryption,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &*self {
-            Error::EntropyPool(err) => {
-                write!(
-                    f,
-                    "Failed to extract entropy from /dev/urandom entropy pool: {}.",
-                    err
-                )
-            }
-            Error::ExpiryExtraction => write!(f, "Failed to extract expiry value from token."),
-            Error::InvalidState => write!(f, "Invalid token authority state."),
-            Error::InvalidTtlValue(value) => write!(
-                f,
-                "Invalid time to live value provided for token: {}. Please provide a value \
-                 between {} and {}.",
-                value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS,
-            ),
-            Error::Serialization(err) => write!(f, "Bincode serialization failed: {}.", err),
-            Error::TokenEncryption => write!(f, "Failed to encrypt token."),
-        }
-    }
 }
 
 pub struct TokenAuthority {
@@ -233,7 +219,7 @@ impl TokenAuthority {
         entropy_pool.read_exact(&mut key)?;
 
         // Create cipher entity to handle encryption/decryption.
-        Ok(Aes256Gcm::new(Key::from_slice(&key)))
+        Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)))
     }
 
     /// Make sure to reinitialize the cipher under a new key before reaching
@@ -264,7 +250,7 @@ impl TokenAuthority {
 
     /// Validate the token time to live against bounds.
     fn check_ttl(ttl_seconds: u32) -> bool {
-        MIN_TOKEN_TTL_SECONDS <= ttl_seconds && ttl_seconds <= MAX_TOKEN_TTL_SECONDS
+        (MIN_TOKEN_TTL_SECONDS..=MAX_TOKEN_TTL_SECONDS).contains(&ttl_seconds)
     }
 
     /// Compute expiry time in seconds by adding the time to live provided
@@ -277,7 +263,7 @@ impl TokenAuthority {
         // to current time (also in milliseconds). This addition is safe
         // because ttl is verified beforehand and can never be more than
         // 6h (21_600_000 ms).
-        now_as_milliseconds.add(ttl_as_seconds as u64 * MILLISECONDS_PER_SECOND)
+        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
     }
 }
 
@@ -378,12 +364,16 @@ mod tests {
         // We allow a deviation of 20ms to account for the gap
         // between the two calls to `get_time_ms()`.
         let deviation = 20;
-        assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
+        assert!(
+            ttl >= MILLISECONDS_PER_SECOND && ttl <= MILLISECONDS_PER_SECOND + deviation,
+            "ttl={ttl} not within [{MILLISECONDS_PER_SECOND}, \
+             {MILLISECONDS_PER_SECOND}+{deviation}]",
+        );
 
         let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(0);
         let ttl = expiry - time_now;
-        assert!(ttl <= deviation);
+        assert!(ttl <= deviation, "ttl={ttl} is greater than {deviation}");
     }
 
     #[test]

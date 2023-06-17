@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to
@@ -90,7 +91,7 @@ pub enum BucketReduction {
 
 /// TokenBucket provides a lower level interface to rate limiting with a
 /// configurable capacity, refill-rate and initial burst.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
@@ -131,7 +132,8 @@ impl TokenBucket {
         // refill_token_count = (delta_time * size) / (complete_refill_time_ms * 1_000_000)
         // In order to avoid overflows, simplify the fractions by computing greatest common divisor.
 
-        let complete_refill_time_ns = complete_refill_time_ms * NANOSEC_IN_ONE_MILLISEC;
+        let complete_refill_time_ns =
+            complete_refill_time_ms.checked_mul(NANOSEC_IN_ONE_MILLISEC)?;
         // Get the greatest common factor between `size` and `complete_refill_time_ns`.
         let common_factor = gcd(size, complete_refill_time_ns);
         // The division will be exact since `common_factor` is a factor of `size`.
@@ -157,15 +159,54 @@ impl TokenBucket {
     // Replenishes token bucket based on elapsed time. Should only be called internally by `Self`.
     fn auto_replenish(&mut self) {
         // Compute time passed since last refill/update.
-        let time_delta = self.last_update.elapsed().as_nanos() as u64;
-        self.last_update = Instant::now();
+        let now = Instant::now();
+        let time_delta = (now - self.last_update).as_nanos();
 
-        // At each 'time_delta' nanoseconds the bucket should refill with:
-        // refill_amount = (time_delta * size) / (complete_refill_time_ms * 1_000_000)
-        // `processed_capacity` and `processed_refill_time` are the result of simplifying above
-        // fraction formula with their greatest-common-factor.
-        let tokens = (time_delta * self.processed_capacity) / self.processed_refill_time;
-        self.budget = std::cmp::min(self.budget + tokens, self.size);
+        if time_delta >= u128::from(self.refill_time * NANOSEC_IN_ONE_MILLISEC) {
+            self.budget = self.size;
+            self.last_update = now;
+        } else {
+            // At each 'time_delta' nanoseconds the bucket should refill with:
+            // refill_amount = (time_delta * size) / (complete_refill_time_ms * 1_000_000)
+            // `processed_capacity` and `processed_refill_time` are the result of simplifying above
+            // fraction formula with their greatest-common-factor.
+
+            // In the constructor, we assured that (self.refill_time * NANOSEC_IN_ONE_MILLISEC)
+            // fits into a u64 That means, at this point we know that time_delta <
+            // u64::MAX. Since all other values here are u64, this assures that u128
+            // multiplication cannot overflow.
+            let processed_capacity = u128::from(self.processed_capacity);
+            let processed_refill_time = u128::from(self.processed_refill_time);
+
+            let tokens = (time_delta * processed_capacity) / processed_refill_time;
+
+            // We increment `self.last_update` by the minimum time required to generate `tokens`, in
+            // the case where we have the time to generate `1.8` tokens but only
+            // generate `x` tokens due to integer arithmetic this will carry the time
+            // required to generate 0.8th of a token over to the next call, such that if
+            // the next call where to generate `2.3` tokens it would instead
+            // generate `3.1` tokens. This minimizes dropping tokens at high frequencies.
+            // We want the integer division here to round up instead of down (as if we round down,
+            // we would allow some fraction of a nano second to be used twice, allowing
+            // for the generation of one extra token in extreme circumstances).
+            let mut time_adjustment = tokens * processed_refill_time / processed_capacity;
+            if tokens * processed_refill_time % processed_capacity != 0 {
+                time_adjustment += 1;
+            }
+
+            // Ensure that we always generate as many tokens as we can: assert that the "unused"
+            // part of time_delta is less than the time it would take to generate a
+            // single token (= processed_refill_time / processed_capacity)
+            debug_assert!(time_adjustment <= time_delta);
+            debug_assert!(
+                (time_delta - time_adjustment) * processed_capacity <= processed_refill_time
+            );
+
+            // time_adjustment is at most time_delta, and since time_delta <= u64::MAX, this cast is
+            // fine
+            self.last_update += Duration::from_nanos(time_adjustment as u64);
+            self.budget = std::cmp::min(self.budget.saturating_add(tokens as u64), self.size);
+        }
     }
 
     /// Attempts to consume `tokens` from the bucket and returns whether the action succeeded.
@@ -221,10 +262,13 @@ impl TokenBucket {
         // budget which should now be replenished, but for performance and code-complexity
         // reasons we're just gonna let that slide since it's practically inconsequential.
         if self.one_time_burst > 0 {
-            self.one_time_burst += tokens;
+            self.one_time_burst = std::cmp::min(
+                self.one_time_burst.saturating_add(tokens),
+                self.initial_one_time_burst,
+            );
             return;
         }
-        self.budget = std::cmp::min(self.budget + tokens, self.size);
+        self.budget = std::cmp::min(self.budget.saturating_add(tokens), self.size);
     }
 
     /// Returns the capacity of the token bucket.
@@ -411,6 +455,7 @@ impl RateLimiter {
                     // order to enforce the bandwidth limit we need to prevent
                     // further calls to the rate limiter for
                     // `ratio * refill_time` milliseconds.
+                    #[allow(clippy::cast_sign_loss)] // ratio is always positive
                     self.activate_timer(TimerState::Oneshot(Duration::from_millis(
                         (ratio * refill_time as f64) as u64,
                     )));
@@ -558,6 +603,60 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_token_bucket_auto_replenish_one() {
+        // These values will give 1 token every 100 milliseconds
+        const SIZE: u64 = 10;
+        const TIME: u64 = 1000;
+        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        tb.reduce(SIZE);
+        assert_eq!(tb.budget(), 0);
+
+        // Auto-replenishing after 10 milliseconds should not yield any tokens
+        thread::sleep(Duration::from_millis(10));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 0);
+
+        // Neither after 20.
+        thread::sleep(Duration::from_millis(10));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 0);
+
+        // We should get 1 token after 100 millis
+        thread::sleep(Duration::from_millis(80));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 1);
+
+        // So, 5 after 500 millis
+        thread::sleep(Duration::from_millis(400));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 5);
+
+        // And be fully replenished after 1 second.
+        // Wait more here to make sure we do not overshoot
+        thread::sleep(Duration::from_millis(1000));
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), 10);
+    }
+
+    #[test]
+    fn test_token_bucket_auto_replenish_two() {
+        const SIZE: u64 = 1000;
+        const TIME: u64 = 1000;
+        let time = Duration::from_millis(TIME);
+
+        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        tb.reduce(SIZE);
+        assert_eq!(tb.budget(), 0);
+
+        let now = Instant::now();
+        while now.elapsed() < time {
+            tb.auto_replenish();
+        }
+        tb.auto_replenish();
+        assert_eq!(tb.budget(), SIZE);
+    }
+
+    #[test]
     fn test_token_bucket_create() {
         let before = Instant::now();
         let tb = TokenBucket::new(1000, 0, 1000).unwrap();
@@ -596,7 +695,7 @@ pub(crate) mod tests {
         // allowing rate of 1 token/ms.
         let capacity = 1000;
         let refill_ms = 1000;
-        let mut tb = TokenBucket::new(capacity, 0, refill_ms as u64).unwrap();
+        let mut tb = TokenBucket::new(capacity, 0, refill_ms).unwrap();
 
         assert_eq!(tb.reduce(123), BucketReduction::Success);
         assert_eq!(tb.budget(), capacity - 123);

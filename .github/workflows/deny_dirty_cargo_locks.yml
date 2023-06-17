@@ -1,0 +1,32 @@
+name: Check no Cargo.lock files are dirty
+
+on: pull_request
+
+jobs:
+  no_dirty_cargo_locks_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: "Check no Cargo.lock files are dirty"
+        run: |
+          exit_code=0
+          is_dirty=0
+          # This breaks for paths with whitespaces in them, but we have an integration test
+          # that prevents those from existing in this repository.
+          for f in $(find . -name 'Cargo.lock' -not -path "./build/*"); do
+            (
+              cd "$(dirname "$f")"
+              cargo --locked metadata --format-version 1 >/dev/null 2>&1
+            ) || is_dirty=$?;
+            # GitHub Actions execute run steps as `bash -e`, so we need the temporary
+            # variable to not exit early.
+            if [ $is_dirty -ne 0 ]; then
+              echo "Lockfile $f is dirty"
+              exit_code=1
+            fi
+          done
+          exit $exit_code

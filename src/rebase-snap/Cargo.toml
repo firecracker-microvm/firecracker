@@ -1,12 +1,16 @@
 [package]
 name = "rebase-snap"
-version = "1.1.0"
+version = "1.5.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 license = "Apache-2.0"
 
+[[bin]]
+name = "rebase-snap"
+bench = false
+
 [dependencies]
-libc = ">=0.2.39"
+libc = "0.2.146"
 
 utils = { path = "../utils" }

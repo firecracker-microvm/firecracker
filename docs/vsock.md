@@ -114,17 +114,16 @@ the guest will be forwarded to AF_UNIX sockets expected to be listening at
 ## Examples
 
 The examples below assume a running microvm, with a vsock device configured as
-shown [above](#setting-up-the-virtio-vsock-device).
+shown [above](#setting-up-the-virtio-vsock-device) and
+[socat](http://www.dest-unreach.org/socat/) version 1.7.4.0 or later.
 
-### Using External Socket Tools (`nc-vsock` and `socat`)
-
-#### Connecting From Host to Guest
+### Connecting From Host to Guest
 
 First, make sure the vsock port is bound and listened to on the guest side.
 Say, port 52:
 
 ```bash
-nc-vsock -l 52
+socat VSOCK-LISTEN:52,fork -
 ```
 
 On the host side, connect to `./v.sock` and issue a connection request to that
@@ -142,9 +141,9 @@ OK 1073741824
 ```
 
 The connection should now be established (in the above example, between
-`nc-vsock` on the guest side, and `socat` on the host side).
+`socat` on the guest and the host side).
 
-#### Connecting From Guest To Host
+### Connecting From Guest To Host
 
 First make sure the AF_UNIX corresponding to your desired port is listened to
 on the host side:
@@ -157,10 +156,10 @@ On the guest side, create an AF_VSOCK socket and connect it to the previously
 chosen port on the host (CID=2):
 
 ```bash
-nc-vsock 2 52
+socat - VSOCK-CONNECT:2:52
 ```
 
 ## Known issues
 
 Vsock snapshot support is currently limited. Please see
-[Snapshotting vsock limitations](snapshotting/snapshot-support.md#vsock-device-limitations).
+[Snapshotting vsock limitation](snapshotting/snapshot-support.md#vsock-device-limitation).

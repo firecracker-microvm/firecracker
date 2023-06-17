@@ -14,7 +14,7 @@ pub enum Error {
     InvalidInt(std::num::ParseIntError),
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, Eq, PartialOrd)]
 #[cfg_attr(test, derive(Debug))]
 pub struct KernelVersion {
     major: u16,
@@ -40,6 +40,7 @@ impl KernelVersion {
             machine: [0; 65],
             domainname: [0; 65],
         };
+        // SAFETY: Safe because the parameters are valid.
         let res = unsafe { uname((&mut name) as *mut utsname) };
 
         if res < 0 {
@@ -47,7 +48,11 @@ impl KernelVersion {
         }
 
         Self::parse(String::from_utf8(
-            name.release.iter().map(|c| *c as u8).collect(),
+            #[allow(clippy::useless_conversion)]
+            name.release
+                .iter()
+                .map(|c| u8::try_from(*c).unwrap())
+                .collect(),
         )?)
     }
 
@@ -59,7 +64,7 @@ impl KernelVersion {
         let mut patch = tokens.next().ok_or(Error::InvalidFormat)?;
 
         // Parse the `patch`, since it may contain other tokens as well.
-        if let Some(index) = patch.find(|c: char| !c.is_digit(10)) {
+        if let Some(index) = patch.find(|c: char| !c.is_ascii_digit()) {
             patch = &patch[..index];
         }
 

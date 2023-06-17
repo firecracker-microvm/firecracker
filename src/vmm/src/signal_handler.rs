@@ -24,7 +24,7 @@ fn exit_with_code(exit_code: FcExitCode) {
     if let Err(err) = METRICS.write() {
         error!("Failed to write metrics while stopping: {}", err);
     }
-    // Safe because we're terminating the process anyway.
+    // SAFETY: Safe because we're terminating the process anyway.
     unsafe { libc::_exit(exit_code as i32) };
 }
 
@@ -32,8 +32,9 @@ macro_rules! generate_handler {
     ($fn_name:ident ,$signal_name:ident, $exit_code:ident, $signal_metric:expr, $body:ident) => {
         #[inline(always)]
         extern "C" fn $fn_name(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
-            // Safe because we're just reading some fields from a supposedly valid argument.
+            // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
             let si_signo = unsafe { (*info).si_signo };
+            // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
             let si_code = unsafe { (*info).si_code };
 
             if num != si_signo || num != $signal_name {
@@ -58,14 +59,15 @@ macro_rules! generate_handler {
 }
 
 fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
-    if si_code != SYS_SECCOMP_CODE as i32 {
+    if si_code != SYS_SECCOMP_CODE {
         // We received a SIGSYS for a reason other than `bad syscall`.
         exit_with_code(FcExitCode::UnexpectedError);
     }
 
-    // Other signals which might do async unsafe things incompatible with the rest of this
+    // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
-    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
+    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
+    let syscall = usize::try_from(syscall).unwrap();
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
@@ -134,8 +136,9 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
     // Just record the metric and allow the process to continue, the EPIPE error needs
     // to be handled at caller level.
 
-    // Safe because we're just reading some fields from a supposedly valid argument.
+    // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
+    // SAFETY: Safe because we're just reading some fields from a supposedly valid argument.
     let si_code = unsafe { (*info).si_code };
 
     if num != si_signo || num != SIGPIPE {
@@ -170,7 +173,8 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, process, thread};
+    #![allow(clippy::undocumented_unsafe_blocks)]
+    use std::{process, thread};
 
     use libc::syscall;
     use seccompiler::sock_filter;
@@ -179,8 +183,6 @@ mod tests {
 
     #[test]
     fn test_signal_handler() {
-        let run_with_kcov = env::var("CARGO_WRAPPER").unwrap_or_else(|_| "".to_string()) == *"kcov";
-
         let child = thread::spawn(move || {
             assert!(register_signal_handlers().is_ok());
 
@@ -236,23 +238,14 @@ mod tests {
         });
         assert!(child.join().is_ok());
 
-        // SIGSYS, which is raised whenever a bad syscall is caught will be intercepted by kcov on
-        // x86_64 and thus not reach Firecracker:
-        // https://github.com/SimonKagstrom/kcov/blob/a8b60c43fb33f56553a2bb20633e3b59a08abae1/src/engines/ptrace.cc#L187
-        // So, we are not checking for the `num_faults` metrics which gets incremented on each bad
-        // syscall if we run with kcov and we are on x86_64.
-        if !(cfg!(target_arch = "x86_64") && run_with_kcov) {
-            assert!(METRICS.seccomp.num_faults.fetch() >= 1);
-        }
+        assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         assert!(METRICS.signals.sigbus.fetch() >= 1);
         assert!(METRICS.signals.sigsegv.fetch() >= 1);
         assert!(METRICS.signals.sigxfsz.fetch() >= 1);
         assert!(METRICS.signals.sigxcpu.fetch() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.fetch() >= 1);
-        if !(cfg!(target_arch = "aarch64") && run_with_kcov) {
-            assert!(METRICS.signals.sigill.fetch() >= 1);
-        }
+        assert!(METRICS.signals.sigill.fetch() >= 1);
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {

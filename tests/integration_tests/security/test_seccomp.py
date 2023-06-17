@@ -4,11 +4,11 @@
 
 import json as json_lib
 import os
-import tempfile
 import platform
+import tempfile
 
-from host_tools.cargo_build import run_seccompiler_bin
 from framework import utils
+from host_tools.cargo_build import run_seccompiler_bin
 
 
 def _get_basic_syscall_list():
@@ -89,8 +89,6 @@ def _run_seccompiler_bin(json_data, basic=False):
 def test_seccomp_ls(bin_seccomp_paths):
     """
     Assert that the seccomp filter denies an unallowed syscall.
-
-    @type: security
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
@@ -136,8 +134,6 @@ def test_advanced_seccomp(bin_seccomp_paths):
     Test that the demo jailer (with advanced seccomp) allows the harmless demo
     binary, denies the malicious demo binary and that an empty allowlist
     denies everything.
-
-    @type: security
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
@@ -243,8 +239,6 @@ def test_advanced_seccomp(bin_seccomp_paths):
 def test_no_seccomp(test_microvm_with_api):
     """
     Test that Firecracker --no-seccomp installs no filter.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"no-seccomp": None})
@@ -260,8 +254,6 @@ def test_no_seccomp(test_microvm_with_api):
 def test_default_seccomp_level(test_microvm_with_api):
     """
     Test that Firecracker installs a seccomp filter by default.
-
-    @type: security
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -279,8 +271,6 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
 
     Test that the Firecracker filters allow a Rust panic to run its
     course without triggering a seccomp violation.
-
-    @type: security
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check

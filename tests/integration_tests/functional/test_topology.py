@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ensuring correctness of CPU and cache topology in the guest."""
 
+import json
 import os
 import platform
-import json
 from ast import literal_eval
 
 import pytest
+
 import framework.utils_cpuid as utils
-import host_tools.network as net_tools
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
@@ -92,8 +92,7 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 
     cache_files = ["level", "type", "size", "coherency_line_size", "number_of_sets"]
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    _, stdout, stderr = ssh_connection.execute_command(
+    _, stdout, stderr = test_microvm.ssh.execute_command(
         "/usr/local/bin/get_cache_info.sh"
     )
     assert stderr.read() == ""
@@ -130,8 +129,6 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -155,8 +152,6 @@ def test_cpu_topology(test_microvm_with_api, network_config, num_vcpus, htt):
 def test_cache_topology(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
-
-    @type: functional
     """
     if htt and PLATFORM == "aarch64":
         pytest.skip("SMT is configurable only on x86.")

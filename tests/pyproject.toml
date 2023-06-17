@@ -1,0 +1,10 @@
+[tool.black]
+# By default config black will ignore `build` directory
+# https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html#command-line-options
+# This project has `build` directory, so override default config here
+exclude = "/(\\.direnv|\\.eggs|\\.git|\\.hg|\\.mypy_cache|\\.nox|\\.tox|\\.venv|venv|\\.svn|\\.ipynb_checkpoints|_build|buck-out|dist|__pypackages__)/"
+
+[tool.isort]
+# https://pycqa.github.io/isort/docs/configuration/multi_line_output_modes.html
+multi_line_output = 3
+profile = "black"

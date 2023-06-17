@@ -5,7 +5,7 @@
 import os
 import platform
 import re
-
+from pathlib import Path
 from shutil import copyfile
 from typing import List
 
@@ -125,7 +125,9 @@ class MicrovmImageS3Fetcher:
                     self._microvm_images_bucket, resource_rel_path, resource_local_path
                 )
 
-            if not os.path.exists(microvm_dest_path):
+            dest_path = Path(microvm_dest_path)
+            dest_path.parent.mkdir(exist_ok=True, parents=True)
+            if not dest_path.exists():
                 copyfile(resource_local_path, microvm_dest_path)
 
             if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
@@ -141,48 +143,6 @@ class MicrovmImageS3Fetcher:
                 # Add the key path to the config dictionary and set
                 # permissions.
                 microvm.ssh_config["ssh_key_path"] = microvm_dest_path
-                os.chmod(microvm_dest_path, 0o400)
-
-    def hardlink_vm_resources(self, microvm_image_name, from_microvm, to_microvm):
-        """Hardlink resources from one microvm to another.
-
-        Assumes the correct microvm image structure for the source vm specified
-        by the `from_microvm` parameter and copies all necessary resources into
-        the destination microvm specified through the `to_microvm` parameter.
-        """
-        for resource_key in self._microvm_images[microvm_image_name]:
-            if resource_key in [
-                self.MICROVM_IMAGE_KERNEL_RELPATH,
-                self.MICROVM_IMAGE_BLOCKDEV_RELPATH,
-            ]:
-                # Kernel and blockdev dirs already exist in the microvm's
-                # allocated resources.
-                continue
-
-            microvm_dest_path = os.path.join(to_microvm.path, resource_key)
-            microvm_source_path = os.path.join(from_microvm.path, resource_key)
-
-            if resource_key.endswith("/"):
-                # Create a new microvm_directory if one is encountered.
-                os.mkdir(microvm_dest_path)
-                continue
-
-            if not os.path.exists(microvm_dest_path):
-                os.link(microvm_source_path, microvm_dest_path)
-
-            if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
-                to_microvm.kernel_file = microvm_dest_path
-
-            if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
-                to_microvm.rootfs_file = microvm_dest_path
-
-            if resource_key.endswith(self.MICROVM_IMAGE_INITRD_FILE_SUFFIX):
-                to_microvm.initrd_file = microvm_dest_path
-
-            if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
-                # Add the key path to the config dictionary and set
-                # permissions.
-                to_microvm.ssh_config["ssh_key_path"] = microvm_dest_path
                 os.chmod(microvm_dest_path, 0o400)
 
     def list_microvm_images(self, capability_filter: List[str] = None):

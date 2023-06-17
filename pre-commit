@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# We avoid checks which require building firecracker due to the issues this introduces when 
-# attempting to interact with the repository from an enviroment in which you cannot build 
+# We avoid checks which require building firecracker due to the issues this introduces when
+# attempting to interact with the repository from an enviroment in which you cannot build
 # firecracker.
 
 # This will only fail when a staged file does not contain an appropriate license
@@ -16,24 +16,23 @@ set -e
 # Audit code base
 cargo audit
 # For every staged file
-for i in $(git diff --name-only --cached); do
+for i in $(git diff --name-only --cached --diff-filter=d); do
     echo $i
     # Get the extension
     filename=$(basename -- "$i")
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # Read rustfmt config, replace '\n' with ','
-        rustfmt_config_1="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
-        # Remove '"'
-        rustfmt_config_2="${rustfmt_config_1//\"}"
+        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
         # We first do a check run, this will fail when it finds a non-matching license.
-        rustfmt $i --check --config $rustfmt_config_2
+        rustfmt $i --check --config $rustfmt_config
         # Run `cargo fmt` for this file
-        rustfmt $i --config $rustfmt_config_2
+        rustfmt $i --config $rustfmt_config
     fi
-    if [ "$extension" == "py" ]; then
-        # Run `black` for this file
+    if [ "$extension" = "py" ]; then
+        # Apply formatters for this file
         black $i
+        isort $i
     fi
     # Add changes to this file (as a result of formatting) to the commit.
     git add $i

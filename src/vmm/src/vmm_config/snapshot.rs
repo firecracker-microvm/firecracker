@@ -9,18 +9,13 @@ use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SnapshotType {
     /// Diff snapshot.
     Diff,
     /// Full snapshot.
+    #[default]
     Full,
-}
-
-impl Default for SnapshotType {
-    fn default() -> Self {
-        SnapshotType::Full
-    }
 }
 
 /// Specifies the method through which guest memory will get populated when
@@ -28,7 +23,7 @@ impl Default for SnapshotType {
 /// 1) A file that contains the guest memory to be loaded,
 /// 2) An UDS where a custom page-fault handler process is listening for
 ///    the UFFD set up by Firecracker to handle its guest memory page faults.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub enum MemBackendType {
     /// Guest memory contents will be loaded from a file.
     File,
@@ -37,7 +32,7 @@ pub enum MemBackendType {
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateSnapshotParams {
     /// This marks the type of snapshot we want to create.
@@ -54,7 +49,7 @@ pub struct CreateSnapshotParams {
 }
 
 /// Stores the configuration that will be used for loading a snapshot.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,
@@ -91,7 +86,7 @@ pub struct LoadSnapshotConfig {
 }
 
 /// Stores the configuration used for managing snapshot memory.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemBackendConfig {
     /// Path to the backend used to handle the guest memory.

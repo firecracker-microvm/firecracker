@@ -1,5 +1,6 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 #![deny(missing_docs)]
 
 //! The library crate that defines common helper functions that are generally used in
@@ -8,7 +9,6 @@
 mod common;
 
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::sync::Arc;
 
@@ -32,44 +32,22 @@ struct sock_fprog {
 pub type BpfProgramRef<'a> = &'a [sock_filter];
 
 /// Binary filter deserialization errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DeserializationError {
     /// Error when doing bincode deserialization.
+    #[error("Bincode deserialization failed: {0}")]
     Bincode(BincodeError),
 }
 
-impl Display for DeserializationError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::DeserializationError::*;
-
-        match *self {
-            Bincode(ref err) => write!(f, "Bincode deserialization failed: {}", err),
-        }
-    }
-}
-
 /// Filter installation errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InstallationError {
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    #[error("Filter length exceeds the maximum size of {BPF_MAX_LEN} instructions ")]
     FilterTooLarge,
     /// Error returned by `prctl`.
+    #[error("`prctl` syscall failed with error code: {0}")]
     Prctl(i32),
-}
-
-impl Display for InstallationError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::InstallationError::*;
-
-        match *self {
-            FilterTooLarge => write!(
-                f,
-                "Filter length exceeds the maximum size of {} instructions ",
-                BPF_MAX_LEN
-            ),
-            Prctl(ref errno) => write!(f, "`prctl` syscall failed with error code: {}", errno),
-        }
-    }
 }
 
 /// Deserialize a BPF file into a collection of usable BPF filters.
@@ -113,6 +91,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
         return Err(InstallationError::FilterTooLarge);
     }
 
+    // SAFETY: Safe because the parameters are valid.
     unsafe {
         {
             let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
@@ -143,12 +122,15 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread;
 
     use super::*;
     use crate::common::BpfProgram;
+
     #[test]
     fn test_deserialize_binary() {
         // Malformed bincode binary.

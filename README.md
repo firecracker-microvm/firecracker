@@ -1,4 +1,8 @@
-![Firecracker Logo Title](docs/images/fc_logo_full_transparent-bg.png)
+<picture>
+   <source media="(prefers-color-scheme: dark)" srcset="docs/images/fc_logo_full_transparent-bg_white-fg.png">
+   <source media="(prefers-color-scheme: light)" srcset="docs/images/fc_logo_full_transparent-bg.png">
+   <img alt="Firecracker Logo Title" width="750" src="docs/images/fc_logo_full_transparent-bg.png">
+</picture>
 
 Our mission is to enable secure, multi-tenant, minimal-overhead execution of
 container and function workloads.
@@ -96,7 +100,7 @@ The **API endpoint** can be used to:
 - Configure the microvm by:
   - Setting the number of vCPUs (the default is 1).
   - Setting the memory size (the default is 128 MiB).
-  - [x86_64 only] Choosing a CPU template (currently, C3 and T2 are available).
+  - Configuring a [CPU template](docs/cpu_templates/cpu-templates.md).
 - Add one or more network interfaces to the microVM.
 - Add one or more read-write or read-only disks to the microVM, each represented
   by a file-backed block device.
@@ -109,6 +113,7 @@ The **API endpoint** can be used to:
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
 - Add a [vsock socket](docs/vsock.md) to the microVM.
+- Add a [entropy device](docs/entropy.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - [x86_64 only] Stop the microVM.
@@ -124,8 +129,8 @@ The **API endpoint** can be used to:
 ## Supported platforms
 
 We continuously test Firecracker on machines with the following CPUs
-micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2 and
-ARM64 Neoverse N1.
+micro-architectures: Intel Skylake, Intel Cascade Lake, Intel Ice Lake, AMD
+Zen 3, ARM64 Neoverse N1 and ARM64 Neoverse V1.
 
 Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
 AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
@@ -150,9 +155,11 @@ plans, check out our [kernel support policy](docs/kernel-policy.md).
 
 - The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
   is not supported for aarch64 enabled microVMs.
-- Configuring CPU templates is only supported for Intel enabled microVMs.
+- If a CPU template is not used on x86_64, overwrites of `MSR_IA32_TSX_CTRL` MSR
+  value will not be preserved after restoring from a snapshot.
 - The `pl031` RTC device on aarch64 does not support interrupts, so guest
   programs which use an RTC alarm (e.g. `hwclock`) will not work.
+- Issues and limitations related to snapshots are described in a [separate document](docs/snapshotting/snapshot-support.md#limitations).
 
 ## Performance
 
@@ -177,7 +184,7 @@ You can get in touch with the Firecracker community in the following ways:
 
 - Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
-  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-oxbm7tqt-GLlze9zZ7sdRSDY6OnXXHg).
+  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-1fecwrorm-x5URTlOzBR2fExTU2mWfug)
   _Note: most of the maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at

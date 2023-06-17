@@ -4,25 +4,22 @@
 
 
 import platform
+
 import pytest
-from framework import utils
+
+from host_tools.cargo_build import cargo
 
 SUCCESS_CODE = 0
 MACHINE = platform.machine()
-TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
-           "{}-unknown-linux-musl".format(MACHINE)]
+TARGETS = [
+    "{}-unknown-linux-gnu".format(MACHINE),
+    "{}-unknown-linux-musl".format(MACHINE),
+]
 
 
-@pytest.mark.parametrize(
-    "target",
-    TARGETS
-)
+@pytest.mark.parametrize("target", TARGETS)
 def test_rust_clippy(target):
     """
     Test that clippy does not generate any errors/warnings.
-
-    @type: build
     """
-    utils.run_cmd(
-        'cargo clippy --target {} --all --profile test'
-        ' -- -D warnings'.format(target))
+    cargo("clippy", f"--target {target} --all --profile test", "-D warnings")

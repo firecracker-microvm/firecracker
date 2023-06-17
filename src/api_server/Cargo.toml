@@ -2,22 +2,25 @@
 name = "api_server"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
-libc = ">=0.2.39"
-serde = { version = ">=1.0.27", features = ["derive"] }
-serde_derive = ">=1.0.27"
-serde_json = ">=1.0.9"
-derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+libc = "0.2.117"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_derive = "1.0.136"
+serde_json = "1.0.78"
+thiserror = "1.0.32"
 
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
 mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-libc = ">=0.2.39"
+libc = "0.2.117"

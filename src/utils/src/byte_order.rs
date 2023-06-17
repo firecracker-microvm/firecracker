@@ -29,6 +29,7 @@ macro_rules! generate_write_fn {
 
 generate_read_fn!(read_le_u16, u16, u8, 2, from_le_bytes);
 generate_read_fn!(read_le_u32, u32, u8, 4, from_le_bytes);
+generate_read_fn!(read_le_u32_from_i8, u32, i8, 4, from_le_bytes);
 generate_read_fn!(read_le_u64, u64, u8, 8, from_le_bytes);
 generate_read_fn!(read_le_i32, i32, i8, 4, from_le_bytes);
 

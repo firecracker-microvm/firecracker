@@ -7,20 +7,20 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from conftest import init_microvm, _test_images_s3_bucket
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
+
+import host_tools.logging as log_tools
+from framework import utils
 from framework.artifacts import (
-    ArtifactCollection,
     Artifact,
+    ArtifactCollection,
     DiskArtifact,
     NetIfaceConfig,
     Snapshot,
     SnapshotMemBackendType,
     SnapshotType,
 )
-from framework import utils
-import host_tools.logging as log_tools
-import host_tools.network as net_tools
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, _test_images_s3_bucket
+from framework.microvm import Microvm
 
 
 class VmInstance:
@@ -98,10 +98,15 @@ class MicrovmBuilder:
         smt=None,
         daemonize=True,
         io_engine=None,
+        monitor_memory=True,
     ):
         """Build a fresh microvm."""
-        vm = init_microvm(
-            self.root_path, self.bin_cloner_path, fc_binary, jailer_binary
+        vm = Microvm(
+            self.root_path,
+            fc_binary_path=fc_binary,
+            jailer_binary_path=jailer_binary,
+            bin_cloner_path=self.bin_cloner_path,
+            monitor_memory=monitor_memory,
         )
         vm.jailer.daemonize = daemonize
         # Start firecracker.
@@ -136,18 +141,17 @@ class MicrovmBuilder:
                 netmask_len=iface.netmask,
                 tapname=iface.tap_name,
             )
-            guest_mac = net_tools.mac_from_ip(iface.guest_ip)
             response = vm.network.put(
                 iface_id=iface.dev_name,
                 host_dev_name=iface.tap_name,
-                guest_mac=guest_mac,
+                guest_mac=iface.guest_mac,
             )
             assert vm.api_session.is_status_no_content(response.status_code)
 
         with open(config.local_path(), encoding="utf-8") as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
-        response = vm.basic_config(
+        vm.basic_config(
             add_root_device=False, boot_args="console=ttyS0 reboot=k panic=1"
         )
 
@@ -169,6 +173,8 @@ class MicrovmBuilder:
             track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )
+        if monitor_memory:
+            vm.memory_monitor.guest_mem_mib = microvm_config["mem_size_mib"]
         assert vm.api_session.is_status_no_content(response.status_code)
 
         vm.vcpus_count = int(microvm_config["vcpu_count"])
@@ -200,15 +206,15 @@ class MicrovmBuilder:
     ):
         """Build a microvm from a snapshot artifact."""
         if vm is None:
-            vm = init_microvm(
+            vm = Microvm(
                 self.root_path,
-                self.bin_cloner_path,
-                fc_binary,
-                jailer_binary,
+                fc_binary_path=fc_binary,
+                jailer_binary_path=jailer_binary,
+                bin_cloner_path=self.bin_cloner_path,
             )
             vm.jailer.daemonize = daemonize
             vm.spawn(log_level="Error", use_ramdisk=use_ramdisk)
-            vm.api_session.untime()
+            vm.time_api_requests = False
 
         metrics_file_path = os.path.join(vm.path, "metrics.log")
         metrics_fifo = log_tools.Fifo(metrics_file_path)
@@ -327,42 +333,10 @@ class MicrovmBuilder:
             io_engine=io_engine,
         )
 
-    def build_vm_nano(
-        self,
-        fc_binary=None,
-        jailer_binary=None,
-        net_ifaces=None,
-        diff_snapshots=False,
-        daemonize=True,
-        io_engine=None,
-    ):
+    def build_vm_nano(self, **kwargs):
         """Create a clean VM in an initial state."""
         return self.build_from_artifacts(
-            "2vcpu_256mb",
-            "vmlinux-4.14",
-            "ubuntu-18.04",
-            None,
-            net_ifaces=net_ifaces,
-            diff_snapshots=diff_snapshots,
-            fc_binary=fc_binary,
-            jailer_binary=jailer_binary,
-            daemonize=daemonize,
-            io_engine=io_engine,
-        )
-
-    def build_vm_micro(
-        self, fc_binary=None, jailer_binary=None, net_ifaces=None, diff_snapshots=False
-    ):
-        """Create a clean VM in an initial state."""
-        return self.build_from_artifacts(
-            "2vcpu_512mb",
-            "vmlinux-4.14",
-            "ubuntu-18.04",
-            None,
-            net_ifaces=net_ifaces,
-            diff_snapshots=diff_snapshots,
-            fc_binary=fc_binary,
-            jailer_binary=jailer_binary,
+            "2vcpu_256mb", "vmlinux-4.14", "ubuntu-18.04", None, **kwargs
         )
 
     def cleanup(self):

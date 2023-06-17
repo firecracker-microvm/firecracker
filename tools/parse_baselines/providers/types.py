@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Define data types and abstractions for parsers."""
 
-import json
-from abc import abstractmethod, ABC
-from collections.abc import Iterator
+from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import AnyStr
+from collections.abc import Iterator
 from typing import List
-
 
 # pylint: disable=R0903
 
@@ -16,27 +13,6 @@ from typing import List
 def nested_dict():
     """Create an infinitely nested dictionary."""
     return defaultdict(nested_dict)
-
-
-class FileDataProvider(Iterator):
-    """File based data provider."""
-
-    def __init__(self, file_path: str):
-        """Construct the file based data provider."""
-        self._file = open(file_path, "r", encoding="utf-8")
-
-    def __iter__(self) -> "FileDataProvider":
-        """Return the iterator object (self)."""
-        return self
-
-    def __next__(self) -> AnyStr:
-        """Get a line of data from the file."""
-        buffer = ""
-        for line in self._file:
-            buffer += line
-            if line == "}\n":
-                return buffer
-        return None
 
 
 class DataParser(ABC):
@@ -90,11 +66,9 @@ class DataParser(ABC):
 
     def parse(self) -> dict:
         """Parse the rows and return baselines."""
-        line = next(self._data_provider)
-        while line:
-            json_line = json.loads(line.strip())
-            measurements = json_line["results"]
-            cpu_model = json_line["custom"]["cpu_model_name"]
+        for row in self._data_provider:
+            measurements = row["results"]
+            cpu_model = row["custom"]["cpu_model"]
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
                 for key in self._baselines_defs:
@@ -120,7 +94,6 @@ class DataParser(ABC):
                         data[test_config].append(st_data)
                     else:
                         data[test_config] = [st_data]
-            line = next(self._data_provider)
 
         self._populate_baselines(None, self._data)
 

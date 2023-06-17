@@ -4,18 +4,26 @@
 //! Provides functionality for a malicious page fault handler
 //! which panics when a page fault occurs.
 
-use nix::poll::{poll, PollFd, PollFlags};
 use std::os::unix::io::AsRawFd;
+
 use uffd::uffd_utils::create_pf_handler;
 
 fn main() {
     let uffd_handler = create_pf_handler();
-    let pollfd = PollFd::new(uffd_handler.uffd.as_raw_fd(), PollFlags::POLLIN);
+
+    let mut pollfd = libc::pollfd {
+        fd: uffd_handler.uffd.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
 
     // Loop, handling incoming events on the userfaultfd file descriptor.
     loop {
-        let _ = poll(&mut [pollfd], -1).expect("Failed to poll");
+        let nready = unsafe { libc::poll(&mut pollfd, 1, -1) };
 
+        if nready == -1 {
+            panic!("Could not poll for events!")
+        }
         // Read an event from the userfaultfd.
         let event = uffd_handler
             .uffd

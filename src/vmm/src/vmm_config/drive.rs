@@ -3,64 +3,44 @@
 
 use std::collections::VecDeque;
 use std::convert::TryInto;
-use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, result};
 
-pub use devices::virtio::block::device::FileEngineType;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-pub use devices::virtio::CacheType;
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
+pub use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::BlockError;
+use crate::devices::virtio::Block;
+pub use crate::devices::virtio::CacheType;
 use crate::Error as VmmError;
 
-type Result<T> = result::Result<T, DriveError>;
-
 /// Errors associated with the operations allowed on a drive.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DriveError {
-    /// Cannot update the block device.
-    BlockDeviceUpdateFailed(io::Error),
-    /// Unable to seek the block device backing file due to invalid permissions or
-    /// the file was corrupted.
+    /// Could not create a Block Device.
+    #[error("Unable to create the block device: {0:?}")]
     CreateBlockDevice(BlockError),
     /// Failed to create a `RateLimiter` object.
+    #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
-    /// Error during drive update (patch).
+    /// Error during block device update (patch).
+    #[error("Unable to patch the block device: {0}")]
     DeviceUpdate(VmmError),
     /// The block device path is invalid.
+    #[error("Invalid block device path: {0}")]
     InvalidBlockDevicePath(String),
-    /// Cannot open block device due to invalid permissions or path.
-    OpenBlockDevice(io::Error),
     /// A root block device was already added.
+    #[error("A root block device already exists!")]
     RootBlockDeviceAlreadyAdded,
 }
 
-impl Display for DriveError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::DriveError::*;
-        match self {
-            CreateBlockDevice(err) => write!(f, "Unable to create the block device {:?}", err),
-            BlockDeviceUpdateFailed(err) => write!(f, "The update operation failed: {}", err),
-            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            DeviceUpdate(err) => write!(f, "Error during drive update (patch): {}", err),
-            InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {}", path),
-            OpenBlockDevice(err) => write!(
-                f,
-                "Cannot open block device. Invalid permission/path: {}",
-                err
-            ),
-            RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
-        }
-    }
-}
+type Result<T> = result::Result<T, DriveError>;
 
 /// Use this structure to set up the Block Device before booting the kernel.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceConfig {
     /// Unique identifier of the drive.
@@ -107,7 +87,7 @@ impl From<&Block> for BlockDeviceConfig {
 
 /// Only provided fields will be updated. I.e. if any optional fields
 /// are missing, they will not be updated.
-#[derive(Debug, Default, Deserialize, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceUpdateConfig {
     /// The drive ID, as provided by the user at creation time.
@@ -203,14 +183,13 @@ impl BlockBuilder {
     }
 
     /// Creates a Block device from a BlockDeviceConfig.
-    pub fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
+    fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
         // check if the path exists
         let path_on_host = PathBuf::from(&block_device_config.path_on_host);
         if !path_on_host.exists() {
-            return Err(DriveError::InvalidBlockDevicePath(format!(
-                "{}",
-                path_on_host.display()
-            )));
+            return Err(DriveError::InvalidBlockDevicePath(
+                path_on_host.display().to_string(),
+            ));
         }
 
         let rate_limiter = block_device_config
@@ -220,7 +199,7 @@ impl BlockBuilder {
             .map_err(DriveError::CreateRateLimiter)?;
 
         // Create and return the Block device
-        devices::virtio::Block::new(
+        Block::new(
             block_device_config.drive_id,
             block_device_config.partuuid,
             block_device_config.cache_type,

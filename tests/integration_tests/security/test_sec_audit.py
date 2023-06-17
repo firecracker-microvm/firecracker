@@ -5,9 +5,9 @@
 
 import pytest
 
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
-from framework import utils
 from framework import defs
+from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from host_tools.cargo_build import cargo
 
 
 @pytest.mark.skipif(
@@ -17,8 +17,10 @@ from framework import defs
 def test_cargo_audit():
     """
     Run cargo audit to check for crates with security vulnerabilities.
-
-    @type: security
     """
     # Run command and raise exception if non-zero return code
-    utils.run_cmd("cargo audit --deny warnings -q", cwd=defs.FC_WORKSPACE_DIR)
+    cargo(
+        "audit",
+        "--deny warnings -q",
+        cwd=defs.FC_WORKSPACE_DIR,
+    )

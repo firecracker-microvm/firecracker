@@ -1,22 +1,26 @@
 [package]
 name = "seccompiler"
-version = "1.1.0"
+version = "1.5.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 description = "Program that compiles multi-threaded seccomp-bpf filters expressed as JSON into raw BPF programs, serializing them and outputting them to a file."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [[bin]]
 name = "seccompiler-bin"
 path = "src/seccompiler_bin.rs"
+bench = false
 
 [dependencies]
 bincode = "1.2.1"
-libc = ">=0.2.39"
-serde = { version = ">=1.0.27", features = ["derive"] }
-serde_json = ">=1.0.9"
-derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+libc = "0.2.146"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.78"
+thiserror = "1.0.32"
 
 utils = { path = "../utils" }

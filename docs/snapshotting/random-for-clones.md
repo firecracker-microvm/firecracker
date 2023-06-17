@@ -14,9 +14,13 @@ pre-snapshot logic.
 
 ## Background
 
-The Linux kernel exposes three main `RNG` interfaces to userspace:
-the `/dev/random` and `/dev/urandom` special devices, and the
-`getrandom` syscall, which are described in the [random(7) man page][1] .
+The Linux kernel exposes three main `RNG` interfaces to userspace: the
+`/dev/random` and `/dev/urandom` special devices, and the `getrandom` syscall,
+which are described in the [random(7) man page][1]. Moreover, Firecracker
+supports the [`virtio-rng`](../entropy.md) device which can provide additional
+entropy to guest VMs. It draws its random bytes from the [`aws-lc-rs`][8] crate
+which wraps the [`AWS-LC` cryptographic library][9].
+
 Traditionally, `/dev/random` has been considered a source of “true”
 randomness, with the downside that reads block when the pool of entropy
 gets depleted. On the other hand, `/dev/urandom` doesn’t block, but
@@ -53,12 +57,19 @@ multiple parameters (such as timer data, or output from `CPU HWRNG`
 instructions which are present on Ivy Bridge or newer Intel processors
 and enabled in a Firecracker guest) are mixed with each result. Extra
 bits are mixed in both when reading random values, and in conjunction
-with entropy related events such as interrupts. There are two questions
-here: is the `CPU HWRNG` output always mixed in when the feature is
-present (as opposed to only when the `CPU HWRNG` is trusted), and is the
-added noise strong enough to consider the final RNG output sufficiently
-divergent from all other clones (at least until the clone gets to run
-for a sufficient amount of time to gather some more entropy by itself)?
+with entropy related events such as interrupts. Moreover, the guest kernel
+will eventually receive fresh entropy from `virtio-rng`, if attached. There are
+two questions here:
+
+* Is the `CPU HWRNG` output always mixed in when
+  the feature is present (as opposed to only when the `CPU HWRNG` is trusted)?
+* Is the added noise strong enough to consider the final RNG output
+  sufficiently divergent from all other clones?
+
+Both these questions are particularly relevant immediately after resuming
+a VM from a snapshot. After the VM gets to run for a "sufficient" amount of time
+it should be able to gather some more entropy by itself and its state should
+be sufficiently divergent that of any other clones.
 
 It seems the `CPU HWRNG` is always added to mix when present. More
 specifically, [page 32 point 1 (at the top of the page)][3]
@@ -114,22 +125,24 @@ the read result via bind mounting another file on top of
   important, bind mount another file on top of it.
 * If microVMs run on machines with IvyBridge or newer Intel processors
   (which provide RDRAND; in addition, RDSEED is offered starting with
-  Broadwell), and the noise implicitly added when random values are
-  generated is considered sufficient, then nothing else has to be done.
-* Otherwise, the conservative approach is to do the following (before
-  customer code continues its run in the clone):
+  Broadwell). Hardware supported reseeding is done on a cadence defined
+  by the Linux Kernel and should be sufficient for most cases.
+* Use `virtio-rng`. When present, the guest kernel uses the device as an
+  additional source of entropy.
+* To be as safe as possible, the direct approach is to do the following (before
+  customer code is resumed in the clone):
   1. Open one of the special devices files (either `/dev/random` or
-     `/dev/urandom`).
-  1. Issue an `RNDCLEARPOOL ioctl` (requires `CAP_SYS_ADMIN`). This
-     clears and sets the entropy pools to the initial state. Should also
-     cause the reinitialization of the `/dev/urandom` `CSPRNG`.
-  1. Issue an `RNDADDENTROPY ioctl` (requires `CAP_SYS_ADMIN`) to mix
-     the provided bytes into the input entropy pool and increase the
-     entropy count. This should also cause the `/dev/urandom` `CSPRNG`
-     to be reseeded. The bytes can be generated locally in the guest,
-     or obtained from the host. Starting with version 4.17 of the
-     kernel, there’s a new ioctl request (`RNDRESEEDCRNG`) that
-     specifically causes the `CSPRNG` to be reseeded from the input pool.
+     `/dev/urandom`). Take note that `RNDCLEARPOOL` no longer
+     [has any effect][7] on the entropy pool.
+  1. Issue an `RNDADDENTROPY` ioctl call (requires `CAP_SYS_ADMIN`)
+   to mix the provided bytes into the input
+   entropy pool and increase the entropy count.
+   This should also cause the `/dev/urandom` `CSPRNG`
+   to be reseeded. The bytes can be generated locally in the guest,
+   or obtained from the host.
+  1. Issue a `RNDRESEEDCRNG` ioctl call
+      ([4.14][5], [5.10][6], (requires `CAP_SYS_ADMIN`)) that specifically
+      causes the `CSPRNG` to be reseeded from the input pool.
 
 **Annex 1 contains the source code of a C program which implements the
 previous three steps.** As soon as the guest kernel version switches to
@@ -137,7 +150,8 @@ previous three steps.** As soon as the guest kernel version switches to
 option (or the random.trust_cpu=on cmdline parameter) to have the
 entropy pool automatically refilled using the `CPU HWRNG`, so step 3
 would no longer be necessary. Another way around step 3 is to attach a
-`virtio-rng` device, but that’s not currently supported by Firecracker.
+`virtio-rng` device. However, we cannot control when the guest kernel will
+request for random bytes from the device.
 
 ## Annex 1: Source code that clears and reinitializes the entropy pool
 
@@ -219,3 +233,8 @@ int main(int argc, char ** argv) {
 [2]: https://www.2uo.de/myths-about-urandom
 [3]: https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/Studies/LinuxRNG/LinuxRNG_EN.pdf
 [4]: http://man7.org/linux/man-pages/man4/random.4.html
+[5]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1355
+[6]: https://elixir.bootlin.com/linux/v5.10.147/source/drivers/char/random.c#L1360
+[7]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1351
+[8]: https://docs.rs/aws-lc-rs/latest/aws_lc_rs/index.html
+[9]: https://github.com/aws/aws-lc

@@ -41,6 +41,15 @@ The guest kernel configs used in our validation pipelines
 can be found [here](../resources/guest_configs/) while a breakdown
 of the relevant guest kernel modules can be found in the next section.
 
+**Note**
+Be sure to check feature compatibility between host, guest kernels
+and the hardware.
+For the combination of 4.14 host and 5.10 guest kernels we are using
+different configuration of the guest kernel with SVE extension disabled.
+This is due to the introduction of the SVE extension in Graviton3,
+which causes the default 5.10 guest kernel, which has SVE support,
+to crash if run on top of the host with 4.14 kernel which does not support SVE.
+
 ## Guest kernel modules
 
 Below is a per-functionality breakdown of guest kernel modules
@@ -127,13 +136,13 @@ registers incompatibility.
 <table>
   <tr>
     <th></th>
-    <th>Snapshot taken on host 4.15</th>
+    <th>Snapshot taken on host 4.14</th>
     <th>Snapshot taken on host 5.10</th>
   </tr>
   <tr>
-    <th>Load snapshot on host 4.15</th>
+    <th>Load snapshot on host 4.14</th>
     <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">unsuccessful due to mismatch in MSRs</td>
   </tr>
   <tr>
     <th>Load snapshot on host 5.10</th>

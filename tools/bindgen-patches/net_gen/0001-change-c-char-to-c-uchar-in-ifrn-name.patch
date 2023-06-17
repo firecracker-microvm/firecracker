@@ -1,0 +1,11 @@
+--- a/src/iff.rs	2022-05-24 21:21:30.126264289 +0200
++++ b/src/iff.rs	2022-05-24 21:21:58.758061199 +0200
+@@ -3303,7 +3303,7 @@
+ #[repr(C)]
+ #[derive(Copy, Clone)]
+ pub union ifreq__bindgen_ty_1 {
+-    pub ifrn_name: [::std::os::raw::c_char; 16usize],
++    pub ifrn_name: [::std::os::raw::c_uchar; 16usize],
+ }
+ #[test]
+ fn bindgen_test_layout_ifreq__bindgen_ty_1() {

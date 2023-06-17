@@ -1,7 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -11,18 +10,19 @@ use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
 use tests::{
-    build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    build_and_boot_microvm, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
     MockVmm as Vmm,
 };
 
 use super::Error as VmmError;
 #[cfg(not(test))]
 use super::{
-    builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
+    builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
-use crate::persist::{CreateSnapshotError, LoadSnapshotError};
+use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -31,9 +31,10 @@ use crate::vmm_config::balloon::{
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
+use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError, VmUpdateConfig};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -48,7 +49,7 @@ use crate::{EventManager, FcExitCode};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted.
@@ -95,6 +96,8 @@ pub enum VmmAction {
     Pause,
     /// Repopulate the MMDS contents.
     PutMMDS(Value),
+    /// Configure the guest vCPU features.
+    PutCpuConfiguration(CustomCpuTemplate),
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
@@ -110,6 +113,9 @@ pub enum VmmAction {
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
     SetVsockDevice(VsockDeviceConfig),
+    /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
+    /// before the microVM has booted.
+    SetEntropyDevice(EntropyDeviceConfig),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -127,102 +133,81 @@ pub enum VmmAction {
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
-    UpdateVmConfiguration(VmUpdateConfig),
+    UpdateVmConfiguration(MachineConfigUpdate),
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, derive_more::From)]
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
+    #[error("{0}")]
     BalloonConfig(BalloonConfigError),
     /// The action `ConfigureBootSource` failed because of bad user input.
+    #[error("{0}")]
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
+    #[error("{0}")]
     CreateSnapshot(CreateSnapshotError),
+    /// The action `ConfigureCpu` failed.
+    #[error("{0}")]
+    ConfigureCpu(GuestConfigError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
+    #[error("{0}")]
     DriveConfig(DriveError),
+    /// `SetEntropyDevice` action failed because of bad user input.
+    #[error("{0}")]
+    EntropyDevice(EntropyDeviceError),
     /// Internal Vmm error.
+    #[error("Internal Vmm error: {0}")]
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
+    #[error("Load microVM snapshot error: {0}")]
     LoadSnapshot(LoadSnapshotError),
-    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
-    LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
+    #[error("{0}")]
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
     /// input.
+    #[error("{0}")]
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
+    #[error("{0}")]
     Metrics(MetricsConfigError),
     /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
     #[from(ignore)]
+    #[error("{0}")]
     Mmds(data_store::Error),
     /// The action `SetMmdsConfiguration` failed because of bad user input.
+    #[error("{0}")]
     MmdsConfig(MmdsConfigError),
     /// Mmds contents update failed due to exceeding the data store limit.
     #[from(ignore)]
+    #[error("{0}")]
     MmdsLimitExceeded(data_store::Error),
     /// The action `InsertNetworkDevice` failed because of bad user input.
+    #[error("{0}")]
     NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported.
+    #[error("The requested operation is not supported: {0}")]
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
+    #[error("The requested operation is not supported after starting the microVM.")]
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
+    #[error("The requested operation is not supported before starting the microVM.")]
     OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed because of an internal error.
+    #[error("{0}")]
     StartMicrovm(StartMicrovmError),
     /// The action `SetVsockDevice` failed because of bad user input.
+    #[error("{0}")]
     VsockConfig(VsockConfigError),
-}
-
-impl Display for VmmActionError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::VmmActionError::*;
-
-        write!(
-            f,
-            "{}",
-            match self {
-                BalloonConfig(err) => err.to_string(),
-                BootSource(err) => err.to_string(),
-                CreateSnapshot(err) => err.to_string(),
-                DriveConfig(err) => err.to_string(),
-                InternalVmm(err) => format!("Internal Vmm error: {}", err),
-                LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
-                LoadSnapshotNotAllowed => {
-                    "Loading a microVM snapshot not allowed after configuring boot-specific \
-                     resources."
-                        .to_string()
-                }
-                Logger(err) => err.to_string(),
-                MachineConfig(err) => err.to_string(),
-                Metrics(err) => err.to_string(),
-                Mmds(err) => err.to_string(),
-                MmdsConfig(err) => err.to_string(),
-                MmdsLimitExceeded(err) => err.to_string(),
-                NetworkConfig(err) => err.to_string(),
-                NotSupported(err) => format!("The requested operation is not supported: {}", err),
-                OperationNotSupportedPostBoot => {
-                    "The requested operation is not supported after starting the microVM."
-                        .to_string()
-                }
-                OperationNotSupportedPreBoot => {
-                    "The requested operation is not supported before starting the microVM."
-                        .to_string()
-                }
-                StartMicrovm(err) => err.to_string(),
-                // The action `SetVsockDevice` failed because of bad user input.
-                VsockConfig(err) => err.to_string(),
-            }
-        )
-    }
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmmData {
     /// The balloon device configuration.
     BalloonConfig(BalloonDeviceConfig),
@@ -233,7 +218,7 @@ pub enum VmmData {
     /// The complete microVM configuration in JSON format.
     FullVmConfig(VmmConfig),
     /// The microVM configuration represented by `VmConfig`.
-    MachineConfiguration(VmConfig),
+    MachineConfiguration(MachineConfig),
     /// Mmds contents.
     MmdsValue(serde_json::Value),
     /// The microVM instance information.
@@ -301,6 +286,20 @@ impl MmdsRequestHandler for PrebootApiController<'_> {
     }
 }
 
+/// Error type for [`PrebootApiController::load_snapshot`]
+#[derive(Debug, thiserror::Error)]
+pub enum LoadSnapshotError {
+    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
+    #[error("Loading a microVM snapshot not allowed after configuring boot-specific resources.")]
+    LoadSnapshotNotAllowed,
+    /// Failed to restore from snapshot.
+    #[error("Failed to restore from snapshot: {0}")]
+    RestoreFromSnapshot(#[from] RestoreFromSnapshotError),
+    /// Failed to resume microVM.
+    #[error("Failed to resume microVM: {0}")]
+    ResumeMicrovm(#[from] VmmError),
+}
+
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
@@ -355,7 +354,7 @@ impl<'a> PrebootApiController<'a> {
             vm_resources
                 .locked_mmds_or_default()
                 .put_data(
-                    serde_json::from_str(&data)
+                    serde_json::from_str(data)
                         .expect("MMDS error: metadata provided not valid json"),
                 )
                 .map_err(|err| {
@@ -414,15 +413,20 @@ impl<'a> PrebootApiController<'a> {
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.vm_config().clone(),
-            )),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
+                &self.vm_resources.vm_config,
+            ))),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
-            LoadSnapshot(config) => self.load_snapshot(&config),
+            LoadSnapshot(config) => self
+                .load_snapshot(&config)
+                .map_err(VmmActionError::LoadSnapshot),
             PatchMMDS(value) => self.patch_mmds(value),
+            PutCpuConfiguration(custom_cpu_template) => {
+                self.set_custom_cpu_template(custom_cpu_template)
+            }
             PutMMDS(value) => self.put_mmds(value),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
@@ -430,6 +434,7 @@ impl<'a> PrebootApiController<'a> {
             SetMemoryBackend(config) => self.set_memory_backend(config),
             StartMicroVm => self.start_microvm(),
             UpdateVmConfiguration(config) => self.update_vm_config(config),
+            SetEntropyDevice(config) => self.set_entropy_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
             | FlushMetrics
@@ -487,7 +492,7 @@ impl<'a> PrebootApiController<'a> {
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
-            .set_boot_source(cfg)
+            .build_boot_source(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::BootSource)
     }
@@ -500,12 +505,17 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MmdsConfig)
     }
 
-    fn update_vm_config(&mut self, cfg: VmUpdateConfig) -> ActionResult {
+    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
             .update_vm_config(&cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MachineConfig)
+    }
+
+    fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) -> ActionResult {
+        self.vm_resources.set_custom_cpu_template(cpu_template);
+        Ok(VmmData::Empty)
     }
 
     fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
@@ -516,13 +526,19 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::VsockConfig)
     }
 
+    fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> ActionResult {
+        self.boot_path = true;
+        self.vm_resources.build_entropy_device(cfg)?;
+        Ok(VmmData::Empty)
+    }
+
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> ActionResult {
-        build_microvm_for_boot(
+        build_and_boot_microvm(
             &self.instance_info,
-            &self.vm_resources,
-            &mut self.event_manager,
+            self.vm_resources,
+            self.event_manager,
             self.seccomp_filters,
         )
         .map(|vmm| {
@@ -534,13 +550,16 @@ impl<'a> PrebootApiController<'a> {
 
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
-    fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
+    fn load_snapshot(
+        &mut self,
+        load_params: &LoadSnapshotParams,
+    ) -> std::result::Result<VmmData, LoadSnapshotError> {
         log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         if self.boot_path {
-            let err = VmmActionError::LoadSnapshotNotAllowed;
+            let err = LoadSnapshotError::LoadSnapshotNotAllowed;
             info!("{}", err);
             return Err(err);
         }
@@ -549,32 +568,33 @@ impl<'a> PrebootApiController<'a> {
             self.vm_resources.set_track_dirty_pages(true);
         }
 
-        let result = restore_from_snapshot(
+        // Restore VM from snapshot
+        let vmm = restore_from_snapshot(
             &self.instance_info,
-            &mut self.event_manager,
+            self.event_manager,
             self.seccomp_filters,
             load_params,
             VERSION_MAP.clone(),
             self.vm_resources,
         )
-        .and_then(|vmm| {
-            let ret = if load_params.resume_vm {
-                vmm.lock().expect("Poisoned lock").resume_vm()
-            } else {
-                Ok(())
-            };
-
-            ret.map(|()| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(LoadSnapshotError::ResumeMicroVm)
-        })
         .map_err(|err| {
-            // The process is too dirty to recover at this point.
+            // If restore fails, we consider the process is too dirty to recover.
             self.fatal_error = Some(FcExitCode::BadConfiguration);
-            VmmActionError::LoadSnapshot(err)
-        });
+            err
+        })?;
+        // Resume VM
+        if load_params.resume_vm {
+            vmm.lock()
+                .expect("Poisoned lock")
+                .resume_vm()
+                .map_err(|err| {
+                    // If resume fails, we consider the process is too dirty to recover.
+                    self.fatal_error = Some(FcExitCode::BadConfiguration);
+                    err
+                })?;
+        }
+        // Set the VM
+        self.built_vmm = Some(vmm);
 
         log_dev_preview_warning(
             "Virtual machine snapshots",
@@ -587,7 +607,7 @@ impl<'a> PrebootApiController<'a> {
             )),
         );
 
-        result
+        Ok(VmmData::Empty)
     }
 }
 
@@ -627,9 +647,9 @@ impl RuntimeApiController {
                 .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.vm_config().clone(),
-            )),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
+                &self.vm_resources.vm_config,
+            ))),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
             )),
@@ -666,10 +686,12 @@ impl RuntimeApiController {
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
+            | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
             | SetMemoryBackend(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
+            | SetEntropyDevice(_)
             | StartMicroVm
             | UpdateVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -744,9 +766,15 @@ impl RuntimeApiController {
         // }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
+        let vm_info = VmInfo::from(&self.vm_resources);
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())?;
+        create_snapshot(
+            &mut locked_vmm,
+            &vm_info,
+            create_params,
+            VERSION_MAP.clone(),
+        )?;
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
@@ -816,17 +844,22 @@ impl RuntimeApiController {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::path::PathBuf;
 
-    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
-    use devices::virtio::VsockError;
     use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
     use super::*;
+    use crate::cpu_config::templates::test_utils::build_test_template;
+    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
+    use crate::devices::virtio::rng::Error as EntropyError;
+    use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
@@ -842,7 +875,6 @@ mod tests {
                     | (DriveConfig(_), DriveConfig(_))
                     | (InternalVmm(_), InternalVmm(_))
                     | (LoadSnapshot(_), LoadSnapshot(_))
-                    | (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed)
                     | (Logger(_), Logger(_))
                     | (MachineConfig(_), MachineConfig(_))
                     | (Metrics(_), Metrics(_))
@@ -855,6 +887,7 @@ mod tests {
                     | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
                     | (StartMicrovm(_), StartMicrovm(_))
                     | (VsockConfig(_), VsockConfig(_))
+                    | (EntropyDevice(_), EntropyDevice(_))
             )
         }
     }
@@ -862,15 +895,17 @@ mod tests {
     // Mock `VmResources` used for testing.
     #[derive(Default)]
     pub struct MockVmRes {
-        vm_config: VmConfig,
+        pub vm_config: VmConfig,
         pub balloon: BalloonBuilder,
         pub vsock: VsockBuilder,
         balloon_config_called: bool,
         balloon_set: bool,
+        boot_src: BootSourceConfig,
         boot_cfg_set: bool,
         block_set: bool,
         vsock_set: bool,
         net_set: bool,
+        entropy_set: bool,
         pub mmds: Option<Arc<Mutex<Mmds>>>,
         pub mmds_size_limit: usize,
         pub boot_timer: bool,
@@ -880,10 +915,6 @@ mod tests {
     }
 
     impl MockVmRes {
-        pub fn vm_config(&self) -> &VmConfig {
-            &self.vm_config
-        }
-
         pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
             if self.force_errors {
                 return Err(BalloonError::DeviceNotFound);
@@ -893,7 +924,7 @@ mod tests {
         }
 
         pub fn track_dirty_pages(&self) -> bool {
-            self.vm_config().track_dirty_pages
+            self.vm_config.track_dirty_pages
         }
 
         pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
@@ -902,17 +933,13 @@ mod tests {
 
         pub fn update_vm_config(
             &mut self,
-            machine_config: &VmUpdateConfig,
+            update: &MachineConfigUpdate,
         ) -> Result<(), VmConfigError> {
             if self.force_errors {
                 return Err(VmConfigError::InvalidVcpuCount);
             }
 
-            self.vm_config.vcpu_count = machine_config.vcpu_count.unwrap();
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib.unwrap();
-            self.vm_config.smt = machine_config.smt.unwrap();
-            self.vm_config.cpu_template = machine_config.cpu_template.unwrap();
-            self.vm_config.track_dirty_pages = machine_config.track_dirty_pages.unwrap();
+            self.vm_config.update(update)?;
 
             Ok(())
         }
@@ -928,17 +955,22 @@ mod tests {
             Ok(())
         }
 
-        pub fn set_boot_source(
+        pub fn build_boot_source(
             &mut self,
-            _: BootSourceConfig,
+            boot_source: BootSourceConfig,
         ) -> Result<(), BootSourceConfigError> {
             if self.force_errors {
                 return Err(BootSourceConfigError::InvalidKernelPath(
                     std::io::Error::from_raw_os_error(0),
                 ));
             }
+            self.boot_src = boot_source;
             self.boot_cfg_set = true;
             Ok(())
+        }
+
+        pub fn boot_source_config(&self) -> &BootSourceConfig {
+            &self.boot_src
         }
 
         pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
@@ -970,6 +1002,19 @@ mod tests {
             Ok(())
         }
 
+        pub fn build_entropy_device(
+            &mut self,
+            _: EntropyDeviceConfig,
+        ) -> Result<(), EntropyDeviceError> {
+            if self.force_errors {
+                return Err(EntropyDeviceError::CreateDevice(EntropyError::EventFd(
+                    io::Error::from_raw_os_error(0),
+                )));
+            }
+            self.entropy_set = true;
+            Ok(())
+        }
+
         pub fn set_mmds_config(
             &mut self,
             mmds_config: MmdsConfig,
@@ -998,6 +1043,11 @@ mod tests {
             let mmds = self.mmds_or_default();
             mmds.lock().expect("Poisoned lock")
         }
+
+        /// Update the CPU configuration for the guest.
+        pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
+            self.vm_config.set_custom_cpu_template(cpu_template);
+        }
     }
 
     impl From<&MockVmRes> for VmmConfig {
@@ -1006,8 +1056,19 @@ mod tests {
         }
     }
 
+    impl From<&MockVmRes> for VmInfo {
+        fn from(value: &MockVmRes) -> Self {
+            Self {
+                mem_size_mib: value.vm_config.mem_size_mib as u64,
+                smt: value.vm_config.smt,
+                cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+                boot_source: value.boot_source_config().clone(),
+            }
+        }
+    }
+
     // Mock `Vmm` used for testing.
-    #[derive(Debug, Default, PartialEq)]
+    #[derive(Debug, Default, PartialEq, Eq)]
     pub struct MockVmm {
         pub balloon_config_called: bool,
         pub latest_balloon_stats_called: bool,
@@ -1044,7 +1105,7 @@ mod tests {
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::I8042Error(
-                    devices::legacy::I8042DeviceError::InternalBufferFull,
+                    crate::devices::legacy::I8042DeviceError::InternalBufferFull,
                 ));
             }
             self.send_ctrl_alt_del_called = true;
@@ -1086,7 +1147,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1112,7 +1173,7 @@ mod tests {
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                    crate::device_manager::mmio::Error::InvalidDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -1130,7 +1191,7 @@ mod tests {
 
     // Need to redefine this since the non-test one uses real VmResources
     // and real Vmm instead of our mocks.
-    pub fn build_microvm_for_boot(
+    pub fn build_and_boot_microvm(
         _: &InstanceInfo,
         _: &VmResources,
         _: &mut EventManager,
@@ -1143,6 +1204,7 @@ mod tests {
     // instead of our mocks.
     pub fn create_snapshot(
         _: &mut Vmm,
+        _: &VmInfo,
         _: &CreateSnapshotParams,
         _: versionize::VersionMap,
     ) -> std::result::Result<(), CreateSnapshotError> {
@@ -1158,7 +1220,7 @@ mod tests {
         _: &LoadSnapshotParams,
         _: versionize::VersionMap,
         _: &mut MockVmRes,
-    ) -> Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
+    ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
 
@@ -1235,7 +1297,7 @@ mod tests {
     #[test]
     fn test_preboot_get_vm_config() {
         let req = VmmAction::GetVmMachineConfig;
-        let expected_cfg = VmConfig::default();
+        let expected_cfg = MachineConfig::default();
         check_preboot_request(req, |result, _| {
             assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
         });
@@ -1259,15 +1321,30 @@ mod tests {
     }
 
     #[test]
-    fn test_preboot_set_vm_config() {
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
-        let expected_cfg = VmConfig::default();
+    fn test_preboot_put_cpu_config() {
+        // Start testing - Provide VMM vCPU configuration in preparation for `InstanceStart`
+        let req = VmmAction::PutCpuConfiguration(build_test_template());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
-            assert_eq!(vm_res.vm_config, expected_cfg);
+            assert_eq!(
+                vm_res.vm_config.cpu_template,
+                Some(CpuTemplateType::Custom(build_test_template()))
+            );
+        });
+    }
+
+    #[test]
+    fn test_preboot_set_vm_config() {
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
+        let expected_cfg = MachineConfig::default();
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(MachineConfig::from(&vm_res.vm_config), expected_cfg);
         });
 
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
         check_preboot_request_err(
             req,
             VmmActionError::MachineConfig(VmConfigError::InvalidVcpuCount),
@@ -1374,6 +1451,15 @@ mod tests {
                 VsockError::BufDescMissing,
             )),
         );
+    }
+
+    #[test]
+    fn test_preboot_set_entropy_device() {
+        let req = VmmAction::SetEntropyDevice(EntropyDeviceConfig::default());
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.entropy_set);
+        });
     }
 
     #[test]
@@ -1816,7 +1902,7 @@ mod tests {
         check_runtime_request(req, |result, _| {
             assert_eq!(
                 result,
-                Ok(VmmData::MachineConfiguration(VmConfig::default()))
+                Ok(VmmData::MachineConfiguration(MachineConfig::default()))
             );
         });
     }
@@ -1858,7 +1944,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::InternalVmm(VmmError::I8042Error(
-                devices::legacy::I8042DeviceError::InternalBufferFull,
+                crate::devices::legacy::I8042DeviceError::InternalBufferFull,
             )),
         );
     }
@@ -1948,7 +2034,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::IncorrectDeviceType,
+                crate::device_manager::mmio::Error::InvalidDeviceType,
             ))),
         );
     }
@@ -1973,7 +2059,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::IncorrectDeviceType),
+                VmmError::DeviceManager(crate::device_manager::mmio::Error::InvalidDeviceType),
             )),
         );
     }
@@ -2051,7 +2137,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
-            VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default())),
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default())),
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
@@ -2064,6 +2150,10 @@ mod tests {
                 enable_diff_snapshots: false,
                 resume_vm: false,
             }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::SetEntropyDevice(EntropyDeviceConfig::default()),
             VmmActionError::OperationNotSupportedPostBoot,
         );
     }
@@ -2089,7 +2179,9 @@ mod tests {
         let err = preboot.handle_preboot_request(req);
         assert_eq!(
             err,
-            Err(VmmActionError::LoadSnapshotNotAllowed),
+            Err(VmmActionError::LoadSnapshot(
+                LoadSnapshotError::LoadSnapshotNotAllowed
+            )),
             "LoadSnapshot should be disallowed after {}",
             res_name
         );
@@ -2132,7 +2224,8 @@ mod tests {
         });
         verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 
-        let req = VmmAction::UpdateVmConfiguration(VmUpdateConfig::from(VmConfig::default()));
+        let req =
+            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
         verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {

@@ -2,28 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Misc data format validations, shared by multiple Firecracker components.
-use std::fmt;
 
 const MAX_INSTANCE_ID_LEN: usize = 64;
 const MIN_INSTANCE_ID_LEN: usize = 1;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    InvalidChar(char, usize),        // (char, position)
+    #[error("Invalid char ({0}) at position {1}")]
+    InvalidChar(char, usize), // (char, position)
+    #[error("Invalid len ({0});  the length must be between {1} and {2}")]
     InvalidLen(usize, usize, usize), // (length, min, max)
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::InvalidChar(ch, pos) => write!(f, "invalid char ({}) at position {}", ch, pos),
-            Error::InvalidLen(len, min_len, max_len) => write!(
-                f,
-                "invalid len ({});  the length must be between {} and {}",
-                len, min_len, max_len
-            ),
-        }
-    }
 }
 
 /// Checks that the instance id only contains alphanumeric chars and hyphens
@@ -52,12 +40,12 @@ mod tests {
     fn test_validate_instance_id() {
         assert_eq!(
             format!("{}", validate_instance_id("").unwrap_err()),
-            "invalid len (0);  the length must be between 1 and 64"
+            "Invalid len (0);  the length must be between 1 and 64"
         );
         assert!(validate_instance_id("12-3aa").is_ok());
         assert_eq!(
             format!("{}", validate_instance_id("12_3aa").unwrap_err()),
-            "invalid char (_) at position 2"
+            "Invalid char (_) at position 2"
         );
         assert_eq!(
             validate_instance_id("12:3aa").unwrap_err(),
