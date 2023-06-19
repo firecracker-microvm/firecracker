@@ -54,10 +54,7 @@ mod tests {
 
     #[test]
     fn test_strip_common_with_single_input() {
-        let mut input = vec![HashMap::from([mock_modifier!(
-            0x0,
-            (0b1111_1111, 0b0000_0000)
-        )])];
+        let mut input = vec![HashMap::from([mock_modifier!(0x0, 0b0000_0000)])];
 
         match strip_common(&mut input) {
             Err(Error::NumberOfInputs) => (),
@@ -69,33 +66,33 @@ mod tests {
     fn test_strip_common() {
         let mut input = vec![
             HashMap::from([
-                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
-                mock_modifier!(0x1, (0b1111_0000, 0b1111_1111)),
-                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x0, 0b0000_0000),
+                mock_modifier!(0x1, 0b1111_0000),
+                mock_modifier!(0x2, 0b1111_1111),
             ]),
             HashMap::from([
-                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
-                mock_modifier!(0x1, (0b0000_1111, 0b1111_1111)),
-                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x0, 0b0000_0000),
+                mock_modifier!(0x1, 0b0000_1111),
+                mock_modifier!(0x2, 0b1111_1111),
             ]),
             HashMap::from([
-                mock_modifier!(0x0, (0b1111_1111, 0b0000_0000)),
-                mock_modifier!(0x1, (0b1111_1111, 0b1111_1111)),
-                mock_modifier!(0x3, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x0, 0b0000_0000),
+                mock_modifier!(0x1, 0b1111_1111),
+                mock_modifier!(0x3, 0b1111_1111),
             ]),
         ];
         let expected = vec![
             HashMap::from([
-                mock_modifier!(0x1, (0b1111_0000, 0b1111_1111)),
-                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x1, 0b1111_0000),
+                mock_modifier!(0x2, 0b1111_1111),
             ]),
             HashMap::from([
-                mock_modifier!(0x1, (0b0000_1111, 0b1111_1111)),
-                mock_modifier!(0x2, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x1, 0b0000_1111),
+                mock_modifier!(0x2, 0b1111_1111),
             ]),
             HashMap::from([
-                mock_modifier!(0x1, (0b1111_1111, 0b1111_1111)),
-                mock_modifier!(0x3, (0b1111_1111, 0b1111_1111)),
+                mock_modifier!(0x1, 0b1111_1111),
+                mock_modifier!(0x3, 0b1111_1111),
             ]),
         ];
 

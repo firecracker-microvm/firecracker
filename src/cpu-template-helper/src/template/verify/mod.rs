@@ -64,9 +64,8 @@ mod tests {
 
     #[test]
     fn test_verify_modifier_map_with_non_existing_key() {
-        // Test with a sample whose key exists in CPU template but not in CPU config.
-        let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_0000, 0b0000_0000))]);
+        // Test with a sample where a key in CPU template is not found in CPU config.
+        let cpu_template_map = HashMap::from([mock_modifier!(0x0, 0b0000_0000)]);
         let cpu_config_map = HashMap::new();
 
         assert_eq!(
@@ -82,9 +81,9 @@ mod tests {
     fn test_verify_modifier_map_with_mismatched_value() {
         // Test with a sample whose filtered value mismatches between CPU config and CPU template.
         let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_1111, 0b0000_0101))]);
+            HashMap::from([mock_modifier!(0x0, 0b0000_0101, 0b0000_1111)]);
         let cpu_config_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (u8::MAX, 0b0000_0000))]);
+            HashMap::from([mock_modifier!(0x0, 0b0000_0000, 0b1111_1111)]);
 
         assert_eq!(
             verify_common(cpu_template_map, cpu_config_map)
@@ -100,9 +99,8 @@ mod tests {
     #[test]
     fn test_verify_modifier_map_with_valid_value() {
         // Test with valid CPU template and CPU config.
-        let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_1111, 0b0000_1010))]);
-        let cpu_config_map = HashMap::from([mock_modifier!(0b0000_0000, (u8::MAX, 0b1010_1010))]);
+        let cpu_template_map = HashMap::from([mock_modifier!(0x0, 0b0000_1010, 0b0000_1111)]);
+        let cpu_config_map = HashMap::from([mock_modifier!(0x0, 0b1010_1010, 0b1111_1111)]);
 
         verify_common(cpu_template_map, cpu_config_map).unwrap();
     }

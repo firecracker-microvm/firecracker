@@ -130,7 +130,16 @@ pub mod tests {
     }
 
     macro_rules! mock_modifier {
-        ($key:expr, ($filter:expr, $value:expr)) => {
+        ($key:expr, $value:expr) => {
+            (
+                MockModifierMapKey($key),
+                RegisterValueFilter::<u8> {
+                    filter: u8::MAX,
+                    value: $value,
+                },
+            )
+        };
+        ($key:expr, $value:expr, $filter:expr) => {
             (
                 MockModifierMapKey($key),
                 RegisterValueFilter::<u8> {
