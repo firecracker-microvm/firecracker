@@ -3,7 +3,6 @@
 """Tests the network latency of a Firecracker guest."""
 
 import json
-import os
 import re
 
 import pytest
@@ -18,7 +17,7 @@ from integration_tests.performance.configs import defs
 TEST_ID = "network_latency"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
-CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG_NAME_ABS = defs.CFG_LOCATION / CONFIG_NAME_REL
 
 PING = "ping -c {} -i {} {}"
 LATENCY = "latency"
@@ -132,7 +131,8 @@ def test_network_latency(
     st_core.iterations = 30
     st_core.custom["guest_config"] = guest_config.removesuffix(".json")
 
-    raw_baselines = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
+    raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
+
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(

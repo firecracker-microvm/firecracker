@@ -3,7 +3,6 @@
 """Tests the network throughput of Firecracker uVMs."""
 
 import json
-import os
 
 import pytest
 
@@ -18,7 +17,7 @@ from integration_tests.performance.configs import defs
 TEST_ID = "network_tcp_throughput"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
-CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG_NAME_ABS = defs.CFG_LOCATION / CONFIG_NAME_REL
 
 BASE_PORT = 5000
 
@@ -86,7 +85,8 @@ def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
 
     iperf3_id = f"tcp-p{payload_length}-wsDEFAULT-{mode}"
 
-    raw_baselines = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
+    raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
+
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
             measurements=raw_baselines["measurements"],
