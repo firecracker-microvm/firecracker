@@ -624,14 +624,14 @@ cmd_test() {
         --ulimit core=0 \
         --ulimit nofile=4096:4096 \
         --ulimit memlock=-1:-1 \
-        --workdir "$CTR_FC_ROOT_DIR/tests" \
+        --workdir "$CTR_FC_ROOT_DIR" \
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
         --env-file env.list \
         -v /boot:/boot \
         ${ramdisk_args} \
         -- \
-        pytest "$@"
+        ./tools/test.sh "$@"
 
     ret=$?
 
