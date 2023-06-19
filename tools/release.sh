@@ -51,6 +51,10 @@ function strip-and-split-debuginfo {
     objcopy --strip-debug --add-gnu-debuglink=$bin.debug $bin
 }
 
+function get-firecracker-version {
+    (cd src/firecracker; cargo pkgid | cut -d# -f2 | cut -d: -f2)
+}
+
 #### MAIN ####
 
 # defaults
@@ -93,16 +97,10 @@ done
 
 
 ARCH=$(uname -m)
-VERSION=$(git describe --tags --dirty)
+VERSION=$(get-firecracker-version)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
 CARGO_TARGET=$ARCH-unknown-linux-$LIBC
 CARGO_TARGET_DIR=build/cargo_target/$CARGO_TARGET/$PROFILE_DIR
-
-if [[ $VERSION = *-dirty ]]; then
-    say_warn "Building dirty version.. dirty because:"
-    git status -s --untracked-files=no
-    git --no-pager diff
-fi
 
 CARGO_REGISTRY_DIR="build/cargo_registry"
 CARGO_GIT_REGISTRY_DIR="build/cargo_git_registry"
@@ -121,13 +119,13 @@ fi
 # to make sure that `firecracker --version` reports the latest changes.
 touch build.rs
 
-ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap)
+ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap cpu-template-helper)
 
 if [ "$LIBC" == "gnu" ]; then
     # Don't build jailer. See commit 3bf285c8f
     echo "Not building jailer because glibc selected instead of musl"
     CARGO_OPTS+=" --exclude jailer"
-    ARTIFACTS=(firecracker seccompiler-bin rebase-snap)
+    ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper)
 fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET..."

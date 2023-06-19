@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo" 
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    allow:
+      - dependency-type: "all"
+    open-pull-requests-limit: 100

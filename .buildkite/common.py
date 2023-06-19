@@ -5,6 +5,7 @@
 Common helpers to create Buildkite pipelines
 """
 
+import argparse
 import json
 
 DEFAULT_INSTANCES = [
@@ -15,7 +16,18 @@ DEFAULT_INSTANCES = [
     "c7g.metal",
 ]
 
-DEFAULT_PLATFORMS = [("al2", "linux_4.14"), ("al2", "linux_5.10")]
+DEFAULT_PLATFORMS = [
+    ("al2", "linux_4.14"),
+    ("al2", "linux_5.10"),
+    ("al2023", "linux_6.1"),
+]
+
+
+def field_fmt(field, args):
+    """If `field` is a string, interpolate variables in `args`"""
+    if not isinstance(field, str):
+        return field
+    return field.format(**args)
 
 
 def group(label, command, instances, platforms, agent_tags=None, **kwargs):
@@ -36,15 +48,15 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     for instance in instances:
         for os, kv in platforms:
             # fill any templated variables
-            step_commands = [
-                cmd.format(instance=instance, os=os, kv=kv) for cmd in commands
-            ]
+            args = {"os": os, "kv": kv, "instance": instance}
+            step_commands = [cmd.format(**args) for cmd in commands]
+            step_kwargs = {key: field_fmt(val, args) for key, val in kwargs.items()}
             agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
             step = {
                 "command": step_commands,
                 "label": f"{label1} {instance} {os} {kv}",
                 "agents": agents,
-                **kwargs,
+                **step_kwargs,
             }
             steps.append(step)
 
@@ -54,3 +66,38 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
 def pipeline_to_json(pipeline):
     """Serialize a pipeline dictionary to JSON"""
     return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
+
+
+COMMON_PARSER = argparse.ArgumentParser()
+COMMON_PARSER.add_argument(
+    "--instances",
+    required=False,
+    nargs="+",
+    default=DEFAULT_INSTANCES,
+)
+COMMON_PARSER.add_argument(
+    "--platforms",
+    metavar="OS-KV",
+    required=False,
+    nargs="+",
+    default=DEFAULT_PLATFORMS,
+    type=lambda arg: tuple(arg.split("-", maxsplit=1)),
+)
+COMMON_PARSER.add_argument(
+    "--step-param",
+    metavar="PARAM=VALUE",
+    help="parameters to add to each step",
+    required=False,
+    action="append",
+    default=[],
+    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
+)
+COMMON_PARSER.add_argument(
+    "--step-env",
+    metavar="KEY=VALUE",
+    help="environment to use in each step",
+    required=False,
+    action="append",
+    default=[],
+    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
+)

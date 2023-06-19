@@ -49,22 +49,20 @@ def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     )
 
 
-def _check_cpu_features_arm(test_microvm):
-    if cpuid_utils.get_instance_type() == "m6g.metal":
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
-        }
-    else:
-        expected_cpu_features = {
-            "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-            "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-            "sha512 asimdfhm dit uscat ilrcpc flagm ssbs",
-        }
+def _check_extended_cache_features(vm):
+    l3_params = cpuid_utils.get_guest_cpuid(vm, "0x80000006")[(0x80000006, 0, "edx")]
 
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "lscpu", None, ":", expected_cpu_features
-    )
+    # fmt: off
+    line_size     = (l3_params >>  0) & 0xFF
+    lines_per_tag = (l3_params >>  8) & 0xF
+    assoc         = (l3_params >> 12) & 0xF
+    cache_size    = (l3_params >> 18) & 0x3FFF
+    # fmt: on
+
+    assert line_size > 0
+    assert lines_per_tag == 0x1  # This is hardcoded in the AMD spec
+    assert assoc == 0x9  # This is hardcoded in the AMD spec
+    assert cache_size > 0
 
 
 def get_cpu_template_dir(cpu_template):
@@ -110,8 +108,6 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
 def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
-
-    @type: functional
     """
     vm = test_microvm_with_api
     vm.spawn()
@@ -121,22 +117,21 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
 
+@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
 @pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="The CPU features on x86 are tested as part of the CPU templates.",
+    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
+    reason="L3 cache info is only present in 0x80000006 for AMD",
 )
-def test_cpu_features(test_microvm_with_api, network_config):
+def test_extended_cache_features(test_microvm_with_api, network_config):
     """
-    Check the CPU features for a microvm with the specified config.
-
-    @type: functional
+    Check extended cache features (leaf 0x80000006).
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config()
     _tap, _, _ = vm.ssh_network_config(network_config, "1")
     vm.start()
-    _check_cpu_features_arm(vm)
+    _check_extended_cache_features(vm)
 
 
 @pytest.mark.skipif(
@@ -154,21 +149,7 @@ def test_brand_string(test_microvm_with_api, network_config):
         AMD EPYC
     * For other CPUs, the guest brand string should be:
         ""
-
-    @type: functional
     """
-    cif = open("/proc/cpuinfo", "r", encoding="utf-8")
-    host_brand_string = None
-    while True:
-        line = cif.readline()
-        if line == "":
-            break
-        mo = re.search("^model name\\s+:\\s+(.+)$", line)
-        if mo:
-            host_brand_string = mo.group(1)
-    cif.close()
-    assert host_brand_string is not None
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -179,24 +160,34 @@ def test_brand_string(test_microvm_with_api, network_config):
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
     _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
     assert stderr.read() == ""
-
-    line = stdout.readline().rstrip()
-    mo = re.search("^model name\\s+:\\s+(.+)$", line)
-    assert mo
-    guest_brand_string = mo.group(1)
-    assert guest_brand_string
+    stdout = stdout.read()
 
     cpu_vendor = cpuid_utils.get_cpu_vendor()
-    expected_guest_brand_string = ""
     if cpu_vendor == cpuid_utils.CpuVendor.AMD:
-        expected_guest_brand_string += "AMD EPYC"
+        # Assert the model name matches "AMD EPYC"
+        mo = re.search("model name.*: AMD EPYC", stdout)
+        assert mo
     elif cpu_vendor == cpuid_utils.CpuVendor.INTEL:
-        expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
-        mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
-        if mo:
-            expected_guest_brand_string += " @ " + mo.group(0)
+        # Get host frequency
+        cif = open("/proc/cpuinfo", "r", encoding="utf-8")
+        cpu_info = cif.read()
+        mo = re.search("model name.*:.* ([0-9]*.[0-9]*[G|M|T]Hz)", cpu_info)
+        assert mo
+        host_frequency = mo.group(1)
 
-    assert guest_brand_string == expected_guest_brand_string
+        # Assert the model name matches "Intel(R) Xeon(R) Processor @ "
+        mo = re.search(
+            "model name.*: Intel\\(R\\) Xeon\\(R\\) Processor @ ([0-9]*.[0-9]*[T|G|M]Hz)",
+            stdout,
+        )
+        assert mo
+        # Get the frequency
+        guest_frequency = mo.group(1)
+
+        # Assert the guest frequency matches the host frequency
+        assert host_frequency == guest_frequency
+    else:
+        assert False
 
 
 # Some MSR values should not be checked since they can change at guest runtime
@@ -250,7 +241,7 @@ MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
 
 @pytest.fixture(
     name="msr_cpu_template",
-    params=set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES),
+    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES)),
 )
 def msr_cpu_template_fxt(request):
     """CPU template fixture for MSR read/write supported CPU templates"""
@@ -294,8 +285,6 @@ def test_cpu_rdmsr(
     Testing matrix:
     - All supported guest kernels and rootfs
     - Microvm: 1vCPU with 1024 MB RAM
-
-    @type: functional
     """
 
     vcpus, guest_mem_mib = 1, 1024
@@ -341,10 +330,10 @@ def test_cpu_rdmsr(
 
     # pylint: disable=C0121
     microvm_val_df = microvm_val_df[
-        microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
+        ~microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
     ]
     baseline_val_df = baseline_val_df[
-        baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST) == False
+        ~baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
     ]
 
     # Compare values
@@ -416,8 +405,6 @@ def test_cpu_wrmsr_snapshot(
 
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` MSR dump.
-
-    @type: functional
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
@@ -556,8 +543,6 @@ def test_cpu_wrmsr_restore(
 
     This part of the test is responsible for restoring from a snapshot and
     comparing two sets of MSR values.
-
-    @type: functional
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
@@ -636,8 +621,6 @@ def test_cpu_cpuid_snapshot(
 
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` CPUID dump.
-
-    @type: functional
     """
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
@@ -726,8 +709,6 @@ def test_cpu_cpuid_restore(
 
     This part of the test is responsible for restoring from a snapshot and
     comparing two CPUIDs.
-
-    @type: functional
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
@@ -787,8 +768,6 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
     This test checks that all expected masked features are not present in the
     guest and that expected enabled features are present for each of the
     supported CPU templates.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

@@ -5,6 +5,9 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 libc = "0.2.117"
@@ -13,6 +16,7 @@ thiserror = "1.0.32"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 vmm-sys-util = "0.11.0"
+vm-memory = { version = "0.11.0", features = ["backend-mmap", "backend-bitmap"] }
 
 net_gen = { path = "../net_gen" }
 

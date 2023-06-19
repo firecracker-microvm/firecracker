@@ -5,8 +5,6 @@
 This module defines `Microvm`, which can be used to create, test drive, and
 destroy microvms.
 
-# TODO
-
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
@@ -19,6 +17,7 @@ import shutil
 import time
 import uuid
 import weakref
+from collections import namedtuple
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
@@ -27,12 +26,11 @@ from typing import Optional
 from retry import retry
 
 import host_tools.cargo_build as build_tools
-import host_tools.cpu_load as cpu_tools
 import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
-from framework.defs import FC_PID_FILE_NAME
+from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import (
@@ -40,8 +38,10 @@ from framework.resources import (
     Actions,
     Balloon,
     BootSource,
+    CpuConfigure,
     DescribeInstance,
     Drive,
+    Entropy,
     FullConfig,
     InstanceVersion,
     Logger,
@@ -80,6 +80,7 @@ class Microvm:
         monitor_memory=True,
         bin_cloner_path=None,
     ):
+        # pylint: disable=too-many-statements
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
@@ -130,6 +131,7 @@ class Microvm:
         self.actions = None
         self.balloon = None
         self.boot = None
+        self.cpu_cfg = None
         self.desc_inst = None
         self.drive = None
         self.full_cfg = None
@@ -142,11 +144,14 @@ class Microvm:
         self.vm = None
         self.vsock = None
         self.snapshot = None
+        self.entropy = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
         self._screen_pid = None
         self._screen_log = None
+
+        self.time_api_requests = True
 
         # Initalize memory monitor
         self.memory_monitor = None
@@ -167,9 +172,6 @@ class Microvm:
         if monitor_memory:
             self.memory_monitor = mem_tools.MemoryMonitor()
 
-        # Cpu load monitoring has to be explicitly enabled using
-        # the `enable_cpu_load_monitor` method.
-        self._cpu_load_monitor = None
         self.vcpus_count = None
 
         # External clone/exec tool, because Python can't into clone
@@ -207,6 +209,9 @@ class Microvm:
             self.expect_kill_by_signal = True
             utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
 
+        if self.time_api_requests:
+            self._validate_api_response_times()
+
         # Check if Firecracker was launched by the jailer in a new pid ns.
         fc_pid_in_new_ns = self.pid_in_new_ns
 
@@ -221,10 +226,58 @@ class Microvm:
                 self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
 
-        if self._cpu_load_monitor:
-            self._cpu_load_monitor.signal_stop()
-            self._cpu_load_monitor.join()
-            self._cpu_load_monitor.check_samples()
+    def _validate_api_response_times(self):
+        """
+        Parses the firecracker logs for information regarding api server request processing times, and asserts they
+        are within acceptable bounds.
+        """
+        # Log messages are either
+        # 2023-06-16T07:45:41.767987318 [fc44b23e-ce47-4635-9549-5779a6bd9cee:fc_api] The API server received a Get request on "/mmds".
+        # or
+        # 2023-06-16T07:47:31.204704732 [2f2427c7-e4de-4226-90e6-e3556402be84:fc_api] The API server received a Put request on "/actions" with body "{\"action_type\": \"InstanceStart\"}".
+        api_request_regex = re.compile(
+            r"\] The API server received a (?P<method>\w+) request on \"(?P<url>(/(\w|-)*)+)\"( with body (?P<body>.*))?\."
+        )
+        api_request_times_regex = re.compile(
+            r"\] Total previous API call duration: (?P<execution_time>\d+) us.$"
+        )
+
+        # Note: Processing of api requests is synchronous, so these messages cannot be torn by concurrency effects
+        log_lines = self.log_data.split("\n")
+
+        ApiCall = namedtuple("ApiCall", "method url body")
+
+        current_call = None
+
+        for log_line in log_lines:
+            match = api_request_regex.search(log_line)
+
+            if match:
+                if current_call is not None:
+                    raise Exception(
+                        f"API call duration log entry for {current_call.method} {current_call.url} with body {current_call.body} is missing!"
+                    )
+
+                current_call = ApiCall(
+                    match.group("method"), match.group("url"), match.group("body")
+                )
+
+            match = api_request_times_regex.search(log_line)
+
+            if match:
+                if current_call is None:
+                    raise Exception(
+                        "Got API call duration log entry before request entry"
+                    )
+
+                if current_call.url != "/snapshot/create":
+                    exec_time = float(match.group("execution_time")) / 1000.0
+
+                    assert (
+                        exec_time <= MAX_API_CALL_DURATION_MS
+                    ), f"{current_call.method} {current_call.url} API call exceeded maximum duration: {exec_time} ms. Body: {current_call.body}"
+
+                current_call = None
 
     @property
     def firecracker_version(self):
@@ -261,7 +314,7 @@ class Microvm:
         """Return the log data.
 
         !!!!OBS!!!!: Do not use this to check for message existence and
-        rather use self.check_log_message or self.find_log_message.
+        rather use self.check_log_message.
         """
         with data_lock:
             log_data = self.__log_data
@@ -333,18 +386,6 @@ class Microvm:
         with data_lock:
             self.__log_data += data
 
-    def enable_cpu_load_monitor(self, threshold):
-        """Enable the cpu load monitor."""
-        process_pid = self.jailer_clone_pid
-        # We want to monitor the emulation thread, which is currently
-        # the first one created.
-        # A possible improvement is to find it by name.
-        thread_pid = self.jailer_clone_pid
-        self._cpu_load_monitor = cpu_tools.CpuLoadMonitor(
-            process_pid, thread_pid, threshold
-        )
-        self._cpu_load_monitor.start()
-
     def copy_to_jail_ramfs(self, src):
         """Copy a file to a jail ramfs."""
         filename = os.path.basename(src)
@@ -411,7 +452,7 @@ class Microvm:
         self,
         create_logger=True,
         log_file="log_fifo",
-        log_level="Info",
+        log_level="Debug",
         use_ramdisk=False,
         metrics_path=None,
     ):
@@ -424,6 +465,7 @@ class Microvm:
         self.actions = Actions(self._api_socket, self._api_session)
         self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
+        self.cpu_cfg = CpuConfigure(self._api_socket, self._api_session)
         self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
@@ -440,6 +482,7 @@ class Microvm:
         self.drive = Drive(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
+        self.entropy = Entropy(self._api_socket, self._api_session)
 
         if create_logger:
             log_fifo_path = os.path.join(self.path, log_file)
@@ -520,13 +563,6 @@ class Microvm:
             f"`{messages}` were not found in this log: {self.log_data}"
         )
 
-    @retry(delay=0.1, tries=5)
-    def find_log_message(self, regex):
-        """Wait until `regex` appears in logging output and return it."""
-        reg_res = re.findall(regex, self.log_data)
-        assert reg_res
-        return reg_res
-
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}"'
@@ -604,6 +640,13 @@ class Microvm:
             assert self._api_session.is_status_no_content(
                 response.status_code
             ), response.text
+
+    def cpu_config(self, config):
+        """Set CPU configuration."""
+        response = self.cpu_cfg.put(config)
+        assert self._api_session.is_status_no_content(
+            response.status_code
+        ), response.text
 
     def daemonize_jailer(self, jailer_param_list):
         """Daemonize the jailer."""
@@ -782,7 +825,6 @@ class Microvm:
         response = self.vm.patch(state="Paused")
         assert self.api_session.is_status_no_content(response.status_code)
 
-        self.api_session.untime()
         response = self.snapshot.create(
             mem_file_path=mem_file_path,
             snapshot_path=snapshot_path,

@@ -7,17 +7,18 @@
 import os
 import platform
 import resource
-import subprocess
 import time
 
+import packaging.version
 import pytest
 
-import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
+from framework import utils_cpuid
 from framework.artifacts import NetIfaceConfig, SnapshotType
 from framework.builder import MicrovmBuilder, SnapshotBuilder
-from framework.utils import is_io_uring_supported
+from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
+from framework.utils_cpu_templates import nonci_on_arm
 
 MEM_LIMIT = 1000000000
 
@@ -25,8 +26,6 @@ MEM_LIMIT = 1000000000
 def test_api_happy_start(test_microvm_with_api):
     """
     Test that a regular microvm API config and boot sequence works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -44,8 +43,6 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
 
     Test that the io_engine can be configured via the API on kernels that
     support the given type and that FC returns an error otherwise.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -97,8 +94,6 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     Test that PUT updates are allowed before the microvm boots.
 
     Tests updates on drives, boot source and machine config.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -214,8 +209,6 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
     """
     Test PUT updates on network configurations before the microvm boots.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -272,8 +265,6 @@ def test_api_mmds_config(test_microvm_with_api):
     Test /mmds/config PUT scenarios that unit tests can't cover.
 
     Tests updates on MMDS config before and after attaching a network device.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -360,8 +351,6 @@ def test_api_mmds_config(test_microvm_with_api):
 def test_api_machine_config(test_microvm_with_api):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -410,14 +399,6 @@ def test_api_machine_config(test_microvm_with_api):
             in response.text
         )
 
-    # Test that CPU template errors on ARM.
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
-    if platform.machine() == "x86_64":
-        assert test_microvm.api_session.is_status_no_content(response.status_code)
-    else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
-
     # Test invalid mem_size_mib < 0.
     response = test_microvm.machine_cfg.put(mem_size_mib="-2")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -465,21 +446,21 @@ def test_api_machine_config(test_microvm_with_api):
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Set the cpu template again
-    response = test_microvm.machine_cfg.patch(cpu_template="C3")
+    # Set the cpu template
     if platform.machine() == "x86_64":
+        response = test_microvm.machine_cfg.patch(cpu_template="C3")
         assert test_microvm.api_session.is_status_no_content(response.status_code)
     else:
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
-        assert "CPU templates are not supported on aarch64" in response.text
+        # We test with "None" because this is the only option supported on
+        # all aarch64 instances. It still tests setting `cpu_template`,
+        # even though the values we set is "None".
+        response = test_microvm.machine_cfg.patch(cpu_template="None")
+        assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.actions.put(action_type="InstanceStart")
-    if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
+    if utils_cpuid.get_cpu_vendor() == utils_cpuid.CpuVendor.AMD:
         # We shouldn't be able to apply Intel templates on AMD hosts
-        fail_msg = (
-            "Internal error while starting microVM: Error configuring the vcpu for boot: Failed to "
-            "set CPUID entries: The operation is not permitted for the current vendor."
-        )
+        fail_msg = "CPU vendor mismatched between actual CPU and CPU template"
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         assert fail_msg in response.text
     else:
@@ -494,11 +475,24 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
+@nonci_on_arm
+def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
+    """
+    Test /cpu-config PUT scenarios.
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    response = test_microvm.cpu_cfg.put("{}")
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.cpu_cfg.put(custom_cpu_template["template"])
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
 def test_api_put_update_post_boot(test_microvm_with_api):
     """
     Test that PUT updates are rejected after the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -568,8 +562,6 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 def test_rate_limiters_api_config(test_microvm_with_api):
     """
     Test the IO rate limiter API config.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -669,12 +661,19 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    # Test entropy device bw and ops rate-limiting.
+    response = test_microvm.entropy.put(
+        rate_limiter={
+            "bandwidth": {"size": 1000000, "refill_time": 100},
+            "ops": {"size": 1, "refill_time": 100},
+        },
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
 
 def test_api_patch_pre_boot(test_microvm_with_api):
     """
     Test that PATCH updates are not allowed before the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -737,8 +736,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 def test_negative_api_patch_post_boot(test_microvm_with_api):
     """
     Test PATCH updates that are not allowed after the microvm boots.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -788,8 +785,6 @@ def test_negative_api_patch_post_boot(test_microvm_with_api):
 def test_drive_patch(test_microvm_with_api):
     """
     Extensively test drive PATCH scenarios before and after boot.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -828,8 +823,6 @@ def test_drive_patch(test_microvm_with_api):
 def test_send_ctrl_alt_del(test_microvm_with_api):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
-
-    @type: functional
     """
     # This relies on the i8042 device and AT Keyboard support being present in
     # the guest kernel.
@@ -976,8 +969,6 @@ def _drive_patch(test_microvm):
 def test_api_version(test_microvm_with_api):
     """
     Test the permanent VM version endpoint.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -1000,26 +991,18 @@ def test_api_version(test_microvm_with_api):
     # Validate VM version post-boot is the same as pre-boot.
     assert preboot_response.json() == postboot_response.json()
 
-    # Check that the version is the same as `git describe --dirty`.
-    # Abbreviated to post-tag commit metadata
-    out = subprocess.check_output(["git", "describe", "--dirty"]).decode()
-
-    # Skip the "v" at the start
-    tag_version = out[1:].strip()
-
-    # Git tag should match FC API version
-    assert (
-        tag_version == preboot_response.json()["firecracker_version"]
-    ), "Expected [{}], Actual [{}]".format(
-        preboot_response.json()["firecracker_version"], tag_version
+    cargo_version = get_firecracker_version_from_toml()
+    api_version = packaging.version.parse(
+        preboot_response.json()["firecracker_version"]
     )
+
+    # Cargo version should match FC API version
+    assert cargo_version == api_version
 
 
 def test_api_vsock(bin_cloner_path):
     """
     Test vsock related API commands.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     # Test with the current build.
@@ -1055,11 +1038,34 @@ def _test_vsock(vm):
     assert vm.api_session.is_status_bad_request(response.status_code)
 
 
+def test_api_entropy(test_microvm_with_api):
+    """
+    Test entropy related API commands.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Create a new entropy device should be OK.
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Overwriting an existing should be OK.
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Start the microvm
+    test_microvm.start()
+
+    response = test_microvm.entropy.put()
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+
 def test_api_balloon(test_microvm_with_api):
     """
     Test balloon related API commands.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -1144,8 +1150,6 @@ def test_api_balloon(test_microvm_with_api):
 def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     """
     Test the configuration of a microVM after restoring from a snapshot.
-
-    @type: functional
     """
     microvm_builder = MicrovmBuilder(bin_cloner_path)
     net_iface = NetIfaceConfig()
@@ -1155,7 +1159,7 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     test_microvm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
-    cpu_vendor = utils.get_cpu_vendor()
+    cpu_vendor = utils_cpuid.get_cpu_vendor()
 
     setup_cfg = {}
 
@@ -1167,13 +1171,15 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "track_dirty_pages": False,
     }
 
-    if cpu_vendor == utils.CpuVendor.ARM:
+    if cpu_vendor == utils_cpuid.CpuVendor.ARM:
         setup_cfg["machine-config"]["smt"] = False
 
-    if cpu_vendor == utils.CpuVendor.INTEL:
+    if cpu_vendor == utils_cpuid.CpuVendor.INTEL:
         setup_cfg["machine-config"]["cpu_template"] = "C3"
 
     test_microvm.machine_cfg.patch(**setup_cfg["machine-config"])
+
+    setup_cfg["cpu-config"] = None
 
     setup_cfg["drives"] = [
         {
@@ -1262,6 +1268,9 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "network_interfaces": [net_iface.dev_name],
     }
 
+    # We should expect a null entropy device
+    expected_cfg["entropy"] = None
+
     # Validate full vm configuration post-restore.
     response = microvm.full_cfg.get()
     assert microvm.api_session.is_status_ok(response.status_code)
@@ -1272,8 +1281,6 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 def test_get_full_config(test_microvm_with_api):
     """
     Test the reported configuration of a microVM configured with all resources.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
 
@@ -1288,6 +1295,7 @@ def test_get_full_config(test_microvm_with_api):
         "smt": False,
         "track_dirty_pages": False,
     }
+    expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {
         "kernel_image_path": "/vmlinux.bin",
         "initrd_path": None,
@@ -1362,6 +1370,9 @@ def test_get_full_config(test_microvm_with_api):
         "network_interfaces": ["1"],
     }
 
+    # We should expect a null entropy device
+    expected_cfg["entropy"] = None
+
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
@@ -1383,15 +1394,13 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
     When sending large buffer to an api endpoint there will be an attempt to
     call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
     killed by the seccomp filter before this PR.
-
-    @type: regression
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update(
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )
     test_microvm.spawn()
-    test_microvm.api_session.untime()
+    test_microvm.time_api_request = False
 
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
@@ -1407,8 +1416,6 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
 def test_negative_snapshot_load_api(microvm_factory):
     """
     Test snapshot load API.
-
-    @type: negative
     """
     vm = microvm_factory.build()
     vm.spawn()

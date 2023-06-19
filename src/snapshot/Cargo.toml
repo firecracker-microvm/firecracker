@@ -6,6 +6,9 @@ edition = "2021"
 autobenches = false
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
 libc = "0.2.117"
 versionize = "0.1.10"
@@ -13,7 +16,7 @@ versionize_derive = "0.1.5"
 thiserror = "1.0.32"
 
 [dev-dependencies]
-criterion = "0.4.0"
+criterion = { version = "0.5.0", default-features = false }
 
 [[bench]]
 name = "version_map"

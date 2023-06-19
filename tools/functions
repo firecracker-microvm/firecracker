@@ -15,7 +15,7 @@ MY_NAME="Firecracker $(basename "$ARG0")"
 #
 say() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        && echo "$(tput setaf 2)[$MY_NAME $(date -Iseconds)]$(tput sgr0) $*" \
         || echo "[$MY_NAME] $*"
 }
 

@@ -7,11 +7,20 @@ import subprocess
 from framework import utils
 
 
+def test_rust_order():
+    """
+    Tests that `Cargo.toml` dependencies are alphabetically ordered.
+
+    @type: style
+    """
+
+    # Runs `cargo-sort` with the current working directory (`cwd`) as the repository root.
+    _, _, _ = utils.run_cmd(cmd="cargo-sort --workspace --check --grouped", cwd="..")
+
+
 def test_rust_style():
     """
     Test that rust code passes style checks.
-
-    @type: style
     """
 
     #  ../src/io_uring/src/bindings.rs
@@ -26,15 +35,13 @@ def test_rust_style():
 def test_ensure_mod_tests():
     """
     Check that files containing unit tests have a 'tests' module defined.
-
-    @type: style
     """
     excluding = [
         "_gen/",
         "/tests/",
         "/test_utils",
         "build/",
-        "src/io_uring/src/bindings.rs",
+        "src/vmm/src/io_uring/bindings.rs",
     ]
 
     # Files with `#[test]` without `mod tests`.

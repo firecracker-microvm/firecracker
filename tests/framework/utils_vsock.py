@@ -5,11 +5,11 @@
 import hashlib
 import os.path
 import re
-from select import select
+import time
+from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
-from threading import Event, Thread
-
-from framework import utils
+from subprocess import Popen
+from threading import Thread
 
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
@@ -17,78 +17,6 @@ TEST_CONNECTION_COUNT = 50
 BLOB_SIZE = 20 * 1024 * 1024
 BUF_SIZE = 64 * 1024
 VSOCK_UDS_PATH = "v.sock"
-
-
-class HostEchoServer(Thread):
-    """A simple "echo" server for vsock.
-
-    This server will accept incoming connections (initiated by the guest vm),
-    and, for each connection, it will read any incoming data and then echo it
-    right back.
-    """
-
-    def __init__(self, vm, path):
-        """."""
-        super().__init__()
-        self.vm = vm
-        self.path = path
-        self.sock = socket(AF_UNIX, SOCK_STREAM)
-        self.sock.bind(path)
-        self.sock.listen(SERVER_ACCEPT_BACKLOG)
-        self.error = None
-        self.clients = []
-        self.exit_evt = Event()
-
-        # Link the listening Unix socket into the VM's jail, so that
-        # Firecracker can connect to it.
-        vm.create_jailed_resource(path)
-
-    def run(self):
-        """Thread code payload.
-
-        Wrap up the real "run" into a catch-all block, because Python cannot
-        into threads - if this thread were to raise an unhandled exception,
-        the whole process would lock.
-        """
-        try:
-            self._run()
-        # pylint: disable=broad-except
-        except Exception as err:
-            self.error = err
-
-    def _run(self):
-        while not self.exit_evt.is_set():
-            watch_list = self.clients + [self.sock]
-            rd_list, _, _ = select(watch_list, [], [], 1)
-            for rdo in rd_list:
-                if rdo == self.sock:
-                    # Read event on the listening socket: a new client
-                    # wants to connect.
-                    (client, _) = self.sock.accept()
-                    self.clients.append(client)
-                    continue
-                # Read event on a connected socket: new data is
-                # available from some client.
-                buf = rdo.recv(BUF_SIZE)
-                if not buf:
-                    # Zero-length read: connection reset by peer.
-                    self.clients.remove(rdo)
-                    continue
-                sent = 0
-                while sent < len(buf):
-                    # Send back everything we just read.
-                    sent += rdo.send(buf[sent:])
-
-    def exit(self):
-        """Shut down the echo server and wait for it to exit.
-
-        This method can be called from any thread. Upon returning, the
-        echo server will have shut down.
-        """
-        self.exit_evt.set()
-        self.join()
-        self.sock.close()
-        utils.run_cmd("rm -f {}".format(self.path))
 
 
 class HostEchoWorker(Thread):
@@ -199,8 +127,19 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     start `TEST_CONNECTION_COUNT` workers inside the guest VM, all
     communicating with the echo server.
     """
-    echo_server = HostEchoServer(vm, server_port_path)
-    echo_server.start()
+
+    echo_server = Popen(
+        ["socat", f"UNIX-LISTEN:{server_port_path},fork,backlog=5", "exec:'/bin/cat'"]
+    )
+
+    # Link the listening Unix socket into the VM's jail, so that
+    # Firecracker can connect to it.
+    attempt = 0
+    # But 1st, give socat a bit of time to create the socket
+    while not Path(server_port_path).exists() and attempt < 3:
+        time.sleep(0.2)
+        attempt += 1
+    vm.create_jailed_resource(server_port_path)
 
     # Increase maximum process count for the ssh service.
     # Avoids: "bash: fork: retry: Resource temporarily unavailable"
@@ -235,12 +174,14 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
-    ecode, _, _ = vm.ssh.run(cmd)
+    ecode, stdout, stderr = vm.ssh.run(cmd)
+    echo_server.terminate()
+    rc = echo_server.wait()
+    # socat exits with 128 + 15 (SIGTERM)
+    assert rc == 143
 
-    echo_server.exit()
-    assert echo_server.error is None
-
-    assert ecode == 0, ecode
+    print(stdout.read())
+    assert ecode == 0, stderr.read()
 
 
 def make_host_port_path(uds_path, port):

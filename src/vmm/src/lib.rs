@@ -9,6 +9,8 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![allow(clippy::blanket_clippy_restriction_lints)]
 
 /// Architecture specific bindings.
 #[allow(missing_docs)]
@@ -18,13 +20,25 @@ pub mod arch_gen;
 /// Supported platforms: x86_64 and aarch64.
 pub mod arch;
 
-/// Utility for configuring the CPUID (CPU identification) for the guest microVM.
-#[cfg(target_arch = "x86_64")]
-pub mod cpuid;
+/// High-level interface over Linux io_uring.
+///
+/// Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
+/// assumptions. The crate does not currently aim at supporting all io_uring features and use
+/// cases. For example, it only works with pre-registered fds and read/write/fsync requests.
+///
+/// Requires at least kernel version 5.10.51.
+/// For more information on io_uring, refer to the man pages.
+/// [This pdf](https://kernel.dk/io_uring.pdf) is also very useful, though outdated at times.
+pub mod io_uring;
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
+/// Types for guest configuration.
+pub mod cpu_config;
 pub(crate) mod device_manager;
+/// Emulates virtual and hardware devices.
+#[allow(missing_docs)]
+pub mod devices;
 pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;
@@ -42,6 +56,7 @@ pub mod utilities;
 pub mod version_map;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
+
 mod vstate;
 
 use std::collections::HashMap;
@@ -51,13 +66,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use std::{fmt, io};
 
-use devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
-use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
-    TYPE_BLOCK, TYPE_NET,
-};
-use devices::BusDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
@@ -66,13 +74,21 @@ use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use utils::vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
+use crate::cpu_config::templates::CpuConfiguration;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
+use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
+use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::{
+    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
+    TYPE_BLOCK, TYPE_NET,
+};
+use crate::devices::BusDevice;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -290,6 +306,23 @@ pub enum RestoreVcpusError {
     NotAllowed(String),
 }
 
+/// Error type for [`Vmm::dump_cpu_config()`]
+#[derive(Debug, thiserror::Error)]
+pub enum DumpCpuConfigError {
+    /// Failed to send an event to vcpu thread.
+    #[error("Failed to send event to vcpu thread: {0:?}")]
+    SendEvent(#[from] VcpuSendEventError),
+    /// Got an unexpected response from vcpu thread.
+    #[error("Got unexpected response from vcpu thread.")]
+    UnexpectedResponse,
+    /// Failed to dump CPU config.
+    #[error("Failed to dump CPU config: {0}")]
+    DumpCpuConfig(#[from] vcpu::Error),
+    /// Operation not allowed.
+    #[error("Operation not allowed: {0}")]
+    NotAllowed(String),
+}
+
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
     events_observer: Option<Box<dyn VmmEventsObserver>>,
@@ -431,7 +464,7 @@ impl Vmm {
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
         #[cfg(target_arch = "aarch64")]
-        use devices::legacy::SerialDevice;
+        use crate::devices::legacy::SerialDevice;
         #[cfg(target_arch = "x86_64")]
         let mut serial = self
             .pio_device_manager
@@ -567,6 +600,36 @@ impl Vmm {
         }
 
         Ok(())
+    }
+
+    /// Dumps CPU configuration.
+    pub fn dump_cpu_config(
+        &mut self,
+    ) -> std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
+        for handle in self.vcpus_handles.iter() {
+            handle
+                .send_event(VcpuEvent::DumpCpuConfig)
+                .map_err(DumpCpuConfigError::SendEvent)?;
+        }
+
+        let vcpu_responses = self
+            .vcpus_handles
+            .iter()
+            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
+            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
+
+        let cpu_configs = vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                VcpuResponse::DumpedCpuConfig(cpu_config) => Ok(*cpu_config),
+                VcpuResponse::Error(err) => Err(DumpCpuConfigError::DumpCpuConfig(err)),
+                VcpuResponse::NotAllowed(reason) => Err(DumpCpuConfigError::NotAllowed(reason)),
+                _ => Err(DumpCpuConfigError::UnexpectedResponse),
+            })
+            .collect::<std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
+
+        Ok(cpu_configs)
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.

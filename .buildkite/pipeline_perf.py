@@ -4,9 +4,7 @@
 
 """Generate Buildkite performance pipelines dynamically"""
 
-import argparse
-
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import COMMON_PARSER, group, pipeline_to_json
 
 perf_test = {
     "block": {
@@ -48,7 +46,7 @@ def build_group(test):
     test_path = test.pop("test_path")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test {devtool_opts} -- --nonci --dump-results-to-file {test_path}",
+        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci {test_path}",
         agent_tags=["ag=1"],
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
@@ -58,7 +56,7 @@ def build_group(test):
     )
 
 
-parser = argparse.ArgumentParser()
+parser = COMMON_PARSER
 parser.add_argument(
     "--test",
     required=True,
@@ -66,41 +64,15 @@ parser.add_argument(
     help="performance test",
     action="append",
 )
-parser.add_argument(
-    "--instances",
-    required=False,
-    nargs="+",
-    default=DEFAULT_INSTANCES,
-)
-parser.add_argument(
-    "--platforms",
-    metavar="OS-KV",
-    required=False,
-    nargs="+",
-    default=[],
-)
 parser.add_argument("--retries", type=int, default=0)
-parser.add_argument(
-    "--extra",
-    required=False,
-    action="append",
-    default=[],
-)
 args = parser.parse_args()
-if not args.platforms:
-    args.platforms = DEFAULT_PLATFORMS
-else:
-    args.platforms = [
-        tuple(str(platform).split("-", maxsplit=1)) for platform in args.platforms
-    ]
-if args.extra:
-    args.extra = dict(val.split("=", maxsplit=1) for val in args.extra)
 group_steps = []
 tests = [perf_test[test] for test in args.test]
 for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
-    test_data.update(args.extra)
+    test_data["env"] = dict(args.step_env)
+    test_data.update(args.step_param)
     if args.retries > 0:
         # retry if the step fails
         test_data.setdefault(
@@ -109,10 +81,7 @@ for test_data in tests:
     group_steps.append(build_group(test_data))
 
 pipeline = {
-    "env": {
-        "AWS_EMF_SERVICE_NAME": "PerfTests",
-        "AWS_EMF_NAMESPACE": "PerfTests",
-    },
+    "env": {},
     "steps": group_steps,
 }
 print(pipeline_to_json(pipeline))

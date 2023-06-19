@@ -392,6 +392,10 @@ pub struct PutRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of PUTs for configuring a guest's vCPUs.
+    pub cpu_cfg_count: SharedIncMetric,
+    /// Number of failures in configuring a guest's vCPUs.
+    pub cpu_cfg_fails: SharedIncMetric,
     /// Number of PUTs for initializing the metrics system.
     pub metrics_count: SharedIncMetric,
     /// Number of failures in initializing the metrics system.
@@ -731,8 +735,6 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
-    /// Failures in configuring the CPUID.
-    pub filter_cpuid: SharedIncMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.
@@ -787,6 +789,24 @@ pub struct VsockDeviceMetrics {
     pub tx_write_fails: SharedIncMetric,
     /// Number of times read() has failed.
     pub rx_read_fails: SharedIncMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct EntropyDeviceMetrics {
+    /// Number of device activation failures
+    pub activate_fails: SharedIncMetric,
+    /// Number of entropy queue event handling failures
+    pub entropy_event_fails: SharedIncMetric,
+    /// Number of entropy requests handled
+    pub entropy_event_count: SharedIncMetric,
+    /// Number of entropy bytes provided to guest
+    pub entropy_bytes: SharedIncMetric,
+    /// Number of errors while getting random bytes on host
+    pub host_rng_fails: SharedIncMetric,
+    /// Number of times an entropy request was rate limited
+    pub entropy_rate_limiter_throttled: SharedIncMetric,
+    /// Number of events associated with the rate limiter
+    pub rate_limiter_event_count: SharedIncMetric,
 }
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
@@ -844,6 +864,8 @@ pub struct FirecrackerMetrics {
     pub signals: SignalMetrics,
     /// Metrics related to virtio-vsockets.
     pub vsock: VsockDeviceMetrics,
+    /// Metrics related to virtio-rng entropy device.
+    pub entropy: EntropyDeviceMetrics,
 }
 
 #[cfg(test)]

@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v55}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v60}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -109,12 +109,6 @@ CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 
-# Full path to the seccompiler cargo target dir on the host.
-CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
-
-# Full path to the rebase-snap cargo target dir on the host.
-CARGO_REBASE_SNAP_TARGET_DIR="${FC_BUILD_DIR}/rebase-snap"
-
 # Full path to the Firecracker sources dir, as bind-mounted in the container.
 CTR_FC_ROOT_DIR="/firecracker"
 
@@ -123,12 +117,6 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
-
-# Full path to the seccompiler cargo target dir, as bind-mounted in the container.
-CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
-
-# Full path to the rebase-snap cargo target dir, as bind-mounted in the container.
-CTR_CARGO_REBASE_SNAP_TARGET_DIR="$CTR_FC_BUILD_DIR/rebase-snap"
 
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
@@ -231,46 +219,11 @@ ensure_build_dir() {
     done
 }
 
-build_fc_bin_path() {
+build_bin_path() {
     target="$1"
     profile="$2"
-    echo "$CARGO_TARGET_DIR/$target/$profile/firecracker"
-}
-
-build_jailer_bin_path() {
-    target="$1"
-    profile="$2"
-    echo "$CARGO_TARGET_DIR/$target/$profile/jailer"
-}
-
-build_seccomp_bin_path() {
-    target="$1"
-    profile="$2"
-    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
-}
-
-build_rebase_snap_bin_path() {
-    target="$1"
-    profile="$2"
-    echo "$CARGO_REBASE_SNAP_TARGET_DIR/$target/$profile/rebase-snap"
-}
-
-ensure_release_binaries_exist() {
-    target=$1
-    profile=$2
-    firecracker_bin_path=$( build_fc_bin_path "$target" "$profile")
-    jailer_bin_path=$( build_jailer_bin_path "$target" "$profile")
-    seccompiler_bin_path=$( build_seccomp_bin_path "$target" "$profile")
-    rebase_snap_bin_path=$( build_rebase_snap_bin_path "$target" "$profile")
-
-    { [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] && \
-    [ -f "$rebase_snap_bin_path" ]; } || \
-    die "Missing release binaries. Needed files:\n" \
-    "* $firecracker_bin_path\n" \
-    "* $jailer_bin_path\n" \
-    "* $seccompiler_bin_path\n" \
-    "* $rebase_snap_bin_path\n" \
-    "To build the binaries, run:\n\t$0 build --$profile"
+    binary="$3"
+    echo "$CARGO_TARGET_DIR/$target/$profile/$binary"
 }
 
 # Fix build/ dir permissions after a privileged container run.
@@ -463,6 +416,9 @@ cmd_help() {
     echo "                            Running Firecracker via the jailer requires elevated"
     echo "                            privileges, though the build phase does not."
     echo ""
+    echo "    sh CMD..."
+    echo "        Launch the development container and run a command."
+    echo ""
     echo "    test [-- [<pytest args>]]"
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
@@ -634,8 +590,8 @@ cmd_test() {
     ensure_build_dir
 
     # If we got to here, we've got all we need to continue.
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Kernel version: $(uname -r)"
+    say "$(lscpu)"
     say "Starting test run ..."
 
     if [[ $ramdisk = true ]]; then
@@ -666,7 +622,6 @@ cmd_test() {
 
     ret=$?
 
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Finished test run ..."
 
     if [[ $ramdisk = true ]]; then
@@ -676,9 +631,6 @@ cmd_test() {
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
     cmd_fix_perms
-
-    # Log CPU information
-    say "$(lscpu)"
 
     # do not leave behind env.list file
     rm env.list
@@ -774,6 +726,15 @@ cmd_shell() {
     return $ret
 }
 
+cmd_sh() {
+    run_devctr \
+        --privileged \
+        --ulimit nofile=4096:4096 \
+        --ulimit memlock=-1:-1 \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- \
+        bash --norc -c "$*"
+}
 
 cmd_create_snapshot_artifacts() {
     privileged=true
@@ -852,66 +813,33 @@ check_kernver () {
 # Check Production Host Setup
 # ../docs/prod-host-setup.md
 
-check_SMT () {
-    (grep -q "^forceoff$\|^notsupported$" \
-      /sys/devices/system/cpu/smt/control) ||
-    say_warn "WARNING: Hyperthreading ENABLED."
-}
-
 check_KPTI () {
     (grep -q "^Mitigation: PTI$" \
       /sys/devices/system/cpu/vulnerabilities/meltdown) || \
-    say_warn "WARNING: KPTI NOT SUPPORTED"
+    say_warn "WARNING: KPTI NOT SUPPORTED."
 }
 
 check_KSM () {
     (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
-    say_warn "WARNING: KSM ENABLED"
+    say_warn "WARNING: KSM ENABLED."
 }
 
-check_IBPB_IBRS () {
-    (grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$"\
-      /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
-    say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
-}
-
-check_L1TF () {
-    declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-    for cond in "${CONDITIONS[@]}";
-    do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf) ||
-       say_warn "WARNING: $cond: DISABLED";
+check_vulns () {
+    for f in /sys/devices/system/cpu/vulnerabilities/* ; do
+        if $(grep -q "Vulnerable" ${f}) ; then
+            say_warn "WARNING: `basename $f`: VULNERABLE.";
+        fi
     done
 }
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-    say_warn "WARNING: SWAP ENABLED"
-}
-
-check_SSBD () {
-    arch=$(uname -m)
-    if [ "$arch" = "aarch64" ]; then
-        local param="ssbd=force-on"
-    elif [ "$arch" = "x86_64" ]; then
-        local param="spec_store_bypass_disable=on"
-    fi
-
-    ssbd_sysfs_file="/sys/devices/system/cpu/vulnerabilities/spec_store_bypass"
-
-    if [ -f "$ssbd_sysfs_file" ]; then
-        (grep -q "^Vulnerable" $ssbd_sysfs_file) && \
-        say_warn "WARNING: SSBD mitigation is either globally disabled or"\
-            "system does not support mitigation via prctl or seccomp. Try"\
-            "enabling it system-wide, using the \`${param}\` boot parameter."
-    else
-        say_warn "WARNING: SSBD mitigation not supported on this kernel."\
-            "View the prod-host-setup.md for more details."
-    fi
+    say_warn "WARNING: SWAP ENABLED."
 }
 
 check_EPT() {
-    if [ "$arch" = "x86_64" ]; then
-        (grep -q "Y" /sys/module/kvm_intel/parameters/ept) || \
+    if [ "$(uname --machine)" = "x86_64" ]; then
+        (grep -q "Y" /sys/module/kvm_intel/parameters/ept ; [ $? -ne 1 ]) || \
         say_warn "WARNING: EPT DISABLED. Performance will be affected."
     fi
 }
@@ -944,12 +872,9 @@ cmd_checkenv() {
     say "Checking Host Security Configuration."
     say "Please check $PROD_DOC in case of any error."
     check_KSM
-    check_IBPB_IBRS
-    check_L1TF
-    check_SMT
     check_swap
-    check_SSBD
     check_EPT
+    check_vulns
 }
 
 generate_syscall_table_x86_64() {
@@ -1088,6 +1013,7 @@ cmd_install() {
     profile="release"
     target="$TARGET_PREFIX""musl"
     install_path="/usr/local/bin"
+    binaries=("firecracker" "jailer" "seccompiler-bin" "rebase-snap" "cpu-template-helper")
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -1107,19 +1033,19 @@ cmd_install() {
     done
 
     # Check that the binaries exist first
-    ensure_release_binaries_exist $target $profile
+    for binary in "${binaries[@]}"; do
+        bin_path=$( build_bin_path "$target" "$profile" "$binary" )
+        if [ ! -f "$bin_path" ]; then
+            die "Missing release binary. Needed file: $bin_path\n"\
+            "To build the binaries, run:\n\t$0 build --$profile"
+        fi
+    done
 
-    say "Installing firecracker in $install_path"
-    install -m 755 "$( build_fc_bin_path "$target" "$profile")" "$install_path"
-
-    say "Installing jailer in $install_path"
-    install -m 755 "$( build_jailer_bin_path "$target" "$profile")" "$install_path"
-
-    say "Installing seccomp in $install_path"
-    install -m 755 "$( build_seccomp_bin_path "$target" "$profile")" "$install_path"
-
-    say "Installing rebase-snap in $install_path"
-    install -m 755 "$( build_rebase_snap_bin_path "$target" "$profile")" "$install_path"
+    # Install the binaries
+    for binary in "${binaries[@]}"; do
+        say "Installing $binary in $install_path"
+        install -m 755 "$( build_bin_path "$target" "$profile" "$binary" )" "$install_path"
+    done
 }
 
 # Build a Firecracker CI compatible kernel image.

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use logger::{LevelFilter, LOGGER};
@@ -106,19 +105,11 @@ impl LoggerConfig {
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
+    #[error("{}", format!("{:?}", .0).replace('\"', ""))]
     InitializationFailure(String),
-}
-
-impl Display for LoggerConfigError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::LoggerConfigError::*;
-        match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace('\"', "")),
-        }
-    }
 }
 
 /// Configures the logger as described in `logger_cfg`.
@@ -150,13 +141,13 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use devices::pseudo::BootTimer;
-    use devices::BusDevice;
     use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 
     use super::*;
+    use crate::devices::pseudo::BootTimer;
+    use crate::devices::BusDevice;
 
     #[test]
     fn test_init_logger() {
@@ -213,19 +204,6 @@ mod tests {
                 assert!(line.contains("Guest-boot-time ="));
             }
         }
-    }
-
-    #[test]
-    fn test_error_display() {
-        assert_eq!(
-            format!(
-                "{}",
-                LoggerConfigError::InitializationFailure(String::from(
-                    "Failed to initialize logger"
-                ))
-            ),
-            "Failed to initialize logger"
-        );
     }
 
     #[test]

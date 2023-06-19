@@ -21,7 +21,7 @@ pub mod regs;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use crate::arch::InitrdConfig;
 
@@ -217,9 +217,11 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm =
-            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x10000)], false)
-                .unwrap();
+        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 0x10000)],
+            false,
+        )
+        .unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
@@ -230,19 +232,22 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
+        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
+            .unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
+        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
+            .unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false).unwrap();
+        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
+            .unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 

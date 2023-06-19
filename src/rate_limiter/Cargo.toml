@@ -5,6 +5,9 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
 timerfd = "1.2.0"
 versionize = "0.1.10"

@@ -8,13 +8,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{io, result};
 
-pub use devices::virtio::block::device::FileEngineType;
-use devices::virtio::block::Error as BlockError;
-use devices::virtio::Block;
-pub use devices::virtio::CacheType;
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
+pub use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::BlockError;
+use crate::devices::virtio::Block;
+pub use crate::devices::virtio::CacheType;
 use crate::Error as VmmError;
 
 /// Errors associated with the operations allowed on a drive.

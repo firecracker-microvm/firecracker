@@ -6,15 +6,19 @@ use std::sync::{Arc, Mutex};
 
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
-use crate::seccomp_filters::{get_filters, SeccompConfig};
+use crate::seccomp_filters::get_empty_filters;
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::{EventManager, Vmm};
 
-pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
+pub fn create_vmm(
+    _kernel_image: Option<&str>,
+    is_diff: bool,
+    boot_microvm: bool,
+) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let empty_seccomp_filters = get_empty_filters();
 
     let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();
     #[cfg(target_arch = "aarch64")]
@@ -33,23 +37,30 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
         mock_vm_res.into()
     };
 
-    (
-        build_microvm_for_boot(
-            &InstanceInfo::default(),
-            &resources,
-            &mut event_manager,
-            &empty_seccomp_filters,
-        )
-        .unwrap(),
-        event_manager,
+    let vmm = build_microvm_for_boot(
+        &InstanceInfo::default(),
+        &resources,
+        &mut event_manager,
+        &empty_seccomp_filters,
     )
+    .unwrap();
+
+    if boot_microvm {
+        vmm.lock().unwrap().resume_vm().unwrap();
+    }
+
+    (vmm, event_manager)
 }
 
 pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false)
+    create_vmm(kernel_image, false, true)
+}
+
+pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
+    create_vmm(kernel_image, false, false)
 }
 
 #[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, true)
+    create_vmm(kernel_image, true, true)
 }

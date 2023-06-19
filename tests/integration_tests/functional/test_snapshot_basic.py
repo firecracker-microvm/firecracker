@@ -52,8 +52,6 @@ def test_5_snapshots(
 ):
     """
     Create and load 5 snapshots.
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_sequence")
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -132,8 +130,6 @@ def test_5_snapshots(
 def test_patch_drive_snapshot(bin_cloner_path):
     """
     Test that a patched drive is correctly used by guests loaded from snapshot.
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_sequence")
 
@@ -191,12 +187,12 @@ def test_patch_drive_snapshot(bin_cloner_path):
 def test_load_snapshot_failure_handling(test_microvm_with_api):
     """
     Test error case of loading empty snapshot files.
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_load_failure")
     vm = test_microvm_with_api
     vm.spawn(log_level="Info")
+    # only works if log level is Debug
+    vm.time_api_requests = False
 
     # Create two empty files for snapshot state and snapshot memory
     chroot_path = vm.jailer.chroot_path()
@@ -239,8 +235,6 @@ def test_cmp_full_and_first_diff_mem(
     - Guest kernel: All supported ones
     - Rootfs: Ubuntu 18.04
     - Microvm: 2vCPU with 512 MB RAM
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_sequence")
 
@@ -283,8 +277,6 @@ def test_cmp_full_and_first_diff_mem(
 def test_negative_postload_api(bin_cloner_path):
     """
     Test APIs fail after loading from snapshot.
-
-    @type: negative
     """
     logger = logging.getLogger("snapshot_api_fail")
 
@@ -333,8 +325,6 @@ def test_negative_postload_api(bin_cloner_path):
 def test_negative_snapshot_permissions(bin_cloner_path):
     """
     Test missing permission error scenarios.
-
-    @type: negative
     """
     logger = logging.getLogger("snapshot_negative")
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -428,8 +418,6 @@ def test_negative_snapshot_permissions(bin_cloner_path):
 def test_negative_snapshot_create(bin_cloner_path):
     """
     Test create snapshot before pause.
-
-    @type: negative
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
@@ -466,8 +454,6 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     When creating a diff snapshot of a microVM with a large memory size, a
     mmap(MAP_PRIVATE|MAP_ANONYMOUS) is issued. Test that the default seccomp
     filter allows it.
-
-    @type: regression
     @issue: https://github.com/firecracker-microvm/firecracker/discussions/2811
     """
     vm = test_microvm_with_api

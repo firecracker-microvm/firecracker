@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{error, info};
+use logger::{error, info, log_enabled, Level};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
@@ -11,7 +11,9 @@ use super::VmmData;
 use crate::request::actions::parse_put_actions;
 use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
+use crate::request::cpu_configuration::parse_put_cpu_config;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
+use crate::request::entropy::parse_put_entropy;
 use crate::request::instance_info::parse_get_instance_info;
 use crate::request::logger::parse_put_logger;
 use crate::request::machine_configuration::{
@@ -25,13 +27,14 @@ use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 
+#[cfg_attr(test, derive(Debug))]
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
 #[derive(Default)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct ParsingInfo {
     deprecation_message: Option<String>,
 }
@@ -49,6 +52,7 @@ impl ParsingInfo {
     }
 }
 
+#[cfg_attr(test, derive(Debug))]
 pub(crate) struct ParsedRequest {
     action: RequestAction,
     parsing_info: ParsingInfo,
@@ -104,6 +108,7 @@ impl ParsedRequest {
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
+            (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
@@ -117,6 +122,7 @@ impl ParsedRequest {
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.get(1)),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
@@ -226,15 +232,32 @@ fn log_received_api_request(api_description: String) {
 fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
         ("/mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, path),
-        (_, Some(value)) => format!(
-            "{:?} request on {:?} with body {:?}",
-            method,
-            path,
-            std::str::from_utf8(value.body.as_slice())
-                .unwrap_or("inconvertible to UTF-8")
-                .to_string()
-        ),
+        ("/cpu-config", Some(payload_value)) => {
+            // If the log level is at Debug or higher, include the CPU template in
+            // the log line.
+            if log_enabled!(Level::Debug) {
+                describe_with_body(method, path, payload_value)
+            } else {
+                format!(
+                    "{:?} request on {:?}. To view the CPU template received by the API, \
+                     configure log-level to DEBUG",
+                    method, path
+                )
+            }
+        }
+        (_, Some(payload_value)) => describe_with_body(method, path, payload_value),
     }
+}
+
+fn describe_with_body(method: Method, path: &str, payload_value: &Body) -> String {
+    format!(
+        "{:?} request on {:?} with body {:?}",
+        method,
+        path,
+        std::str::from_utf8(payload_value.body.as_slice())
+            .unwrap_or("inconvertible to UTF-8")
+            .to_string()
+    )
 }
 
 /// Generates a `GenericError` for each request method.
@@ -304,18 +327,19 @@ pub(crate) fn checked_id(id: &str) -> Result<&str, Error> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::io::{Cursor, Write};
     use std::os::unix::net::UnixStream;
     use std::str::FromStr;
 
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
+    use vmm::cpu_config::templates::test_utils::build_test_template;
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::vmm_config::machine_config::VmConfig;
+    use vmm::vmm_config::machine_config::MachineConfig;
 
     use super::*;
 
@@ -584,7 +608,7 @@ pub(crate) mod tests {
         }));
         verify_ok_response_with(VmmData::Empty);
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
-        verify_ok_response_with(VmmData::MachineConfiguration(VmConfig::default()));
+        verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));
         verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
         verify_ok_response_with(VmmData::VmmVersion(String::default()));
@@ -693,6 +717,21 @@ pub(crate) mod tests {
             "{ \"amount_mib\": 0, \"deflate_on_oom\": false, \"stats_polling_interval_s\": 0 }";
         sender
             .write_all(http_request("PUT", "/balloon", Some(body)).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_entropy() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        let body = "{ \"rate_limiter\": { \"bandwidth\" : { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 }, \"ops\": { \"size\": 0, \"one_time_burst\": 0, \
+                    \"refill_time\": 0 } } }";
+        sender
+            .write_all(http_request("PUT", "/entropy", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -949,6 +988,27 @@ pub(crate) mod tests {
         assert!(ParsedRequest::try_from_request(&req).is_ok());
         #[cfg(target_arch = "aarch64")]
         assert!(ParsedRequest::try_from_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_try_from_put_cpu_config() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        let cpu_template = build_test_template();
+        let cpu_config_json_result = serde_json::to_string(&cpu_template);
+        assert!(
+            cpu_config_json_result.is_ok(),
+            "Unable to serialize custom CPU template"
+        );
+        let cpu_config_json = cpu_config_json_result.unwrap();
+        let result =
+            sender.write_all(http_request("PUT", "/cpu-config", Some(&cpu_config_json)).as_bytes());
+        assert!(result.is_ok());
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let request_result = ParsedRequest::try_from_request(&req);
+        assert!(request_result.is_ok(), "{}", request_result.err().unwrap());
     }
 
     #[test]

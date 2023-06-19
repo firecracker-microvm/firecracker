@@ -100,8 +100,6 @@ def _test_rss_memory_lower(test_microvm):
 def test_rss_memory_lower(test_microvm_with_api, network_config):
     """
     Test that inflating the balloon makes guest use less rss memory.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -124,8 +122,6 @@ def test_rss_memory_lower(test_microvm_with_api, network_config):
 def test_inflate_reduces_free(test_microvm_with_api, network_config):
     """
     Check that the output of free in guest changes with inflate.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -165,8 +161,6 @@ def test_inflate_reduces_free(test_microvm_with_api, network_config):
 def test_deflate_on_oom_true(test_microvm_with_api, network_config):
     """
     Verify that setting the `deflate_on_oom` to True works correctly.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -210,8 +204,6 @@ def test_deflate_on_oom_true(test_microvm_with_api, network_config):
 def test_deflate_on_oom_false(test_microvm_with_api, network_config):
     """
     Verify that setting the `deflate_on_oom` to False works correctly.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -252,8 +244,6 @@ def test_deflate_on_oom_false(test_microvm_with_api, network_config):
 def test_reinflate_balloon(test_microvm_with_api, network_config):
     """
     Verify that repeatedly inflating and deflating the balloon works.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -322,8 +312,6 @@ def test_reinflate_balloon(test_microvm_with_api, network_config):
 def test_size_reduction(test_microvm_with_api, network_config):
     """
     Verify that ballooning reduces RSS usage on a newly booted guest.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -371,8 +359,6 @@ def test_size_reduction(test_microvm_with_api, network_config):
 def test_stats(test_microvm_with_api, network_config):
     """
     Verify that balloon stats work as expected.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -437,8 +423,6 @@ def test_stats(test_microvm_with_api, network_config):
 def test_stats_update(test_microvm_with_api, network_config):
     """
     Verify that balloon stats update correctly.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -494,8 +478,6 @@ def test_stats_update(test_microvm_with_api, network_config):
 def test_balloon_snapshot(bin_cloner_path, microvm_factory, guest_kernel, rootfs):
     """
     Test that the balloon works after pause/resume.
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_sequence")
     snapshot_type = SnapshotType.FULL
@@ -600,8 +582,6 @@ def test_balloon_snapshot(bin_cloner_path, microvm_factory, guest_kernel, rootfs
 def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
     """
     Test that the balloon serializes correctly.
-
-    @type: functional
     """
     logger = logging.getLogger("snapshot_compatibility")
     snapshot_type = SnapshotType.FULL
@@ -653,8 +633,6 @@ def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
 def test_memory_scrub(microvm_factory, guest_kernel, rootfs, network_config):
     """
     Test that the memory is zeroed after deflate.
-
-    @type: functional
     """
     microvm = microvm_factory.build(guest_kernel, rootfs)
     microvm.spawn()

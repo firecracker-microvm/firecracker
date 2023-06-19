@@ -12,8 +12,6 @@ import pytest
 def test_python_style(formatter):
     """
     Test that python code passes `formatter`
-
-    @type: style
     """
     run(
         f"{formatter} --check --diff . ..",
@@ -27,8 +25,6 @@ def test_python_style(formatter):
 def test_python_pylint():
     """
     Test that python code passes linter checks.
-
-    @type: build
     """
     # List of linter commands that should be executed for each file
     linter_cmd = (

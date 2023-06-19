@@ -19,6 +19,7 @@ pub mod signal;
 pub mod sm;
 pub mod time;
 pub mod validators;
+pub mod vm_memory;
 
 use std::result::Result;
 

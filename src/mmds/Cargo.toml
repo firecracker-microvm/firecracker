@@ -5,8 +5,11 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [dependencies]
-aes-gcm = "0.10.1"
+aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 base64 = "0.13.0"
 bincode = "1.2.1"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }

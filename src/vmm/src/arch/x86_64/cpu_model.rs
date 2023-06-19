@@ -27,6 +27,19 @@ impl CpuModel {
         let eax = unsafe { host_cpuid(0x1) }.eax;
         CpuModel::from(&eax)
     }
+
+    /// Check if the current CPU model is Intel Cascade Lake or later.
+    pub fn is_at_least_cascade_lake(&self) -> bool {
+        let cascade_lake = CpuModel {
+            extended_family: 0,
+            extended_model: 5,
+            family: 6,
+            model: 5,
+            stepping: 7,
+        };
+
+        self >= &cascade_lake
+    }
 }
 
 impl From<&u32> for CpuModel {

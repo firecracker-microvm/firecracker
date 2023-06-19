@@ -237,9 +237,12 @@ contiguous pages.
 
 Possible mitigations are:
 
-- Track the failing allocations in the `dmesg` output and rebuild the host
-  kernel so as to use `vmalloc` instead of `kmalloc` for them.
 - Reduce memory pressure on the host.
+- Maybe the host has memory but it's too fragmented for the kernel to use. The
+  allocation above of order 6 means the kernel could not find 2^6
+  **consecutive** pages. One way to mitigate memory fragmentation is to [set a
+  higher value](https://linuxhint.com/vm_min_free_kbytes_sysctl/) for `vm.min_free_kbytes`
+  - Or investigate other [mitigations](https://savvinov.com/2019/10/14/memory-fragmentation-the-silent-performance-killer/)
 
 ### How can I configure and start a microVM without sending API calls?
 
@@ -257,6 +260,13 @@ Firecracker microVM.
 If the microVM was not configured in terms of memory size through an API request,
 the host needs to meet the minimum requirement in terms of free memory size,
 namely 128 MB of free memory which the microVM defaults to.
+
+This may be related to "We are seeing page allocation failures ..." above. To
+validate, run this:
+
+```sh
+sudo dmesg | grep "page allocation failure"
+```
 
 ### Firecracker fails to start and returns "Resource busy" error
 

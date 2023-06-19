@@ -8,8 +8,6 @@ from framework import utils
 def test_markdown_style():
     """
     Test that markdown files adhere to the style rules.
-
-    @type: style
     """
     # Get all *.md files from the project
     md_files = utils.get_files_from(

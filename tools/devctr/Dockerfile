@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.68.2"
+ARG RUST_TOOLCHAIN="1.70.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -41,7 +41,8 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         lsof \
         musl-tools \
-        net-tools iproute2 iperf3 \
+        # needed for integration tests
+        net-tools iproute2 iperf3 socat fdisk \
         openssh-client \
         pkgconf \
         python3 python3-dev python3-pip \
@@ -54,6 +55,12 @@ RUN apt-get update \
         flex \
         bison \
         bc \
+        # for cpu-template-helper
+        # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
+        # https://github.com/firecracker-microvm/firecracker/issues/3677
+        dmidecode \
+        # for aws-lc-rs
+        cmake \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
@@ -68,7 +75,7 @@ RUN cd /tmp/poetry && \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add $ARCH-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install cargo-audit cargo-deny grcov \
+    && cargo install cargo-audit cargo-deny grcov cargo-sort \
     && rm -rf "$CARGO_HOME/registry" \
     && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
     && rm -rf "$CARGO_HOME/git" \

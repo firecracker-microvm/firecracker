@@ -5,24 +5,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashSet;
-use std::{fmt, result};
+use std::collections::{HashMap, HashSet};
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_MSR_ENTRIES,
+    kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use logger::{error, warn, IncMetric, METRICS};
+use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::SetMSRsError;
+use crate::arch::x86_64::msr::{create_boot_msr_entries, Error as MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
-use crate::cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
-use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -33,29 +31,29 @@ use crate::vstate::vm::Vm;
 const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    /// A call to cpuid instruction failed.
-    #[error("Cpuid error: {0:?}")]
-    CpuId(crate::cpuid::Error),
+    /// Failed to convert CPUID type.
+    #[error("Failed to convert `kvm_bindings::CpuId` to `Cpuid`: {0}")]
+    ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
     /// A FamStructWrapper operation has failed.
     #[error("Failed FamStructWrapper operation: {0:?}")]
-    Fam(utils::fam::Error),
+    Fam(#[from] utils::fam::Error),
     /// Error configuring the floating point related registers
     #[error("Error configuring the floating point related registers: {0:?}")]
-    FPUConfiguration(crate::arch::x86_64::regs::Error),
+    FpuConfiguration(crate::arch::x86_64::regs::Error),
+    /// Failed to get dumpable MSR index list.
+    #[error("Failed to get dumpable MSR index list: {0}")]
+    GetMsrsToDump(#[from] crate::arch::x86_64::msr::Error),
     /// Cannot set the local interruption due to bad configuration.
     #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
     LocalIntConfiguration(crate::arch::x86_64::interrupts::Error),
-    /// Error configuring the MSR registers
-    #[error("Error configuring the MSR registers: {0:?}")]
-    MSRSConfiguration(crate::arch::x86_64::msr::Error),
     /// Error configuring the general purpose registers
     #[error("Error configuring the general purpose registers: {0:?}")]
-    REGSConfiguration(crate::arch::x86_64::regs::Error),
+    RegsConfiguration(crate::arch::x86_64::regs::Error),
     /// Error configuring the special registers
     #[error("Error configuring the special registers: {0:?}")]
-    SREGSConfiguration(crate::arch::x86_64::regs::Error),
+    SregsConfiguration(crate::arch::x86_64::regs::Error),
     /// Cannot open the VCPU file descriptor.
     #[error("Cannot open the VCPU file descriptor: {0}")]
     VcpuFd(kvm_ioctls::Error),
@@ -70,7 +68,7 @@ pub enum Error {
     VcpuGetMpState(kvm_ioctls::Error),
     /// The number of MSRS returned by the kernel is unexpected.
     #[error("Unexpected number of MSRS reported by the kernel")]
-    VcpuGetMSRSIncomplete,
+    VcpuGetMsrsIncomplete,
     /// Failed to get KVM vcpu msrs.
     #[error("Failed to get KVM vcpu msrs: {0}")]
     VcpuGetMsrs(kvm_ioctls::Error),
@@ -94,7 +92,7 @@ pub enum Error {
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC freq.
     #[error("Failed to get KVM TSC frequency: {0}")]
-    VcpuGetTSC(kvm_ioctls::Error),
+    VcpuGetTsc(kvm_ioctls::Error),
     /// Failed to set KVM vcpu cpuid.
     #[error("Failed to set KVM vcpu cpuid: {0}")]
     VcpuSetCpuid(kvm_ioctls::Error),
@@ -112,7 +110,7 @@ pub enum Error {
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
     #[error("Failed to set all KVM MSRs for this vCPU. Only a partial write was done.")]
-    VcpuSetMSRSIncomplete,
+    VcpuSetMsrsIncomplete,
     /// Failed to set KVM vcpu regs.
     #[error("Failed to set KVM vcpu regs: {0}")]
     VcpuSetRegs(kvm_ioctls::Error),
@@ -130,55 +128,43 @@ pub enum Error {
     VcpuSetXsave(kvm_ioctls::Error),
     /// Failed to set KVM TSC freq.
     #[error("Failed to set KVM TSC frequency: {0}")]
-    VcpuSetTSC(kvm_ioctls::Error),
+    VcpuSetTsc(kvm_ioctls::Error),
     /// Failed to apply CPU template.
     #[error("Failed to apply CPU template")]
     VcpuTemplateError,
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
-#[derive(Debug, derive_more::From, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, derive_more::From, Eq, PartialEq)]
+#[error("{0}")]
 pub struct GetTscError(utils::errno::Error);
-impl fmt::Display for GetTscError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl std::error::Error for GetTscError {}
+
 /// Error type for [`KvmVcpu::set_tsc_khz`].
-#[derive(Debug, derive_more::From, PartialEq, Eq)]
-pub struct SetTscError(kvm_ioctls::Error);
-impl fmt::Display for SetTscError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl std::error::Error for SetTscError {}
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[error("{0}")]
+pub struct SetTscError(#[from] kvm_ioctls::Error);
 
 /// Error type for [`KvmVcpu::configure`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    #[error("Failed to create `VmSpec`: {0}")]
-    VmSpec(crate::cpuid::Error),
-    #[error("Failed to filter CPUID: {0}")]
-    FilterCpuid(crate::cpuid::Error),
-    #[error("Failed to set CPUID entries: {0}")]
-    SetCpuidEntries(crate::cpuid::Error),
+    #[error("Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}")]
+    ConvertCpuidType(#[from] utils::fam::Error),
+    /// Failed to apply modifications to CPUID.
+    #[error("Failed to apply modifications to CPUID: {0}")]
+    NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
-    #[error("Failed to push MSR entry to FamStructWrapper.")]
-    PushMsrEntries(utils::fam::Error),
     #[error("Failed to set MSRs: {0}")]
-    SetMsrs(#[from] SetMSRsError),
+    SetMsrs(#[from] MsrError),
     #[error("Failed to setup registers: {0}")]
     SetupRegisters(#[from] SetupRegistersError),
     #[error("Failed to setup FPU: {0}")]
     SetupFpu(#[from] SetupFpuError),
     #[error("Failed to setup special registers: {0}")]
     SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
-    #[error("Faiuled to configure LAPICs: {0}")]
+    #[error("Failed to configure LAPICs: {0}")]
     SetLint(#[from] interrupts::Error),
 }
 
@@ -187,10 +173,10 @@ pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
 
-    pub pio_bus: Option<devices::Bus>,
-    pub mmio_bus: Option<devices::Bus>,
+    pub pio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<crate::devices::Bus>,
 
-    msr_list: HashSet<u32>,
+    msrs_to_save: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -208,7 +194,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             pio_bus: None,
             mmio_bus: None,
-            msr_list: vm.supported_msrs().as_slice().iter().copied().collect(),
+            msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
         })
     }
 
@@ -225,44 +211,37 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-        mut cpuid: CpuId,
     ) -> std::result::Result<(), KvmVcpuConfigureError> {
-        let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.smt)
-            .map_err(KvmVcpuConfigureError::VmSpec)?;
+        let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
 
-        filter_cpuid(&mut cpuid, &cpuid_vm_spec)
-            .map_err(|err| {
-                METRICS.vcpu.filter_cpuid.inc();
-                error!(
-                    "Failure in configuring CPUID for vcpu {}: {:?}",
-                    self.index, err
-                );
-                err
-            })
-            .map_err(KvmVcpuConfigureError::FilterCpuid)?;
+        // Apply machine specific changes to CPUID.
+        cpuid.normalize(
+            // The index of the current logical CPU in the range [0..cpu_count].
+            self.index,
+            // The total number of logical CPUs.
+            vcpu_config.vcpu_count,
+            // The number of bits needed to enumerate logical CPUs per core.
+            u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
+        )?;
 
-        // Update the CPUID based on the template
-        match vcpu_config.cpu_template {
-            CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
-                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
-            CpuFeaturesTemplate::T2S => t2s::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
-                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
-            CpuFeaturesTemplate::T2CL => t2cl::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
-                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
-            CpuFeaturesTemplate::T2A => t2a::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
-                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
-            CpuFeaturesTemplate::C3 => c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec)
-                .map_err(KvmVcpuConfigureError::SetCpuidEntries)?,
-            CpuFeaturesTemplate::None => {}
-        }
+        // Set CPUID.
+        let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid)?;
 
+        // Set CPUID in the KVM
         self.fd
-            .set_cpuid2(&cpuid)
+            .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
-        // Initialize some architectural MSRs that will be set for boot.
-        let mut msr_boot_entries = crate::arch::x86_64::msr::create_boot_msr_entries();
+        // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
+        let mut msrs = vcpu_config.cpu_config.msrs.clone();
+        self.msrs_to_save.extend(msrs.keys());
 
+        // Apply MSR modification to comply the linux boot protocol.
+        create_boot_msr_entries().into_iter().for_each(|entry| {
+            msrs.insert(entry.index, entry.data);
+        });
+
+        // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
         // to configure and interact with those features. If a MSR is writable from
         // inside the Guest, or is changed by KVM or Firecracker on behalf of the Guest,
@@ -270,44 +249,36 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs =
-            msrs_to_save_by_cpuid(&cpuid).map_err(KvmVcpuConfigureError::FilterCpuid)?;
-        self.msr_list.extend(extra_msrs);
+        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid);
+        self.msrs_to_save.extend(extra_msrs);
 
         // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
-        // be implemented. For now we define known dependencies statically in the CPU
-        // templates.
+        // be implemented.
 
-        // Depending on which CPU template the user selected, we may need to initialize
-        // additional MSRs for boot to correctly enable some CPU features. As stated in
-        // the previous comment, we get from the template a static list of MSRs we need
-        // to save at snapshot as well.
-        // C3, T2 and T2A currently don't have extra MSRs to save/set.
-        match vcpu_config.cpu_template {
-            CpuFeaturesTemplate::T2S => {
-                self.msr_list.extend(t2s::msr_entries_to_save());
-                t2s::update_msr_entries(&mut msr_boot_entries);
-            }
-            CpuFeaturesTemplate::T2CL => {
-                self.msr_list.extend(t2cl::msr_entries_to_save());
-                t2cl::update_msr_entries(&mut msr_boot_entries);
-            }
-            _ => (),
-        }
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        crate::arch::x86_64::msr::set_msrs(&self.fd, &msr_boot_entries)?;
+        let kvm_msrs = msrs
+            .into_iter()
+            .map(|entry| kvm_bindings::kvm_msr_entry {
+                index: entry.0,
+                data: entry.1,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
         crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
         crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
+
         Ok(())
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
-    pub fn set_pio_bus(&mut self, pio_bus: devices::Bus) {
+    pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.pio_bus = Some(pio_bus);
     }
 
@@ -319,6 +290,90 @@ impl KvmVcpu {
     pub fn get_tsc_khz(&self) -> std::result::Result<u32, GetTscError> {
         let res = self.fd.get_tsc_khz()?;
         Ok(res)
+    }
+
+    /// Get CPUID for this vCPU.
+    ///
+    /// Opposed to KVM_GET_SUPPORTED_CPUID, KVM_GET_CPUID2 does not update "nent" with valid number
+    /// of entries on success. Thus, when it passes "num_entries" greater than required, zeroed
+    /// entries follow after valid entries. This function removes such zeroed empty entries.
+    ///
+    /// # Errors
+    ///
+    /// * When [`kvm_ioctls::VcpuFd::get_cpuid2`] returns errors.
+    fn get_cpuid(&self) -> Result<kvm_bindings::CpuId> {
+        let mut cpuid = self
+            .fd
+            .get_cpuid2(KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::VcpuGetCpuid)?;
+
+        // As CPUID.0h:EAX should have the largest CPUID standard function, we don't need to check
+        // EBX, ECX and EDX to confirm whether it is a valid entry.
+        cpuid.retain(|entry| {
+            !(entry.function == 0 && entry.index == 0 && entry.flags == 0 && entry.eax == 0)
+        });
+
+        Ok(cpuid)
+    }
+
+    /// Get MSR chunks for the given MSR index list.
+    ///
+    /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
+    /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
+    /// chunk, and collect into a Vec<Msrs>.
+    ///
+    /// # Arguments
+    ///
+    /// * `msr_index_list`: List of MSR indices.
+    ///
+    /// # Errors
+    ///
+    /// * When [`kvm_bindings::Msrs::new`] returns errors.
+    /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
+    /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
+    ///   could be gotten) is less than expected.
+    fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>> {
+        let mut msr_chunks: Vec<Msrs> = Vec::new();
+
+        for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
+            let mut msrs = Msrs::new(msr_index_chunk.len())?;
+            let msr_entries = msrs.as_mut_slice();
+            assert_eq!(msr_index_chunk.len(), msr_entries.len());
+            for (pos, index) in msr_index_chunk.iter().enumerate() {
+                msr_entries[pos].index = *index;
+            }
+
+            let expected_nmsrs = msrs.as_slice().len();
+            let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
+            if nmsrs != expected_nmsrs {
+                return Err(Error::VcpuGetMsrsIncomplete);
+            }
+
+            msr_chunks.push(msrs);
+        }
+
+        Ok(msr_chunks)
+    }
+
+    /// Get MSRs for the given MSR index list.
+    ///
+    /// # Arguments
+    ///
+    /// * `msr_index_list`: List of MSR indices
+    ///
+    /// # Errors
+    ///
+    /// * When `KvmVcpu::get_msr_chunks()` returns errors.
+    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>> {
+        let mut msrs: HashMap<u32, u64> = HashMap::new();
+        self.get_msr_chunks(msr_index_list)?
+            .iter()
+            .for_each(|msr_chunk| {
+                msr_chunk.as_slice().iter().for_each(|msr| {
+                    msrs.insert(msr.index, msr.data);
+                });
+            });
+        Ok(msrs)
     }
 
     /// Save the KVM internal state.
@@ -340,27 +395,6 @@ impl KvmVcpu {
         //
         // SREGS saves/restores a pending interrupt, similar to what
         // VCPU_EVENTS also does.
-        //
-        // GET_MSRS requires a pre-populated data structure to do something
-        // meaningful. For SET_MSRS it will then contain good data.
-
-        // Build the list of MSRs we want to save. Sometimes we need to save
-        // more than KVM_MAX_MSR_ENTRIES in the snapshot, so we use a Vec<Msrs>
-        // to allow an unlimited number.
-        let mut all_msrs: Vec<Msrs> = Vec::new();
-        let msr_list: Vec<&u32> = self.msr_list.iter().collect();
-
-        // KVM only supports getting KVM_MAX_MSR_ENTRIES at a time so chunk
-        // them up into `Msrs` so it's easy to pass to the ioctl.
-        for chunk in msr_list.chunks(KVM_MAX_MSR_ENTRIES) {
-            let mut msrs = Msrs::new(chunk.len()).map_err(Error::Fam)?;
-            let msr_entries = msrs.as_mut_slice();
-            assert_eq!(chunk.len(), msr_entries.len());
-            for (pos, index) in chunk.iter().enumerate() {
-                msr_entries[pos].index = **index;
-            }
-            all_msrs.push(msrs);
-        }
 
         let mp_state = self.fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
         let regs = self.fd.get_regs().map_err(Error::VcpuGetRegs)?;
@@ -376,25 +410,18 @@ impl KvmVcpu {
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
-        for msrs in all_msrs.iter_mut() {
-            let expected_nmsrs = msrs.as_slice().len();
-            let nmsrs = self.fd.get_msrs(msrs).map_err(Error::VcpuGetMsrs)?;
-            if nmsrs != expected_nmsrs {
-                return Err(Error::VcpuGetMSRSIncomplete);
-            }
-        }
+        let cpuid = self.get_cpuid()?;
+        let saved_msrs =
+            self.get_msr_chunks(&self.msrs_to_save.iter().copied().collect::<Vec<_>>())?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
             .map_err(Error::VcpuGetVcpuEvents)?;
 
         Ok(VcpuState {
-            cpuid: self
-                .fd
-                .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
-                .map_err(Error::VcpuGetCpuid)?,
-            saved_msrs: all_msrs,
-            msrs: Msrs::new(0).map_err(Error::Fam)?,
+            cpuid,
+            saved_msrs,
+            msrs: Msrs::new(0)?,
             debug_regs,
             lapic,
             mp_state,
@@ -405,6 +432,18 @@ impl KvmVcpu {
             xsave,
             tsc_khz,
         })
+    }
+
+    /// Dumps CPU configuration (CPUID and MSRs).
+    ///
+    /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
+    /// serializable ones.
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
+        let cpuid = cpuid::Cpuid::try_from(self.get_cpuid()?)?;
+        let kvm = kvm_ioctls::Kvm::new().unwrap();
+        let msr_index_list = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm)?;
+        let msrs = self.get_msrs(msr_index_list.as_slice())?;
+        Ok(CpuConfiguration { cpuid, msrs })
     }
 
     /// Checks whether the TSC needs scaling when restoring a snapshot.
@@ -477,7 +516,7 @@ impl KvmVcpu {
         for msrs in &state.saved_msrs {
             let nmsrs = self.fd.set_msrs(msrs).map_err(Error::VcpuSetMsrs)?;
             if nmsrs < msrs.as_fam_struct_ref().nmsrs as usize {
-                return Err(Error::VcpuSetMSRSIncomplete);
+                return Err(Error::VcpuSetMsrsIncomplete);
             }
         }
         self.fd
@@ -525,17 +564,17 @@ impl KvmVcpu {
 pub struct VcpuState {
     pub cpuid: CpuId,
     #[version(end = 3, default_fn = "default_msrs")]
-    msrs: Msrs,
+    pub msrs: Msrs,
     #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
-    saved_msrs: Vec<Msrs>,
-    debug_regs: kvm_debugregs,
-    lapic: kvm_lapic_state,
-    mp_state: kvm_mp_state,
-    regs: kvm_regs,
-    sregs: kvm_sregs,
-    vcpu_events: kvm_vcpu_events,
-    xcrs: kvm_xcrs,
-    xsave: kvm_xsave,
+    pub saved_msrs: Vec<Msrs>,
+    pub debug_regs: kvm_debugregs,
+    pub lapic: kvm_lapic_state,
+    pub mp_state: kvm_mp_state,
+    pub regs: kvm_regs,
+    pub sregs: kvm_sregs,
+    pub vcpu_events: kvm_vcpu_events,
+    pub xcrs: kvm_xcrs,
+    pub xsave: kvm_xsave,
     #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
     pub tsc_khz: Option<u32>,
 }
@@ -606,14 +645,18 @@ mod tests {
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
-    use crate::cpuid::common::{get_vendor_id_from_host, VENDOR_ID_AMD, VENDOR_ID_INTEL};
+    use crate::cpu_config::templates::{
+        CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
+        StaticCpuTemplate,
+    };
+    use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
         fn default() -> Self {
             VcpuState {
-                cpuid: crate::cpuid::CpuId::new(1).unwrap(),
+                cpuid: CpuId::new(1).unwrap(),
                 msrs: Msrs::new(1).unwrap(),
                 saved_msrs: vec![Msrs::new(1).unwrap()],
                 debug_regs: Default::default(),
@@ -647,118 +690,215 @@ mod tests {
             })
     }
 
+    fn create_vcpu_config(
+        vm: &Vm,
+        vcpu: &KvmVcpu,
+        template: &CustomCpuTemplate,
+    ) -> std::result::Result<VcpuConfig, GuestConfigError> {
+        let cpuid = Cpuid::try_from(vm.supported_cpuid().clone())
+            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
+        let msrs = vcpu
+            .get_msrs(&template.get_msr_index_list())
+            .map_err(GuestConfigError::VcpuIoctl)?;
+        let base_cpu_config = CpuConfiguration { cpuid, msrs };
+        let cpu_config = CpuConfiguration::apply_template(base_cpu_config, template)?;
+        Ok(VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config,
+        })
+    }
+
     #[test]
     fn test_configure_vcpu() {
         let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let mut vcpu_config = VcpuConfig {
-            vcpu_count: 1,
-            smt: false,
-            cpu_template: CpuFeaturesTemplate::None,
+        let vcpu_config = create_vcpu_config(&vm, &vcpu, &CustomCpuTemplate::default()).unwrap();
+        assert_eq!(
+            vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config,),
+            Ok(())
+        );
+
+        let try_configure = |vm: &Vm, vcpu: &mut KvmVcpu, template| -> bool {
+            let cpu_template = Some(CpuTemplateType::Static(template));
+            let template = cpu_template.get_cpu_template();
+            match template {
+                Ok(template) => match create_vcpu_config(vm, vcpu, &template) {
+                    Ok(config) => vcpu
+                        .configure(
+                            &vm_mem,
+                            GuestAddress(crate::arch::get_kernel_start()),
+                            &config,
+                        )
+                        .is_ok(),
+                    Err(_) => false,
+                },
+                Err(_) => false,
+            }
         };
 
-        assert!(vcpu
-            .configure(
-                &vm_mem,
-                GuestAddress(0),
-                &vcpu_config,
-                vm.supported_cpuid().clone()
-            )
-            .is_ok());
-
         // Test configure while using the T2 template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2;
-        let t2_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(crate::arch::get_kernel_start()),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2);
 
         // Test configure while using the C3 template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::C3;
-        let c3_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let c3_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::C3);
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2S;
-        let t2s_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2s_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2S);
 
         // Test configure while using the T2CL template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2CL;
-        let t2cl_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2cl_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2CL);
 
         // Test configure while using the T2S template.
-        vcpu_config.cpu_template = CpuFeaturesTemplate::T2A;
-        let t2a_res = vcpu.configure(
-            &vm_mem,
-            GuestAddress(0),
-            &vcpu_config,
-            vm.supported_cpuid().clone(),
-        );
+        let t2a_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2A);
 
-        match &get_vendor_id_from_host().unwrap() {
-            VENDOR_ID_INTEL => {
-                assert!(t2_res.is_ok());
-                assert!(c3_res.is_ok());
-                assert!(t2s_res.is_ok());
-                assert!(t2a_res.is_err());
-
+        match &cpuid::common::get_vendor_id_from_host().unwrap() {
+            cpuid::VENDOR_ID_INTEL => {
+                assert!(t2_res);
+                assert!(c3_res);
+                assert!(t2s_res);
                 if is_at_least_cascade_lake() {
-                    assert!(t2cl_res.is_ok());
+                    assert!(t2cl_res);
                 } else {
-                    assert!(t2cl_res.is_err());
+                    assert!(!t2cl_res);
                 }
+                assert!(!t2a_res);
             }
-            VENDOR_ID_AMD => {
-                assert!(t2_res.is_err());
-                assert!(c3_res.is_err());
-                assert!(t2s_res.is_err());
-                assert!(t2cl_res.is_err());
-                assert!(t2a_res.is_ok());
+            cpuid::VENDOR_ID_AMD => {
+                assert!(!t2_res);
+                assert!(!c3_res);
+                assert!(!t2s_res);
+                assert!(!t2cl_res);
+                assert!(t2a_res);
             }
             _ => {
-                assert!(t2_res.is_err());
-                assert!(c3_res.is_err());
-                assert!(t2s_res.is_err());
-                assert!(t2cl_res.is_err());
-                assert!(t2a_res.is_err());
+                assert!(!t2_res);
+                assert!(!c3_res);
+                assert!(!t2s_res);
+                assert!(!t2cl_res);
+                assert!(!t2a_res);
             }
         }
     }
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (_vm, vcpu, _) = setup_vcpu(0x1000);
+        let (vm, vcpu, _mem) = setup_vcpu(0x10000);
+        vcpu.fd.set_cpuid2(vm.supported_cpuid()).unwrap();
+
+        // Mutate the CPUID.
+        // Leaf 0x3 / EAX that is an unused (reserved to be accurate) register, so it's harmless.
         let mut state = vcpu.save_state().unwrap();
-        // Mutate the cpuid.
-        state.cpuid.as_mut_slice()[0].eax = 0x1234_5678;
-        assert!(vcpu.restore_state(&state).is_ok());
+        state.cpuid.as_mut_slice().iter_mut().for_each(|entry| {
+            if entry.function == 3 && entry.index == 0 {
+                entry.eax = 0x1234_5678;
+            }
+        });
 
+        // Restore the state into the existing vcpu.
+        let result1 = vcpu.restore_state(&state);
+        assert!(result1.is_ok(), "{}", result1.unwrap_err());
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let (_vm, vcpu, _) = setup_vcpu(0x1000);
-        assert!(vcpu.restore_state(&state).is_ok());
 
-        // Validate the mutated cpuid is saved.
-        assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+        // Restore the state into a new vcpu.
+        let (_vm, vcpu, _mem) = setup_vcpu(0x10000);
+        let result2 = vcpu.restore_state(&state);
+        assert!(result2.is_ok(), "{}", result2.unwrap_err());
+
+        // Validate the mutated cpuid is restored correctly.
+        let state = vcpu.save_state().unwrap();
+        let cpuid = Cpuid::try_from(state.cpuid).unwrap();
+        let leaf3 = cpuid
+            .inner()
+            .get(&CpuidKey {
+                leaf: 0x3,
+                subleaf: 0x0,
+            })
+            .unwrap();
+        assert!(leaf3.result.eax == 0x1234_5678);
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
+    fn test_empty_cpuid_entries_removed() {
+        // Test that `get_cpuid()` removes zeroed empty entries from the `KVM_GET_CPUID2` result.
+        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config: CpuConfiguration {
+                cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
+                msrs: HashMap::new(),
+            },
+        };
+        vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
+            .unwrap();
+
+        // Invalid entries filled with 0 should not exist.
+        let cpuid = vcpu.get_cpuid().unwrap();
+        cpuid.as_slice().iter().for_each(|entry| {
+            assert!(
+                !(entry.function == 0
+                    && entry.index == 0
+                    && entry.flags == 0
+                    && entry.eax == 0
+                    && entry.ebx == 0
+                    && entry.ecx == 0
+                    && entry.edx == 0)
+            );
+        });
+
+        // Leaf 0 should have non-zero entry in `Cpuid`.
+        let cpuid = Cpuid::try_from(cpuid).unwrap();
+        assert_ne!(
+            cpuid
+                .inner()
+                .get(&CpuidKey {
+                    leaf: 0,
+                    subleaf: 0,
+                })
+                .unwrap(),
+            &CpuidEntry {
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_dump_cpu_config_with_non_configured_vcpu() {
+        // Test `dump_cpu_config()` before vcpu configuration.
+        //
+        // `KVM_GET_CPUID2` returns the result of `KVM_SET_CPUID2`. See
+        // https://docs.kernel.org/virt/kvm/api.html#kvm-set-cpuid
+        // Since `KVM_SET_CPUID2` has not been called before vcpu configuration, all leaves should
+        // be filled with zero. Therefore, `KvmVcpu::dump_cpu_config()` should fail with CPUID type
+        // conversion error due to the lack of brand string info in leaf 0x0.
+        let (_, vcpu, _) = setup_vcpu(0x10000);
+        match vcpu.dump_cpu_config() {
+            Err(Error::ConvertCpuidType(_)) => (),
+            Err(err) => panic!("Unexpected error: {err}"),
+            Ok(_) => panic!("Dumping CPU configuration should fail before vcpu configuration."),
+        }
+    }
+
+    #[test]
+    fn test_dump_cpu_config_with_configured_vcpu() {
+        // Test `dump_cpu_config()` after vcpu configuration.
+        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            smt: false,
+            cpu_config: CpuConfiguration {
+                cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
+                msrs: HashMap::new(),
+            },
+        };
+        vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
+            .unwrap();
+        assert!(vcpu.dump_cpu_config().is_ok());
+    }
+
+    #[test]
+    #[allow(clippy::cast_sign_loss, clippy::redundant_clone)] // always positive, no u32::try_from(f64)
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
@@ -800,6 +940,44 @@ mod tests {
             }
         } else {
             assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn test_get_msrs_with_msrs_to_save() {
+        // Test `get_msrs()` with the MSR indices that should be serialized into snapshots.
+        // The MSR indices should be valid and this test should succeed.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+        assert!(vcpu
+            .get_msrs(&vcpu.msrs_to_save.iter().copied().collect::<Vec<_>>())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_get_msrs_with_msrs_to_dump() {
+        // Test `get_msrs()` with the MSR indices that should be dumped.
+        // All the MSR indices should be valid and the call should succeed.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+
+        let kvm = kvm_ioctls::Kvm::new().unwrap();
+        let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
+        assert!(vcpu.get_msrs(msrs_to_dump.as_slice()).is_ok());
+    }
+
+    #[test]
+    fn test_get_msrs_with_invalid_msr_index() {
+        // Test `get_msrs()` with unsupported MSR indices. This should return
+        // `VcpuGetMsrsIncomplete` error that happens when `KVM_GET_MSRS` fails to populdate
+        // MSR value in the middle and exits. Currently, MSR indices 2..=4 are not listed as
+        // supported MSRs.
+        let (_, vcpu, _) = setup_vcpu(0x1000);
+        let msr_index_list: Vec<u32> = vec![2, 3, 4];
+        match vcpu.get_msrs(&msr_index_list) {
+            Err(Error::VcpuGetMsrsIncomplete) => (),
+            Err(err) => panic!("Unexpected error: {err}"),
+            Ok(_) => panic!(
+                "KvmVcpu::get_msrs() for unsupported MSRs should fail with VcpuGetMsrsIncomplete."
+            ),
         }
     }
 }

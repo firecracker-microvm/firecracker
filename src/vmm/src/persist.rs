@@ -10,24 +10,27 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use devices::virtio::TYPE_NET;
 use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
+use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 #[cfg(target_arch = "aarch64")]
-use crate::arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
+use crate::cpu_config::templates::StaticCpuTemplate;
 #[cfg(target_arch = "x86_64")]
-use crate::cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
+#[cfg(target_arch = "x86_64")]
+use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
+use crate::devices::virtio::TYPE_NET;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
@@ -35,7 +38,7 @@ use crate::version_map::FC_V0_23_SNAP_VERSION;
 use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{CpuFeaturesTemplate, MAX_SUPPORTED_VCPUS};
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -61,7 +64,7 @@ pub struct VmInfo {
         default_fn = "def_cpu_template",
         ser_fn = "ser_cpu_template"
     )]
-    pub cpu_template: CpuFeaturesTemplate,
+    pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
     #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
     pub boot_source: BootSourceConfig,
@@ -79,9 +82,9 @@ impl VmInfo {
         Ok(())
     }
 
-    fn def_cpu_template(_: u16) -> CpuFeaturesTemplate {
+    fn def_cpu_template(_: u16) -> StaticCpuTemplate {
         warn!("CPU template field not found in snapshot.");
-        CpuFeaturesTemplate::None
+        StaticCpuTemplate::default()
     }
 
     fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
@@ -99,6 +102,17 @@ impl VmInfo {
         // v1.1 and older versions do not include boot source info.
         warn!("Saving to older snapshot version, boot source information will not be saved.");
         Ok(())
+    }
+}
+
+impl From<&VmResources> for VmInfo {
+    fn from(value: &VmResources) -> Self {
+        Self {
+            mem_size_mib: value.vm_config.mem_size_mib as u64,
+            smt: value.vm_config.smt,
+            cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+            boot_source: value.boot_source_config().clone(),
+        }
     }
 }
 
@@ -347,10 +361,10 @@ pub fn get_snapshot_data_version(
 pub enum ValidateCpuVendorError {
     /// Failed to read host vendor.
     #[error("Failed to read host vendor: {0}")]
-    Host(crate::cpuid::common::Error),
+    Host(#[from] crate::cpu_config::x86_64::cpuid::common::GetCpuidError),
     /// Failed to read snapshot vendor.
-    #[error("Failed to read snapshot vendor: {0}")]
-    Snapshot(crate::cpuid::common::Error),
+    #[error("Failed to read snapshot vendor")]
+    Snapshot,
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -364,13 +378,12 @@ pub enum ValidateCpuVendorError {
 pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<bool, ValidateCpuVendorError> {
-    let host_vendor_id = get_vendor_id_from_host().map_err(ValidateCpuVendorError::Host)?;
+    let host_vendor_id = get_vendor_id_from_host()?;
 
-    let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
-        .map_err(|err| {
-            error!("Snapshot CPU vendor is missing.");
-            ValidateCpuVendorError::Snapshot(err)
-        })?;
+    let snapshot_vendor_id = microvm_state.vcpu_states[0]
+        .cpuid
+        .vendor_id()
+        .ok_or(ValidateCpuVendorError::Snapshot)?;
 
     if host_vendor_id == snapshot_vendor_id {
         info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
@@ -413,7 +426,7 @@ pub fn validate_cpu_manufacturer_id(
         .map_err(|err| ValidateCpuManufacturerIdError::Host(err.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
-        let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
+        let state_man_id = get_manufacturer_id_from_state(&state.regs)
             .map_err(|err| ValidateCpuManufacturerIdError::Snapshot(err.to_string()))?;
 
         if host_man_id != state_man_id {
@@ -887,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use vm_memory::GuestMemoryError;
+        use utils::vm_memory::GuestMemoryError;
 
         use crate::persist::CreateSnapshotError::*;
 

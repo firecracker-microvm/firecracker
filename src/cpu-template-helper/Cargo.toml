@@ -1,0 +1,24 @@
+[package]
+name = "cpu-template-helper"
+version = "1.5.0-dev"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+build = "../../build.rs"
+license = "Apache-2.0"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "cpu-template-helper"
+bench = false
+
+[dependencies]
+clap = { version = "4.3.3", features = ["derive", "string"] }
+libc = "0.2.146"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.78"
+thiserror = "1.0.32"
+
+vmm = { path = "../vmm" }
+
+[dev-dependencies]
+utils = { path = "../utils" }

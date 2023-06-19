@@ -14,11 +14,10 @@ FC_ROOT_DIR=$FC_TOOLS_DIR/..
 # specified release number and the previous one.
 function create_local_tag {
     version="$1"
-    prev_ver="$2"
-    branch="$3"
+    branch="$2"
 
     say "Obtaining tag description for local tag v$version..."
-    tag_text=$($FC_TOOLS_DIR/release-notes.sh "$prev_ver" "$version")
+    tag_text=$($FC_TOOLS_DIR/release-notes.sh "$version")
     say "Tag description for v$version:"
     echo "$tag_text"
     # Create tag.
@@ -29,19 +28,17 @@ function create_local_tag {
 
 # # # # MAIN # # # #
 
-if [ $# -ne 2 ]; then
+if [ $# -ne 1 ]; then
     cat <<EOF
-$0 <previous_version> <version>
+$0 <version>
 
-    Example: $0 1.1.1 1.1.2
+    Example: $0 1.1.2
 
     It will create a local git tag and push it to the upstream
 EOF
     exit 1
 fi
-prev_version=$1
-version=$2
-validate_version "$prev_version"
+version=$1
 validate_version "$version"
 
 LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -52,7 +49,7 @@ check_local_branch_is_release_branch
 
 # Start by creating a local tag and associate to it a description.
 say "Creating local tag..."
-create_local_tag "$version" "$prev_version" "$LOCAL_BRANCH"
+create_local_tag "$version" "$LOCAL_BRANCH"
 
 # pretty print a warning
 function warn {

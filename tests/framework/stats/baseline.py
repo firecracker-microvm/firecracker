@@ -3,7 +3,9 @@
 """Module for common statistic tests baselines providers."""
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
+from framework.properties import global_props
 from framework.utils import DictQuery
 
 
@@ -21,3 +23,18 @@ class Provider(ABC):
 
         ...combination.
         """
+
+    def read_baseline(self, data: dict):
+        """
+        Read baseline data from a dictionary
+        """
+        baselines = defaultdict(dict)
+        for instance, cpus in data["hosts"]["instances"].items():
+            for cpu in cpus["cpus"]:
+                cpu_model = cpu["model"]
+                for baseline, val in cpu["baselines"].items():
+                    baselines[instance, cpu_model][baseline] = val
+        return {
+            "baselines": baselines.get((global_props.instance, global_props.cpu_model)),
+            "model": global_props.cpu_model,
+        }

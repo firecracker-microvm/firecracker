@@ -26,8 +26,6 @@ def test_restore_old_to_current(bin_cloner_path, firecracker_release):
     For each firecracker release:
     1. Snapshot with the past release
     2. Restore with the current build
-
-    @type: functional
     """
 
     # due to ARM bug fixed in commit 822009ce
@@ -75,8 +73,6 @@ def test_restore_current_to_old(bin_cloner_path, firecracker_release):
     For each firecracker release:
     1. Snapshot with the current build
     2. Restore with the past release
-
-    @type: functional
     """
 
     # Current snapshot (i.e a machine snapshotted with current build) is
@@ -124,8 +120,6 @@ def test_restore_current_to_old(bin_cloner_path, firecracker_release):
 def test_save_tsc_old_version(bin_cloner_path):
     """
     Test TSC warning message when saving old snapshot.
-
-    @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()

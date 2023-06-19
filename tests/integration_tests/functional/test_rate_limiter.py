@@ -4,6 +4,7 @@
 import time
 
 from framework import utils
+from host_tools import cpu_load
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
@@ -32,8 +33,6 @@ MAX_TIME_DIFF = 25
 def test_tx_rate_limiting(test_microvm_with_api, network_config):
     """
     Run iperf tx with and without rate limiting; check limiting effect.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -86,8 +85,6 @@ def test_tx_rate_limiting(test_microvm_with_api, network_config):
 def test_rx_rate_limiting(test_microvm_with_api, network_config):
     """
     Run iperf rx with and without rate limiting; check limiting effect.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -141,20 +138,10 @@ def test_rx_rate_limiting(test_microvm_with_api, network_config):
 def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
     """
     Run iperf rx with rate limiting; verify cpu load is below threshold.
-
-    @type: functional
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
-
     test_microvm.basic_config()
-
-    # Enable monitor that checks if the cpu load is over the threshold.
-    # After multiple runs, the average value for the cpu load
-    # seems to be around 10%. Setting the threshold a little
-    # higher to skip false positives.
-    threshold = 20
-    test_microvm.enable_cpu_load_monitor(threshold)
 
     # Create interface with aggressive rate limiting enabled.
     rx_rate_limiter_no_burst = {
@@ -165,6 +152,7 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
     )
 
     test_microvm.start()
+
     # Start iperf server on guest.
     _start_iperf_on_guest(test_microvm, guest_ip)
 
@@ -175,7 +163,21 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
         guest_ip,
         IPERF_TRANSMIT_TIME * 5,
     )
-    _iperf_out = _run_local_iperf(iperf_cmd)
+
+    # Enable monitor that checks if the cpu load is over the threshold.
+    # After multiple runs, the average value for the cpu load
+    # seems to be around 10%. Setting the threshold a little
+    # higher to skip false positives.
+    # We want to monitor the emulation thread, which is currently
+    # the first one created.
+    # A possible improvement is to find it by name.
+    cpu_load_monitor = cpu_load.CpuLoadMonitor(
+        process_pid=test_microvm.jailer_clone_pid,
+        thread_pid=test_microvm.jailer_clone_pid,
+        threshold=20,
+    )
+    with cpu_load_monitor:
+        _run_local_iperf(iperf_cmd)
 
 
 def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):

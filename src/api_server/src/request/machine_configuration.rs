@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
 use logger::{IncMetric, METRICS};
-use vmm::vmm_config::machine_config::{VmConfig, VmUpdateConfig};
+use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
 use super::super::VmmAction;
 use crate::parsed_request::{method_to_error, Error, ParsedRequest};
@@ -15,37 +15,38 @@ pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
 
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|err| {
+    let config = serde_json::from_slice::<MachineConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
         err
     })?;
 
-    let vm_config = VmUpdateConfig::from(vm_config);
+    let config_update = MachineConfigUpdate::from(config);
 
     Ok(ParsedRequest::new_sync(VmmAction::UpdateVmConfiguration(
-        vm_config,
+        config_update,
     )))
 }
 
 pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
-    let vm_config = serde_json::from_slice::<VmUpdateConfig>(body.raw()).map_err(|err| {
-        METRICS.patch_api_requests.machine_cfg_fails.inc();
-        err
-    })?;
+    let config_update =
+        serde_json::from_slice::<MachineConfigUpdate>(body.raw()).map_err(|err| {
+            METRICS.patch_api_requests.machine_cfg_fails.inc();
+            err
+        })?;
 
-    if vm_config.is_empty() {
+    if config_update.is_empty() {
         return method_to_error(Method::Patch);
     }
 
     Ok(ParsedRequest::new_sync(VmmAction::UpdateVmConfiguration(
-        vm_config,
+        config_update,
     )))
 }
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+    use vmm::cpu_config::templates::StaticCpuTemplate;
 
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
@@ -78,11 +79,11 @@ mod tests {
                 "vcpu_count": 8,
                 "mem_size_mib": 1024
               }"#;
-        let expected_config = VmUpdateConfig {
+        let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             smt: Some(false),
-            cpu_template: Some(CpuFeaturesTemplate::None),
+            cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
         };
 
@@ -97,11 +98,11 @@ mod tests {
                 "smt": false,
                 "track_dirty_pages": true
             }"#;
-        let expected_config = VmUpdateConfig {
+        let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             smt: Some(false),
-            cpu_template: Some(CpuFeaturesTemplate::None),
+            cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(true),
         };
 
@@ -121,12 +122,11 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
-            let expected_config = VmUpdateConfig {
+            let expected_config = MachineConfigUpdate {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
                 smt: Some(false),
-                cpu_template: Some(CpuFeaturesTemplate::T2),
+                cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
             };
 
@@ -151,11 +151,11 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            let expected_config = VmUpdateConfig {
+            let expected_config = MachineConfigUpdate {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
                 smt: Some(true),
-                cpu_template: Some(CpuFeaturesTemplate::None),
+                cpu_template: Some(StaticCpuTemplate::None),
                 track_dirty_pages: Some(true),
             };
 

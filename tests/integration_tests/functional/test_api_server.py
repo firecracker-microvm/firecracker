@@ -15,8 +15,6 @@ def test_api_socket_in_use(test_microvm_with_api):
     start due to the socket being left open from previous runs.
     Check that the error message is a fixed one and that it also
     contains the name of the path.
-
-    @type: functional
     """
     microvm = test_microvm_with_api
 

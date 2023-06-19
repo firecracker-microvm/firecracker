@@ -6,14 +6,6 @@
 set -eu -o pipefail
 shopt -s lastpipe
 
-function check_snapshot_version {
-    local version=$1
-    local snap_version=$(echo $version |cut -f-2 -d. |tr . _)
-    if ! grep -s FC_V${snap_version}_SNAP_VERSION src/vmm/src/version_map.rs; then
-       die "I couldn't find FC_V${snap_version}_SNAP_VERSION in src/vmm/src/version_map.rs"
-    fi
-}
-
 FC_TOOLS_DIR=$(dirname $(realpath $0))
 source "$FC_TOOLS_DIR/functions"
 FC_ROOT_DIR=$FC_TOOLS_DIR/..
@@ -26,10 +18,9 @@ $0 <version>
 
     Prepare a new Firecracker release:
     1. Update the version number
-    2. Update Crate dependencies
-    3. Generate CREDITS.md and CHANGELOG.md
-    4. Commit the result
-    5. Create a link to PR the changes
+    2. Generate CREDITS.md and CHANGELOG.md
+    3. Commit the result
+    4. Create a link to PR the changes
 EOF
     exit 1
 fi
@@ -37,7 +28,6 @@ version=$1
 validate_version "$version"
 
 check_local_branch_is_release_branch
-check_snapshot_version "$version"
 
 # Create GitHub PR link
 ORIGIN_URL=$(git config --get remote.origin.url)
@@ -55,48 +45,19 @@ if [ "$PATCH" -gt 0 ]; then
 fi
 PR_URL="https://github.com/firecracker-microvm/$REPO/compare/$TARGET_BRANCH...$GH_USER:$REPO:$LOCAL_BRANCH?expand=1"
 
-# Get current version from the swagger spec.
-prev_ver=$(get_swagger_version)
-
-say "Updating from $prev_ver to $version ..."
-# Update version in files.
-files_to_change=(
-    "$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
-    "$FC_ROOT_DIR/src/firecracker/Cargo.toml"
-    "$FC_ROOT_DIR/src/jailer/Cargo.toml"
-    "$FC_ROOT_DIR/src/rebase-snap/Cargo.toml"
-    "$FC_ROOT_DIR/src/seccompiler/Cargo.toml"
-)
-say "Updating source files:"
-for file in "${files_to_change[@]}"; do
-    say "- $file"
-    # Dirty hack to make this work on both macOS/BSD and Linux.
-    # FIXME This is very hacky and can unintentionally bump other versions, so
-    # only do the replacement *once*.
-    sed -i "s/$prev_ver/$version/" "$file"
-done
-
-CHANGED=()
-# Run `cargo check` to update firecracker and jailer versions in all
-# `Cargo.lock`.
-# NOTE: This will break if it finds paths with spaces in them
-find . -path ./build -prune -o -name Cargo.lock -print |while read -r cargo_lock; do
-    say "Updating $cargo_lock ..."
-    (cd "$(dirname "$cargo_lock")"; cargo check)
-    CHANGED+=("$cargo_lock")
-done
+# Update version
+$FC_TOOLS_DIR/bump-version.sh "$version"
 
 # Update credits.
 say "Updating credits..."
 $FC_TOOLS_DIR/update-credits.sh
-CHANGED+=(CREDITS.md)
 
 # Update changelog.
 say "Updating changelog..."
 sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
-CHANGED+=(CHANGELOG.md)
 
-git add "${files_to_change[@]}" "${CHANGED[@]}"
+# Add all changed files
+git add -u
 git commit -s -m "chore: release v$version"
 
 
@@ -122,7 +83,7 @@ $(pp-li 1. Check the changes made to the repo:)
 
 $(pp-li 2. Preview the release notes)
 
-   $(pp-code ./tools/release-notes.sh "$prev_ver" "$version")
+   $(pp-code ./tools/release-notes.sh "$version")
 
 $(pp-li 3. If you want to undo the changes, run)
 
@@ -134,5 +95,5 @@ $(pp-li 4. Review and merge this change)
    $PR_URL
 
 $(pp-li 5. Once it is reviewed and merged, run the tag script)
-   $(pp-code ./tools/release-tag.sh $prev_ver $version)
+   $(pp-code ./tools/release-tag.sh $version)
 EOF

@@ -9,13 +9,15 @@ pub mod gic;
 pub mod layout;
 /// Logic for configuring aarch64 registers.
 pub mod regs;
+/// Helper methods for VcpuFd.
+pub mod vcpu;
 
 use std::cmp::min;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
@@ -130,17 +132,17 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }

@@ -28,23 +28,14 @@ PLATFORM = platform.machine()
 # https://github.com/firecracker-microvm/firecracker/issues/2346
 # TODO: Update baseline values after fix.
 CREATE_LATENCY_BASELINES = {
-    "x86_64": {
-        "2vcpu_256mb.json": {"FULL": {"target": 180}, "DIFF": {"target": 70}},
-        "2vcpu_512mb.json": {
-            "FULL": {"target": 280},
-            "DIFF": {"target": 90},
-        },
-    },
-    "aarch64": {
-        "2vcpu_256mb.json": {
-            "FULL": {"target": 160},
-            "DIFF": {"target": 70},
-        },
-        "2vcpu_512mb.json": {
-            "FULL": {"target": 300},
-            "DIFF": {"target": 75},
-        },
-    },
+    ("x86_64", "2vcpu_256mb.json", "FULL"): 180,
+    ("x86_64", "2vcpu_256mb.json", "DIFF"): 70,
+    ("x86_64", "2vcpu_512mb.json", "FULL"): 280,
+    ("x86_64", "2vcpu_512mb.json", "DIFF"): 90,
+    ("aarch64", "2vcpu_256mb.json", "FULL"): 160,
+    ("aarch64", "2vcpu_256mb.json", "DIFF"): 70,
+    ("aarch64", "2vcpu_512mb.json", "FULL"): 300,
+    ("aarch64", "2vcpu_512mb.json", "DIFF"): 75,
 }
 
 # The latencies for x86 are pretty high due to a design
@@ -55,116 +46,74 @@ CREATE_LATENCY_BASELINES = {
 # Latencies for snap resume on cgroups V2 can be found in our
 # long-running performance configs (i.e. integration_tests/performance/configs).
 LOAD_LATENCY_BASELINES = {
-    "x86_64": {
-        "m5d.metal": {
-            "4.14": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 9},
-                    "2vcpu_512mb.json": {"target": 9},
-                }
-            },
-            "5.10": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 70},
-                    "2vcpu_512mb.json": {"target": 75},
-                },
-                "async": {
-                    "2vcpu_256mb.json": {"target": 210},
-                    "2vcpu_512mb.json": {"target": 210},
-                },
-            },
-        },
-        "m6a.metal": {
-            "4.14": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 15},
-                    "2vcpu_512mb.json": {"target": 19},
-                }
-            },
-            "5.10": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 60},
-                    "2vcpu_512mb.json": {"target": 60},
-                },
-                "async": {
-                    "2vcpu_256mb.json": {"target": 190},
-                    "2vcpu_512mb.json": {"target": 190},
-                },
-            },
-        },
-        "m6i.metal": {
-            "4.14": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 9},
-                    "2vcpu_512mb.json": {"target": 9},
-                }
-            },
-            "5.10": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 70},
-                    "2vcpu_512mb.json": {"target": 70},
-                },
-                "async": {
-                    "2vcpu_256mb.json": {"target": 245},
-                    "2vcpu_512mb.json": {"target": 245},
-                },
-            },
-        },
-    },
-    "aarch64": {
-        "m6g.metal": {
-            "4.14": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 2},
-                    "2vcpu_512mb.json": {"target": 2},
-                }
-            },
-            "5.10": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 2},
-                    "2vcpu_512mb.json": {"target": 2},
-                },
-                "async": {
-                    "2vcpu_256mb.json": {"target": 320},
-                    "2vcpu_512mb.json": {"target": 330},
-                },
-            },
-        },
-        "c7g.metal": {
-            "4.14": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 2},
-                    "2vcpu_512mb.json": {"target": 2},
-                }
-            },
-            "5.10": {
-                "sync": {
-                    "2vcpu_256mb.json": {"target": 2},
-                    "2vcpu_512mb.json": {"target": 2},
-                },
-                "async": {
-                    "2vcpu_256mb.json": {"target": 320},
-                    "2vcpu_512mb.json": {"target": 360},
-                },
-            },
-        },
-    },
+    ("m5d.metal", "4.14", "sync", "2vcpu_256mb.json"): 9,
+    ("m5d.metal", "4.14", "sync", "2vcpu_512mb.json"): 9,
+    ("m5d.metal", "5.10", "sync", "2vcpu_256mb.json"): 70,
+    ("m5d.metal", "5.10", "sync", "2vcpu_512mb.json"): 90,
+    ("m5d.metal", "5.10", "async", "2vcpu_256mb.json"): 210,
+    ("m5d.metal", "5.10", "async", "2vcpu_512mb.json"): 210,
+    ("m5d.metal", "6.1", "sync", "2vcpu_256mb.json"): 255,
+    ("m5d.metal", "6.1", "sync", "2vcpu_512mb.json"): 245,
+    ("m5d.metal", "6.1", "async", "2vcpu_256mb.json"): 245,
+    ("m5d.metal", "6.1", "async", "2vcpu_512mb.json"): 225,
+    ("m6a.metal", "4.14", "sync", "2vcpu_256mb.json"): 15,
+    ("m6a.metal", "4.14", "sync", "2vcpu_512mb.json"): 19,
+    ("m6a.metal", "5.10", "sync", "2vcpu_256mb.json"): 75,
+    ("m6a.metal", "5.10", "sync", "2vcpu_512mb.json"): 75,
+    ("m6a.metal", "5.10", "async", "2vcpu_256mb.json"): 220,
+    ("m6a.metal", "5.10", "async", "2vcpu_512mb.json"): 220,
+    ("m6a.metal", "6.1", "sync", "2vcpu_256mb.json"): 250,
+    ("m6a.metal", "6.1", "sync", "2vcpu_512mb.json"): 250,
+    ("m6a.metal", "6.1", "async", "2vcpu_256mb.json"): 250,
+    ("m6a.metal", "6.1", "async", "2vcpu_512mb.json"): 300,
+    ("m6i.metal", "4.14", "sync", "2vcpu_256mb.json"): 9,
+    ("m6i.metal", "4.14", "sync", "2vcpu_512mb.json"): 9,
+    ("m6i.metal", "5.10", "sync", "2vcpu_256mb.json"): 70,
+    ("m6i.metal", "5.10", "sync", "2vcpu_512mb.json"): 70,
+    ("m6i.metal", "5.10", "async", "2vcpu_256mb.json"): 245,
+    ("m6i.metal", "5.10", "async", "2vcpu_512mb.json"): 245,
+    ("m6i.metal", "6.1", "sync", "2vcpu_256mb.json"): 220,
+    ("m6i.metal", "6.1", "sync", "2vcpu_512mb.json"): 250,
+    ("m6i.metal", "6.1", "async", "2vcpu_256mb.json"): 220,
+    ("m6i.metal", "6.1", "async", "2vcpu_512mb.json"): 220,
+    ("m6g.metal", "4.14", "sync", "2vcpu_256mb.json"): 3,
+    ("m6g.metal", "4.14", "sync", "2vcpu_512mb.json"): 3,
+    ("m6g.metal", "5.10", "sync", "2vcpu_256mb.json"): 3,
+    ("m6g.metal", "5.10", "sync", "2vcpu_512mb.json"): 3,
+    ("m6g.metal", "5.10", "async", "2vcpu_256mb.json"): 320,
+    ("m6g.metal", "5.10", "async", "2vcpu_512mb.json"): 380,
+    ("m6g.metal", "6.1", "sync", "2vcpu_256mb.json"): 2,
+    ("m6g.metal", "6.1", "sync", "2vcpu_512mb.json"): 3,
+    ("m6g.metal", "6.1", "async", "2vcpu_256mb.json"): 2,
+    ("m6g.metal", "6.1", "async", "2vcpu_512mb.json"): 3,
+    ("c7g.metal", "4.14", "sync", "2vcpu_256mb.json"): 2,
+    ("c7g.metal", "4.14", "sync", "2vcpu_512mb.json"): 2,
+    ("c7g.metal", "5.10", "sync", "2vcpu_256mb.json"): 2,
+    ("c7g.metal", "5.10", "sync", "2vcpu_512mb.json"): 3,
+    ("c7g.metal", "5.10", "async", "2vcpu_256mb.json"): 320,
+    ("c7g.metal", "5.10", "async", "2vcpu_512mb.json"): 360,
+    ("c7g.metal", "6.1", "sync", "2vcpu_256mb.json"): 2,
+    ("c7g.metal", "6.1", "sync", "2vcpu_512mb.json"): 3,
+    ("c7g.metal", "6.1", "async", "2vcpu_256mb.json"): 2,
+    ("c7g.metal", "6.1", "async", "2vcpu_512mb.json"): 3,
 }
 
 
 def snapshot_create_measurements(vm_type, snapshot_type):
     """Define measurements for snapshot create tests."""
+    lower_than = {
+        "target": CREATE_LATENCY_BASELINES[
+            platform.machine(),
+            vm_type,
+            "FULL" if snapshot_type == SnapshotType.FULL else "DIFF",
+        ]
+    }
+
     latency = types.MeasurementDef.create_measurement(
         "latency",
         "ms",
         [function.Max("max")],
-        {
-            "max": criteria.LowerThan(
-                CREATE_LATENCY_BASELINES[platform.machine()][vm_type][
-                    "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
-                ]
-            )
-        },
+        {"max": criteria.LowerThan(lower_than)},
     )
 
     return [latency]
@@ -172,9 +121,11 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 
 def snapshot_resume_measurements(vm_type, io_engine):
     """Define measurements for snapshot resume tests."""
-    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][get_instance_type()][
-        get_kernel_version(level=1)
-    ][io_engine][vm_type]
+    load_latency = {
+        "target": LOAD_LATENCY_BASELINES[
+            get_instance_type(), get_kernel_version(level=1), io_engine, vm_type
+        ]
+    }
 
     latency = types.MeasurementDef.create_measurement(
         "latency",
@@ -252,8 +203,6 @@ def test_older_snapshot_resume_latency(
 
     With each previous firecracker version, create a snapshot and try to
     restore in current version.
-
-    @type: performance
     """
     logger = logging.getLogger("old_snapshot_load")
     snapshot_type = SnapshotType.FULL
@@ -287,6 +236,11 @@ def test_older_snapshot_resume_latency(
 
     st_core.name = "older_snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["io_engine"] = io_engine
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
@@ -334,8 +288,6 @@ def test_snapshot_create_latency(
     - Rootfs: Ubuntu 18.04
     - Microvm: 2vCPU with 256/512 MB RAM
     TODO: Multiple microvm sizes must be tested in the async pipeline.
-
-    @type: performance
     """
     logger = logging.getLogger("snapshot_sequence")
 
@@ -374,8 +326,12 @@ def test_snapshot_create_latency(
             idx_vcpu, current_cpu_id + idx_vcpu
         ), f"Failed to pin fc_vcpu {idx_vcpu} thread."
 
-    st_core.name = "snapshot_create_{snapshot_type}_latency"
+    st_core.name = f"snapshot_create_{snapshot_type}_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_create_producer,
@@ -426,8 +382,6 @@ def test_snapshot_resume_latency(
     - Rootfs: Ubuntu 18.04
     - Microvm: 2vCPU with 256/512 MB RAM
     TODO: Multiple microvm sizes must be tested in the async pipeline.
-
-    @type: performance
     """
     logger = logging.getLogger("snapshot_load")
     diff_snapshots = snapshot_type == SnapshotType.DIFF
@@ -460,6 +414,11 @@ def test_snapshot_resume_latency(
 
     st_core.name = "snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
+    st_core.custom["guest_config"] = microvm_cfg.strip(".json")
+    st_core.custom["io_engine"] = io_engine
+    st_core.custom["snapshot_type"] = (
+        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
+    )
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,

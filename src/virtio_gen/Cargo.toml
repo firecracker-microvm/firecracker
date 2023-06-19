@@ -5,4 +5,5 @@ authors = ["The Chromium OS Authors"]
 edition = "2021"
 license = "Apache-2.0"
 
-[dependencies]
+[lib]
+bench = false

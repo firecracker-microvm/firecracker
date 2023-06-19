@@ -185,34 +185,13 @@ architecture. They are only compatible if the CPU features exposed to the guest
 are an invariant when saving and restoring the snapshot. The trivial scenario
 is creating and restoring snapshots on hosts that have the same CPU model.
 
-To make snapshots more portable across Intel CPUs Firecracker provides an API to
-select an Intel CPU template: T2, T2CL, T2S or C3.
-Firecracker CPU templates mask CPUID and some MSR values (in case of T2CL and T2S)
-to restrict the exposed features to a common denominator of multiple CPU models.
-T2 and C3 templates are mapped as close as possible to AWS T2/C3 instances in terms
-of CPU features. The T2S template is designed to allow migrating snapshots
-between hosts with Intel Skylake and Cascade Lake securely by further
-restricting CPU features for the guest, however this comes with a performance
-penalty. Users are encouraged to carry out a performance assessment if they wish
-to use the T2S template.
-The T2CL template is mapped to be close to Intel Cascade Lake.
-It is not safe to use it on Intel CPUs older than Cascade Lake (such as Skylake).
-
-The only AMD template is T2A. It is considered safe to be used with AMD Milan.
-
-Intel T2CL and AMD T2A templates together aim to provide instruction set feature
-parity between CPUs running them, so they can form a heterogeneous fleet
-exposing the same instruction sets to the application.
-
 Restoring from an Intel snapshot on AMD (or vice-versa) is not supported.
 
-There are no templates available for ARM64.
-
 It is important to note that guest workloads can still execute instructions
-that are being masked by CPUID and restoring and saving of such workloads will
-lead to undefined result. Firecracker retrieves the state of a discrete list
-MSRs from KVM, more specifically the MSRs corresponding to the guest
-exposed features.
+that are being [masked](../cpu_templates/cpu-templates.md) by CPUID and
+restoring and saving of such workloads will lead to undefined result.
+Firecracker retrieves the state of a discrete list of MSRs from KVM, more
+specifically, the MSRs corresponding to the guest exposed features.
 
 ## Implementation
 

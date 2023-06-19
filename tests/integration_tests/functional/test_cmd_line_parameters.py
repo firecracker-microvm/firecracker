@@ -18,8 +18,6 @@ def test_describe_snapshot_all_versions(bin_cloner_path, firecracker_release):
 
     For each release create a snapshot and verify the data version of the
     snapshot state file.
-
-    @type: functional
     """
     logger = logging.getLogger("describe_snapshot")
     builder = MicrovmBuilder(bin_cloner_path)
@@ -70,8 +68,6 @@ def test_describe_snapshot_all_versions(bin_cloner_path, firecracker_release):
 def test_cli_metrics_path(test_microvm_with_api):
     """
     Test --metrics-path parameter
-
-    @type: functional
     """
     microvm = test_microvm_with_api
     metrics_fifo_path = Path(microvm.path) / "metrics_ndjson.fifo"
@@ -102,6 +98,7 @@ def test_cli_metrics_path(test_microvm_with_api):
         "uart",
         "signals",
         "vsock",
+        "entropy",
     ]
 
     if platform.machine() == "aarch64":
@@ -115,8 +112,6 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_ap
     Given: a running firecracker with metrics configured with the CLI option
     When: Configure metrics via API
     Then: API returns an error
-
-    @type: functional
     """
     microvm = test_microvm_with_api
 
@@ -142,8 +137,6 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_ap
 def test_cli_metrics_if_resume_no_metrics(test_microvm_with_api, microvm_factory):
     """
     Check that metrics configuration is not part of the snapshot
-
-    @type: functional
     """
     # Given: a snapshot of a FC with metrics configured with the CLI option
     uvm1 = test_microvm_with_api

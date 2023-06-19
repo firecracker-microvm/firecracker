@@ -14,12 +14,12 @@ MACHINE = platform.machine()
 
 SIZES_DICT = {
     "x86_64": {
-        "FC_BINARY_SIZE_TARGET": 2520632,
-        "JAILER_BINARY_SIZE_TARGET": 902288,
+        "FC_BINARY_SIZE_TARGET": 3063120,
+        "JAILER_BINARY_SIZE_TARGET": 965840,
     },
     "aarch64": {
-        "FC_BINARY_SIZE_TARGET": 2322392,
-        "JAILER_BINARY_SIZE_TARGET": 851152,
+        "FC_BINARY_SIZE_TARGET": 2441008,
+        "JAILER_BINARY_SIZE_TARGET": 898656,
     },
 }
 
@@ -37,8 +37,6 @@ BINARY_SIZE_TOLERANCE = 0.05
 def test_firecracker_binary_size(record_property, metrics):
     """
     Test if the size of the firecracker binary is within expected ranges.
-
-    @type: build
     """
     fc_binary, _ = host.get_firecracker_binaries()
 
@@ -61,8 +59,6 @@ def test_firecracker_binary_size(record_property, metrics):
 def test_jailer_binary_size(record_property, metrics):
     """
     Test if the size of the jailer binary is within expected ranges.
-
-    @type: build
     """
     _, jailer_binary = host.get_firecracker_binaries()
 

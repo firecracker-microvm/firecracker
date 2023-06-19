@@ -6,7 +6,8 @@ line-length=72
 
 [ignore-body-lines]
 # Ignore HTTP reference links
-regex=^\[.+\]: http.+
+# Ignore lines that start with 'Co-Authored-By' or with 'Signed-off-by'
+regex=(^\[.+\]: http.+)|(^Co-Authored-By)|(^Signed-off-by)
 
 [ignore-by-author-name]
 # Ignore certain rules for commits of which the author name matches a regex

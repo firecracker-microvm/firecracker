@@ -4,7 +4,9 @@
 pub mod actions;
 pub mod balloon;
 pub mod boot_source;
+pub mod cpu_configuration;
 pub mod drive;
+pub mod entropy;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;

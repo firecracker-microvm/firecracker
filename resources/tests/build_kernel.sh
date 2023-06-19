@@ -90,7 +90,9 @@ build_kernel() {
     cp $binary_path $binary_name
 
     popd >/dev/null
-    echo "Kernel binary placed in build/kernel/$binary_name"
+
+    local full_binary_path="$KERNEL_DEST_DIR/$binary_name"
+    echo "Kernel binary placed in ${full_binary_path##$FC_ROOT_DIR/}"
 }
 
 

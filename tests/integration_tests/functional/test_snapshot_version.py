@@ -46,8 +46,6 @@ def _create_and_start_microvm_with_net_devices(
 def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     """
     Create snapshot with unexpected device count for previous versions.
-
-    @type: negative
     """
     test_microvm = test_microvm_with_api
 
@@ -81,8 +79,6 @@ def test_create_with_too_many_devices(test_microvm_with_api, network_config):
 def test_create_invalid_version(bin_cloner_path):
     """
     Test scenario: create snapshot targeting invalid version.
-
-    @type: functional
     """
     # Use a predefined vm instance.
     builder = MicrovmBuilder(bin_cloner_path)
@@ -126,8 +122,6 @@ def test_snapshot_current_version(bin_cloner_path):
     x.y, then taking a snapshot at version x.y works - something we'd otherwise
     only be able to test once the x.y binary has been uploaded to S3, at which
     point it is too late, see also the 1.3 release).
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano(diff_snapshots=True)
@@ -136,8 +130,7 @@ def test_snapshot_current_version(bin_cloner_path):
 
     version = get_firecracker_version_from_toml()
     # normalize to a snapshot version
-    (major, minor, _) = version.split(".", maxsplit=3)
-    target_version = f"{major}.{minor}.0"
+    target_version = f"{version.major}.{version.minor}.0"
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
     disks = [vm_instance.disks[0].local_path()]
@@ -162,8 +155,6 @@ def test_snapshot_current_version(bin_cloner_path):
 def test_create_with_newer_virtio_features(bin_cloner_path):
     """
     Attempt to create a snapshot with newer virtio features.
-
-    @type: functional
     """
     builder = MicrovmBuilder(bin_cloner_path)
     test_microvm = builder.build_vm_nano().vm

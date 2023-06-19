@@ -2,28 +2,38 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Model Specific Registers (MSRs) related functionality.
-use std::result;
-
 use bitflags::bitflags;
 use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
 use kvm_ioctls::{Kvm, VcpuFd};
 
+use crate::arch_gen::x86::hyperv::*;
+use crate::arch_gen::x86::hyperv_tlfs::*;
 use crate::arch_gen::x86::msr_index::*;
+use crate::arch_gen::x86::perf_event::*;
+use crate::cpu_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
+use crate::cpu_config::x86_64::cpuid::VENDOR_ID_AMD;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
 pub enum Error {
-    /// A FamStructWrapper operation has failed.
-    Fam(utils::fam::Error),
-    /// Getting supported MSRs failed.
-    GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
-    /// Setting up MSRs failed.
-    SetModelSpecificRegisters(kvm_ioctls::Error),
-    /// Failed to set all MSRs.
-    SetModelSpecificRegistersCount,
+    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
+    #[error("Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
+    Fam(#[from] utils::fam::Error),
+    /// Failed to get MSR index list.
+    #[error("Failed to get MSR index list: {0}")]
+    GetMsrIndexList(kvm_ioctls::Error),
+    /// Invalid vendor.
+    #[error("Invalid CPU vendor: {0}")]
+    InvalidVendor(#[from] GetCpuidError),
+    /// Failed to set MSRs.
+    #[error("Failed to set MSRs: {0}")]
+    SetMsrs(kvm_ioctls::Error),
+    /// Not all given MSRs were set.
+    #[error("Not all given MSRs were set.")]
+    SetMsrsIncomplete,
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// MSR range
 struct MsrRange {
@@ -138,7 +148,7 @@ macro_rules! MSR_RANGE {
 }
 
 // List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
-static ALLOWED_MSR_RANGES: &[MsrRange] = &[
+static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_IA32_P5_MC_ADDR),
     MSR_RANGE!(MSR_IA32_P5_MC_TYPE),
     MSR_RANGE!(MSR_IA32_TSC),
@@ -244,7 +254,201 @@ pub fn msr_should_serialize(index: u32) -> bool {
     if index == MSR_IA32_MCG_CTL {
         return false;
     };
-    ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
+    SERIALIZABLE_MSR_RANGES
+        .iter()
+        .any(|range| range.contains(index))
+}
+
+/// Returns the list of serializable MSR indices.
+///
+/// # Arguments
+///
+/// * `kvm_fd` - Ref to `kvm_ioctls::Kvm`.
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
+    let mut msr_index_list = kvm_fd
+        .get_msr_index_list()
+        .map_err(Error::GetMsrIndexList)?;
+    msr_index_list.retain(|msr_index| msr_should_serialize(*msr_index));
+    Ok(msr_index_list)
+}
+
+// List of MSRs that should not be included in the dump of CPU configuration.
+//
+// KVM_GET_MSR_INDEX_LIST returns some MSR indices that KVM_GET_MSRS fails to get (e.g., PMU,
+// VMX, MCE and Hyper-V related MSRs).
+//
+// Firecracker disables PMU by default in CPUID normalization for leaf 0xa. Due to this, PMU-
+// related MSRs cannot be gotten via KVM_GET_MSRS. The dependency on CPUID leaf 0xa can be found
+// in the following link.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/pmu_intel.c?h=v5.10.176#n325
+//
+// We don't test if firecarcker works with nested virtualization environment. To avoid undefined
+// behavior, we exclude these VMX-related MSRs. You can see that VMX-related MSRs depend on whether
+// nested virtualization is allowed in the following link.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/vmx.c?h=v5.10.176#n1950
+//
+// In kernel 4.14, IA32_MCG_CTL MSR can be gotten only if IA32_MCG_CAP.CTL_P[8] = 1 for vcpu.
+// IA32_MCG_CAP can be set up via KVM_X86_SETUP_MCE, but firecracker does not support this. To
+// avoid KVM_GET_MSRS failure on kernel 4.14, MCE-related MSRs are removed from the list.
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/x86.c?h=v4.14.311#n2553
+//
+// As firecracker does not work with Hyper-V, it is safe to ignore Hyper-V related MSRs.
+//
+// IA32_TSC MSR is for time stamp counter and can change as time goes on. KVM_GET_MSRS can get this
+// MSR safely, but should not be included in the dumped CPU configuration because it is used to
+// check diff between CPU models and detect changes of CPU configuration caused by firecracker/KVM/
+// BIOS changes.
+//
+// The list of MSRs that is potentially returned by KVM_GET_MSR_INDEX_LIST can be found in the
+// following link (`msrs_to_save_all` + `num_emulated_msrs`):
+// https://elixir.bootlin.com/linux/v5.10.176/source/arch/x86/kvm/x86.c#L1211
+static UNDUMPABLE_MSR_RANGES: &[MsrRange] = &[
+    // MSR_IA32_TSC
+    MSR_RANGE!(MSR_IA32_TSC),
+    // MSR_ARCH_PERFMON_PERFCTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_PERFCTR0, 18),
+    // MSR_ARCH_PERFMON_EVENTSELn
+    MSR_RANGE!(MSR_ARCH_PERFMON_EVENTSEL0, 18),
+    // MSR_ARCH_PERFMON_FIXED_CTRn
+    MSR_RANGE!(MSR_ARCH_PERFMON_FIXED_CTR0, 3),
+    // MSR_CORE_PERF_FIXED_CTR_CTRL
+    // MSR_CORE_PERF_GLOBAL_STATUS
+    // MSR_CORE_PERF_GLOBAL_CTRL
+    // MSR_CORE_PERF_GLOBAL_OVF_CTRL
+    MSR_RANGE!(MSR_CORE_PERF_FIXED_CTR_CTRL, 4),
+    // MSR_IA32_PEBS_ENABLE
+    // MSR_PEBS_DATA_CFG
+    MSR_RANGE!(MSR_IA32_PEBS_ENABLE, 2),
+    // MSR_IA32_DS_AREA
+    MSR_RANGE!(MSR_IA32_DS_AREA),
+    // MSR_IA32_PERF_CAPABILITIES
+    MSR_RANGE!(MSR_IA32_PERF_CAPABILITIES),
+    // MSR_K7_EVNTSELn
+    MSR_RANGE!(MSR_K7_EVNTSEL0, 4),
+    // MSR_K7_PERFCTRn
+    MSR_RANGE!(MSR_K7_PERFCTR0, 4),
+    // MSR_F15H_PERF_CTLn
+    MSR_RANGE!(MSR_F15H_PERF_CTL0, 12),
+    // MSR_F15H_PERF_CTRn
+    MSR_RANGE!(MSR_F15H_PERF_CTR0, 12),
+    // MSR_IA32_VMX_BASIC
+    // MSR_IA32_VMX_PINBASED_CTLS
+    // MSR_IA32_VMX_PROCBASED_CTLS
+    // MSR_IA32_VMX_EXIT_CTLS
+    // MSR_IA32_VMX_ENTRY_CTLS
+    // MSR_IA32_VMX_MISC
+    // MSR_IA32_VMX_CR0_FIXED0
+    // MSR_IA32_VMX_CR0_FIXED1
+    // MSR_IA32_VMX_CR4_FIXED0
+    // MSR_IA32_VMX_CR4_FIXED1
+    // MSR_IA32_VMX_VMCS_ENUM
+    // MSR_IA32_VMX_PROCBASED_CTLS2
+    // MSR_IA32_VMX_EPT_VPID_CAP
+    // MSR_IA32_VMX_TRUE_PINBASED_CTLS
+    // MSR_IA32_VMX_TRUE_PROCBASED_CTLS
+    // MSR_IA32_VMX_TRUE_EXIT_CTLS
+    // MSR_IA32_VMX_TRUE_ENTRY_CTLS
+    // MSR_IA32_VMX_VMFUNC
+    MSR_RANGE!(MSR_IA32_VMX_BASIC, 18),
+    // MSR_IA32_MCG_STATUS
+    // MSR_IA32_MCG_CTL
+    MSR_RANGE!(MSR_IA32_MCG_STATUS, 2),
+    // MSR_IA32_MCG_EXT_CTL
+    MSR_RANGE!(MSR_IA32_MCG_EXT_CTL),
+    // HV_X64_MSR_GUEST_OS_ID
+    // HV_X64_MSR_HYPERCALL
+    // HV_X64_MSR_VP_INDEX
+    // HV_X64_MSR_RESET
+    MSR_RANGE!(HV_X64_MSR_GUEST_OS_ID, 4),
+    // HV_X64_MSR_VP_RUNTIME
+    MSR_RANGE!(HV_X64_MSR_VP_RUNTIME),
+    // HV_X64_MSR_VP_ASSIST_PAGE
+    MSR_RANGE!(HV_X64_MSR_VP_ASSIST_PAGE),
+    // HV_X64_MSR_SCONTROL
+    MSR_RANGE!(HV_X64_MSR_SCONTROL),
+    // HV_X64_MSR_STIMER0_CONFIG
+    MSR_RANGE!(HV_X64_MSR_STIMER0_CONFIG),
+    // HV_X64_MSR_CRASH_Pn
+    // HV_X64_MSR_CRASH_CTL
+    MSR_RANGE!(HV_X64_MSR_CRASH_P0, 6),
+    // HV_X64_MSR_REENLIGHTENMENT_CONTROL
+    // HV_X64_MSR_TSC_EMULATION_CONTROL
+    // HV_X64_MSR_TSC_EMULATION_STATUS
+    MSR_RANGE!(HV_X64_MSR_REENLIGHTENMENT_CONTROL, 3),
+    // HV_X64_MSR_TIME_REF_COUNT
+    // HV_X64_MSR_REFERENCE_TSC
+    // HV_X64_MSR_TSC_FREQUENCY
+    // HV_X64_MSR_APIC_FREQUENCY
+    MSR_RANGE!(HV_X64_MSR_TIME_REF_COUNT, 4),
+    // HV_X64_MSR_SYNDBG_CONTROL
+    // HV_X64_MSR_SYNDBG_STATUS
+    // HV_X64_MSR_SYNDBG_SEND_BUFFER
+    // HV_X64_MSR_SYNDBG_RECV_BUFFER
+    // HV_X64_MSR_SYNDBG_PENDING_BUFFER
+    MSR_RANGE!(HV_X64_MSR_SYNDBG_CONTROL, 5),
+    // HV_X64_MSR_SYNDBG_OPTIONS
+    MSR_RANGE!(HV_X64_MSR_SYNDBG_OPTIONS),
+];
+
+/// Specifies whether a particular MSR should be dumped.
+///
+/// # Arguments
+///
+/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+pub fn msr_should_dump(index: u32) -> bool {
+    !UNDUMPABLE_MSR_RANGES
+        .iter()
+        .any(|range| range.contains(index))
+}
+
+/// List of MSRs that should not be included in the dump of CPU configuration on AMD.
+static UNDUMPABLE_MSR_RANGES_AMD: &[MsrRange] = &[
+    // MSR_IA32_ARCH_CAPABILITIES has been emulated by KVM since kernel 5.7.
+    // https://github.com/torvalds/linux/commit/93c380e7b528882396ca463971012222bad7d82e
+    // https://lore.kernel.org/all/20200302235709.27467-1-sean.j.christopherson@intel.com/
+    // As this MSR is not available on AMD originally, Firecracker disables it explicitly by
+    // setting 0 to CPUID.(EAX=07H,ECX=0):EDX[bit 29]. Thus, this MSR should be removed from the
+    // dump on AMD.
+    MSR_RANGE!(MSR_IA32_ARCH_CAPABILITIES),
+];
+
+/// Specifies whether a particular MSR should be dumped on AMD
+///
+/// # Arguments
+///
+/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+pub fn msr_should_dump_amd(index: u32) -> bool {
+    !UNDUMPABLE_MSR_RANGES_AMD
+        .iter()
+        .any(|range| range.contains(index))
+}
+
+/// Returns the list of dumpable MSR indices.
+///
+/// # Arguments
+///
+/// * `kvm_fd` - Ref to `Kvm`
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList> {
+    let mut msr_index_list = kvm_fd
+        .get_msr_index_list()
+        .map_err(Error::GetMsrIndexList)?;
+
+    msr_index_list.retain(|msr_index| msr_should_dump(*msr_index));
+    if &get_vendor_id_from_host()? == VENDOR_ID_AMD {
+        msr_index_list.retain(|msr_index| msr_should_dump_amd(*msr_index));
+    }
+
+    Ok(msr_index_list)
 }
 
 /// Creates and populates required MSR entries for booting Linux on X86_64.
@@ -275,20 +479,6 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     ]
 }
 
-/// Error type for [`set_msrs`].
-#[derive(Debug, thiserror::Error)]
-pub enum SetMSRsError {
-    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
-    #[error("Could not create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
-    Create(utils::fam::Error),
-    /// Settings MSRs resulted in an error.
-    #[error("Setting MSRs resulted in an error: {0}")]
-    Set(#[from] kvm_ioctls::Error),
-    /// Not all given MSRs were set.
-    #[error("Not all given MSRs were set.")]
-    Incomplete,
-}
-
 /// Configure Model Specific Registers (MSRs) required to boot Linux for a given x86_64 vCPU.
 ///
 /// # Arguments
@@ -301,35 +491,17 @@ pub enum SetMSRsError {
 /// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
-pub fn set_msrs(
-    vcpu: &VcpuFd,
-    msr_entries: &[kvm_msr_entry],
-) -> std::result::Result<(), SetMSRsError> {
-    let msrs = Msrs::from_entries(msr_entries).map_err(SetMSRsError::Create)?;
+pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
+    let msrs = Msrs::from_entries(msr_entries)?;
     vcpu.set_msrs(&msrs)
-        .map_err(SetMSRsError::Set)
+        .map_err(Error::SetMsrs)
         .and_then(|msrs_written| {
             if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
             } else {
-                Err(SetMSRsError::Incomplete)
+                Err(Error::SetMsrsIncomplete)
             }
         })
-}
-
-/// Returns the list of supported, serializable MSRs.
-///
-/// # Arguments
-///
-/// * `kvm_fd` - Structure that holds the KVM's fd.
-pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
-    let mut msr_list = kvm_fd
-        .get_msr_index_list()
-        .map_err(Error::GetSupportedModelSpecificRegisters)?;
-
-    msr_list.retain(|msr_index| msr_should_serialize(*msr_index));
-
-    Ok(msr_list)
 }
 
 #[cfg(test)]
@@ -338,9 +510,15 @@ mod tests {
 
     use super::*;
 
+    fn create_vcpu() -> VcpuFd {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        vm.create_vcpu(0).unwrap()
+    }
+
     #[test]
-    fn test_msr_allowlist() {
-        for range in ALLOWED_MSR_RANGES.iter() {
+    fn test_msr_list_to_serialize() {
+        for range in SERIALIZABLE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 let should = !matches!(msr, MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
@@ -349,11 +527,27 @@ mod tests {
     }
 
     #[test]
+    fn test_msr_list_to_dump() {
+        for range in UNDUMPABLE_MSR_RANGES.iter() {
+            for msr in range.base..(range.base + range.nmsrs) {
+                assert!(!msr_should_dump(msr));
+            }
+        }
+    }
+
+    #[test]
+    fn test_msr_list_to_dump_amd() {
+        for range in UNDUMPABLE_MSR_RANGES_AMD.iter() {
+            for msr in range.base..(range.base + range.nmsrs) {
+                assert!(!msr_should_dump_amd(msr));
+            }
+        }
+    }
+
+    #[test]
     #[allow(clippy::cast_ptr_alignment)]
     fn test_setup_msrs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
+        let vcpu = create_vcpu();
         let msr_boot_entries = create_boot_msr_entries();
         set_msrs(&vcpu, &msr_boot_entries).unwrap();
 
@@ -376,5 +570,34 @@ mod tests {
         // expect.
         let entry_vec = create_boot_msr_entries();
         assert_eq!(entry_vec[9], kvm_msrs_wrapper.as_slice()[0]);
+    }
+
+    #[test]
+    fn test_set_valid_msrs() {
+        // Test `set_msrs()` with a valid MSR entry. It should succeed, as IA32_TSC MSR is listed
+        // in supported MSRs as of now.
+        let vcpu = create_vcpu();
+        let msr_entries = vec![kvm_msr_entry {
+            index: MSR_IA32_TSC,
+            data: 0,
+            ..Default::default()
+        }];
+        assert!(set_msrs(&vcpu, &msr_entries).is_ok());
+    }
+
+    #[test]
+    fn test_set_invalid_msrs() {
+        // Test `set_msrs()` with an invalid MSR entry. It should fail, as MSR index 2 is not
+        // listed in supported MSRs as of now. If hardware vendor adds this MSR index and KVM
+        // supports this MSR, we need to change the index as needed.
+        let vcpu = create_vcpu();
+        let msr_entries = vec![kvm_msr_entry {
+            index: 2,
+            ..Default::default()
+        }];
+        assert_eq!(
+            set_msrs(&vcpu, &msr_entries).unwrap_err(),
+            Error::SetMsrsIncomplete
+        );
     }
 }
