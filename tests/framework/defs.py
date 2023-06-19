@@ -45,7 +45,10 @@ MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
 
 SUPPORTED_HOST_KERNELS = ["4.14", "5.10", "6.1"]
 
+IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
 
-ARTIFACT_DIR = (
-    Path(__file__).joinpath("../../../build/img").resolve() / platform.machine()
-)
+# fall-back to the local directory
+if not IMG_DIR.exists():
+    IMG_DIR = Path(__file__).joinpath("../../../build/img").resolve()
+
+ARTIFACT_DIR = IMG_DIR / platform.machine()
