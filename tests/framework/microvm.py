@@ -11,11 +11,13 @@ destroy microvms.
 import json
 import logging
 import os
+import re
 import select
 import shutil
 import time
 import uuid
 import weakref
+from collections import namedtuple
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
@@ -28,7 +30,7 @@ import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
-from framework.defs import FC_PID_FILE_NAME
+from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import (
@@ -149,6 +151,8 @@ class Microvm:
         self._screen_pid = None
         self._screen_log = None
 
+        self.time_api_requests = True
+
         # Initalize memory monitor
         self.memory_monitor = None
 
@@ -205,6 +209,9 @@ class Microvm:
             self.expect_kill_by_signal = True
             utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
 
+        if self.time_api_requests:
+            self._validate_api_response_times()
+
         # Check if Firecracker was launched by the jailer in a new pid ns.
         fc_pid_in_new_ns = self.pid_in_new_ns
 
@@ -218,6 +225,59 @@ class Microvm:
                 self.memory_monitor.signal_stop()
                 self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
+
+    def _validate_api_response_times(self):
+        """
+        Parses the firecracker logs for information regarding api server request processing times, and asserts they
+        are within acceptable bounds.
+        """
+        # Log messages are either
+        # 2023-06-16T07:45:41.767987318 [fc44b23e-ce47-4635-9549-5779a6bd9cee:fc_api] The API server received a Get request on "/mmds".
+        # or
+        # 2023-06-16T07:47:31.204704732 [2f2427c7-e4de-4226-90e6-e3556402be84:fc_api] The API server received a Put request on "/actions" with body "{\"action_type\": \"InstanceStart\"}".
+        api_request_regex = re.compile(
+            r"\] The API server received a (?P<method>\w+) request on \"(?P<url>(/(\w|-)*)+)\"( with body (?P<body>.*))?\."
+        )
+        api_request_times_regex = re.compile(
+            r"\] Total previous API call duration: (?P<execution_time>\d+) us.$"
+        )
+
+        # Note: Processing of api requests is synchronous, so these messages cannot be torn by concurrency effects
+        log_lines = self.log_data.split("\n")
+
+        ApiCall = namedtuple("ApiCall", "method url body")
+
+        current_call = None
+
+        for log_line in log_lines:
+            match = api_request_regex.search(log_line)
+
+            if match:
+                if current_call is not None:
+                    raise Exception(
+                        f"API call duration log entry for {current_call.method} {current_call.url} with body {current_call.body} is missing!"
+                    )
+
+                current_call = ApiCall(
+                    match.group("method"), match.group("url"), match.group("body")
+                )
+
+            match = api_request_times_regex.search(log_line)
+
+            if match:
+                if current_call is None:
+                    raise Exception(
+                        "Got API call duration log entry before request entry"
+                    )
+
+                if current_call.url != "/snapshot/create":
+                    exec_time = float(match.group("execution_time")) / 1000.0
+
+                    assert (
+                        exec_time <= MAX_API_CALL_DURATION_MS
+                    ), f"{current_call.method} {current_call.url} API call exceeded maximum duration: {exec_time} ms. Body: {current_call.body}"
+
+                current_call = None
 
     @property
     def firecracker_version(self):
@@ -392,7 +452,7 @@ class Microvm:
         self,
         create_logger=True,
         log_file="log_fifo",
-        log_level="Info",
+        log_level="Debug",
         use_ramdisk=False,
         metrics_path=None,
     ):
@@ -765,7 +825,6 @@ class Microvm:
         response = self.vm.patch(state="Paused")
         assert self.api_session.is_status_no_content(response.status_code)
 
-        self.api_session.untime()
         response = self.snapshot.create(
             mem_file_path=mem_file_path,
             snapshot_path=snapshot_path,

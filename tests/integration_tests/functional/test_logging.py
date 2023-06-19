@@ -124,6 +124,8 @@ def test_log_config_failure(test_microvm_with_api):
         show_level=True,
         show_log_origin=True,
     )
+    # only works if log level is Debug
+    microvm.time_api_requests = False
     assert microvm.api_session.is_status_bad_request(response.status_code)
     assert response.json()["fault_message"]
 
@@ -146,6 +148,8 @@ def test_api_requests_logs(test_microvm_with_api):
         show_level=True,
         show_log_origin=True,
     )
+    # only works if log level is Debug
+    microvm.time_api_requests = False
     assert microvm.api_session.is_status_no_content(response.status_code)
     microvm.start_console_logger(log_fifo)
 
@@ -206,6 +210,8 @@ def test_api_requests_logs(test_microvm_with_api):
 def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=True):
     """Exercises different scenarios for testing the logging config."""
     microvm.spawn(create_logger=False)
+    # only works if log level is Debug
+    microvm.time_api_requests = False
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, "log_fifo")
