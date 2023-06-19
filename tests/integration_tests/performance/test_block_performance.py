@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 from enum import Enum
+from pathlib import Path
 
 import pytest
 
@@ -169,11 +170,12 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
 
     for job_id in range(numjobs):
         file_path = (
-            f"{logs_path}/{env_id}/{mode}{bs}/{mode}"
-            f"{bs}_{measurement}.{job_id + 1}.log"
+            Path(logs_path)
+            / env_id
+            / f"{mode}{bs}"
+            / f"{mode}{bs}_{measurement}.{job_id + 1}.log"
         )
-        file = open(file_path, encoding="utf-8")
-        lines = file.readlines()
+        lines = file_path.read_text(encoding="utf-8").splitlines()
 
         direction_count = 1
         if mode.endswith("rw"):
