@@ -13,6 +13,11 @@
 - Added a `cpu-template-helper` tool for assisting with creating and managing
   custom CPU templates.
 
+### Changed
+
+- Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX[6]) and ZERO_FCS_FDS bit
+  (CPUID.7h.0:EBX[13]) in Intel's CPUID normalization process.
+
 ### Fixed
 
 - Fixed feature flags in T2S CPU template on Intel Ice Lake.
