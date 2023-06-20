@@ -509,6 +509,9 @@ class Microvm:
 
         jailer_param_list = self.jailer.construct_param_list()
 
+        # Checking the timings requires DEBUG level log messages
+        self.time_api_requests = log_level == "Debug"
+
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going
         # forward, we'll probably switch to this method for running
