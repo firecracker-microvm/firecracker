@@ -1,0 +1,29 @@
+{
+  "cpuid_modifiers": [
+    {
+      "leaf": "0x0\n\n\n\nTEST\n\n\n\n",
+      "subleaf": "0x0",
+      "flags": 0,
+      "modifiers": [
+        {
+          "register": "ecx",
+          "bitmap": "0b00"
+        },
+        {
+          "register": "edx",
+          "bitmap": "0b00"
+        },
+        {
+          "register": "ebx",
+          "bitmap": "0b00"
+        }
+      ]
+    }
+  ],
+  "msr_modifiers": [
+    {
+      "addr": "0x10a",
+      "bitmap": "0b0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

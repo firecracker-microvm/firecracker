@@ -4,15 +4,18 @@
 
 # Disable pylint C0302: Too many lines in module
 # pylint: disable=C0302
+import json
 import os
 import platform
 import resource
 import time
+from pathlib import Path
 
 import packaging.version
 import pytest
 
 import host_tools.drive as drive_tools
+import host_tools.logging as log_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
 from framework.artifacts import NetIfaceConfig, SnapshotType
@@ -469,10 +472,10 @@ def test_api_machine_config(test_microvm_with_api):
     # Validate full vm configuration after patching machine config.
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    json = response.json()
-    assert json["machine-config"]["vcpu_count"] == 2
-    assert json["machine-config"]["mem_size_mib"] == 256
-    assert json["machine-config"]["smt"] is False
+    json_payload = response.json()
+    assert json_payload["machine-config"]["vcpu_count"] == 2
+    assert json_payload["machine-config"]["mem_size_mib"] == 256
+    assert json_payload["machine-config"]["smt"] is False
 
 
 @nonci_on_arm
@@ -488,6 +491,59 @@ def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
 
     response = test_microvm.cpu_cfg.put(custom_cpu_template["template"])
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Use an invalid template to generate a log error.
+    cpu_template_json = json.loads(
+        Path(
+            "../resources/tests/custom_cpu_templates/malformed_x86_cpu_template.json"
+        ).read_text("utf-8")
+    )
+    response = test_microvm.cpu_cfg.put(cpu_template_json)
+    # Request should fail
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    # Check that without a custom log level set, the `Info` level is the default
+    # No body should be present in the log.
+    assert (
+        'Put request on "/cpu-config".' in test_microvm.log_data
+    ), "'/cpu-config' API call should not include the request's JSON payload (body)"
+
+
+@nonci_on_arm
+def test_api_cpu_config_debug_log(test_microvm_with_api):
+    """
+    Test /cpu-config DEBUG logging.
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn(create_logger=False)
+
+    # Check that any custom debug logging does not affect the API
+    log_fifo_path = os.path.join(test_microvm.path, "log_fifo_cpu_config_api")
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    response = test_microvm.logger.put(
+        log_path=test_microvm.create_jailed_resource(log_fifo.path),
+        level="Debug",
+        show_level=True,
+        show_log_origin=True,
+    )
+    test_microvm.start_console_logger(log_fifo)
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    ), response.text
+
+    # Use an invalid template to generate a log error.
+    cpu_template_json = json.loads(
+        Path(
+            "../resources/tests/custom_cpu_templates/malformed_x86_cpu_template.json"
+        ).read_text("utf-8")
+    )
+    response = test_microvm.cpu_cfg.put(cpu_template_json)
+    # Request should fail
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Check that the logs when the logger level is Debug reports the body of the request
+    assert (
+        'Put request on "/cpu-config" with body' in test_microvm.log_data
+    ), "'/cpu-config' API call expected but missing from the logs"
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):

@@ -415,8 +415,7 @@ pub enum LoggerError {
 /// Implements the "Log" trait from the externally used "log" crate.
 impl Log for Logger {
     fn enabled(&self, _metadata: &Metadata) -> bool {
-        // No filtering beyond what the log crate already does based on level.
-        true
+        _metadata.level() <= max_level()
     }
 
     fn log(&self, record: &Record) {
