@@ -46,9 +46,12 @@ impl From<CacheTypeState> for CacheType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum FileEngineTypeState {
+    // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
+    // on a VM using the Sync backend.
+    #[default]
     Sync,
     Async,
 }
@@ -68,14 +71,6 @@ impl From<FileEngineTypeState> for FileEngineType {
             FileEngineTypeState::Sync => FileEngineType::Sync,
             FileEngineTypeState::Async => FileEngineType::Async,
         }
-    }
-}
-
-impl Default for FileEngineTypeState {
-    fn default() -> Self {
-        // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
-        // on a VM using the Sync backend.
-        FileEngineTypeState::Sync
     }
 }
 

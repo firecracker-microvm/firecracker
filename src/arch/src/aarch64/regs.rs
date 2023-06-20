@@ -531,9 +531,8 @@ mod tests {
         let offset = offset__of!(user_pt_regs, pc);
         let regid = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset);
         assert!(!is_system_register(regid));
-        let regid = KVM_REG_ARM64 as u64
-            | KVM_REG_SIZE_U64 as u64
-            | u64::from(kvm_bindings::KVM_REG_ARM64_SYSREG);
+        let regid =
+            KVM_REG_ARM64 | KVM_REG_SIZE_U64 | u64::from(kvm_bindings::KVM_REG_ARM64_SYSREG);
         assert!(is_system_register(regid));
     }
 

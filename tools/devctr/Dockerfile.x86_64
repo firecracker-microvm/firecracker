@@ -4,7 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.64.0"
+ARG RUST_TOOLCHAIN="1.66.1"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG TMP_POETRY_DIR
@@ -15,6 +15,9 @@ ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
 # By default we don't provide a poetry.lock file
 ARG POETRY_LOCK_PATH="/dev/null/*"
+# grcov 0.8.* requires GLIBC >2.27, this is not present in ubuntu 18.04, when we update the docker
+# container with a newer version of ubuntu we can also update this.
+ARG GRCOV_VERSION="0.7.1"
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -48,6 +51,7 @@ RUN apt-get update \
         iperf3 \
         iproute2 \
         jq \
+        less \
         libdw-dev \
         libiberty-dev \
         libssl-dev \
@@ -74,7 +78,7 @@ RUN apt-get update \
     && python3 -m pip install \
         setuptools \
         wheel \
-    && python3 -m pip install --upgrade pip \ 
+    && python3 -m pip install --upgrade pip \
     && gem install \
         chef-utils:16.6.14 \
         mdl:0.11.0
@@ -105,24 +109,12 @@ RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain
-#
-RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
-        && rustup target add x86_64-unknown-linux-musl \
-        && rustup component add rustfmt clippy clippy-preview \
-        && rustup install --profile minimal "stable" \
-        && cd "$TMP_BUILD_DIR" \
-            && cargo install cargo-kcov \
-            && cargo +"stable" install cargo-audit \
-            # Fix a version that does not require cargo edition 2021.
-            && cargo install --locked cargo-deny --version '^0.9.1' \
-            && cargo kcov --print-install-kcov-sh | sh \
-        && rm -rf "$CARGO_HOME/registry" \
-        && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
-        && rm -rf "$CARGO_HOME/git" \
-        && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
-    && cd / \
-    && rm -rf "$TMP_BUILD_DIR"
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+    && rustup target add x86_64-unknown-linux-musl \
+    && rustup component add llvm-tools-preview \
+    && cargo install cargo-audit \
+    && cargo install --locked cargo-deny \
+    && cargo install --version $GRCOV_VERSION grcov
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/x86_64-linux-musl \

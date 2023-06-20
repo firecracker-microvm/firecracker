@@ -137,7 +137,7 @@ impl IoUring {
             ) as libc::c_int
         })
         .into_result()
-        .map_err(Error::Setup)? as i32;
+        .map_err(Error::Setup)?;
 
         // SAFETY: Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
@@ -406,7 +406,7 @@ mod tests {
 
             // Assert that there were no partial writes.
             let count = entry.result().unwrap();
-            let user_data = entry.user_data() as u32;
+            let user_data = entry.user_data();
             assert_eq!(count, user_data);
         }
     }

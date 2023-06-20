@@ -141,7 +141,25 @@ LOAD_LATENCY_BASELINES = {
                     "2vcpu_512mb.json": {"target": 310},
                 },
             },
-        }
+        },
+        "c7g.metal": {
+            "4.14": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                }
+            },
+            "5.10": {
+                "sync": {
+                    "2vcpu_256mb.json": {"target": 2},
+                    "2vcpu_512mb.json": {"target": 2},
+                },
+                "async": {
+                    "2vcpu_256mb.json": {"target": 320},
+                    "2vcpu_512mb.json": {"target": 360},
+                },
+            },
+        },
     },
 }
 
@@ -262,6 +280,7 @@ def _test_snapshot_create_latency(context):
 
     # Test snapshot creation for every supported target version.
     for target_version in firecracker_versions:
+        target_version = ".".join(target_version.split(".")[:2] + ["0"])
         logger.info(
             """Measuring snapshot create({}) latency for target
         version: {} and microvm: \"{}\", kernel {}, disk {} """.format(

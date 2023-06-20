@@ -135,9 +135,9 @@ impl TestContext {
     pub fn create_event_handler_context(&self) -> EventHandlerContext {
         const QSIZE: u16 = 256;
 
-        let guest_rxvq = GuestQ::new(GuestAddress(0x0010_0000), &self.mem, QSIZE as u16);
-        let guest_txvq = GuestQ::new(GuestAddress(0x0020_0000), &self.mem, QSIZE as u16);
-        let guest_evvq = GuestQ::new(GuestAddress(0x0030_0000), &self.mem, QSIZE as u16);
+        let guest_rxvq = GuestQ::new(GuestAddress(0x0010_0000), &self.mem, QSIZE);
+        let guest_txvq = GuestQ::new(GuestAddress(0x0020_0000), &self.mem, QSIZE);
+        let guest_evvq = GuestQ::new(GuestAddress(0x0030_0000), &self.mem, QSIZE);
         let rxvq = guest_rxvq.create_queue();
         let txvq = guest_txvq.create_queue();
         let evvq = guest_evvq.create_queue();

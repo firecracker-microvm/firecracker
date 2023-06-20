@@ -238,7 +238,7 @@ where
 
 /// Template types available for configuring the CPU features that map
 /// to EC2 instances.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Versionize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
     C3,
@@ -247,6 +247,7 @@ pub enum CpuFeaturesTemplate {
     /// T2S Template.
     T2S,
     /// No CPU template is used.
+    #[default]
     None,
 }
 
@@ -265,12 +266,6 @@ impl fmt::Display for CpuFeaturesTemplate {
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
-    }
-}
-
-impl Default for CpuFeaturesTemplate {
-    fn default() -> Self {
-        CpuFeaturesTemplate::None
     }
 }
 

@@ -92,6 +92,7 @@ class EndsSigned(CommitRule):
         >>> vio6 == [RuleViolation("UC2", vio_msg6, None, 6)]
         True
         """
+
         # Utilities
         def rtn(stmt, i):
             return [RuleViolation(self.id, stmt, None, i)]

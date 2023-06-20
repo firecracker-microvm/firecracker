@@ -217,7 +217,7 @@ class CmdBuilder:
     def build(self):
         """Build the command."""
         cmd = self._bin_path + " "
-        for (flag, value) in self._args.items():
+        for flag, value in self._args.items():
             cmd += f"{flag} {value} "
         return cmd
 
@@ -551,7 +551,7 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
         current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
         assert len(current_cpu_percentages) > 0
 
-        for (thread_name, task_ids) in current_cpu_percentages.items():
+        for thread_name, task_ids in current_cpu_percentages.items():
             if not cpu_percentages.get(thread_name):
                 cpu_percentages[thread_name] = {}
             for task_id in task_ids:

@@ -20,7 +20,7 @@ def test_python_pylint():
         '--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable='
         "fixme,too-many-instance-attributes,import-error,"
         "too-many-locals,too-many-arguments,consider-using-f-string,"
-        "consider-using-with,implicit-str-concat,line-too-long"
+        "consider-using-with,implicit-str-concat,line-too-long,broad-exception-raised"
     )
 
     # Get all *.py files from the project

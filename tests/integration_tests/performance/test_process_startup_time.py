@@ -10,12 +10,12 @@ import platform
 import host_tools.logging as log_tools
 from host_tools.cargo_build import run_seccompiler_bin
 
-MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3400}
+MAX_STARTUP_TIME_CPU_US = {"x86_64": 5500, "aarch64": 3800}
 """ The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
 
-def test_startup_time_new_pid_ns(test_microvm_with_api):
+def test_startup_time_new_pid_ns(test_microvm_with_api, record_property):
     """
     Check startup time when jailer is spawned in a new PID namespace.
 
@@ -24,20 +24,20 @@ def test_startup_time_new_pid_ns(test_microvm_with_api):
     microvm = test_microvm_with_api
     microvm.bin_cloner_path = None
     microvm.jailer.new_pid_ns = True
-    return _test_startup_time(microvm)
+    record_property("startup_time_new_pid_μs", _test_startup_time(microvm))
 
 
-def test_startup_time_daemonize(test_microvm_with_api):
+def test_startup_time_daemonize(test_microvm_with_api, record_property):
     """
     Check startup time when jailer spawns Firecracker in a new PID ns.
 
     @type: performance
     """
     microvm = test_microvm_with_api
-    return _test_startup_time(microvm)
+    record_property("startup_time_daemonize_μs", _test_startup_time(microvm))
 
 
-def test_startup_time_custom_seccomp(test_microvm_with_api):
+def test_startup_time_custom_seccomp(test_microvm_with_api, record_property):
     """
     Check the startup time when using custom seccomp filters.
 
@@ -46,8 +46,7 @@ def test_startup_time_custom_seccomp(test_microvm_with_api):
     microvm = test_microvm_with_api
 
     _custom_filter_setup(microvm)
-
-    return _test_startup_time(microvm)
+    record_property("startup_time_custom_seccomp_μs", _test_startup_time(microvm))
 
 
 def _test_startup_time(microvm):

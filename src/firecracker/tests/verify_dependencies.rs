@@ -12,12 +12,7 @@ fn test_no_comparison_requirements() {
     // HashMap mapping crate -> [(violating dependency, specified version)]
     let mut violating_dependencies = HashMap::new();
 
-    let src_firecracker_path = match std::env::var("CARGO_MANIFEST_DIR") {
-        Ok(path) => path,
-        Err(_) => return, /* when running under kcov, this variable is not set. As we do not
-                           * actually run any firecracker code, we can just skip this test
-                           * without affecting coverage */
-    };
+    let src_firecracker_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let src_path = format!("{}/..", src_firecracker_path);
 
     for fc_crate in std::fs::read_dir(src_path).unwrap() {

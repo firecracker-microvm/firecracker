@@ -7,6 +7,9 @@ import logging
 import json
 import shutil
 import platform
+from pathlib import Path
+
+import pytest
 
 from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
@@ -46,8 +49,8 @@ BASELINES = {
             "crc": {"target": 0.050, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.057, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.063, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.031, "delta": 0.02},  # milliseconds  # milliseconds
+            "crc": {"target": 0.038, "delta": 0.02},  # milliseconds  # milliseconds
         },
     },
 }
@@ -68,14 +71,15 @@ def _check_statistics(directory, mean):
         attribute = "no-crc"
 
     measure = BASELINES[proc_model[0]][bench][attribute]
-    low = measure["target"] - measure["delta"]
-    high = measure["target"] + measure["delta"]
-    assert low <= mean <= high, "Benchmark result {} has changed!".format(directory)
+    target, delta = measure["target"], measure["delta"]
+    assert target == pytest.approx(
+        mean, abs=delta, rel=1e-6
+    ), f"Benchmark result {directory} has changed!"
 
-    return directory, f"{mean} ms", f"{low} <= result <= {high}"
+    return f"{target - delta} <= result <= {target + delta}"
 
 
-def test_serialization_benchmark():
+def test_serialization_benchmark(monkeypatch, record_property):
     """
     Benchmark test for MicrovmState serialization/deserialization.
 
@@ -84,18 +88,16 @@ def test_serialization_benchmark():
     logger = logging.getLogger("serialization_benchmark")
 
     # Move into the benchmark directory
-    os.chdir(BENCHMARK_DIRECTORY)
+    monkeypatch.chdir(BENCHMARK_DIRECTORY)
 
     # Run benchmark test
     cmd = "cargo bench --target {}".format(DEFAULT_BUILD_TARGET)
     result = utils.run_cmd_sync(cmd)
     assert result.returncode == 0
 
-    results_and_criteria = ["", ""]
-
     # Parse each Criterion benchmark from the result folder and
     # check the results against a baseline
-    results_dir = os.path.join(FC_WORKSPACE_DIR, "build/vmm_benchmark")
+    results_dir = Path(FC_WORKSPACE_DIR) / "build/vmm_benchmark"
     for directory in os.listdir(results_dir):
         # Ignore the 'report' directory as it is of no use to us
         if directory == "report":
@@ -104,23 +106,16 @@ def test_serialization_benchmark():
         logger.info("Benchmark: %s", directory)
 
         # Retrieve the 'estimates.json' file content
-        json_file = os.path.join(
-            results_dir, "{}/{}".format(directory, "base/estimates.json")
-        )
-        with open(json_file, "r", encoding="utf-8") as read_file:
-            estimates = json.load(read_file)
+        json_file = results_dir / directory / "base/estimates.json"
+        estimates = json.loads(json_file.read_text())
 
         # Save the Mean measurement(nanoseconds) and transform it(milliseconds)
         mean = estimates["mean"]["point_estimate"] / NSEC_IN_MSEC
         logger.info("Mean: %f", mean)
 
-        res = _check_statistics(directory, round(mean, 3))
-
-        results_and_criteria[0] += f"{res[0]}: {res[1]}, "
-        results_and_criteria[1] += f"{res[0]}: {res[2]}, "
+        criteria = _check_statistics(directory, mean)
+        record_property(f"{directory}_ms", mean)
+        record_property(f"{directory}_criteria", criteria)
 
     # Cleanup the Target directory
     shutil.rmtree(results_dir)
-
-    # Return pretty formatted data for the test report.
-    return results_and_criteria[0], results_and_criteria[1]

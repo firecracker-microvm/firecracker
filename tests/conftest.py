@@ -94,10 +94,11 @@ import host_tools.network as net_tools
 from host_tools import proc
 from framework import utils
 from framework import defs
-from framework.artifacts import ArtifactCollection
+from framework.artifacts import ArtifactCollection, FirecrackerArtifact
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.scheduler import PytestScheduler
+from framework.utils import get_firecracker_version_from_toml
 
 # Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
@@ -306,7 +307,7 @@ def change_net_config_space_bin(test_fc_session_root_path):
     _gcc_compile(
         "host_tools/change_net_config_space.c",
         change_net_config_space_bin,
-        extra_flags="",
+        extra_flags="-static",
     )
     yield change_net_config_space_bin
 
@@ -501,6 +502,35 @@ def test_spectre_mitigations():
 
     mitigated = x86_64(body) if arch == "x86_64" else aarch64(body)
     assert mitigated, "SPECTREv2 not mitigated {}".format(body)
+
+
+def firecracker_id(fc):
+    """Render a nice ID for pytest parametrize."""
+    if isinstance(fc, FirecrackerArtifact):
+        return f"firecracker-{fc.version}"
+    return None
+
+
+def firecracker_artifacts(*args, **kwargs):
+    """Return all supported firecracker binaries."""
+    params = {
+        "min_version": "1.1.0",
+        "max_version": get_firecracker_version_from_toml(),
+    }
+    params.update(kwargs)
+    return ARTIFACTS_COLLECTION.firecrackers(
+        *args,
+        **params,
+    )
+
+
+@pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)
+def firecracker_release(request):
+    """Return all supported firecracker binaries."""
+    firecracker = request.param
+    firecracker.download()
+    firecracker.jailer().download()
+    return firecracker
 
 
 def pytest_generate_tests(metafunc):

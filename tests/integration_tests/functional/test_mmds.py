@@ -705,6 +705,8 @@ def test_mmds_snapshot(bin_cloner_path, version):
         jailer.download()
 
         target_version = firecracker.base_name()[1:]
+        # make target version look like X.Y.0
+        target_version = ".".join(target_version.split(".")[:2] + ["0"])
         # If the version is smaller or equal to 1.0.0, we expect that
         # MMDS will be initialised with V1 by default.
         if compare_versions(target_version, "1.0.0") <= 0:
@@ -752,6 +754,8 @@ def test_mmds_older_snapshot(bin_cloner_path):
         )
 
         fc_version = firecracker.base_name()[1:]
+        # make fc version look like X.Y.0
+        fc_version = ".".join(fc_version.split(".")[:2] + ["0"])
         # If the version is smaller or equal to 1.0.0, we expect that
         # MMDS will be initialised with V1 by default.
         # Otherwise, we may configure V2.

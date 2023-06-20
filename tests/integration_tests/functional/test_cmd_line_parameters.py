@@ -7,81 +7,64 @@ import platform
 from pathlib import Path
 
 import host_tools.logging as log_tools
-from host_tools.cargo_build import get_firecracker_binaries
-from conftest import _test_images_s3_bucket
-from framework.artifacts import ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import run_cmd, get_firecracker_version_from_toml
+from framework.utils import run_cmd
+from host_tools.cargo_build import get_firecracker_binaries
 
 
-def test_describe_snapshot_all_versions(bin_cloner_path):
+def test_describe_snapshot_all_versions(bin_cloner_path, firecracker_release):
     """
     Test `--describe-snapshot` correctness for all snapshot versions.
+
+    For each release create a snapshot and verify the data version of the
+    snapshot state file.
 
     @type: functional
     """
     logger = logging.getLogger("describe_snapshot")
     builder = MicrovmBuilder(bin_cloner_path)
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all firecracker binaries.
-    # For each binary create a snapshot and verify the data version
-    # of the snapshot state file.
+    jailer = firecracker_release.jailer()
+    target_version = firecracker_release.snapshot_version
 
-    firecracker_artifacts = artifacts.firecrackers(
-        max_version=get_firecracker_version_from_toml()
+    logger.info(
+        "Creating snapshot with Firecracker: %s", firecracker_release.local_path()
     )
+    logger.info("Using Jailer: %s", jailer.local_path())
+    logger.info("Using target version: %s", target_version)
 
-    for firecracker in firecracker_artifacts:
-        firecracker.download()
-        jailer = firecracker.jailer()
-        jailer.download()
+    vm_instance = builder.build_vm_nano(
+        fc_binary=firecracker_release.local_path(),
+        jailer_binary=jailer.local_path(),
+        diff_snapshots=True,
+    )
+    vm = vm_instance.vm
+    vm.start()
 
-        target_version = firecracker.base_name()[1:]
-        # Skip for aarch64, since the snapshotting feature
-        # was introduced in v0.24.0.
-        if platform.machine() == "aarch64" and "v0.23" in target_version:
-            continue
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(vm)
+    disks = [vm_instance.disks[0].local_path()]
 
-        logger.info("Creating snapshot with Firecracker: %s", firecracker.local_path())
-        logger.info("Using Jailer: %s", jailer.local_path())
-        logger.info("Using target version: %s", target_version)
+    # Version 0.24 and greater have Diff support.
+    snap_type = SnapshotType.DIFF
 
-        # v0.23 does not support creating diff snapshots.
-        diff_snapshots = "0.23" not in target_version
-        vm_instance = builder.build_vm_nano(
-            fc_binary=firecracker.local_path(),
-            jailer_binary=jailer.local_path(),
-            diff_snapshots=diff_snapshots,
-        )
-        vm = vm_instance.vm
-        vm.start()
+    snapshot = snapshot_builder.create(
+        disks,
+        vm_instance.ssh_key,
+        snapshot_type=snap_type,
+    )
+    logger.debug("========== Firecracker create snapshot log ==========")
+    logger.debug(vm.log_data)
+    vm.kill()
 
-        # Create a snapshot builder from a microvm.
-        snapshot_builder = SnapshotBuilder(vm)
-        disks = [vm_instance.disks[0].local_path()]
+    # Fetch Firecracker binary for the latest version
+    fc_binary, _ = get_firecracker_binaries()
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
 
-        # Version 0.24 and greater have Diff support.
-        snap_type = SnapshotType.DIFF if diff_snapshots else SnapshotType.FULL
-
-        snapshot = snapshot_builder.create(
-            disks,
-            vm_instance.ssh_key,
-            target_version=target_version,
-            snapshot_type=snap_type,
-        )
-        logger.debug("========== Firecracker create snapshot log ==========")
-        logger.debug(vm.log_data)
-        vm.kill()
-
-        # Fetch Firecracker binary for the latest version
-        fc_binary, _ = get_firecracker_binaries()
-        # Verify the output of `--describe-snapshot` command line parameter
-        cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
-
-        code, stdout, stderr = run_cmd(cmd)
-        assert code == 0
-        assert stderr == ""
-        assert target_version in stdout
+    code, stdout, stderr = run_cmd(cmd)
+    assert code == 0, stderr
+    assert stderr == ""
+    assert target_version in stdout
 
 
 def test_cli_metrics_path(test_microvm_with_api):

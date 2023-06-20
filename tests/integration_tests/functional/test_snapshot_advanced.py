@@ -7,14 +7,8 @@ import platform
 import tempfile
 import pytest
 from test_balloon import _test_rss_memory_lower
-from conftest import _test_images_s3_bucket
-from framework.artifacts import (
-    ArtifactCollection,
-    FirecrackerArtifact,
-    create_net_devices_configuration,
-)
+from framework.artifacts import create_net_devices_configuration
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
@@ -25,106 +19,67 @@ net_ifaces = create_net_devices_configuration(4)
 scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
 
 
-def firecracker_artifacts(*args, **kwargs):
-    """Return all available firecracker binaries."""
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all firecracker binaries.
-    return artifacts.firecrackers(*args, **kwargs)
-
-
-def firecracker_id(fc):
-    """Render a nice ID for pytest parametrize."""
-    if isinstance(fc, FirecrackerArtifact):
-        return f"firecracker-{fc.version}"
-    return None
-
-
-@pytest.mark.parametrize(
-    "firecracker",
-    firecracker_artifacts(
-        min_version="1.1.0",
-        max_version=get_firecracker_version_from_toml(),
-    ),
-    ids=firecracker_id,
-)
-def test_restore_old_snapshot(bin_cloner_path, firecracker):
+def test_restore_old_to_current(bin_cloner_path, firecracker_release):
     """
-    Restore from snapshots obtained with previous versions of Firecracker.
+    Restore snapshots from previous supported versions of Firecracker.
+
+    For each firecracker release:
+    1. Snapshot with the past release
+    2. Restore with the current build
 
     @type: functional
     """
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("old_snapshot_many_devices")
     builder = MicrovmBuilder(bin_cloner_path)
-
-    # With each binary create a snapshot and try to restore in current
-    # version.
-
-    firecracker.download()
-    jailer = firecracker.jailer()
-    jailer.download()
-
-    logger.info("Creating snapshot with Firecracker: %s", firecracker.local_path())
+    jailer = firecracker_release.jailer()
+    logger.info("Using Firecracker: %s", firecracker_release.local_path())
     logger.info("Using Jailer: %s", jailer.local_path())
-
-    target_version = firecracker.base_name()[1:]
-
-    # v0.23 does not support creating diff snapshots.
-    # v0.23 does not support balloon.
-    diff_snapshots = "0.23" not in target_version
-
-    # Create a snapshot.
+    diff_snapshots = True
+    logger.info("Create snapshot")
     snapshot = create_snapshot_helper(
         builder,
         logger,
         drives=scratch_drives,
         ifaces=net_ifaces,
-        fc_binary=firecracker.local_path(),
+        fc_binary=firecracker_release.local_path(),
         jailer_binary=jailer.local_path(),
         diff_snapshots=diff_snapshots,
         balloon=diff_snapshots,
     )
 
-    # Resume microvm using current build of FC/Jailer.
+    logger.info("Resume microvm using current build of FC/Jailer")
     microvm, _ = builder.build_from_snapshot(
         snapshot, resume=True, diff_snapshots=False
     )
+    logger.info("Validate all devices")
     validate_all_devices(logger, microvm, net_ifaces, scratch_drives, diff_snapshots)
     logger.debug("========== Firecracker restore snapshot log ==========")
     logger.debug(microvm.log_data)
 
 
-@pytest.mark.parametrize(
-    "firecracker",
-    firecracker_artifacts(
-        min_version="1.2.0",
-        max_version=get_firecracker_version_from_toml(),
-    ),
-    ids=firecracker_id,
-)
-def test_restore_old_version(bin_cloner_path, firecracker):
+def test_restore_current_to_old(bin_cloner_path, firecracker_release):
     """
     Restore current snapshot with previous versions of Firecracker.
 
-    Current snapshot (i.e a machine snapshotted with current build) is
-    incompatible with any past release due to notification suppression.
+    For each firecracker release:
+    1. Snapshot with the current build
+    2. Restore with the past release
 
     @type: functional
     """
+
+    # Current snapshot (i.e a machine snapshotted with current build) is
+    # incompatible with any past release due to notification suppression.
+    if firecracker_release.version_tuple < (1, 2, 0):
+        pytest.skip("incompatible with Firecracker <1.2.0")
+
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("old_snapshot_version_many_devices")
     builder = MicrovmBuilder(bin_cloner_path)
-
-    # Create a snapshot with current build and restore with each FC binary
-    # artifact.
-    firecracker.download()
-    jailer = firecracker.jailer()
-    jailer.download()
-
+    jailer = firecracker_release.jailer()
     logger.info("Creating snapshot with local build")
-
-    # Old version from artifact.
-    target_version = firecracker.base_name()[1:]
+    target_version = firecracker_release.snapshot_version
 
     # Create a snapshot with current FC version targeting the old version.
     snapshot = create_snapshot_helper(
@@ -137,7 +92,9 @@ def test_restore_old_version(bin_cloner_path, firecracker):
         diff_snapshots=True,
     )
 
-    logger.info("Restoring snapshot with Firecracker: %s", firecracker.local_path())
+    logger.info(
+        "Restoring snapshot with Firecracker: %s", firecracker_release.local_path()
+    )
     logger.info("Using Jailer: %s", jailer.local_path())
 
     # Resume microvm using FC/Jailer binary artifacts.
@@ -145,7 +102,7 @@ def test_restore_old_version(bin_cloner_path, firecracker):
         snapshot,
         resume=True,
         diff_snapshots=False,
-        fc_binary=firecracker.local_path(),
+        fc_binary=firecracker_release.local_path(),
         jailer_binary=jailer.local_path(),
     )
     validate_all_devices(logger, vm, net_ifaces, scratch_drives, True)

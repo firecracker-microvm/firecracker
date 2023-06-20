@@ -178,7 +178,7 @@ impl<'a> VirtqDesc<'a> {
     pub fn check_data(&self, expected_data: &[u8]) {
         assert!(self.len.get() as usize >= expected_data.len());
         let mem = self.addr.mem;
-        let mut buf = vec![0; expected_data.len() as usize];
+        let mut buf = vec![0; expected_data.len()];
         assert!(mem
             .read_slice(&mut buf, GuestAddress::new(self.addr.get()))
             .is_ok());

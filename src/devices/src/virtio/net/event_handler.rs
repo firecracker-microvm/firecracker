@@ -116,7 +116,7 @@ pub mod tests {
 
     #[test]
     fn test_event_handler() {
-        let mut th = TestHelper::default();
+        let mut th = TestHelper::get_default();
 
         // Push a queue event, use the TX_QUEUE_EVENT in this test.
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);

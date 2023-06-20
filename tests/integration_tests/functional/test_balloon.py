@@ -429,7 +429,7 @@ def test_stats(test_microvm_with_api, network_config):
     initial_stats = test_microvm.balloon.get_stats().json()
 
     # Dirty 10MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(10 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=10 * MB_TO_PAGES)
     time.sleep(1)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -492,7 +492,7 @@ def test_stats_update(test_microvm_with_api, network_config):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Dirty 30MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(30 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=30 * MB_TO_PAGES)
 
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -576,7 +576,7 @@ def _test_balloon_snapshot(context):
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=60 * MB_TO_PAGES)
     time.sleep(1)
 
     # Get the firecracker pid, and open an ssh connection.
@@ -622,7 +622,7 @@ def _test_balloon_snapshot(context):
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=60 * MB_TO_PAGES)
 
     # Check memory usage.
     fourth_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -770,7 +770,7 @@ def _test_memory_scrub(context):
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
     # Dirty 60MB of pages.
-    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+    make_guest_dirty_memory(ssh_connection, amount=60 * MB_TO_PAGES)
 
     # Now inflate the balloon with 60MB of pages.
     response = microvm.balloon.patch(amount_mib=60)

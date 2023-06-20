@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.1]
+
+### Changed
+
+- Upgraded Rust toolchain from 1.64.0 to 1.66.1.
+
+### Fixed
+
+- A race condition that has been identified between the API thread and the VMM
+  thread due to a misconfiguration of the `api_event_fd`.
+
 ## [1.2.0]
 
 ### Added

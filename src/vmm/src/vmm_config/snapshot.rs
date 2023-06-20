@@ -9,18 +9,13 @@ use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SnapshotType {
     /// Diff snapshot.
     Diff,
     /// Full snapshot.
+    #[default]
     Full,
-}
-
-impl Default for SnapshotType {
-    fn default() -> Self {
-        SnapshotType::Full
-    }
 }
 
 /// Specifies the method through which guest memory will get populated when

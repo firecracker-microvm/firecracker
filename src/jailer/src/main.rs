@@ -9,6 +9,7 @@ mod cgroup;
 mod chroot;
 mod env;
 mod resource_limits;
+
 use std::ffi::{CString, NulError, OsString};
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fmt, fs, io, process, result};
@@ -354,16 +355,13 @@ pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
-    if let Ok(mut paths) = fs::read_dir("/proc/self/fd") {
-        while let Some(Ok(path)) = paths.next() {
-            let file_name = path.file_name();
-            let fd_str = file_name.to_str().unwrap_or("0");
-            let fd = fd_str.parse::<i32>().unwrap_or(0);
-
-            if fd > 2 {
-                // SAFETY: Safe because close() cannot fail when passed a valid parameter.
-                unsafe { libc::close(fd) };
-            }
+    // SAFETY: Always safe.
+    let fd_limit = i32::try_from(unsafe { libc::sysconf(libc::_SC_OPEN_MAX) }).unwrap();
+    // Close all file descriptors excluding 0 (STDIN), 1 (STDOUT) and 2 (STDERR).
+    for fd in 3..fd_limit {
+        // SAFETY: Safe because close() cannot fail when passed a valid parameter.
+        unsafe {
+            libc::close(fd);
         }
     }
 

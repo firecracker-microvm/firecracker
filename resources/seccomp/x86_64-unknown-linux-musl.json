@@ -462,6 +462,10 @@
                         "comment": "KVM_GET_PIT2"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     },
@@ -723,6 +727,10 @@
                         "comment": "FIONBIO"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     },
@@ -1193,6 +1201,10 @@
                         "comment": "KVM_GET_TSC_KHZ"
                     }
                 ]
+            },
+            {
+                "syscall": "sched_yield",
+                "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             }
         ]
     }

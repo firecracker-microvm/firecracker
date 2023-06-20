@@ -258,7 +258,7 @@ impl Balloon {
                     if len > max_len {
                         error!(
                             "Inflate descriptor has bogus page count {} > {}, skipping.",
-                            len as usize / SIZE_OF_U32,
+                            len / SIZE_OF_U32,
                             MAX_PAGES_IN_DESC
                         );
 
@@ -267,7 +267,7 @@ impl Balloon {
                     }
                     // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
                     // desc.
-                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len as usize / SIZE_OF_U32 {
+                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len / SIZE_OF_U32 {
                         queue.undo_pop();
                         break;
                     }
@@ -686,7 +686,7 @@ pub(crate) mod tests {
                 assert_eq!(balloon.device_type(), TYPE_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
-                    | ((if *deflate_on_oom { 1 } else { 0 }) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
+                    | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
                     | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
                 assert_eq!(balloon.avail_features_by_page(0), features as u32);

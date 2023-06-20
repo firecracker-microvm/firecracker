@@ -79,7 +79,7 @@ Your contribution needs to meet the following standards:
 - A good commit message may look like
 
   ```
-  A descriptive title of 50 characters or fewer
+  A descriptive title of 72 characters or fewer
 
   A concise description where each line is 72 characters or fewer.
 

@@ -12,13 +12,14 @@ use super::{open_file_nonblock, FcLineWriter};
 use crate::vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum LoggerLevel {
     /// When the level is set to `Error`, the logger will only contain entries
     /// that come from the `error` macro.
     Error,
     /// When the level is set to `Warning`, the logger will only contain entries
     /// that come from the `error` and `warn` macros.
+    #[default]
     Warning,
     /// When the level is set to `Info`, the logger will only contain entries
     /// that come from the `error`, `warn` and `info` macros.
@@ -38,12 +39,6 @@ impl LoggerLevel {
             "debug" => Ok(LoggerLevel::Debug),
             _ => Err(LoggerConfigError::InitializationFailure(level)),
         }
-    }
-}
-
-impl Default for LoggerLevel {
-    fn default() -> LoggerLevel {
-        LoggerLevel::Warning
     }
 }
 

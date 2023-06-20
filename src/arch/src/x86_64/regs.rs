@@ -108,11 +108,11 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> std::result::Result<(), SetupR
         // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
         // local variables and function parameters are still accessible from a constant offset from
         // rbp.
-        rsp: super::layout::BOOT_STACK_POINTER as u64,
+        rsp: super::layout::BOOT_STACK_POINTER,
         // Starting stack pointer.
-        rbp: super::layout::BOOT_STACK_POINTER as u64,
+        rbp: super::layout::BOOT_STACK_POINTER,
         // Must point to zero page address per Linux ABI. This is x86_64 specific.
-        rsi: super::layout::ZERO_PAGE_START as u64,
+        rsi: super::layout::ZERO_PAGE_START,
         ..Default::default()
     };
 
@@ -199,7 +199,7 @@ fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<()> {
 }
 
 fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
-    let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
+    let gdt_table: [u64; BOOT_GDT_MAX] = [
         gdt_entry(0, 0, 0),            // NULL
         gdt_entry(0xa09b, 0, 0xfffff), // CODE
         gdt_entry(0xc093, 0, 0xfffff), // DATA
@@ -212,11 +212,11 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
 
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
-    sregs.gdt.base = BOOT_GDT_OFFSET as u64;
+    sregs.gdt.base = BOOT_GDT_OFFSET;
     sregs.gdt.limit = mem::size_of_val(&gdt_table) as u16 - 1;
 
     write_idt_value(0, mem)?;
-    sregs.idt.base = BOOT_IDT_OFFSET as u64;
+    sregs.idt.base = BOOT_IDT_OFFSET;
     sregs.idt.limit = mem::size_of::<u64>() as u16 - 1;
 
     sregs.cs = code_seg;
@@ -241,11 +241,11 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
     let boot_pde_addr = GuestAddress(PDE_START);
 
     // Entry covering VA [0..512GB)
-    mem.write_obj(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
+    mem.write_obj(boot_pdpte_addr.raw_value() | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
 
     // Entry covering VA [0..1GB)
-    mem.write_obj(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
+    mem.write_obj(boot_pde_addr.raw_value() | 0x03, boot_pdpte_addr)
         .map_err(|_| Error::WritePDPTEAddress)?;
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
@@ -254,7 +254,7 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
             .map_err(|_| Error::WritePDEAddress)?;
     }
 
-    sregs.cr3 = boot_pml4_addr.raw_value() as u64;
+    sregs.cr3 = boot_pml4_addr.raw_value();
     sregs.cr4 |= X86_CR4_PAE;
     sregs.cr0 |= X86_CR0_PG;
     Ok(())
@@ -283,7 +283,7 @@ mod tests {
     }
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {
-        let read_addr = GuestAddress(offset as u64);
+        let read_addr = GuestAddress(offset);
         gm.read_obj(read_addr).unwrap()
     }
 
@@ -314,7 +314,7 @@ mod tests {
             assert_eq!((i << 21) + 0x83u64, read_u64(gm, PDE_START + (i * 8)));
         }
 
-        assert_eq!(PML4_START as u64, sregs.cr3);
+        assert_eq!(PML4_START, sregs.cr3);
         assert!(sregs.cr4 & X86_CR4_PAE != 0);
         assert!(sregs.cr0 & X86_CR0_PG != 0);
     }
@@ -350,9 +350,9 @@ mod tests {
         let expected_regs: kvm_regs = kvm_regs {
             rflags: 0x0000_0000_0000_0002u64,
             rip: 1,
-            rsp: super::super::layout::BOOT_STACK_POINTER as u64,
-            rbp: super::super::layout::BOOT_STACK_POINTER as u64,
-            rsi: super::super::layout::ZERO_PAGE_START as u64,
+            rsp: super::super::layout::BOOT_STACK_POINTER,
+            rbp: super::super::layout::BOOT_STACK_POINTER,
+            rsi: super::super::layout::ZERO_PAGE_START,
             ..Default::default()
         };
 
@@ -385,7 +385,7 @@ mod tests {
     fn test_write_gdt_table() {
         // Not enough memory for the gdt table to be written.
         let gm = create_guest_mem(Some(BOOT_GDT_OFFSET));
-        let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
+        let gdt_table: [u64; BOOT_GDT_MAX] = [
             gdt_entry(0, 0, 0),            // NULL
             gdt_entry(0xa09b, 0, 0xfffff), // CODE
             gdt_entry(0xc093, 0, 0xfffff), // DATA
@@ -398,7 +398,7 @@ mod tests {
             BOOT_GDT_OFFSET + (mem::size_of::<u64>() * BOOT_GDT_MAX) as u64,
         ));
 
-        let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
+        let gdt_table: [u64; BOOT_GDT_MAX] = [
             gdt_entry(0, 0, 0),            // NULL
             gdt_entry(0xa09b, 0, 0xfffff), // CODE
             gdt_entry(0xc093, 0, 0xfffff), // DATA

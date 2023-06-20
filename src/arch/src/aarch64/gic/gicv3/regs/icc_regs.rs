@@ -54,16 +54,12 @@ static AP_VGIC_ICC_REGS: &[SimpleReg] = &[
 
 impl SimpleReg {
     const fn vgic_sys_reg(op0: u64, op1: u64, crn: u64, crm: u64, op2: u64) -> SimpleReg {
-        let offset = (((op0 as u64) << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
+        let offset = ((op0 << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
             & KVM_REG_ARM64_SYSREG_OP0_MASK as u64)
-            | (((op1 as u64) << KVM_REG_ARM64_SYSREG_OP1_SHIFT)
-                & KVM_REG_ARM64_SYSREG_OP1_MASK as u64)
-            | (((crn as u64) << KVM_REG_ARM64_SYSREG_CRN_SHIFT)
-                & KVM_REG_ARM64_SYSREG_CRN_MASK as u64)
-            | (((crm as u64) << KVM_REG_ARM64_SYSREG_CRM_SHIFT)
-                & KVM_REG_ARM64_SYSREG_CRM_MASK as u64)
-            | (((op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
-                & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
+            | ((op1 << KVM_REG_ARM64_SYSREG_OP1_SHIFT) & KVM_REG_ARM64_SYSREG_OP1_MASK as u64)
+            | ((crn << KVM_REG_ARM64_SYSREG_CRN_SHIFT) & KVM_REG_ARM64_SYSREG_CRN_MASK as u64)
+            | ((crm << KVM_REG_ARM64_SYSREG_CRM_SHIFT) & KVM_REG_ARM64_SYSREG_CRM_MASK as u64)
+            | ((op2 << KVM_REG_ARM64_SYSREG_OP2_SHIFT) & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
 
         SimpleReg::new(offset, 8)
     }

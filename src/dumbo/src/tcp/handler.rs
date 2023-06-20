@@ -507,8 +507,8 @@ mod tests {
     use crate::pdu::bytes::NetworkBytesMut;
     use crate::tcp::tests::mock_callback;
 
-    fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
-        p: &'a mut IPv4Packet<'b, T>,
+    fn inner_tcp_mut<'a, T: NetworkBytesMut>(
+        p: &'a mut IPv4Packet<'_, T>,
     ) -> TcpSegment<'a, &'a mut [u8]> {
         TcpSegment::from_bytes(p.payload_mut(), None).unwrap()
     }

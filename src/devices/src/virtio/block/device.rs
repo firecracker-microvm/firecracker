@@ -33,21 +33,16 @@ use super::{io as block_io, Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT,
 use crate::virtio::{IrqTrigger, IrqType};
 
 /// Configuration options for disk caching.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CacheType {
     /// Flushing mechanic will be advertised to the guest driver, but
     /// the operation will be a noop.
+    #[default]
     Unsafe,
     /// Flushing mechanic will be advertised to the guest driver and
     /// flush requests coming from the guest will be performed using
     /// `fsync`.
     Writeback,
-}
-
-impl Default for CacheType {
-    fn default() -> CacheType {
-        CacheType::Unsafe
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -96,7 +91,7 @@ impl DiskProperties {
             .map_err(Error::BackingFile)?;
         let disk_size = disk_image
             .seek(SeekFrom::End(0))
-            .map_err(Error::BackingFile)? as u64;
+            .map_err(Error::BackingFile)?;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
@@ -1652,7 +1647,7 @@ pub(crate) mod tests {
         let mut block = default_block(default_engine_type_for_kv());
         let f = TempFile::new().unwrap();
         let path = f.as_path();
-        let mdata = metadata(&path).unwrap();
+        let mdata = metadata(path).unwrap();
         let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
         let part_id = str_id.as_bytes();

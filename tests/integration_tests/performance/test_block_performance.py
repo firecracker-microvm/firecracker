@@ -237,7 +237,7 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
                     values[measurement_id][value_idx] = []
                 values[measurement_id][value_idx].append(int(data[1].strip()))
 
-    for (measurement_id, value_indexes) in values.items():
+    for measurement_id, value_indexes in values.items():
         for idx in value_indexes:
             # Discard data points which were not measured by all jobs.
             if len(value_indexes[idx]) != numjobs:

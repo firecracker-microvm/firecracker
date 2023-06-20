@@ -82,6 +82,14 @@ also be specifying the supported kernel versions.
   and v3.1 will be patched since were the last two Firecracker releases and
   less than 6 months have passed since release time.
 
+## Release Status
+
+| Release | Release Date | Latest Patch | Min. end of support | Official end of Support        |
+| ------: | -----------: |-------------:| ------------------: | :----------------------------- |
+| v1.2    |   2022-11-30 |       v1.2.1 |          2023-05-30 | Supported                      |
+| v1.1    |   2022-05-06 |       v1.1.4 |          2022-11-06 | 2023-03-02 (v1.3 released)     |
+| v1.0    |   2022-01-31 |       v1.0.2 |          2022-07-31 | 2022-11-30 (v1.2 released)     |
+
 ## API support
 
 The Firecracker API follows the semantic versioning standard. For a new

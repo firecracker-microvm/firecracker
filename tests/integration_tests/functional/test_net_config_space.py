@@ -97,8 +97,9 @@ def test_net_change_mac_address(
     cmd = cmd.format(net_addr_base, mac_hex)
 
     # This should be executed successfully.
-    exit_code, stdout, _ = ssh_connection_ctl.execute_command(cmd)
-    assert exit_code == 0
+    exit_code, stdout, stderr = ssh_connection_ctl.execute_command(cmd)
+    stderr = stderr.read()
+    assert exit_code == 0, stderr
     assert stdout.read() == mac
 
     # Discard any parasite data exchange which might've been
@@ -144,7 +145,8 @@ def _create_server(jailer, host_ip, port, iterations):
         "s.close()"
     )
 
-    cmd = 'python -c "{}"'.format(
+    # The host uses Python3
+    cmd = 'python3 -c "{}"'.format(
         script.format(host_ip, port, iterations, PAYLOAD_DATA_SIZE)
     )
     netns_cmd = jailer.netns_cmd_prefix() + cmd
@@ -174,6 +176,7 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
         "s.close()"
     )
 
+    # The guest has Python2
     cmd = 'python -c "{}"'.format(
         script.format(retries, host_ip, str(host_port), iterations, data)
     )
@@ -181,8 +184,9 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
     # Wait server to initialize.
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
     # If this assert fails, a connection refused happened.
-    assert exit_code == 0
-    assert stderr.read() == ""
+    stderr = stderr.read()
+    assert exit_code == 0, stderr
+    assert stderr == ""
 
 
 def _start_host_server_thread(jailer, host_ip, host_port, iterations):
@@ -266,7 +270,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
         # Device start addresses lack the hex prefix and are not interpreted
         # accordingly when parsed inside `change_config_space.c`.
         hex_prefix = "0x"
-        for (idx, dev) in enumerate(virtio_devs):
+        for idx, dev in enumerate(virtio_devs):
             _, guest_if_name, _ = ssh_connection.execute_command(
                 cmd.format(sys_virtio_mmio_cmdline, dev, idx)
             )

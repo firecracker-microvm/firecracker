@@ -32,6 +32,7 @@ PING = "ping -c {} -i {} {}"
 PKT_LOSS = "pkt_loss"
 LATENCY = "latency"
 
+
 # pylint: disable=R0903
 class NetLatencyBaselineProvider(BaselineProvider):
     """Implementation of a baseline provider for the network latency...

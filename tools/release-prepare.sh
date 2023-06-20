@@ -4,6 +4,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -eu -o pipefail
+set -x
+
+function check_snapshot_version {
+    local version=$1
+    local snap_version=$(echo $version |cut -f-2 -d. |tr . _)
+    if ! grep FC_V${snap_version}_SNAP_VERSION src/vmm/src/version_map.rs; then
+       die "I couldn't find FC_V${snap_version}_SNAP_VERSION in src/vmm/src/version_map.rs"
+    fi
+}
 
 FC_TOOLS_DIR=$(dirname $(realpath $0))
 source "$FC_TOOLS_DIR/functions"
@@ -28,6 +37,7 @@ version=$1
 validate_version "$version"
 
 check_local_branch_is_release_branch
+check_snapshot_version "$version"
 
 # Create GitHub PR link
 ORIGIN_URL=$(git config --get remote.origin.url)
