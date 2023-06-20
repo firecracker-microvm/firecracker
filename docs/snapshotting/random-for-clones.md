@@ -114,22 +114,22 @@ the read result via bind mounting another file on top of
   important, bind mount another file on top of it.
 * If microVMs run on machines with IvyBridge or newer Intel processors
   (which provide RDRAND; in addition, RDSEED is offered starting with
-  Broadwell), and the noise implicitly added when random values are
-  generated is considered sufficient, then nothing else has to be done.
-* Otherwise, the conservative approach is to do the following (before
-  customer code continues its run in the clone):
+  Broadwell). Hardware supported reseeding is done on a cadence defined
+  by the Linux Kernel and should be sufficient for most cases.
+* To be as safe as possible, the direct approach is to do the following (before
+  customer code is resumed in the clone):
   1. Open one of the special devices files (either `/dev/random` or
-     `/dev/urandom`).
-  1. Issue an `RNDCLEARPOOL ioctl` (requires `CAP_SYS_ADMIN`). This
-     clears and sets the entropy pools to the initial state. Should also
-     cause the reinitialization of the `/dev/urandom` `CSPRNG`.
-  1. Issue an `RNDADDENTROPY ioctl` (requires `CAP_SYS_ADMIN`) to mix
-     the provided bytes into the input entropy pool and increase the
-     entropy count. This should also cause the `/dev/urandom` `CSPRNG`
-     to be reseeded. The bytes can be generated locally in the guest,
-     or obtained from the host. Starting with version 4.17 of the
-     kernel, there’s a new ioctl request (`RNDRESEEDCRNG`) that
-     specifically causes the `CSPRNG` to be reseeded from the input pool.
+     `/dev/urandom`). Take note that `RNDCLEARPOOL` no longer
+     [has any effect][7] on the entropy pool.
+  1. Issue an `RNDADDENTROPY` ioctl call (requires `CAP_SYS_ADMIN`)
+   to mix the provided bytes into the input
+   entropy pool and increase the entropy count.
+   This should also cause the `/dev/urandom` `CSPRNG`
+   to be reseeded. The bytes can be generated locally in the guest,
+   or obtained from the host.
+  1. Issue a `RNDRESEEDCRNG` ioctl call
+      ([4.14][5], [5.10][6], (requires `CAP_SYS_ADMIN`)) that specifically
+      causes the `CSPRNG` to be reseeded from the input pool.
 
 **Annex 1 contains the source code of a C program which implements the
 previous three steps.** As soon as the guest kernel version switches to
@@ -219,3 +219,6 @@ int main(int argc, char ** argv) {
 [2]: https://www.2uo.de/myths-about-urandom
 [3]: https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/Studies/LinuxRNG/LinuxRNG_EN.pdf
 [4]: http://man7.org/linux/man-pages/man4/random.4.html
+[5]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1355
+[6]: https://elixir.bootlin.com/linux/v5.10.147/source/drivers/char/random.c#L1360
+[7]: https://elixir.bootlin.com/linux/v4.14.295/source/drivers/char/random.c#L1351

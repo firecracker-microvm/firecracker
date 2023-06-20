@@ -196,14 +196,14 @@ mod tests {
             edx: *(0_u32).write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true),
             padding: [0, 0, 0],
         };
-        assert!(update_structured_extended_entry(&mut entry, &vm_spec).is_ok());
-        assert_eq!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX), false);
+        assert!(update_structured_extended_entry(entry, &vm_spec).is_ok());
+        assert!(!entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX));
 
         // Check that if index != 0 the entry is not processed
         entry.index = 1;
         entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true);
-        assert!(update_structured_extended_entry(&mut entry, &vm_spec).is_ok());
-        assert_eq!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX), true);
+        assert!(update_structured_extended_entry(entry, &vm_spec).is_ok());
+        assert!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX));
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
         use crate::cpu_leaf::leaf_0x80000000::*;
 
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
             flags: 0,
@@ -222,7 +222,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_largest_extended_fn_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_largest_extended_fn_entry(entry, &vm_spec).is_ok());
 
         assert_eq!(
             entry
@@ -237,7 +237,7 @@ mod tests {
         use crate::cpu_leaf::leaf_0x80000001::*;
 
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
             flags: 0,
@@ -248,16 +248,19 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_extended_feature_info_entry(&mut entry, &vm_spec).is_ok());
+        assert!(matches!(
+            update_extended_feature_info_entry(entry, &vm_spec),
+            Ok(())
+        ));
 
-        assert_eq!(entry.ecx.read_bit(ecx::TOPOEXT_INDEX), true);
+        assert!(entry.ecx.read_bit(ecx::TOPOEXT_INDEX));
     }
 
     fn check_update_amd_features_entry(cpu_count: u8, smt: bool) {
         use crate::cpu_leaf::leaf_0x80000008::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, smt).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
             flags: 0,
@@ -268,7 +271,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_amd_features_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_amd_features_entry(entry, &vm_spec).is_ok());
 
         assert_eq!(
             entry.ecx.read_bits_in_range(&ecx::NUM_THREADS_BITRANGE),
@@ -290,7 +293,7 @@ mod tests {
         use crate::cpu_leaf::leaf_0x8000001e::*;
 
         let vm_spec = VmSpec::new(cpu_id, cpu_count, smt).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
             flags: 0,
@@ -301,7 +304,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_extended_apic_id_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_extended_apic_id_entry(entry, &vm_spec).is_ok());
 
         assert_eq!(
             entry
@@ -333,7 +336,7 @@ mod tests {
     #[test]
     fn test_update_extended_cache_topology_entry() {
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
+        let entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x8000001d::LEAF_NUM,
             index: 0,
             flags: 0,
@@ -344,7 +347,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_extended_cache_topology_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_extended_cache_topology_entry(entry, &vm_spec).is_ok());
 
         assert_eq!(entry.flags & KVM_CPUID_FLAG_SIGNIFCANT_INDEX, 1);
     }

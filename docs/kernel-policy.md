@@ -127,13 +127,13 @@ registers incompatibility.
 <table>
   <tr>
     <th></th>
-    <th>Snapshot taken on host 4.15</th>
+    <th>Snapshot taken on host 4.14</th>
     <th>Snapshot taken on host 5.10</th>
   </tr>
   <tr>
-    <th>Load snapshot on host 4.15</th>
+    <th>Load snapshot on host 4.14</th>
     <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">unsuccessful due to mismatch in MSRs</td>
   </tr>
   <tr>
     <th>Load snapshot on host 5.10</th>

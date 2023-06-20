@@ -184,22 +184,4 @@ mod tests {
         .unwrap();
         assert!(ldm.register_devices(vm.fd()).is_ok());
     }
-
-    #[test]
-    fn test_debug_error() {
-        assert_eq!(
-            format!("{}", Error::BusError(devices::BusError::Overlap)),
-            format!(
-                "Failed to add legacy device to Bus: {}",
-                devices::BusError::Overlap
-            )
-        );
-        assert_eq!(
-            format!("{}", Error::EventFd(std::io::Error::from_raw_os_error(1))),
-            format!(
-                "Failed to create EventFd: {}",
-                std::io::Error::from_raw_os_error(1)
-            )
-        );
-    }
 }

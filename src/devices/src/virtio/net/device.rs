@@ -5,8 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#[cfg(not(test))]
-use std::io;
 use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicUsize;
@@ -20,7 +18,7 @@ use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
-use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use utils::net::mac::MacAddr;
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
@@ -74,25 +72,15 @@ fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8]> {
 // This initializes to all 0 the VNET hdr part of a buf.
 fn init_vnet_hdr(buf: &mut [u8]) {
     // The buffer should be larger than vnet_hdr_len.
-    // TODO: any better way to set all these bytes to 0? Or is this optimized by the compiler?
-    for i in &mut buf[0..vnet_hdr_len()] {
-        *i = 0;
-    }
+    buf[0..vnet_hdr_len()].fill(0);
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ConfigSpace {
-    pub guest_mac: [u8; MAC_ADDR_LEN],
+    pub guest_mac: MacAddr,
 }
 
-impl Default for ConfigSpace {
-    fn default() -> ConfigSpace {
-        ConfigSpace {
-            guest_mac: [0; MAC_ADDR_LEN],
-        }
-    }
-}
-
+// SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
 pub struct Net {
@@ -136,7 +124,7 @@ impl Net {
     pub fn new_with_tap(
         id: String,
         tap_if_name: String,
-        guest_mac: Option<&MacAddr>,
+        guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self> {
@@ -163,9 +151,9 @@ impl Net {
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
-            config_space.guest_mac.copy_from_slice(mac.get_bytes());
-            // When this feature isn't available, the driver generates a random MAC address.
-            // Otherwise, it should attempt to read the device MAC address from the config space.
+            config_space.guest_mac = mac;
+            // Enabling feature for MAC address configuration
+            // If not set, the driver will generates a random MAC address
             avail_features |= 1 << VIRTIO_NET_F_MAC;
         }
 
@@ -191,11 +179,11 @@ impl Net {
             tx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_iovec: Vec::with_capacity(QUEUE_SIZE as usize),
             irq_trigger: IrqTrigger::new().map_err(Error::EventFd)?,
+            config_space,
+            guest_mac,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
-            config_space,
             mmds_ns: None,
-            guest_mac: guest_mac.copied(),
 
             #[cfg(test)]
             mocks: Mocks::default(),
@@ -661,7 +649,7 @@ impl Net {
     }
 
     #[cfg(not(test))]
-    fn read_tap(&mut self) -> io::Result<usize> {
+    fn read_tap(&mut self) -> std::io::Result<usize> {
         self.tap.read(&mut self.rx_frame_buf)
     }
 
@@ -830,9 +818,7 @@ impl VirtioDevice for Net {
         }
 
         config_space_bytes[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
-        self.guest_mac = Some(MacAddr::from_bytes_unchecked(
-            &self.config_space.guest_mac[..MAC_ADDR_LEN],
-        ));
+        self.guest_mac = Some(self.config_space.guest_mac);
         METRICS.net.mac_address_updates.inc();
     }
 
@@ -868,6 +854,7 @@ pub mod tests {
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
+    use utils::net::mac::MAC_ADDR_LEN;
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
@@ -894,7 +881,7 @@ pub mod tests {
         pub fn read_tap(&mut self) -> io::Result<usize> {
             match &self.mocks.read_tap {
                 ReadTapMock::MockFrame(frame) => {
-                    self.rx_frame_buf[..frame.len()].copy_from_slice(&frame);
+                    self.rx_frame_buf[..frame.len()].copy_from_slice(frame);
                     Ok(frame.len())
                 }
                 ReadTapMock::Failure => Err(io::Error::new(
@@ -982,11 +969,11 @@ pub mod tests {
         let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
         let mut config_mac = [0u8; MAC_ADDR_LEN];
         net.read_config(0, &mut config_mac);
-        assert_eq!(config_mac, mac.get_bytes());
+        assert_eq!(&config_mac, mac.get_bytes());
 
         // Invalid read.
         config_mac = [0u8; MAC_ADDR_LEN];
-        net.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac);
+        net.read_config(MAC_ADDR_LEN as u64, &mut config_mac);
         assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
     }
 
@@ -995,9 +982,9 @@ pub mod tests {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
-        let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+        let new_config: [u8; MAC_ADDR_LEN] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
         net.write_config(0, &new_config);
-        let mut new_config_read = [0u8; 6];
+        let mut new_config_read = [0u8; MAC_ADDR_LEN];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
 
@@ -1017,7 +1004,7 @@ pub mod tests {
         // Invalid write.
         net.write_config(5, &new_config);
         // Verify old config was untouched.
-        new_config_read = [0u8; 6];
+        new_config_read = [0u8; MAC_ADDR_LEN];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
     }
@@ -1424,7 +1411,7 @@ pub mod tests {
         dst_ip: Ipv4Addr,
     ) -> ([u8; MAX_BUFFER_SIZE], usize) {
         let mut frame_buf = [b'\0'; MAX_BUFFER_SIZE];
-        let frame_len;
+
         // Create an ethernet frame.
         let incomplete_frame = EthernetFrame::write_incomplete(
             frame_bytes_from_buf_mut(&mut frame_buf).unwrap(),
@@ -1438,7 +1425,7 @@ pub mod tests {
         let mut frame = incomplete_frame.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
 
         // Save the total frame length.
-        frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
+        let frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
 
         // Create the ARP request.
         let arp_request =
@@ -1785,7 +1772,7 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data(frame);
             }
         }
     }
@@ -1894,7 +1881,7 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data(frame);
             }
         }
     }

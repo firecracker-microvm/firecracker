@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{open_file_nonblock, FcLineWriter};
 
 /// Strongly typed structure used to describe the metrics system.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MetricsConfig {
     /// Named pipe or file used as output for metrics.
     pub metrics_path: PathBuf,
@@ -28,7 +28,7 @@ impl Display for MetricsConfigError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::MetricsConfigError::*;
         match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
+            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace('\"', "")),
         }
     }
 }

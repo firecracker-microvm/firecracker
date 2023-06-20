@@ -74,6 +74,8 @@ impl ResourceLimits {
             rlim_max: target,
         };
 
+        // SAFETY: Safe because `resource` is a known-valid constant, and `&rlim`
+        // is non-dangling.
         SyscallReturnCode(unsafe { libc::setrlimit(u32::from(resource) as _, &rlim) })
             .into_empty_result()
             .map_err(|_| Error::Setrlimit(resource.to_string()))
@@ -90,6 +92,7 @@ impl ResourceLimits {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
     #[test]

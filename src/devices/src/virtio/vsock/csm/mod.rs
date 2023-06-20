@@ -58,7 +58,7 @@ impl std::error::Error for Error {}
 type Result<T> = std::result::Result<T, Error>;
 
 /// A vsock connection state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnState {
     /// The connection has been initiated by the host end, but is yet to be confirmed by the guest.
     LocalInit,
@@ -152,21 +152,14 @@ mod tests {
         );
 
         assert_eq!(
-            format!(
-                "{}",
-                Error::TxBufFlush(std::io::Error::from(std::io::ErrorKind::Other))
-            ),
-            "An I/O error occurred, when attempting to flush the connection TX buffer: other os \
-             error"
+            Error::TxBufFlush(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
+            "An I/O error occurred, when attempting to flush the connection TX buffer: other error"
         );
 
         assert_eq!(
-            format!(
-                "{}",
-                Error::StreamWrite(std::io::Error::from(std::io::ErrorKind::Other))
-            ),
+            Error::StreamWrite(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
             "An I/O error occurred, when attempting to write data to the host-side stream: other \
-             os error"
+             error"
         );
     }
 }

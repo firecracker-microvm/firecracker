@@ -9,7 +9,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiRequest, ApiResponse, ApiServer};
+use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -149,25 +149,26 @@ pub(crate) fn run_with_api(
         .name("fc_api".to_owned())
         .spawn(move || {
             match ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                api_bind_path,
+                &api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
                 api_payload_limit,
                 socket_ready_sender,
             ) {
                 Ok(_) => (),
-                Err(api_server::Error::Io(inner)) => match inner.kind() {
-                    std::io::ErrorKind::AddrInUse => panic!(
-                        "Failed to open the API socket: {:?}",
-                        api_server::Error::Io(inner)
-                    ),
-                    _ => panic!(
-                        "Failed to communicate with the API socket: {:?}",
-                        api_server::Error::Io(inner)
-                    ),
-                },
-                Err(eventfd_err @ api_server::Error::Eventfd(_)) => {
-                    panic!("Failed to open the API socket: {:?}", eventfd_err)
+                Err(api_server::Error::ServerCreation(ServerError::IOError(inner)))
+                    if inner.kind() == std::io::ErrorKind::AddrInUse =>
+                {
+                    let sock_path = api_bind_path.display().to_string();
+                    error!(
+                        "Failed to open the API socket at: {sock_path}. Check that it is not \
+                         already used."
+                    );
+                    std::process::exit(vmm::FcExitCode::GenericError as i32);
+                }
+                Err(api_server::Error::ServerCreation(err)) => {
+                    error!("Failed to bind and run the HTTP server: {err}");
+                    std::process::exit(vmm::FcExitCode::GenericError as i32);
                 }
             }
         })
@@ -181,16 +182,16 @@ pub(crate) fn run_with_api(
     // Configure, build and start the microVM.
     let build_result = match config_json {
         Some(json) => super::build_microvm_from_json(
-            &seccomp_filters,
+            seccomp_filters,
             &mut event_manager,
             json,
             instance_info,
             boot_timer_enabled,
             mmds_size_limit,
-            metadata_json.as_deref(),
+            metadata_json,
         ),
         None => PrebootApiController::build_microvm_from_requests(
-            &seccomp_filters,
+            seccomp_filters,
             &mut event_manager,
             instance_info,
             || {

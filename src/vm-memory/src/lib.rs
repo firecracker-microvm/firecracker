@@ -4,6 +4,7 @@
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 use std::io::Error as IoError;
 use std::os::unix::io::AsRawFd;
@@ -50,6 +51,7 @@ fn build_guarded_region(
     let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
 
     // Map the guarded range to PROT_NONE
+    // SAFETY: Safe because the parameters are valid.
     let guard_addr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
@@ -77,6 +79,7 @@ fn build_guarded_region(
 
     // Inside the protected range, starting with guard_addr + PAGE_SIZE,
     // map the requested range with received protection and flags
+    // SAFETY: Safe because the parameters are valid.
     let region_addr = unsafe {
         libc::mmap(
             region_start_addr as *mut libc::c_void,
@@ -97,6 +100,7 @@ fn build_guarded_region(
         false => None,
     };
 
+    // SAFETY: Safe because the parameters are valid.
     unsafe {
         MmapRegionBuilder::new_with_bitmap(size, bitmap)
             .with_raw_mmap_pointer(region_addr as *mut u8)
@@ -189,6 +193,7 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use utils::get_page_size;
     use utils::tempfile::TempFile;
 
@@ -353,7 +358,7 @@ mod tests {
 
             let guest_memory = create_guest_memory(&regions, false).unwrap();
             guest_memory.iter().for_each(|region| {
-                validate_guard_region(&region);
+                validate_guard_region(region);
                 loop_guard_region_to_sigsegv(region);
             });
         }

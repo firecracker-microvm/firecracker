@@ -104,7 +104,7 @@ impl GICDevice for GICv3 {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
-            &gic_device.device_fd(),
+            gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
             u64::from(kvm_bindings::KVM_VGIC_V3_ADDR_TYPE_DIST),
             &GICv3::get_dist_addr() as *const u64 as u64,
@@ -114,7 +114,7 @@ impl GICDevice for GICv3 {
         // Setting up the redistributors' attribute.
         // We are calculating here the start of the redistributors address. We have one per CPU.
         Self::set_device_attribute(
-            &gic_device.device_fd(),
+            gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
             u64::from(kvm_bindings::KVM_VGIC_V3_ADDR_TYPE_REDIST),
             &GICv3::get_redists_addr(gic_device.vcpu_count()) as *const u64 as u64,
@@ -142,6 +142,7 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use kvm_ioctls::Kvm;
 
     use super::*;
@@ -154,11 +155,11 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
-        assert!(save_pending_tables(&gic.device_fd()).is_ok());
+        assert!(save_pending_tables(gic.device_fd()).is_ok());
 
         unsafe { libc::close(gic.device_fd().as_raw_fd()) };
 
-        let res = save_pending_tables(&gic.device_fd());
+        let res = save_pending_tables(gic.device_fd());
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),

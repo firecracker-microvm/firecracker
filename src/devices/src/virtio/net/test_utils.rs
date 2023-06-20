@@ -38,7 +38,7 @@ pub fn default_net() -> Net {
     let mut net = Net::new_with_tap(
         format!("net-device{}", next_tap),
         tap_dev_name,
-        Some(&guest_mac),
+        Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
     )
@@ -61,7 +61,7 @@ pub fn default_net_no_mmds() -> Net {
     let net = Net::new_with_tap(
         format!("net-device{}", next_tap),
         tap_dev_name,
-        Some(&guest_mac),
+        Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
     )
@@ -128,7 +128,9 @@ pub struct TapTrafficSimulator {
 impl TapTrafficSimulator {
     pub fn new(tap_index: i32) -> Self {
         // Create sockaddr_ll struct.
+        // SAFETY: sockaddr_storage has no invariants and can be safely zeroed.
         let send_addr_ptr = &unsafe { mem::zeroed() } as *const libc::sockaddr_storage;
+        // SAFETY: `sock_addr` is a valid pointer and safe to derference.
         unsafe {
             let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr as *mut libc::sockaddr_ll;
             (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
@@ -139,10 +141,11 @@ impl TapTrafficSimulator {
 
         // Bind socket to tap interface.
         let socket = create_socket();
+        // SAFETY: Call is safe because parameters are valid.
         let ret = unsafe {
             libc::bind(
                 socket.as_raw_fd(),
-                send_addr_ptr as *const _,
+                send_addr_ptr.cast(),
                 mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
             )
         };
@@ -151,6 +154,7 @@ impl TapTrafficSimulator {
         }
 
         // Enable nonblocking
+        // SAFETY: Call is safe because parameters are valid.
         let ret = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
         if ret == -1 {
             panic!("Couldn't make TapChannel non-blocking");
@@ -158,18 +162,21 @@ impl TapTrafficSimulator {
 
         Self {
             socket,
-            send_addr: unsafe { *(send_addr_ptr as *const _) },
+            // SAFETY: Both the cast and the dereference are safe because the point is valid
+            // and sockaddr_storage is meant to be cast that way.
+            send_addr: unsafe { *(send_addr_ptr.cast()) },
         }
     }
 
     pub fn push_tx_packet(&self, buf: &[u8]) {
+        // SAFETY: The call is safe since the parameters are valid.
         let res = unsafe {
             libc::sendto(
                 self.socket.as_raw_fd(),
-                buf.as_ptr() as *const _,
+                buf.as_ptr().cast(),
                 buf.len(),
                 0,
-                (&self.send_addr as *const libc::sockaddr_ll) as *const _,
+                (&self.send_addr as *const libc::sockaddr_ll).cast(),
                 mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
             )
         };
@@ -179,13 +186,14 @@ impl TapTrafficSimulator {
     }
 
     pub fn pop_rx_packet(&self, buf: &mut [u8]) -> bool {
+        // SAFETY: The call is safe since the parameters are valid.
         let ret = unsafe {
             libc::recvfrom(
                 self.socket.as_raw_fd(),
                 buf.as_ptr() as *mut _,
                 buf.len(),
                 0,
-                (&mut mem::zeroed() as *mut libc::sockaddr_storage) as *mut _,
+                (&mut mem::zeroed() as *mut libc::sockaddr_storage).cast(),
                 &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
             )
         };
@@ -197,7 +205,7 @@ impl TapTrafficSimulator {
 }
 
 pub fn create_socket() -> File {
-    // This is safe since we check the return value.
+    // SAFETY: This is safe since we check the return value.
     let socket = unsafe {
         libc::socket(
             libc::AF_PACKET,
@@ -209,7 +217,7 @@ pub fn create_socket() -> File {
         panic!("Unable to create tap socket");
     }
 
-    // This is safe; nothing else will use or hold onto the raw socket fd.
+    // SAFETY: This is safe; nothing else will use or hold onto the raw socket fd.
     unsafe { File::from_raw_fd(socket) }
 }
 
@@ -229,7 +237,8 @@ pub fn if_index(tap: &Tap) -> i32 {
         .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
         .unwrap();
 
-    unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() }
+    // SAFETY: Using this union variant is safe since `SIOCGIFINDEX` returns an integer.
+    unsafe { ifreq.ifr_ifru.ifru_ivalue }
 }
 
 /// Enable the tap interface.
@@ -299,7 +308,7 @@ pub fn default_guest_memory() -> GuestMemoryMmap {
 
 pub fn set_mac(net: &mut Net, mac: MacAddr) {
     net.guest_mac = Some(mac);
-    net.config_space.guest_mac.copy_from_slice(mac.get_bytes());
+    net.config_space.guest_mac = mac;
 }
 
 // Assigns "guest virtio driver" activated queues to the net device.
@@ -311,6 +320,7 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 
 #[cfg(test)]
 pub mod test {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::{cmp, mem};
@@ -424,10 +434,10 @@ pub mod test {
                     desc.next.set(next_index);
                 }
 
-                addr += len as u64;
+                addr += u64::from(len);
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += utils::rand::xor_psuedo_rng_u32() as u64 % 10;
+                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
             }
 
             // Mark the chain as available.
@@ -480,7 +490,7 @@ pub mod test {
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len() as u32);
-            self.rxq.dtable[0].check_data(&expected_frame);
+            self.rxq.dtable[0].check_data(expected_frame);
         }
 
         // Generates a frame of `frame_len` and writes it to the provided descriptor chain.

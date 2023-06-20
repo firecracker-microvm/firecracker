@@ -1,6 +1,9 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 
 //! The library crate that defines common helper functions that are generally used in
 //! conjunction with seccompiler-bin.
@@ -49,13 +52,14 @@ impl Display for DeserializationError {
 }
 
 /// Filter installation errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InstallationError {
     /// Filter exceeds the maximum number of instructions that a BPF program can have.
     FilterTooLarge,
     /// Error returned by `prctl`.
     Prctl(i32),
 }
+impl std::error::Error for InstallationError {}
 
 impl Display for InstallationError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
@@ -113,6 +117,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
         return Err(InstallationError::FilterTooLarge);
     }
 
+    // SAFETY: Safe because the parameters are valid.
     unsafe {
         {
             let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
@@ -143,6 +148,8 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread;

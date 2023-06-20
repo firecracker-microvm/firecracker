@@ -17,14 +17,14 @@ pub(crate) fn mmap(size: usize, fd: RawFd, offset: i64) -> Result<MmapRegion, Er
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let flags = libc::MAP_SHARED | libc::MAP_POPULATE;
 
-    // Safe because values are valid and we check the return value.
+    // SAFETY: Safe because values are valid and we check the return value.
     let ptr = unsafe { libc::mmap(std::ptr::null_mut(), size, prot, flags, fd, offset) };
     if (ptr as isize) < 0 {
         return Err(Error::Os(IOError::last_os_error()));
     }
 
-    // Safe because the mmap did not return error.
+    // SAFETY: Safe because the mmap did not return error.
     unsafe {
-        MmapRegion::build_raw(ptr as *mut u8, size, prot, flags).map_err(Error::BuildMmapRegion)
+        MmapRegion::build_raw(ptr.cast::<u8>(), size, prot, flags).map_err(Error::BuildMmapRegion)
     }
 }

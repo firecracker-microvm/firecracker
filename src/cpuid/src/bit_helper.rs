@@ -148,7 +148,7 @@ impl BitHelper for u32 {
         assert!(pos <= MAX_U32_BIT_INDEX, "Invalid pos");
 
         *self &= !(1 << pos);
-        *self |= (val as u32) << pos;
+        *self |= (u32::from(val)) << pos;
         self
     }
 

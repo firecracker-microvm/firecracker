@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.
 //! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
@@ -11,7 +14,6 @@ mod request;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::{fmt, io};
 
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
@@ -27,6 +29,7 @@ use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
 use crate::parsed_request::{ParsedRequest, RequestAction};
+use crate::Error::ServerCreation;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -34,29 +37,10 @@ pub type ApiRequest = Box<VmmAction>;
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Errors thrown when binding the API server to the socket path.
+#[derive(Debug)]
 pub enum Error {
-    /// IO related error.
-    Io(io::Error),
-    /// EventFD related error.
-    Eventfd(io::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
+    /// HTTP Server creation related error.
+    ServerCreation(ServerError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -140,7 +124,7 @@ impl ApiServer {
     ///     .spawn(move || {
     ///         ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
     ///             .bind_and_run(
-    ///                 PathBuf::from(api_thread_path_to_socket),
+    ///                 &PathBuf::from(api_thread_path_to_socket),
     ///                 time_reporter,
     ///                 seccomp_filters.get("api").unwrap(),
     ///                 payload_limit,
@@ -164,16 +148,14 @@ impl ApiServer {
     /// ```
     pub fn bind_and_run(
         &mut self,
-        path: PathBuf,
+        path: &PathBuf,
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
         api_payload_limit: usize,
         socket_ready: mpsc::Sender<bool>,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).unwrap_or_else(|err| {
-            error!("Error creating the HTTP server: {}", err);
-            std::process::exit(vmm::FcExitCode::GenericError as i32);
-        });
+        let mut server = HttpServer::new(path).map_err(ServerCreation)?;
+
         // Announce main thread that the socket path was created.
         // As per the doc, "A send operation can only fail if the receiving end of a channel is
         // disconnected". so this means that the main thread has exited.
@@ -342,34 +324,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_error_messages() {
-        let err = Error::Io(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
-        );
-        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
-        );
-    }
-
-    #[test]
-    fn test_error_debug() {
-        let err = Error::Io(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", err),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
-        );
-        let err = Error::Eventfd(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", err),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
-        );
-    }
-
-    #[test]
     fn test_serve_vmm_action_request() {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
@@ -494,7 +448,7 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
                     .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
+                        &PathBuf::from(api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         vmm::HTTP_MAX_PAYLOAD_SIZE,
@@ -542,7 +496,7 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd)
                     .bind_and_run(
-                        PathBuf::from(api_thread_path_to_socket),
+                        &PathBuf::from(&api_thread_path_to_socket),
                         ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                         seccomp_filters.get("api").unwrap(),
                         50,

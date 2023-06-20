@@ -9,7 +9,7 @@
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
-use utils::rand::xor_psuedo_rng_u32;
+use utils::rand::xor_pseudo_rng_u32;
 
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
@@ -79,7 +79,7 @@ bitflags! {
 pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum PassiveOpenError {
     /// The incoming segment is not a valid `SYN`.
     InvalidSyn,
@@ -88,7 +88,7 @@ pub enum PassiveOpenError {
 }
 
 /// Describes errors which may occur when an existing connection receives a TCP segment.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum RecvError {
     /// The payload length is larger than the receive buffer size.
     BufferTooSmall,
@@ -98,7 +98,7 @@ pub enum RecvError {
 
 /// Describes errors which may occur when a connection attempts to write a segment.
 #[derive(derive_more::From)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum WriteNextError {
     /// The connection cannot write the segment because it has been previously reset.
     ConnectionReset,
@@ -240,7 +240,7 @@ impl Connection {
         let ack_to_send = Wrapping(segment.sequence_number()) + Wrapping(1);
 
         // Let's pick the initial sequence number.
-        let isn = Wrapping(xor_psuedo_rng_u32());
+        let isn = Wrapping(xor_pseudo_rng_u32());
         let first_not_sent = isn + Wrapping(1);
         let remote_rwnd_edge = first_not_sent + Wrapping(u32::from(segment.window_size()));
 

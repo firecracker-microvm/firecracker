@@ -8,8 +8,7 @@ use std::ops::Add;
 use std::path::Path;
 use std::{fmt, io};
 
-use aes_gcm::aead::NewAead;
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use logger::warn;
 use serde::{Deserialize, Serialize};
@@ -64,7 +63,7 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &*self {
+        match self {
             Error::EntropyPool(err) => {
                 write!(
                     f,
@@ -233,7 +232,7 @@ impl TokenAuthority {
         entropy_pool.read_exact(&mut key)?;
 
         // Create cipher entity to handle encryption/decryption.
-        Ok(Aes256Gcm::new(Key::from_slice(&key)))
+        Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)))
     }
 
     /// Make sure to reinitialize the cipher under a new key before reaching
@@ -264,7 +263,7 @@ impl TokenAuthority {
 
     /// Validate the token time to live against bounds.
     fn check_ttl(ttl_seconds: u32) -> bool {
-        MIN_TOKEN_TTL_SECONDS <= ttl_seconds && ttl_seconds <= MAX_TOKEN_TTL_SECONDS
+        (MIN_TOKEN_TTL_SECONDS..=MAX_TOKEN_TTL_SECONDS).contains(&ttl_seconds)
     }
 
     /// Compute expiry time in seconds by adding the time to live provided
@@ -277,7 +276,7 @@ impl TokenAuthority {
         // to current time (also in milliseconds). This addition is safe
         // because ttl is verified beforehand and can never be more than
         // 6h (21_600_000 ms).
-        now_as_milliseconds.add(ttl_as_seconds as u64 * MILLISECONDS_PER_SECOND)
+        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
     }
 }
 
@@ -378,12 +377,16 @@ mod tests {
         // We allow a deviation of 20ms to account for the gap
         // between the two calls to `get_time_ms()`.
         let deviation = 20;
-        assert!(ttl >= MILLISECONDS_PER_SECOND - deviation && ttl <= MILLISECONDS_PER_SECOND);
+        assert!(
+            ttl >= MILLISECONDS_PER_SECOND && ttl <= MILLISECONDS_PER_SECOND + deviation,
+            "ttl={ttl} not within [{MILLISECONDS_PER_SECOND}, \
+             {MILLISECONDS_PER_SECOND}+{deviation}]",
+        );
 
         let time_now = get_time_ms(ClockType::Monotonic);
         let expiry = TokenAuthority::compute_expiry(0);
         let ttl = expiry - time_now;
-        assert!(ttl <= deviation);
+        assert!(ttl <= deviation, "ttl={ttl} is greater than {deviation}");
     }
 
     #[test]

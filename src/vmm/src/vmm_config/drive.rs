@@ -60,7 +60,7 @@ impl Display for DriveError {
 }
 
 /// Use this structure to set up the Block Device before booting the kernel.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceConfig {
     /// Unique identifier of the drive.
@@ -107,7 +107,7 @@ impl From<&Block> for BlockDeviceConfig {
 
 /// Only provided fields will be updated. I.e. if any optional fields
 /// are missing, they will not be updated.
-#[derive(Debug, Default, Deserialize, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceUpdateConfig {
     /// The drive ID, as provided by the user at creation time.

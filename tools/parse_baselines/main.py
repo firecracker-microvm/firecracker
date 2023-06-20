@@ -17,6 +17,7 @@ from providers.types import FileDataProvider
 from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
 from providers.snapshot_restore import SnapshotRestoreDataParser
+from providers.latency import LatencyDataParser
 
 sys.path.append(os.path.join(os.getcwd(), "tests"))
 
@@ -29,14 +30,16 @@ OUTPUT_FILENAMES = {
         "test_block_performance_sync",
         "test_block_performance_async",
     ],
-    "snapshot_restore_performance": ["test_snap_restore_performance"],
+    "snap_restore_performance": ["test_snap_restore_performance"],
+    "network_latency": ["test_network_latency"],
 }
 
 DATA_PARSERS = {
     "vsock_throughput": Iperf3DataParser,
     "network_tcp_throughput": Iperf3DataParser,
     "block_performance": BlockDataParser,
-    "snapshot_restore_performance": SnapshotRestoreDataParser,
+    "snap_restore_performance": SnapshotRestoreDataParser,
+    "network_latency": LatencyDataParser,
 }
 
 
@@ -67,8 +70,9 @@ def concatenate_data_files(data_files: List[str]):
 
     for filename in data_files:
         with open(filename, encoding="utf-8") as infile:
-            outfile.write(str.encode(infile.read()))
-
+            contents = str.encode(infile.read())
+            outfile.write(contents)
+    outfile.flush()
     return outfile
 
 
@@ -96,10 +100,11 @@ def main():
                             are calculated.",
         action="store",
         choices=[
-            "vsock_throughput",
-            "network_tcp_throughput",
             "block_performance",
-            "snapshot_restore_performance",
+            "network_latency",
+            "network_tcp_throughput",
+            "snap_restore_performance",
+            "vsock_throughput",
         ],
         required=True,
     )
@@ -118,7 +123,7 @@ def main():
         help="Instance type on which the baselines \
                             were obtained.",
         action="store",
-        choices=["m5d.metal", "m6gd.metal"],
+        choices=["m5d.metal", "m6i.metal", "m6a.metal", "m6g.metal"],
         required=True,
     )
     args = parser.parse_args()
@@ -140,12 +145,24 @@ def main():
         encoding="utf8",
     ) as baselines_file:
         json_baselines = json.load(baselines_file)
+        current_cpus = json_baselines["hosts"]["instances"][args.instance]["cpus"]
         cpus = parser.parse()
-        json_baselines["hosts"]["instances"][args.instance] = {"cpus": cpus}
 
+        for cpu in cpus:
+            model = cpu["model"]
+            for old_cpu in current_cpus:
+                if old_cpu["model"] == model:
+                    old_cpu["baselines"] = cpu["baselines"]
         baselines_file.truncate(0)
         baselines_file.seek(0, 0)
         json.dump(json_baselines, baselines_file, indent=4)
+
+        # Warn against the fact that not all CPUs pertaining to
+        # some arch were updated.
+        assert len(cpus) == len(current_cpus), (
+            "It may be that only a subset of CPU types were updated! "
+            "Need to run again! Nevertheless we updated the baselines..."
+        )
 
 
 if __name__ == "__main__":

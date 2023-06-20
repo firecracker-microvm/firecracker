@@ -12,13 +12,13 @@ pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
 use crate::virtio::block::device::FileEngineType;
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct UserDataOk<T> {
     pub user_data: T,
     pub count: u32,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum FileEngineOk<T> {
     Submitted,
     Executed(UserDataOk<T>),
@@ -41,12 +41,13 @@ impl Error {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct UserDataError<T, E> {
     pub user_data: T,
     pub error: E,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum FileEngine<T> {
     #[allow(unused)]
     Async(AsyncFileEngine<T>),
@@ -172,6 +173,7 @@ impl<T> FileEngine<T> {
 
 #[cfg(test)]
 pub mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 
@@ -238,14 +240,14 @@ pub mod tests {
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
-        for offset in addr.0..addr.0 + len as u64 {
+        for offset in addr.0..addr.0 + u64::from(len) {
             assert!(bitmap.dirty_at(offset as usize));
         }
     }
 
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
-        for offset in addr.0..addr.0 + len as u64 {
+        for offset in addr.0..addr.0 + u64::from(len) {
             assert!(!bitmap.dirty_at(offset as usize));
         }
     }

@@ -16,6 +16,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    you've ever built Firecracker from source.
 1. Access to both an `x86_64` and `aarch64` machines to build the container
    images.
+1. Ensure `aws --version` is >=1.17.10.
 
 ## Steps
 
@@ -28,6 +29,14 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     aws ecr-public get-login-password --region us-east-1 \
    | docker login --username AWS --password-stdin public.ecr.aws
     ```
+
+   For non-TTY devices, although not recommended a less secure approach can be
+   used:
+
+   ```bash
+   docker login --username AWS --password \
+   $(aws ecr-public get-login-password --region us-east-1) public.ecr.aws
+   ```
 
 1. Navigate to the Firecracker directory. Verify that you have the latest
    container image locally.
@@ -58,7 +67,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    packages. The container image will use the locked versions of python packages.
 
    ```bash
-    tools/devtool build_devctr --no-python-package-update
+    tools/devtool build_devctr --no-python-package-upgrade
    ```
 
 1. Verify that the new image exists.
@@ -74,7 +83,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    you're on.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_x86_64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
 
     docker images
     REPOSITORY                         TAG          IMAGE ID       CREATED
@@ -116,7 +125,7 @@ Then continue with the above steps:
    you're on.
 
     ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_aarch64
+    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
     docker images
     REPOSITORY                         TAG            IMAGE ID

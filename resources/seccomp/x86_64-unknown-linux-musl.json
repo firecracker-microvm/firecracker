@@ -178,6 +178,19 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
                     }
@@ -589,6 +602,19 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
                     }
@@ -787,6 +813,19 @@
                         "op": "eq",
                         "val": 128,
                         "comment": "FUTEX_WAIT_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 137,
+                        "comment": "FUTEX_WAIT_BITSET_PRIVATE"
                     }
                 ]
             },

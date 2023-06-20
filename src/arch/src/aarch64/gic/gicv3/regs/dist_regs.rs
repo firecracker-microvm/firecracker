@@ -129,6 +129,7 @@ pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Kvm;
@@ -143,19 +144,19 @@ mod tests {
         let _ = vm.create_vcpu(0).unwrap();
         let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
-        let res = get_dist_regs(&gic_fd.device_fd());
+        let res = get_dist_regs(gic_fd.device_fd());
         assert!(res.is_ok());
         let state = res.unwrap();
         assert_eq!(state.len(), 12);
         // Check GICD_CTLR size.
         assert_eq!(state[0].chunks.len(), 1);
 
-        let res = set_dist_regs(&gic_fd.device_fd(), &state);
+        let res = set_dist_regs(gic_fd.device_fd(), &state);
         assert!(res.is_ok());
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
-        let res = get_dist_regs(&gic_fd.device_fd());
+        let res = get_dist_regs(gic_fd.device_fd());
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),

@@ -82,10 +82,10 @@ for Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
 ## Jailer Configuration
 
-For assuring secure isolation in production deployments, Firecracker should
-must be started using the `jailer` binary that's part of each Firecracker
-release, or executed under process constraints equal or more restrictive than
-those in the jailer. For more about Firecracker sandboxing please see
+For assuring secure isolation in production deployments, Firecracker should be
+started using the `jailer` binary that's part of each Firecracker release, or
+executed under process constraints equal or more restrictive than those in the jailer.
+For more about Firecracker sandboxing please see
 [Firecracker design](design.md)
 
 The Jailer process applies
@@ -127,7 +127,7 @@ Here are some recommendations on how to limit the process's resources:
 
 - Jailer's `resource-limit` provides control on the disk usage through:
   - `fsize` - limits the size in bytes for files created by the process
-  - `no-file` - specifies a value one greater than the maximum file
+  - `no-file` - specifies a value greater than the maximum file
     descriptor number that can be opened by the process. If not specified,
     it defaults to 4096.
 
@@ -204,7 +204,7 @@ configuring rate limiters for the network interface as explained within
 [Network Interface documentation](api_requests/patch-network-interface.md),
 or by using one of the tools presented below:
 
-- `tc qdisk` - manipulate traffic control settings by configuring filters.
+- `tc qdisc` - manipulate traffic control settings by configuring filters.
 
 When traffic enters a classful qdisc, the filters are consulted and the
 packet is enqueued into one of the classes within. Besides
@@ -297,8 +297,8 @@ echo "KSM: ENABLED (Recommendation: DISABLED)"
 
 ###### Intel and AMD
 
-We recommend using a kernel compiled with eIBRS or `RETPOLINE`, together with
-microcode supporting conditional Indirect Branch Prediction Barriers (IBPB).
+We recommend using a kernel compiled with eIBRS or IBRS, together with microcode
+supporting conditional Indirect Branch Prediction Barriers (IBPB).
 
 Verification can be done by running:
 
@@ -308,7 +308,8 @@ cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
 
 The output should mention the following mitigations being in use:
 
-- `Enhanced IBRS` or `Retpolines`
+- One of Retpolines (pre-Skylake CPU), IBRS (Skylake), or Enhanced IBRS (Cascade
+  Lake and later)
 - `IBPB` at least `conditional`
 
 ###### ARM64
@@ -499,6 +500,78 @@ stable kernel releases. Please follow [kernel.org](https://www.kernel.org/) and
 once the fix is available in your stable release please update the host kernel.
 If you are not using a vanilla kernel, please check with Linux distro provider.
 
+#### [CVE-2022-1789](https://nvd.nist.gov/vuln/detail/CVE-2022-1789)
+
+##### Description
+
+With shadow paging enabled, the `INVPCID` instruction results in a call to
+`kvm_mmu_invpcid_gva`. If `INVPCID` is executed with `CR0.PG=0`, the invlpg
+callback is not set and the result is a NULL pointer dereference.
+
+##### Impact
+
+A malicious attacker running on the guest can cause a DoS (Denial of Service).
+
+##### Vulnerable systems
+
+The vulnerability affects systems that have shadow paging enabled and use
+the following host kernel versions:
+
+- 5.10.x prior to 5.10.119
+- 5.15.x prior to 5.15.44
+- 5.17.x prior to 5.17.12
+
+Systems that use extended page table are not susceptible to this attack.
+To verify that extended page table is enabled, run the following command:
+
+```bash
+cat /sys/module/kvm_intel/parameters/ept
+```
+
+If the output is `Y` then KVM uses extended page table, otherwise if `N`
+then KVM uses shadow pages.
+
+##### Mitigation
+
+The vulnerability is fixed by [this commit][4]. The fix was integrated in
+5.10.119, 5.15.44 and 5.17.12 kernel releases.
+
+#### [CVE-2022-26373](https://nvd.nist.gov/vuln/detail/CVE-2022-26373)
+
+##### Description
+
+Isolation boundaries between processes are vulnerable to a return stack
+buffer underflow. This may result in some processors allowing neighbouring
+guests to access data in other processes via local access.
+
+This issue is not impacted by environments that make use of `RETPOLINE` as
+this results in [RSB stuffing implemented by KVM][5] which Firecracker uses
+exclusively.
+
+##### Impact
+
+A malicious attacker running on a guest can access information in other guests
+running on the same host.
+
+##### Vulnerable systems
+
+The vulnerability affects systems that do not have `RETPOLINE` enabled
+and use the following host kernel versions:
+
+- 5.10.x prior to 5.10.135
+- 5.15.x prior to 5.15.57
+
+See earlier in this document for checking `RETPOLINE` configuration.
+You can check the version of the kernel being used with:
+
+```
+uname -r
+```
+
+##### Mitigation
+
+The vulnerability is fixed in [these releases][6] by the [commits merged upstream][7].
+
 #### [ARM only] Physical counter directly passed through to the guest
 
 On ARM, the physical counter (i.e `CNTPCT`) it is returning the
@@ -510,3 +583,7 @@ to trap and control this in the hypervisor.
 [1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
 [2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
 [3]: https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
+[4]: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit?id=9f46c187e2e680ecd9de7983e4d081c3391acc76
+[5]: https://elixir.bootlin.com/linux/v5.10.131/source/arch/x86/kvm/vmx/vmenter.S#L78
+[6]: https://alas.aws.amazon.com/cve/html/CVE-2022-26373.html
+[7]: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ce114c866860

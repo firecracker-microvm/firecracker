@@ -3,65 +3,70 @@
 """Tests the network latency of a Firecracker guest."""
 
 import logging
-import platform
 import re
+import os
+import json
 import pytest
 import host_tools.network as net_tools
 from conftest import ARTIFACTS_COLLECTION
 from framework.artifacts import ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.stats import core, consumer, producer, types, criteria, function
-from framework.utils import eager_map, get_kernel_version, CpuMap
+from framework.stats import core, consumer, producer
+from framework.stats.baseline import Provider as BaselineProvider
+from framework.stats.metadata import DictProvider as DictMetadataProvider
+from framework.utils import get_kernel_version, CpuMap, DictQuery
 from framework.artifacts import DEFAULT_HOST_IP
-from framework.utils_cpuid import get_cpu_model_name
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 from integration_tests.performance.utils import handle_failure
+from integration_tests.performance.configs import defs
+
+
+TEST_ID = "network_latency"
+kernel_version = get_kernel_version(level=1)
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
+CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
 PING = "ping -c {} -i {} {}"
-LATENCY_AVG_BASELINES = {
-    "x86_64": {
-        "4.14": {"target": 0.240, "delta": 0.040},  # milliseconds  # milliseconds
-        "5.10": {"target": 0.230, "delta": 0.020},  # milliseconds  # milliseconds
-    },
-    "aarch64": {
-        "4.14": {"target": 0.039, "delta": 0.020},  # milliseconds  # milliseconds
-        "5.10": {"target": 0.034, "delta": 0.020},  # milliseconds  # milliseconds
-    },
-}
-
 PKT_LOSS = "pkt_loss"
-PKT_LOSS_STAT_KEY = "value"
 LATENCY = "latency"
 
+# pylint: disable=R0903
+class NetLatencyBaselineProvider(BaselineProvider):
+    """Implementation of a baseline provider for the network latency...
 
-def pass_criteria():
-    """Define pass criteria for the statistics."""
-    arch = platform.machine()
-    host_kernel = get_kernel_version(level=1)
-    return {"Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[arch][host_kernel])}
+    ...performance test.
+    """
 
+    def __init__(self, env_id):
+        """Network latency baseline provider initialization."""
+        cpu_model_name = get_cpu_model_name()
+        baselines = list(
+            filter(
+                lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
+                CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"],
+            )
+        )
 
-def measurements():
-    """Define measurements."""
-    latency = types.MeasurementDef.create_measurement(
-        LATENCY,
-        "ms",
-        [
-            function.ValuePlaceholder("Avg"),
-            function.ValuePlaceholder("Min"),
-            function.ValuePlaceholder("Max"),
-            function.ValuePlaceholder("Stddev"),
-            function.ValuePlaceholder("Percentile99"),
-            function.ValuePlaceholder("Percentile90"),
-            function.ValuePlaceholder("Percentile50"),
-        ],
-        pass_criteria(),
-    )
-    pkt_loss = types.MeasurementDef.create_measurement(
-        PKT_LOSS, "percentage", [function.ValuePlaceholder(PKT_LOSS_STAT_KEY)]
-    )
+        super().__init__(DictQuery({}))
+        if len(baselines) > 0:
+            super().__init__(DictQuery(baselines[0]))
 
-    return [latency, pkt_loss]
+        self._tag = "baselines/{}/" + env_id + "/{}/ping"
+
+    def get(self, ms_name: str, st_name: str) -> dict:
+        """Return the baseline value corresponding to the key."""
+        key = self._tag.format(ms_name, st_name)
+        baseline = self._baselines.get(key)
+        if baseline:
+            target = baseline.get("target")
+            delta_percentage = baseline.get("delta_percentage")
+            return {
+                "target": target,
+                "delta": delta_percentage * target / 100,
+            }
+        return None
 
 
 def consume_ping_output(cons, raw_data, requests):
@@ -78,8 +83,6 @@ def consume_ping_output(cons, raw_data, requests):
     4 packets transmitted, 4 received, 0% packet loss, time 3005ms
     rtt min/avg/max/mdev = 17.478/17.705/17.808/0.210 ms
     """
-    eager_map(cons.set_measurement_def, measurements())
-
     st_keys = ["Min", "Avg", "Max", "Stddev"]
 
     output = raw_data.strip().split("\n")
@@ -101,7 +104,7 @@ def consume_ping_output(cons, raw_data, requests):
     pattern_packet = ".+ packet.+transmitted, .+ received," " (.+)% packet loss"
     pkt_loss = re.findall(pattern_packet, packet_stats)[0]
     assert len(pkt_loss) == 1
-    cons.consume_stat(st_name=PKT_LOSS_STAT_KEY, ms_name=PKT_LOSS, value=pkt_loss[0])
+    cons.consume_stat(st_name="Avg", ms_name=PKT_LOSS, value=float(pkt_loss[0]))
 
     # Compute percentiles.
     seqs = output[1 : requests + 1]
@@ -138,6 +141,8 @@ def test_network_latency(bin_cloner_path, results_file_dumper):
     )
     kernel_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.kernels())
     disk_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.disks(keyword="ubuntu"))
+
+    logger.info("Testing on processor %s", get_cpu_model_name())
 
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
@@ -212,7 +217,12 @@ def _g2h_send_ping(context):
     )
 
     cons = consumer.LambdaConsumer(
-        func=consume_ping_output, func_kwargs={"requests": context.custom["requests"]}
+        metadata_provider=DictMetadataProvider(
+            measurements=CONFIG_DICT["measurements"],
+            baseline_provider=NetLatencyBaselineProvider(env_id),
+        ),
+        func=consume_ping_output,
+        func_kwargs={"requests": context.custom["requests"]},
     )
     cmd = PING.format(context.custom["requests"], interval_between_req, DEFAULT_HOST_IP)
     prod = producer.SSHCommand(cmd, net_tools.SSHConnection(basevm.ssh_config))

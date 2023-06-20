@@ -4,7 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.52.1"
+ARG RUST_TOOLCHAIN="1.64.0"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG TMP_POETRY_DIR
@@ -70,6 +70,7 @@ RUN apt-get update \
         libreadline-dev \
         libffi-dev \
         wget \
+        libbz2-dev \
     && python3 -m pip install \
         setuptools \
         setuptools_rust \
@@ -99,6 +100,7 @@ RUN cd "$TMP_POETRY_DIR" \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
+        && rustup component add clippy \
         && cd "$TMP_BUILD_DIR" \
                     && cargo install cargo-kcov \
                     && cargo kcov --print-install-kcov-sh | sh \
@@ -130,6 +132,8 @@ RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
 # Add the tini init binary.
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION_TAG}/tini-static-arm64 /sbin/tini
 RUN chmod +x /sbin/tini
+
+ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
 WORKDIR "$FIRECRACKER_SRC_DIR"
 ENTRYPOINT ["/sbin/tini", "--"]

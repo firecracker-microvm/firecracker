@@ -7,6 +7,7 @@ use vm_memory::ByteValued;
 
 use crate::bindings::io_uring_cqe;
 
+// SAFETY: Struct is POD and contains no references or niches.
 unsafe impl ByteValued for io_uring_cqe {}
 
 /// Wrapper over a completed operation.
@@ -61,6 +62,7 @@ impl<T> Cqe<T> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
     #[test]
     fn test_result() {

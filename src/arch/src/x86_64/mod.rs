@@ -27,7 +27,7 @@ use crate::InitrdConfig;
 const E820_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq, derive_more::From)]
+#[derive(Debug, PartialEq, Eq, derive_more::From)]
 pub enum Error {
     /// Invalid e820 setup params.
     E820Configuration,

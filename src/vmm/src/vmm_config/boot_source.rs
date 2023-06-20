@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io;
 
 use serde::{Deserialize, Serialize};
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
@@ -22,7 +24,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 825
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Versionize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.
@@ -33,12 +35,6 @@ pub struct BootSourceConfig {
     /// kernel command line is used: `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_args: Option<String>,
-}
-
-impl From<&BootConfig> for BootSourceConfig {
-    fn from(cfg: &BootConfig) -> Self {
-        cfg.description.clone()
-    }
 }
 
 /// Errors associated with actions on `BootSourceConfig`.
@@ -69,21 +65,29 @@ impl Display for BootSourceConfigError {
     }
 }
 
-/// Holds the kernel configuration.
+/// Holds the kernel specification (both configuration as well as runtime details).
+#[derive(Default)]
+pub struct BootSource {
+    /// The boot source configuration.
+    pub config: BootSourceConfig,
+    /// The boot source builder (a boot source allocated and validated).
+    /// It is an option cause a resumed microVM does not need it.
+    pub builder: Option<BootConfig>,
+}
+
+/// Holds the kernel builder (created and validates based on BootSourceConfig).
 pub struct BootConfig {
     /// The commandline validated against correctness.
     pub cmdline: linux_loader::cmdline::Cmdline,
     /// The descriptor to the kernel file.
-    pub kernel_file: std::fs::File,
+    pub kernel_file: File,
     /// The descriptor to the initrd file, if there is one.
-    pub initrd_file: Option<std::fs::File>,
-    /// The configuration above fields are based on.
-    pub description: BootSourceConfig,
+    pub initrd_file: Option<File>,
 }
 
 impl BootConfig {
     /// Creates the BootConfig based on a given configuration.
-    pub fn new(cfg: BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
+    pub fn new(cfg: &BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
         use self::BootSourceConfigError::{
             InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
         };
@@ -94,21 +98,18 @@ impl BootConfig {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
-        let mut cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        let boot_args = match cfg.boot_args.as_ref() {
+
+        let cmdline_str = match cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
         };
-        cmdline
-            .insert_str(boot_args)
+        let cmdline = linux_loader::cmdline::Cmdline::try_from(cmdline_str, arch::CMDLINE_MAX_SIZE)
             .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
             cmdline,
             kernel_file,
             initrd_file,
-            // We can simply store original config since it doesn't support updates.
-            description: cfg,
         })
     }
 }
@@ -130,12 +131,11 @@ pub(crate) mod tests {
             kernel_image_path: kernel_path,
         };
 
-        let boot_cfg = BootConfig::new(boot_src_cfg.clone()).unwrap();
+        let boot_cfg = BootConfig::new(&boot_src_cfg).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
-        assert_eq!(boot_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
-        assert_eq!(boot_cfg.description, boot_src_cfg);
-
-        let generated_cfg = BootSourceConfig::from(&boot_cfg);
-        assert_eq!(generated_cfg, boot_src_cfg);
+        assert_eq!(
+            boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
+            [DEFAULT_KERNEL_CMDLINE.as_bytes(), &[b'\0']].concat()
+        );
     }
 }

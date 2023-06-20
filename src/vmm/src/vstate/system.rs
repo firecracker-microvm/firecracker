@@ -15,11 +15,11 @@ use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 #[derive(Debug, derive_more::From)]
 pub enum Error {
     /// The host kernel reports an invalid KVM API version.
-    KvmApiVersion(i32),
+    ApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
-    KvmCap(kvm_ioctls::Cap),
+    Capabilities(kvm_ioctls::Cap),
     /// Cannot initialize the KVM context.
-    KvmInit(KvmIoctlsError),
+    Initialization(KvmIoctlsError),
 }
 
 impl Display for Error {
@@ -27,13 +27,13 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            KvmApiVersion(v) => write!(
+            ApiVersion(v) => write!(
                 f,
                 "The host kernel reports an invalid KVM API version: {}",
                 v
             ),
-            KvmCap(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
-            KvmInit(err) => {
+            Capabilities(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            Initialization(err) => {
                 if err.errno() == libc::EACCES {
                     write!(
                         f,
@@ -66,7 +66,7 @@ impl KvmContext {
 
         // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
-            return Err(Error::KvmApiVersion(kvm.get_api_version()));
+            return Err(Error::ApiVersion(kvm.get_api_version()));
         }
 
         // A list of KVM capabilities we want to check.
@@ -103,7 +103,7 @@ impl KvmContext {
                 Ok(KvmContext { kvm, max_memslots })
             }
 
-            Some(c) => Err(Error::KvmCap(*c)),
+            Some(c) => Err(Error::Capabilities(*c)),
         }
     }
 
@@ -119,6 +119,7 @@ impl KvmContext {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::fs::File;
 
     use super::*;

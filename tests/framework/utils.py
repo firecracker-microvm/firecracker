@@ -14,11 +14,9 @@ import time
 import platform
 
 from collections import namedtuple, defaultdict
-from pathlib import Path
 import psutil
 from retry import retry
 from retry.api import retry_call
-from framework import utils
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -506,33 +504,6 @@ def run_cmd_list_async(cmd_list):
     loop.run_until_complete(asyncio.gather(*cmds))
 
 
-def configure_git_safe_directory():
-    """
-    Add the root firecracker git folder to safe.directory config.
-
-    Firecracker root git folder in the container is
-    bind-mounted to a folder on the host which is mapped to a
-    user that is different from the user which runs the integ tests.
-    This difference in ownership is validated against by git.
-    https://github.blog/2022-04-12-git-security-vulnerability-announced/
-
-    :return: none
-    """
-    # devtool script will set the working directory to FC_ROOT/tests.
-    # We will need the parent for safe.directory configuration
-    working_dir = Path(os.getcwd())
-
-    try:
-        utils.run_cmd(
-            "git config --global " "--add safe.directory {}".format(working_dir.parent)
-        )
-    except ChildProcessError as error:
-        raise Exception(
-            "Failure to set the safe.directory "
-            "git config to [{}] required for gitlint tests".format(working_dir.parent)
-        ) from error
-
-
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     """
     Run a command using the sync function that logs the output.
@@ -794,3 +765,22 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     run_cmd(flush_cmd.format(session=session_name))
 
     return screen_pid, binary_clone_pid
+
+
+def guest_run_fio_iteration(ssh_connection, iteration):
+    """Start FIO workload into a microVM."""
+    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
+        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
+        --output /tmp/fio{} > /dev/null &""".format(
+        iteration
+    )
+    exit_code, _, stderr = ssh_connection.execute_command(fio)
+    assert exit_code == 0, stderr.read()
+
+
+def check_filesystem(ssh_connection, disk_fmt, disk):
+    """Check for filesystem corruption inside a microVM."""
+    cmd = "fsck.{} -n {}".format(disk_fmt, disk)
+    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    assert exit_code == 0, stderr.read()

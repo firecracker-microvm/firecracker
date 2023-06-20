@@ -1,18 +1,18 @@
 [package]
 name = "firecracker"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2018"
+edition = "2021"
 build = "../../build.rs"
 description = "Firecracker enables you to deploy workloads in lightweight virtual machines, called microVMs, which provide enhanced security and workload isolation over traditional VMs, while enabling the speed and resource efficiency of containers."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
 [dependencies]
-event-manager = ">=0.2.1"
-libc = ">=0.2.39"
-serde_json = ">=1.0.68"
-timerfd = ">=1.0"
+event-manager = "0.3.0"
+libc = "0.2.117"
+serde_json = "1.0.78"
+timerfd = "1.2.0"
 
 api_server = { path = "../api_server" }
 logger = { path = "../logger" }
@@ -21,3 +21,7 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+
+[dev-dependencies]
+cargo_toml = "0.13.0"
+regex = "1.5.5"

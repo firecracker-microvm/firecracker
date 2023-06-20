@@ -38,7 +38,7 @@ pub const PROTOCOL_TCP: u8 = 0x06;
 pub const PROTOCOL_UDP: u8 = 0x11;
 
 /// Describes the errors which may occur while handling IPv4 packets.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// The header checksum is invalid.
     Checksum,

@@ -57,7 +57,7 @@ type Result<T> = std::result::Result<T, BalloonConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from balloon related requests.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonDeviceConfig {
     /// Target balloon size in MiB.
@@ -81,7 +81,7 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
 
 /// The data fed into a balloon update request. Currently, only the number
 /// of pages and the stats polling interval can be updated.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonUpdateConfig {
     /// Target balloon size in MiB.
@@ -92,7 +92,7 @@ pub struct BalloonUpdateConfig {
 /// Note that the state of the statistics cannot be changed from ON to OFF
 /// or vice versa after boot, only the interval of polling can be changed
 /// if the statistics were activated in the device configuration.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonUpdateStatsConfig {
     /// Interval in seconds between refreshing statistics.
@@ -100,15 +100,9 @@ pub struct BalloonUpdateStatsConfig {
 }
 
 /// A builder for `Balloon` devices from 'BalloonDeviceConfig'.
+#[cfg_attr(not(test), derive(Default))]
 pub struct BalloonBuilder {
     inner: Option<MutexBalloon>,
-}
-
-#[cfg(not(test))]
-impl Default for BalloonBuilder {
-    fn default() -> BalloonBuilder {
-        BalloonBuilder { inner: None }
-    }
 }
 
 impl BalloonBuilder {

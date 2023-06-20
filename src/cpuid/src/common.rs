@@ -18,19 +18,21 @@ pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
 /// cpuid related error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     /// The function was called with invalid parameters.
+    #[error("The function was called with invalid parameters.")]
     InvalidParameters(String),
     /// Function not supported on the current architecture.
+    #[error("Function not supported on the current architecture.")]
     NotSupported,
 }
 
 /// Extract entry from the cpuid.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
-    // TODO: replace with validation based on `has_cpuid()` when it becomes stable:
-    //  https://doc.rust-lang.org/core/arch/x86/fn.has_cpuid.html
+    // TODO: Use `core::arch::x86_64::has_cpuid`
+    // (https://github.com/firecracker-microvm/firecracker/issues/3271)
     #[cfg(target_env = "sgx")]
     {
         return Err(Error::NotSupported);
@@ -45,7 +47,7 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
         }
     }
 
-    // this is safe because the host supports the `cpuid` instruction
+    // SAFETY: this is safe because the host supports the `cpuid` instruction
     let max_function = unsafe { __get_cpuid_max(function & leaf_0x80000000::LEAF_NUM).0 };
     if function > max_function {
         return Err(Error::InvalidParameters(format!(
@@ -54,7 +56,7 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
         )));
     }
 
-    // this is safe because the host supports the `cpuid` instruction
+    // SAFETY: this is safe because the host supports the `cpuid` instruction
     let entry = unsafe { __cpuid_count(function, count) };
     if entry.eax == 0 && entry.ebx == 0 && entry.ecx == 0 && entry.edx == 0 {
         return Err(Error::InvalidParameters(format!(
@@ -69,6 +71,7 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
 /// Extracts the CPU vendor id from leaf 0x0.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], Error> {
+    // SAFETY: This is safe because the resulting type has a lower alignment requirement
     get_cpuid(0, 0).map(|vendor_entry| unsafe {
         std::mem::transmute::<[u32; 3], [u8; 12]>([
             vendor_entry.ebx,
@@ -85,6 +88,7 @@ pub fn get_vendor_id_from_cpuid(cpuid: &CpuId) -> Result<[u8; 12], Error> {
     for entry in cpuid.as_slice().iter() {
         if entry.function == 0 && entry.index == 0 {
             let cpu_vendor_id: [u8; 12] =
+            // SAFETY: This is safe because the resulting type has a lower alignment requirement
                 unsafe { std::mem::transmute([entry.ebx, entry.edx, entry.ecx]) };
             return Ok(cpu_vendor_id);
         }
@@ -155,6 +159,25 @@ pub fn is_same_model(cpuid: &CpuId) -> bool {
     }
 
     true
+}
+
+/// Scans through the CPUID and determines if a feature bit is set.
+// TODO: This currently involves a linear search which would be improved
+//       when we'll refactor the cpuid crate.
+#[macro_export]
+macro_rules! cpuid_is_feature_set {
+    ($cpuid:ident, $leaf:expr, $index:expr, $reg:tt, $feature_bit:expr) => {{
+        let mut res = false;
+        for entry in $cpuid.as_slice().iter() {
+            if entry.function == $leaf && entry.index == $index {
+                if entry.$reg & (1 << $feature_bit) != 0 {
+                    res = true;
+                    break;
+                }
+            }
+        }
+        res
+    }};
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@ pub struct SyncFileEngine {
     file: File,
 }
 
+// SAFETY: `File` is send and ultimately a POD.
 unsafe impl Send for SyncFileEngine {}
 
 impl SyncFileEngine {

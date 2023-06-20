@@ -1,6 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 
 //! Provides version tolerant serialization and deserialization facilities and
 //! implements a persistent storage format for Firecracker state snapshots.
@@ -42,21 +45,28 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
 const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 
 /// Error definitions for the Snapshot API.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq)]
 pub enum Error {
     /// CRC64 validation failed.
+    #[error("CRC64 validation failed: {0}")]
     Crc64(u64),
     /// Invalid data version.
+    #[error("Invalid data version: {0}")]
     InvalidDataVersion(u16),
     /// Invalid format version.
+    #[error("Invalid format version: {0}")]
     InvalidFormatVersion(u16),
     /// Magic value does not match arch.
+    #[error("Magic value does not match arch: {0}")]
     InvalidMagic(u64),
     /// Snapshot file is smaller than CRC length.
+    #[error("Snapshot file is smaller than CRC length.")]
     InvalidSnapshotSize,
     /// An IO error occurred.
+    #[error("An IO error occurred: {0}")]
     Io(i32),
     /// A versioned serialization/deserialization error occurred.
+    #[error("A versioned serialization/deserialization error occurred: {0}")]
     Versionize(versionize::VersionizeError),
 }
 
@@ -86,7 +96,7 @@ fn get_format_version(magic_id: u64) -> Result<u16, Error> {
 }
 
 fn build_magic_id(format_version: u16) -> u64 {
-    BASE_MAGIC_ID | format_version as u64
+    BASE_MAGIC_ID | u64::from(format_version)
 }
 
 impl Snapshot {
@@ -166,7 +176,7 @@ impl Snapshot {
             return Err(Error::Crc64(computed_checksum));
         }
 
-        let mut snapshot_slice: &[u8] = &mut snapshot.as_mut_slice();
+        let mut snapshot_slice: &[u8] = snapshot.as_mut_slice();
         let object: O = Snapshot::unchecked_load(&mut snapshot_slice, version_map)?;
 
         Ok(object)
@@ -417,10 +427,9 @@ mod tests {
 
         assert_eq!(
             restored_state_result.unwrap_err(),
-            Error::Versionize(versionize::VersionizeError::Deserialize(
-                "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
-                    .to_owned()
-            ))
+            Error::Versionize(versionize::VersionizeError::Deserialize(String::from(
+                "Io(Error { kind: UnexpectedEof, message: \"failed to fill whole buffer\" })"
+            )))
         );
     }
 
@@ -562,7 +571,7 @@ mod tests {
     #[test]
     fn test_kvm_bindings_struct() {
         #[repr(C)]
-        #[derive(Debug, PartialEq, Versionize)]
+        #[derive(Debug, PartialEq, Eq, Versionize)]
         pub struct kvm_pit_config {
             pub flags: ::std::os::raw::c_uint,
             pub pad: [::std::os::raw::c_uint; 15usize],

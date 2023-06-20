@@ -235,7 +235,7 @@ impl BusDevice for MmioTransport {
                         features
                     }
                     0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
-                    0x44 => self.with_queue(0, |q| q.ready as u32),
+                    0x44 => self.with_queue(0, |q| u32::from(q.ready)),
                     0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
                     0x70 => self.device_status,
                     0xfc => self.config_generation,
@@ -513,7 +513,7 @@ pub(crate) mod tests {
         assert_eq!(read_le_u32(&buf[..]), 16);
 
         d.read(0x44, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), false as u32);
+        assert_eq!(read_le_u32(&buf[..]), u32::from(false));
 
         d.interrupt_status.store(111, Ordering::SeqCst);
         d.read(0x60, &mut buf[..]);

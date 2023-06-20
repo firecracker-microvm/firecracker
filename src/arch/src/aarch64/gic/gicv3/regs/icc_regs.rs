@@ -165,6 +165,7 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Kvm;
@@ -180,31 +181,31 @@ mod tests {
         let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
         let gicr_typer = 123;
-        let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
+        let res = get_icc_regs(gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
         let mut state = res.unwrap();
         assert_eq!(state.main_icc_regs.len(), 7);
         assert_eq!(state.ap_icc_regs.len(), 8);
 
-        assert!(set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
+        assert!(set_icc_regs(gic_fd.device_fd(), gicr_typer, &state).is_ok());
 
         for reg in state.ap_icc_regs.iter_mut() {
             *reg = None;
         }
-        let res = set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state);
+        let res = set_icc_regs(gic_fd.device_fd(), gicr_typer, &state);
         assert!(res.is_err());
         assert_eq!(format!("{:?}", res.unwrap_err()), "InvalidVgicSysRegState");
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
-        let res = set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state);
+        let res = set_icc_regs(gic_fd.device_fd(), gicr_typer, &state);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 6)"
         );
 
-        let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
+        let res = get_icc_regs(gic_fd.device_fd(), gicr_typer);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 //! High-level interface over Linux io_uring.
 //!
 //! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
@@ -12,6 +15,7 @@
 //! For more information on io_uring, refer to the man pages.
 //! [This pdf](https://kernel.dk/io_uring.pdf) is also very useful, though outdated at times.
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod bindings;
 pub mod operation;
 mod probe;
@@ -48,7 +52,7 @@ pub enum Error {
     /// Could not enable the ring.
     Enable(IOError),
     /// A FamStructWrapper operation has failed.
-    FamError(utils::fam::Error),
+    Fam(utils::fam::Error),
     /// The number of ops in the ring is >= CQ::count
     FullCQueue,
     /// Fd was not registered.
@@ -124,7 +128,7 @@ impl IoUring {
             ..Default::default()
         };
 
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         let fd = SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_setup,
@@ -135,7 +139,7 @@ impl IoUring {
         .into_result()
         .map_err(Error::Setup)? as i32;
 
-        // Safe because the fd is valid and because this struct owns the fd.
+        // SAFETY: Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
 
         Self::check_features(params)?;
@@ -244,13 +248,13 @@ impl IoUring {
     }
 
     fn enable(&mut self) -> Result<()> {
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
                 bindings::IORING_REGISTER_ENABLE_RINGS,
-                std::ptr::null() as *const libc::c_void,
+                std::ptr::null::<libc::c_void>(),
                 0,
             )
         } as libc::c_int)
@@ -269,7 +273,7 @@ impl IoUring {
             return Err(Error::RegisterFileLimitExceeded);
         }
 
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
@@ -293,7 +297,7 @@ impl IoUring {
     }
 
     fn register_eventfd(&self, fd: RawFd) -> Result<()> {
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
@@ -312,7 +316,7 @@ impl IoUring {
             // No-op.
             return Ok(());
         }
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
@@ -323,7 +327,7 @@ impl IoUring {
                     .map(bindings::io_uring_restriction::from)
                     .collect::<Vec<_>>()
                     .as_mut_slice()
-                    .as_mut_ptr() as *mut _,
+                    .as_mut_ptr(),
                 restrictions.len(),
             )
         } as libc::c_int)
@@ -346,9 +350,9 @@ impl IoUring {
     }
 
     fn check_operations(&self) -> Result<()> {
-        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::FamError)?;
+        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::Fam)?;
 
-        // Safe because values are valid and we check the return value.
+        // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
@@ -364,7 +368,7 @@ impl IoUring {
         let supported_opcodes: HashSet<u8> = probes
             .as_slice()
             .iter()
-            .filter(|op| ((op.flags as u32) & bindings::IO_URING_OP_SUPPORTED) != 0)
+            .filter(|op| ((u32::from(op.flags)) & bindings::IO_URING_OP_SUPPORTED) != 0)
             .map(|op| op.op)
             .collect();
 
@@ -380,6 +384,7 @@ impl IoUring {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::fs::FileExt;
 
     use proptest::prelude::*;
@@ -418,12 +423,12 @@ mod tests {
 
         unsafe {
             // Use the raw version because we want to unmap memory ourselves.
-            MmapRegion::build_raw(ptr as *mut u8, len, PROT, FLAGS).unwrap()
+            MmapRegion::build_raw(ptr.cast::<u8>(), len, PROT, FLAGS).unwrap()
         }
     }
 
     fn free_mem_region(region: MmapRegion) {
-        unsafe { libc::munmap(region.as_ptr() as *mut libc::c_void, region.len()) };
+        unsafe { libc::munmap(region.as_ptr().cast::<libc::c_void>(), region.len()) };
     }
 
     fn read_entire_mem_region(region: &MmapRegion) -> Vec<u8> {
@@ -538,8 +543,10 @@ mod tests {
                             OpCode::Read => SyscallReturnCode(unsafe {
                                 libc::pread(
                                     file_sync.as_raw_fd(),
-                                    sync_read_mem_region.as_ptr().add(operation.addr.unwrap())
-                                        as *mut libc::c_void,
+                                    sync_read_mem_region
+                                        .as_ptr()
+                                        .add(operation.addr.unwrap())
+                                        .cast::<libc::c_void>(),
                                     operation.len.unwrap() as usize,
                                     operation.offset.unwrap() as i64,
                                 ) as libc::c_int

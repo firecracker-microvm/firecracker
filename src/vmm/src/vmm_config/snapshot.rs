@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SnapshotType {
     /// Diff snapshot.
     Diff,
@@ -37,7 +37,7 @@ pub enum MemBackendType {
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateSnapshotParams {
     /// This marks the type of snapshot we want to create.
@@ -54,7 +54,7 @@ pub struct CreateSnapshotParams {
 }
 
 /// Stores the configuration that will be used for loading a snapshot.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,

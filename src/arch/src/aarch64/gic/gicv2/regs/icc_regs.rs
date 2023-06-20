@@ -77,6 +77,7 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Kvm;
@@ -96,25 +97,25 @@ mod tests {
         };
 
         let cpu_id = 0;
-        let res = get_icc_regs(&gic_fd.device_fd(), cpu_id);
+        let res = get_icc_regs(gic_fd.device_fd(), cpu_id);
         assert!(res.is_ok());
 
         let state = res.unwrap();
         assert_eq!(state.main_icc_regs.len(), 8);
         assert_eq!(state.ap_icc_regs.len(), 0);
 
-        assert!(set_icc_regs(&gic_fd.device_fd(), cpu_id, &state).is_ok());
+        assert!(set_icc_regs(gic_fd.device_fd(), cpu_id, &state).is_ok());
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
-        let res = set_icc_regs(&gic_fd.device_fd(), cpu_id, &state);
+        let res = set_icc_regs(gic_fd.device_fd(), cpu_id, &state);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 2)"
         );
 
-        let res = get_icc_regs(&gic_fd.device_fd(), cpu_id);
+        let res = get_icc_regs(gic_fd.device_fd(), cpu_id);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),

@@ -9,7 +9,7 @@ use mmds::data_store::MmdsVersion;
 use serde::{Deserialize, Serialize};
 
 /// Keeps the MMDS configuration.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MmdsConfig {
     /// MMDS version.

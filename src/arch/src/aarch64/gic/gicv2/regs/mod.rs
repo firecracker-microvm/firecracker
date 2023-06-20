@@ -57,7 +57,7 @@ mod tests {
         };
 
         let mpidr = vec![0];
-        let res = save_state(&gic_fd.device_fd(), &mpidr);
+        let res = save_state(gic_fd.device_fd(), &mpidr);
         // We will receive an error if trying to call before creating vcpu.
         assert!(res.is_err());
         assert_eq!(

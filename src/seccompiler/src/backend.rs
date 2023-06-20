@@ -876,6 +876,7 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::env::consts::ARCH;
     use std::thread;
 

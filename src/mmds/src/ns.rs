@@ -496,7 +496,7 @@ mod tests {
         // Let's send a TCP SYN into the ns.
         {
             let len = ns.write_incoming_tcp_segment(buf.as_mut(), mmds_addr, TcpFlags::SYN);
-            assert_eq!(ns.detour_frame(&buf[..len]), true);
+            assert!(ns.detour_frame(&buf[..len]));
         }
 
         // We should be getting a SYNACK out of the ns in response.
@@ -562,7 +562,7 @@ mod tests {
         eth = EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_ARP).unwrap();
         IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut()).set_destination_address(ip);
 
-        assert_eq!(false, ns.detour_frame(&buf[..len]));
+        assert!(!ns.detour_frame(&buf[..len]));
     }
 
     #[test]
@@ -588,6 +588,6 @@ mod tests {
         eth = EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_IPV4).unwrap();
         let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
         arp.set_tpa(ip);
-        assert_eq!(false, ns.detour_frame(&buf[..len]));
+        assert!(!ns.detour_frame(&buf[..len]));
     }
 }

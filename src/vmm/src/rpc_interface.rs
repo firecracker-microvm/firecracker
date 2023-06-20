@@ -22,7 +22,7 @@ use super::{
     resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
-use crate::persist::{CreateSnapshotError, LoadSnapshotError};
+use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -48,7 +48,7 @@ use crate::{EventManager, FcExitCode};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted.
@@ -146,8 +146,6 @@ pub enum VmmActionError {
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
     LoadSnapshot(LoadSnapshotError),
-    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
-    LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
@@ -191,11 +189,6 @@ impl Display for VmmActionError {
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
                 LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
-                LoadSnapshotNotAllowed => {
-                    "Loading a microVM snapshot not allowed after configuring boot-specific \
-                     resources."
-                        .to_string()
-                }
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 Metrics(err) => err.to_string(),
@@ -222,7 +215,7 @@ impl Display for VmmActionError {
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmmData {
     /// The balloon device configuration.
     BalloonConfig(BalloonDeviceConfig),
@@ -301,6 +294,20 @@ impl MmdsRequestHandler for PrebootApiController<'_> {
     }
 }
 
+/// Error type for [`PrebootApiController::load_snapshot`]
+#[derive(Debug, thiserror::Error)]
+pub enum LoadSnapshotError {
+    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
+    #[error("Loading a microVM snapshot not allowed after configuring boot-specific resources.")]
+    LoadSnapshotNotAllowed,
+    /// Failed to restore from snapshot.
+    #[error("Failed to restore from snapshot: {0}")]
+    RestoreFromSnapshot(#[from] RestoreFromSnapshotError),
+    /// Failed to resume microVM.
+    #[error("Failed to resume microVM: {0}")]
+    ResumeMicrovm(#[from] VmmError),
+}
+
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
@@ -355,7 +362,7 @@ impl<'a> PrebootApiController<'a> {
             vm_resources
                 .locked_mmds_or_default()
                 .put_data(
-                    serde_json::from_str(&data)
+                    serde_json::from_str(data)
                         .expect("MMDS error: metadata provided not valid json"),
                 )
                 .map_err(|err| {
@@ -421,7 +428,9 @@ impl<'a> PrebootApiController<'a> {
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
-            LoadSnapshot(config) => self.load_snapshot(&config),
+            LoadSnapshot(config) => self
+                .load_snapshot(&config)
+                .map_err(VmmActionError::LoadSnapshot),
             PatchMMDS(value) => self.patch_mmds(value),
             PutMMDS(value) => self.put_mmds(value),
             SetBalloonDevice(config) => self.set_balloon_device(config),
@@ -487,7 +496,7 @@ impl<'a> PrebootApiController<'a> {
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
-            .set_boot_source(cfg)
+            .build_boot_source(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::BootSource)
     }
@@ -521,8 +530,8 @@ impl<'a> PrebootApiController<'a> {
     fn start_microvm(&mut self) -> ActionResult {
         build_microvm_for_boot(
             &self.instance_info,
-            &self.vm_resources,
-            &mut self.event_manager,
+            self.vm_resources,
+            self.event_manager,
             self.seccomp_filters,
         )
         .map(|vmm| {
@@ -534,13 +543,16 @@ impl<'a> PrebootApiController<'a> {
 
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
-    fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
+    fn load_snapshot(
+        &mut self,
+        load_params: &LoadSnapshotParams,
+    ) -> std::result::Result<VmmData, LoadSnapshotError> {
         log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         if self.boot_path {
-            let err = VmmActionError::LoadSnapshotNotAllowed;
+            let err = LoadSnapshotError::LoadSnapshotNotAllowed;
             info!("{}", err);
             return Err(err);
         }
@@ -549,32 +561,33 @@ impl<'a> PrebootApiController<'a> {
             self.vm_resources.set_track_dirty_pages(true);
         }
 
-        let result = restore_from_snapshot(
+        // Restore VM from snapshot
+        let vmm = restore_from_snapshot(
             &self.instance_info,
-            &mut self.event_manager,
+            self.event_manager,
             self.seccomp_filters,
             load_params,
             VERSION_MAP.clone(),
             self.vm_resources,
         )
-        .and_then(|vmm| {
-            let ret = if load_params.resume_vm {
-                vmm.lock().expect("Poisoned lock").resume_vm()
-            } else {
-                Ok(())
-            };
-
-            ret.map(|()| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(LoadSnapshotError::ResumeMicroVm)
-        })
         .map_err(|err| {
-            // The process is too dirty to recover at this point.
+            // If restore fails, we consider the process is too dirty to recover.
             self.fatal_error = Some(FcExitCode::BadConfiguration);
-            VmmActionError::LoadSnapshot(err)
-        });
+            err
+        })?;
+        // Resume VM
+        if load_params.resume_vm {
+            vmm.lock()
+                .expect("Poisoned lock")
+                .resume_vm()
+                .map_err(|err| {
+                    // If resume fails, we consider the process is too dirty to recover.
+                    self.fatal_error = Some(FcExitCode::BadConfiguration);
+                    err
+                })?;
+        }
+        // Set the VM
+        self.built_vmm = Some(vmm);
 
         log_dev_preview_warning(
             "Virtual machine snapshots",
@@ -587,7 +600,7 @@ impl<'a> PrebootApiController<'a> {
             )),
         );
 
-        result
+        Ok(VmmData::Empty)
     }
 }
 
@@ -744,9 +757,21 @@ impl RuntimeApiController {
         // }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
+        let vm_cfg = self.vm_resources.vm_config();
+        let vm_info = VmInfo {
+            mem_size_mib: vm_cfg.mem_size_mib as u64,
+            smt: vm_cfg.smt,
+            cpu_template: vm_cfg.cpu_template,
+            boot_source: self.vm_resources.boot_source_config().clone(),
+        };
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())?;
+        create_snapshot(
+            &mut locked_vmm,
+            &vm_info,
+            create_params,
+            VERSION_MAP.clone(),
+        )?;
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
@@ -842,7 +867,6 @@ mod tests {
                     | (DriveConfig(_), DriveConfig(_))
                     | (InternalVmm(_), InternalVmm(_))
                     | (LoadSnapshot(_), LoadSnapshot(_))
-                    | (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed)
                     | (Logger(_), Logger(_))
                     | (MachineConfig(_), MachineConfig(_))
                     | (Metrics(_), Metrics(_))
@@ -867,6 +891,7 @@ mod tests {
         pub vsock: VsockBuilder,
         balloon_config_called: bool,
         balloon_set: bool,
+        boot_src: BootSourceConfig,
         boot_cfg_set: bool,
         block_set: bool,
         vsock_set: bool,
@@ -928,17 +953,22 @@ mod tests {
             Ok(())
         }
 
-        pub fn set_boot_source(
+        pub fn build_boot_source(
             &mut self,
-            _: BootSourceConfig,
+            boot_source: BootSourceConfig,
         ) -> Result<(), BootSourceConfigError> {
             if self.force_errors {
                 return Err(BootSourceConfigError::InvalidKernelPath(
                     std::io::Error::from_raw_os_error(0),
                 ));
             }
+            self.boot_src = boot_source;
             self.boot_cfg_set = true;
             Ok(())
+        }
+
+        pub fn boot_source_config(&mut self) -> &BootSourceConfig {
+            &self.boot_src
         }
 
         pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
@@ -1007,7 +1037,7 @@ mod tests {
     }
 
     // Mock `Vmm` used for testing.
-    #[derive(Debug, Default, PartialEq)]
+    #[derive(Debug, Default, PartialEq, Eq)]
     pub struct MockVmm {
         pub balloon_config_called: bool,
         pub latest_balloon_stats_called: bool,
@@ -1143,6 +1173,7 @@ mod tests {
     // instead of our mocks.
     pub fn create_snapshot(
         _: &mut Vmm,
+        _: &VmInfo,
         _: &CreateSnapshotParams,
         _: versionize::VersionMap,
     ) -> std::result::Result<(), CreateSnapshotError> {
@@ -1158,7 +1189,7 @@ mod tests {
         _: &LoadSnapshotParams,
         _: versionize::VersionMap,
         _: &mut MockVmRes,
-    ) -> Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
+    ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
 
@@ -2089,7 +2120,9 @@ mod tests {
         let err = preboot.handle_preboot_request(req);
         assert_eq!(
             err,
-            Err(VmmActionError::LoadSnapshotNotAllowed),
+            Err(VmmActionError::LoadSnapshot(
+                LoadSnapshotError::LoadSnapshotNotAllowed
+            )),
             "LoadSnapshot should be disallowed after {}",
             res_name
         );

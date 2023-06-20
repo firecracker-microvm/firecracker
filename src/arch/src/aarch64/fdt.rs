@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::fmt::Debug;
 use std::result;
 
@@ -66,7 +67,7 @@ type Result<T> = result::Result<T, Error>;
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
-    cmdline: &str,
+    cmdline: CString,
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &dyn GICDevice,
     initrd: &Option<InitrdConfig>,
@@ -95,7 +96,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     create_timer_node(&mut fdt_writer)?;
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
-    create_devices_node(&mut fdt_writer, &device_info)?;
+    create_devices_node(&mut fdt_writer, device_info)?;
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -104,7 +105,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     let fdt_final = fdt_writer.finish()?;
 
     // Write FDT to memory.
-    let fdt_address = GuestAddress(get_fdt_addr(&guest_mem));
+    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
     guest_mem.write_slice(fdt_final.as_slice(), fdt_address)?;
     Ok(fdt_final)
 }
@@ -145,10 +146,10 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
                 fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
             }
             if let Some(line_size) = cache.line_size {
-                fdt.property_u32(cache.type_.of_cache_line_size(), line_size as u32)?;
+                fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
             }
             if let Some(number_of_sets) = cache.number_of_sets {
-                fdt.property_u32(cache.type_.of_cache_sets(), number_of_sets as u32)?;
+                fdt.property_u32(cache.type_.of_cache_sets(), u32::from(number_of_sets))?;
             }
         }
 
@@ -187,15 +188,15 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<()> {
                 ))?);
                 fdt.property_u32("phandle", cache_phandle)?;
                 fdt.property_string("compatible", "cache")?;
-                fdt.property_u32("cache-level", cache.level as u32)?;
+                fdt.property_u32("cache-level", u32::from(cache.level))?;
                 if let Some(size) = cache.size_ {
                     fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
                 }
                 if let Some(line_size) = cache.line_size {
-                    fdt.property_u32(cache.type_.of_cache_line_size(), line_size as u32)?;
+                    fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
                 }
                 if let Some(number_of_sets) = cache.number_of_sets {
-                    fdt.property_u32(cache.type_.of_cache_sets(), number_of_sets as u32)?;
+                    fdt.property_u32(cache.type_.of_cache_sets(), u32::from(number_of_sets))?;
                 }
                 if let Some(cache_type) = cache.type_.of_cache_type() {
                     fdt.property_null(cache_type)?;
@@ -230,11 +231,16 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
 
 fn create_chosen_node(
     fdt: &mut FdtWriter,
-    cmdline: &str,
+    cmdline: CString,
     initrd: &Option<InitrdConfig>,
 ) -> Result<()> {
     let chosen = fdt.begin_node("chosen")?;
-    fdt.property_string("bootargs", cmdline)?;
+    // Workaround to be able to reuse an existing property_*() method; in property_string() method,
+    // the cmdline is reconverted to a CString to be written in memory as a null terminated string.
+    let cmdline_string = cmdline
+        .into_string()
+        .map_err(|_| vm_fdt::Error::InvalidString)?;
+    fdt.property_string("bootargs", cmdline_string.as_str())?;
 
     if let Some(initrd_config) = initrd {
         fdt.property_u64(
@@ -260,7 +266,7 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()
     // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity
     // description is required.
     fdt.property_u32("#interrupt-cells", 3)?;
-    fdt.property_array_u64("reg", &gic_device.device_properties())?;
+    fdt.property_array_u64("reg", gic_device.device_properties())?;
     fdt.property_u32("phandle", GIC_PHANDLE)?;
     fdt.property_u32("#address-cells", 2)?;
     fdt.property_u32("#size-cells", 2)?;
@@ -415,6 +421,8 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
     use kvm_ioctls::Kvm;
 
     use super::*;
@@ -481,7 +489,7 @@ mod tests {
         assert!(create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &dev_info,
             gic.as_ref(),
             &None,
@@ -507,7 +515,7 @@ mod tests {
         let current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             gic.as_ref(),
             &None,
@@ -570,7 +578,7 @@ mod tests {
         let current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
-            "console=tty0",
+            CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             gic.as_ref(),
             &Some(initrd),

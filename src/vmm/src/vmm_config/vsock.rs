@@ -35,7 +35,7 @@ type Result<T> = std::result::Result<T, VsockConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VsockDeviceConfig {
     #[serde(default)]
@@ -159,7 +159,7 @@ pub(crate) mod tests {
         vsock_config.guest_cid = new_cid;
         store.insert(vsock_config).unwrap();
         let vsock = store.get().unwrap();
-        assert_eq!(vsock.lock().unwrap().cid(), new_cid as u64);
+        assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
     }
 
     #[test]

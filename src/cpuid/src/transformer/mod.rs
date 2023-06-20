@@ -36,7 +36,7 @@ impl VmSpec {
             cpu_vendor_id,
             cpu_index,
             cpu_count,
-            cpu_bits: (cpu_count > 1 && smt) as u8,
+            cpu_bits: u8::from(cpu_count > 1 && smt),
             brand_string: BrandString::from_vendor_id(&cpu_vendor_id),
         })
     }
@@ -53,15 +53,19 @@ impl VmSpec {
 }
 
 /// Errors associated with processing the CPUID leaves.
-#[derive(Debug, Clone, derive_more::From)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// A FamStructWrapper operation has failed
-    FamError(utils::fam::Error),
+    #[error("A FamStructWrapper operation has failed.")]
+    Fam(utils::fam::Error),
     /// A call to an internal helper method failed
-    InternalError(super::common::Error),
+    #[error("A call to an internal helper method failed: {0}")]
+    InternalError(#[from] super::common::Error),
     /// The operation is not permitted for the current vendor
+    #[error("The operation is not permitted for the current vendor.")]
     InvalidVendor,
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
+    #[error("The maximum number of addressable logical CPUs cannot be stored in an `u8`.")]
     VcpuCountOverflow,
 }
 

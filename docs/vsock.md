@@ -163,4 +163,4 @@ nc-vsock 2 52
 ## Known issues
 
 Vsock snapshot support is currently limited. Please see
-[Snapshotting vsock limitations](snapshotting/snapshot-support.md#vsock-device-limitations).
+[Snapshotting vsock limitation](snapshotting/snapshot-support.md#vsock-device-limitation).

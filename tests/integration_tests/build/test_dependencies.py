@@ -42,9 +42,9 @@ def test_num_dependencies(dep_file):
     # cargo tree displays a tree of dependencies which means
     # some of them will repeat. Below is a mechanism for filtering
     # unique dependencies.
-    # cargo tree tries to display a (*) at the end of each dependency that
-    # was already encountered but it does not do very well (libc appears
-    # multiple times).
+    # cargo tree tries to display a (*) at the end of each non-leaf dependency
+    # that was already encountered (crates without dependencies, such as libc
+    # appear multiple times).
     for line in deps:
         if line and "(*)" not in line:
             current_deps.add(line)
@@ -52,7 +52,7 @@ def test_num_dependencies(dep_file):
     # Use the code below to update the expected dependencies.
     # from pprint import pprint
     # with open(dep_file, "w", encoding='utf-8') as prev_deps:
-    #     pprint(sorted(current_deps), stream=prev_deps)
+    #      pprint(sorted(current_deps), stream=prev_deps)
 
     with open(dep_file, encoding='utf-8') as prev_deps:
         prev_deps = ast.literal_eval(prev_deps.read())

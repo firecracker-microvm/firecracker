@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::mem;
+use std::{fmt, mem};
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
@@ -19,42 +19,75 @@ const PDPTE_START: u64 = 0xa000;
 const PDE_START: u64 = 0xb000;
 
 /// Errors thrown while setting up x86_64 registers.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     /// Failed to get SREGs for this CPU.
+    #[error("Failed to get SREGs for this CPU: {0}")]
     GetStatusRegisters(kvm_ioctls::Error),
     /// Failed to set base registers for this CPU.
+    #[error("Failed to set base registers for this CPU: {0}")]
     SetBaseRegisters(kvm_ioctls::Error),
     /// Failed to configure the FPU.
+    #[error("Failed to configure the FPU: {0}")]
     SetFPURegisters(kvm_ioctls::Error),
     /// Failed to set SREGs for this CPU.
+    #[error("Failed to set SREGs for this CPU: {0}")]
     SetStatusRegisters(kvm_ioctls::Error),
     /// Writing the GDT to RAM failed.
+    #[error("Writing the GDT to RAM failed.")]
     WriteGDT,
     /// Writing the IDT to RAM failed.
+    #[error("Writing the IDT to RAM failed")]
     WriteIDT,
     /// Writing PDPTE to RAM failed.
+    #[error("WritePDPTEAddress")]
     WritePDPTEAddress,
     /// Writing PDE to RAM failed.
+    #[error("WritePDEAddress")]
     WritePDEAddress,
     /// Writing PML4 to RAM failed.
+    #[error("WritePML4Address")]
     WritePML4Address,
 }
 type Result<T> = std::result::Result<T, Error>;
+
+/// Error type for [`setup_fpu`].
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
+pub struct SetupFpuError(utils::errno::Error);
+impl std::error::Error for SetupFpuError {}
+impl fmt::Display for SetupFpuError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Failed to setup FPU: {}", self.0)
+    }
+}
 
 /// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_fpu(vcpu: &VcpuFd) -> Result<()> {
+///
+/// # Errors
+///
+/// When [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_fpu`] errors.
+pub fn setup_fpu(vcpu: &VcpuFd) -> std::result::Result<(), SetupFpuError> {
     let fpu: kvm_fpu = kvm_fpu {
         fcw: 0x37f,
         mxcsr: 0x1f80,
         ..Default::default()
     };
 
-    vcpu.set_fpu(&fpu).map_err(Error::SetFPURegisters)
+    vcpu.set_fpu(&fpu).map_err(SetupFpuError)
+}
+
+/// Error type of [`setup_regs`].
+#[derive(Debug, derive_more::From, PartialEq, Eq)]
+pub struct SetupRegistersError(utils::errno::Error);
+impl std::error::Error for SetupRegistersError {}
+impl fmt::Display for SetupRegistersError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Failed to setup registers:{}", self.0)
+    }
 }
 
 /// Configure base registers for a given CPU.
@@ -63,7 +96,11 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> Result<()> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `boot_ip` - Starting instruction pointer.
-pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<()> {
+///
+/// # Errors
+///
+/// When [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_regs`] errors.
+pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> std::result::Result<(), SetupRegistersError> {
     let regs: kvm_regs = kvm_regs {
         rflags: 0x0000_0000_0000_0002u64,
         rip: boot_ip,
@@ -79,22 +116,54 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<()> {
         ..Default::default()
     };
 
-    vcpu.set_regs(&regs).map_err(Error::SetBaseRegisters)
+    vcpu.set_regs(&regs).map_err(SetupRegistersError)
 }
 
-/// Configures the segment registers and system page tables for a given CPU.
+/// Error type for [`setup_sregs`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SetupSpecialRegistersError {
+    /// Failed to get special registers
+    #[error("Failed to get special registers: {0}")]
+    GetSpecialRegisters(utils::errno::Error),
+    /// Failed to configure segments and special registers
+    #[error("Failed to configure segments and special registers: {0}")]
+    ConfigureSegmentsAndSpecialRegisters(Error),
+    /// Failed to setup page tables
+    #[error("Failed to setup page tables: {0}")]
+    SetupPageTables(Error),
+    /// Failed to set special registers
+    #[error("Failed to set special registers: {0}")]
+    SetSpecialRegisters(utils::errno::Error),
+}
+
+/// Configures the special registers and system page tables for a given CPU.
 ///
 /// # Arguments
 ///
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_sregs(mem: &GuestMemoryMmap, vcpu: &VcpuFd) -> Result<()> {
-    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::GetStatusRegisters)?;
+///
+/// # Errors
+///
+/// When:
+/// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::get_sregs`] errors.
+/// - [`configure_segments_and_sregs`] errors.
+/// - [`setup_page_tables`] errors
+/// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_sregs`] errors.
+pub fn setup_sregs(
+    mem: &GuestMemoryMmap,
+    vcpu: &VcpuFd,
+) -> std::result::Result<(), SetupSpecialRegistersError> {
+    let mut sregs: kvm_sregs = vcpu
+        .get_sregs()
+        .map_err(SetupSpecialRegistersError::GetSpecialRegisters)?;
 
-    configure_segments_and_sregs(mem, &mut sregs)?;
-    setup_page_tables(mem, &mut sregs)?; // TODO(dgreid) - Can this be done once per system instead?
+    configure_segments_and_sregs(mem, &mut sregs)
+        .map_err(SetupSpecialRegistersError::ConfigureSegmentsAndSpecialRegisters)?;
+    setup_page_tables(mem, &mut sregs).map_err(SetupSpecialRegistersError::SetupPageTables)?; // TODO(dgreid) - Can this be done once per system instead?
 
-    vcpu.set_sregs(&sregs).map_err(Error::SetStatusRegisters)
+    vcpu.set_sregs(&sregs)
+        .map_err(SetupSpecialRegistersError::SetSpecialRegisters)
 }
 
 const BOOT_GDT_OFFSET: u64 = 0x500;
@@ -219,11 +288,11 @@ mod tests {
     }
 
     fn validate_segments_and_sregs(gm: &GuestMemoryMmap, sregs: &kvm_sregs) {
-        assert_eq!(0x0, read_u64(&gm, BOOT_GDT_OFFSET));
-        assert_eq!(0xaf_9b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
-        assert_eq!(0xcf_9300_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
-        assert_eq!(0x8f_8b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
-        assert_eq!(0x0, read_u64(&gm, BOOT_IDT_OFFSET));
+        assert_eq!(0x0, read_u64(gm, BOOT_GDT_OFFSET));
+        assert_eq!(0xaf_9b00_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 8));
+        assert_eq!(0xcf_9300_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 16));
+        assert_eq!(0x8f_8b00_0000_ffff, read_u64(gm, BOOT_GDT_OFFSET + 24));
+        assert_eq!(0x0, read_u64(gm, BOOT_IDT_OFFSET));
 
         assert_eq!(0, sregs.cs.base);
         assert_eq!(0xfffff, sregs.ds.limit);
@@ -239,10 +308,10 @@ mod tests {
     }
 
     fn validate_page_tables(gm: &GuestMemoryMmap, sregs: &kvm_sregs) {
-        assert_eq!(0xa003, read_u64(&gm, PML4_START));
-        assert_eq!(0xb003, read_u64(&gm, PDPTE_START));
+        assert_eq!(0xa003, read_u64(gm, PML4_START));
+        assert_eq!(0xb003, read_u64(gm, PDPTE_START));
         for i in 0..512 {
-            assert_eq!((i << 21) + 0x83u64, read_u64(&gm, PDE_START + (i * 8)));
+            assert_eq!((i << 21) + 0x83u64, read_u64(gm, PDE_START + (i * 8)));
         }
 
         assert_eq!(PML4_START as u64, sregs.cr3);

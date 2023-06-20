@@ -5,7 +5,7 @@
 import urllib
 import re
 
-from framework.utils import compare_versions, is_io_uring_supported, run_cmd
+from framework.utils import compare_versions, run_cmd
 from framework.defs import API_USOCKET_URL_PREFIX
 
 
@@ -164,27 +164,16 @@ class Drive:
 
     DRIVE_CFG_RESOURCE = "drives"
 
-    def __init__(self, api_usocket_full_name, api_session, firecracker_version):
+    def __init__(self, api_usocket_full_name, api_session):
         """Specify the information needed for sending API requests."""
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         api_url = API_USOCKET_URL_PREFIX + url_encoded_path + "/"
 
         self._drive_cfg_url = api_url + self.DRIVE_CFG_RESOURCE
         self._api_session = api_session
-        self._firecracker_version = firecracker_version
 
     def put(self, **args):
         """Attach a block device or update the details of a previous one."""
-        # Default the io engine to Async on kernels > 5.10 so that we
-        # make sure to exercise both Sync and Async behaviour in the CI.
-        # Also check the FC version to make sure that it has support for
-        # configurable io_engine.
-        if (
-            is_io_uring_supported()
-            and compare_versions(self._firecracker_version, "0.25.0") > 0
-            and ("io_engine" not in args or args["io_engine"] is None)
-        ):
-            args["io_engine"] = "Async"
 
         datax = self.create_json(**args)
 

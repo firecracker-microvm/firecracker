@@ -18,6 +18,7 @@ import select
 import shutil
 import time
 import weakref
+from pathlib import Path
 
 from threading import Lock
 from retry import retry
@@ -508,6 +509,7 @@ class Microvm:
         log_file="log_fifo",
         log_level="Info",
         use_ramdisk=False,
+        metrics_path=None,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -531,9 +533,7 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.drive = Drive(
-            self._api_socket, self._api_session, self.firecracker_version
-        )
+        self.drive = Drive(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
@@ -546,6 +546,11 @@ class Microvm:
             # to `Info` to also have the boot time printed in fifo.
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
             self.start_console_logger(log_fifo)
+
+        if metrics_path is not None:
+            self.create_jailed_resource(metrics_path, create_jail=True)
+            metrics_path = Path(metrics_path)
+            self.jailer.extra_args.update({"metrics-path": metrics_path.name})
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
@@ -856,6 +861,36 @@ class Microvm:
             response.status_code
         ), response.text
 
+    def restore_from_snapshot(
+        self,
+        *,
+        snapshot_mem: Path,
+        snapshot_vmstate: Path,
+        snapshot_disks: list[Path],
+        snapshot_is_diff: bool = False,
+    ):
+        """
+        Restores a snapshot, and resumes the microvm
+        """
+
+        # Hardlink all the snapshot files into the microvm jail.
+        jailed_mem = self.create_jailed_resource(snapshot_mem)
+        jailed_vmstate = self.create_jailed_resource(snapshot_vmstate)
+
+        assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
+        jailed_disks = []
+        for disk in snapshot_disks:
+            jailed_disks.append(self.create_jailed_resource(disk))
+
+        response = self.snapshot.load(
+            mem_file_path=jailed_mem,
+            snapshot_path=jailed_vmstate,
+            diff=snapshot_is_diff,
+            resume=True,
+        )
+        assert response.ok
+        return True
+
     def start_console_logger(self, log_fifo):
         """
         Start a thread that monitors the microVM console.
@@ -904,7 +939,7 @@ class Microvm:
 class Serial:
     """Class for serial console communication with a Microvm."""
 
-    RX_TIMEOUT_S = 5
+    RX_TIMEOUT_S = 20
 
     def __init__(self, vm):
         """Initialize a new Serial object."""
@@ -953,6 +988,7 @@ class Serial:
             if rx_str.endswith(token):
                 break
             if (time.time() - start) >= self.RX_TIMEOUT_S:
+                self._vm.kill()
                 assert False
 
         return rx_str

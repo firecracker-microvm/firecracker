@@ -100,7 +100,7 @@ impl CompletionQueue {
 
 impl Drop for CompletionQueue {
     fn drop(&mut self) {
-        // Safe because parameters are valid.
-        unsafe { libc::munmap(self.cqes.as_ptr() as *mut libc::c_void, self.cqes.size()) };
+        // SAFETY: Safe because parameters are valid.
+        unsafe { libc::munmap(self.cqes.as_ptr().cast::<libc::c_void>(), self.cqes.size()) };
     }
 }

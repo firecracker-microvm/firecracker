@@ -79,6 +79,7 @@ pub(crate) fn set_redist_regs(fd: &DeviceFd, mpidr: u64, data: &[GicRegState<u32
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
     use kvm_ioctls::Kvm;
@@ -94,23 +95,23 @@ mod tests {
         let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
         let gicr_typer = 123;
-        let res = get_redist_regs(&gic_fd.device_fd(), gicr_typer);
+        let res = get_redist_regs(gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
         let state = res.unwrap();
         assert_eq!(state.len(), 14);
 
-        assert!(set_redist_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
+        assert!(set_redist_regs(gic_fd.device_fd(), gicr_typer, &state).is_ok());
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
-        let res = set_redist_regs(&gic_fd.device_fd(), gicr_typer, &state);
+        let res = set_redist_regs(gic_fd.device_fd(), gicr_typer, &state);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 5)"
         );
 
-        let res = get_redist_regs(&gic_fd.device_fd(), gicr_typer);
+        let res = get_redist_regs(gic_fd.device_fd(), gicr_typer);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),

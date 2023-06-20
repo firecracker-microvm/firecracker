@@ -17,6 +17,8 @@ from framework import utils
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
+PLATFORM = platform.machine()
+
 
 class WaitTerminal(TestState):  # pylint: disable=too-few-public-methods
     """Initial state when we wait for the login prompt."""
@@ -55,19 +57,18 @@ def test_serial_after_snapshot(bin_cloner_path):
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano(
-        diff_snapshots=False,
         daemonize=False,
     )
     microvm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
 
-    microvm.start()
     serial = Serial(microvm)
     serial.open()
+    microvm.start()
 
     # Image used for tests on aarch64 has autologon
-    if platform.machine() == "x86_64":
+    if PLATFORM == "x86_64":
         serial.rx(token="login: ")
         serial.tx("root")
         serial.rx("Password: ")
@@ -76,15 +77,17 @@ def test_serial_after_snapshot(bin_cloner_path):
     serial.rx("#")
 
     snapshot_builder = SnapshotBuilder(microvm)
-    disks = [root_disk.local_path()]
-    # Create diff snapshot.
-    snapshot = snapshot_builder.create(disks, ssh_key, SnapshotType.FULL)
+
+    # Create snapshot.
+    snapshot = snapshot_builder.create(
+        [root_disk.local_path()], ssh_key, SnapshotType.FULL
+    )
     # Kill base microVM.
     microvm.kill()
 
     # Load microVM clone from snapshot.
     test_microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=True, diff_snapshots=False, daemonize=False
+        snapshot, resume=True, daemonize=False
     )
     serial = Serial(test_microvm)
     serial.open()

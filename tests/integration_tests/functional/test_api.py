@@ -18,7 +18,6 @@ import host_tools.network as net_tools
 
 from conftest import _test_images_s3_bucket, init_microvm
 
-from framework import utils as test_utils
 from framework.utils import is_io_uring_supported
 from framework.artifacts import (
     ArtifactCollection,
@@ -465,7 +464,7 @@ def test_api_machine_config(test_microvm_with_api):
     response = test_microvm.actions.put(action_type="InstanceStart")
     fail_msg = (
         "Invalid Memory Configuration: MmapRegion(Mmap(Os { code: "
-        "12, kind: Other, message: Out of memory }))"
+        "12, kind: OutOfMemory, message: Out of memory }))"
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert fail_msg in response.text
@@ -492,8 +491,8 @@ def test_api_machine_config(test_microvm_with_api):
     if utils.get_cpu_vendor() == utils.CpuVendor.AMD:
         # We shouldn't be able to apply Intel templates on AMD hosts
         fail_msg = (
-            "Internal error while starting microVM: Error configuring"
-            " the vcpu for boot: Cpuid error: InvalidVendor"
+            "Internal error while starting microVM: Error configuring the vcpu for boot: Failed to "
+            "set CPUID entries: The operation is not permitted for the current vendor."
         )
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         assert fail_msg in response.text
@@ -1012,19 +1011,12 @@ def test_api_version(test_microvm_with_api):
     # Validate VM version post-boot is the same as pre-boot.
     assert preboot_response.json() == postboot_response.json()
 
-    test_utils.configure_git_safe_directory()
     # Check that the version is the same as `git describe --dirty`.
     # Abbreviated to post-tag commit metadata
-    out = subprocess.check_output(["git", "describe", "--dirty", "--abbrev=0"]).decode()
+    out = subprocess.check_output(["git", "describe", "--dirty"]).decode()
 
     # Skip the "v" at the start
-    tag_version = out[1:]
-    # Strip the metadata appended to the tag
-    if out.find("-") > -1:
-        tag_version = tag_version[: tag_version.index("-")]
-    else:
-        # Just strip potential newlines
-        tag_version = tag_version.strip()
+    tag_version = out[1:].strip()
 
     # Git tag should match FC API version
     assert (
@@ -1207,6 +1199,9 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "track_dirty_pages": False,
     }
 
+    if cpu_vendor == utils.CpuVendor.ARM:
+        setup_cfg["machine-config"]["smt"] = False
+
     if cpu_vendor == utils.CpuVendor.INTEL:
         setup_cfg["machine-config"]["cpu_template"] = "C3"
 
@@ -1285,14 +1280,12 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
 
     expected_cfg = setup_cfg.copy()
 
-    # We expect boot-source, machine-config.smt, and
-    # machine-config.cpu_template to all be empty/default after restoring
-    # from a snapshot.
-    expected_cfg["boot-source"] = {"kernel_image_path": "", "initrd_path": None}
-    expected_cfg["machine-config"]["smt"] = False
-
-    if cpu_vendor == utils.CpuVendor.INTEL:
-        expected_cfg["machine-config"].pop("cpu_template")
+    # We expect boot-source to be set with the following values
+    expected_cfg["boot-source"] = {
+        "kernel_image_path": test_microvm.get_jailed_resource(test_microvm.kernel_file),
+        "initrd_path": None,
+        "boot_args": "console=ttyS0 reboot=k panic=1",
+    }
 
     # no ipv4 specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {

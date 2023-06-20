@@ -12,7 +12,9 @@ use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::device_manager::persist::SharedDeviceType;
 use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::boot_source::{
+    BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
+};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
@@ -72,7 +74,7 @@ impl std::fmt::Display for Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -100,8 +102,8 @@ pub struct VmmConfig {
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
     vm_config: VmConfig,
-    /// The boot configuration for this microVM.
-    boot_config: Option<BootConfig>,
+    /// The boot source spec (contains both config and builder) for this microVM.
+    boot_source: BootSource,
     /// The block devices.
     pub block: BlockBuilder,
     /// The vsock device.
@@ -149,7 +151,7 @@ impl VmResources {
             resources.update_vm_config(&machine_config)?;
         }
 
-        resources.set_boot_source(vmm_config.boot_source)?;
+        resources.build_boot_source(vmm_config.boot_source)?;
 
         for drive_config in vmm_config.block_devices.into_iter() {
             resources.set_block_device(drive_config)?;
@@ -170,7 +172,7 @@ impl VmResources {
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
             resources.locked_mmds_or_default().put_data(
-                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+                serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
             info!("Successfully added metadata to mmds from file");
         }
@@ -200,19 +202,19 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::SharedBlock(block) => {
+            SharedDeviceType::Block(block) => {
                 self.block.add_device(block);
             }
 
-            SharedDeviceType::SharedNetwork(network) => {
+            SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
 
-            SharedDeviceType::SharedBalloon(balloon) => {
+            SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
             }
 
-            SharedDeviceType::SharedVsock(vsock) => {
+            SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
         }
@@ -255,7 +257,10 @@ impl VmResources {
     }
 
     /// Update the machine configuration of the microVM.
-    pub fn update_vm_config(&mut self, machine_config: &VmUpdateConfig) -> Result<VmConfigError> {
+    pub fn update_vm_config(
+        &mut self,
+        machine_config: &VmUpdateConfig,
+    ) -> std::result::Result<(), VmConfigError> {
         let vcpu_count = machine_config
             .vcpu_count
             .unwrap_or(self.vm_config.vcpu_count);
@@ -350,8 +355,13 @@ impl VmResources {
     }
 
     /// Gets a reference to the boot source configuration.
-    pub fn boot_source(&self) -> Option<&BootConfig> {
-        self.boot_config.as_ref()
+    pub fn boot_source_config(&self) -> &BootSourceConfig {
+        &self.boot_source.config
+    }
+
+    /// Gets a reference to the boot source builder.
+    pub fn boot_source_builder(&self) -> Option<&BootConfig> {
+        self.boot_source.builder.as_ref()
     }
 
     /// Sets a balloon device to be attached when the VM starts.
@@ -368,13 +378,19 @@ impl VmResources {
         self.balloon.set(config)
     }
 
-    /// Set the guest boot source configuration.
-    pub fn set_boot_source(
+    /// Obtains the boot source hooks (kernel fd, command line creation and validation).
+    pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
-        self.boot_config = Some(BootConfig::new(boot_source_cfg)?);
+        self.set_boot_source_config(boot_source_cfg);
+        self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
+    }
+
+    /// Set the boot source configuration (contains raw kernel config details).
+    pub fn set_boot_source_config(&mut self, boot_source_cfg: BootSourceConfig) {
+        self.boot_source.config = boot_source_cfg;
     }
 
     /// Inserts a block to be attached when the VM starts.
@@ -475,16 +491,10 @@ impl VmResources {
 
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
-        let boot_source = resources
-            .boot_config
-            .as_ref()
-            .map(BootSourceConfig::from)
-            .unwrap_or_default();
-
         VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),
-            boot_source,
+            boot_source: resources.boot_source_config().clone(),
             logger: None,
             machine_config: Some(resources.vm_config.clone()),
             metrics: None,
@@ -508,7 +518,9 @@ mod tests {
 
     use super::*;
     use crate::resources::VmResources;
-    use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::boot_source::{
+        BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
+    };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
     use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
@@ -565,22 +577,24 @@ mod tests {
         blocks
     }
 
-    fn default_boot_cfg() -> BootConfig {
-        let mut kernel_cmdline = linux_loader::cmdline::Cmdline::new(4096);
-        kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+    fn default_boot_cfg() -> BootSource {
+        let kernel_cmdline =
+            linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
         let tmp_file = TempFile::new().unwrap();
-        BootConfig {
-            cmdline: kernel_cmdline,
-            kernel_file: File::open(tmp_file.as_path()).unwrap(),
-            initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
-            description: Default::default(),
+        BootSource {
+            config: BootSourceConfig::default(),
+            builder: Some(BootConfig {
+                cmdline: kernel_cmdline,
+                kernel_file: File::open(tmp_file.as_path()).unwrap(),
+                initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
+            }),
         }
     }
 
     fn default_vm_resources() -> VmResources {
         VmResources {
             vm_config: VmConfig::default(),
-            boot_config: Some(default_boot_cfg()),
+            boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
             balloon: Default::default(),
@@ -594,7 +608,7 @@ mod tests {
 
     impl PartialEq for BootConfig {
         fn eq(&self, other: &Self) -> bool {
-            self.cmdline.as_str().eq(other.cmdline.as_str())
+            self.cmdline.eq(&other.cmdline)
                 && self.kernel_file.metadata().unwrap().st_ino()
                     == other.kernel_file.metadata().unwrap().st_ino()
                 && self
@@ -1371,8 +1385,8 @@ mod tests {
     #[test]
     fn test_boot_config() {
         let vm_resources = default_vm_resources();
-        let expected_boot_cfg = vm_resources.boot_config.as_ref().unwrap();
-        let actual_boot_cfg = vm_resources.boot_source().unwrap();
+        let expected_boot_cfg = vm_resources.boot_source.builder.as_ref().unwrap();
+        let actual_boot_cfg = vm_resources.boot_source_builder().unwrap();
 
         assert!(actual_boot_cfg == expected_boot_cfg);
     }
@@ -1388,13 +1402,23 @@ mod tests {
         };
 
         let mut vm_resources = default_vm_resources();
-        let boot_cfg = vm_resources.boot_source().unwrap();
+        let boot_builder = vm_resources.boot_source_builder().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
-        assert_ne!(boot_cfg.cmdline.as_str(), cmdline);
-        assert_ne!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
         assert_ne!(
-            boot_cfg
+            boot_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
+        assert_ne!(
+            boot_builder.kernel_file.metadata().unwrap().st_ino(),
+            tmp_ino
+        );
+        assert_ne!(
+            boot_builder
                 .initrd_file
                 .as_ref()
                 .unwrap()
@@ -1404,12 +1428,22 @@ mod tests {
             tmp_ino
         );
 
-        vm_resources.set_boot_source(expected_boot_cfg).unwrap();
-        let boot_cfg = vm_resources.boot_source().unwrap();
-        assert_eq!(boot_cfg.cmdline.as_str(), cmdline);
-        assert_eq!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
+        vm_resources.build_boot_source(expected_boot_cfg).unwrap();
+        let boot_source_builder = vm_resources.boot_source_builder().unwrap();
         assert_eq!(
-            boot_cfg
+            boot_source_builder
+                .cmdline
+                .as_cstring()
+                .unwrap()
+                .as_bytes_with_nul(),
+            [cmdline.as_bytes(), &[b'\0']].concat()
+        );
+        assert_eq!(
+            boot_source_builder.kernel_file.metadata().unwrap().st_ino(),
+            tmp_ino
+        );
+        assert_eq!(
+            boot_source_builder
                 .initrd_file
                 .as_ref()
                 .unwrap()

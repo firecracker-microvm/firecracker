@@ -16,7 +16,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use versionize::VersionMap;
-use vmm::persist::MicrovmState;
+use vmm::persist::{MicrovmState, VmInfo};
 use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
 use vmm::utilities::test_utils::create_vmm;
 use vmm::version_map::VERSION_MAP;
@@ -78,10 +78,20 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
         mem_file_path: memory_file.as_path().to_path_buf(),
         version: None,
     };
+    let vm_info = VmInfo {
+        mem_size_mib: 1u64,
+        ..Default::default()
+    };
 
     {
         let mut locked_vmm = vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
+        persist::create_snapshot(
+            &mut locked_vmm,
+            &vm_info,
+            &snapshot_params,
+            VERSION_MAP.clone(),
+        )
+        .unwrap();
     }
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
@@ -128,7 +138,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Deserialize MicrovmState CRC", |b| {
         b.iter(|| {
             bench_restore_snapshot(
-                &mut snapshot_state_with_crc.as_mut_slice(),
+                snapshot_state_with_crc.as_mut_slice(),
                 black_box(snapshot_len),
                 black_box(version_map.clone()),
                 black_box(true),
@@ -158,7 +168,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Deserialize MicrovmState", |b| {
         b.iter(|| {
             bench_restore_snapshot(
-                black_box(&mut snapshot_state_without_crc.as_mut_slice()),
+                black_box(snapshot_state_without_crc.as_mut_slice()),
                 black_box(snapshot_len),
                 black_box(version_map.clone()),
                 black_box(false),

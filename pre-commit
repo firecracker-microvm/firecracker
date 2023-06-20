@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
@@ -16,22 +16,20 @@ set -e
 # Audit code base
 cargo audit
 # For every staged file
-for i in $(git diff --name-only --cached); do
+for i in $(git diff --name-only --cached --diff-filter=d); do
     echo $i
     # Get the extension
     filename=$(basename -- "$i")
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # Read rustfmt config, replace '\n' with ','
-        rustfmt_config_1="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
-        # Remove '"'
-        rustfmt_config_2="${rustfmt_config_1//\"}"
+        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
         # We first do a check run, this will fail when it finds a non-matching license.
-        rustfmt $i --check --config $rustfmt_config_2
+        rustfmt $i --check --config $rustfmt_config
         # Run `cargo fmt` for this file
-        rustfmt $i --config $rustfmt_config_2
+        rustfmt $i --config $rustfmt_config
     fi
-    if [ "$extension" == "py" ]; then
+    if [ "$extension" = "py" ]; then
         # Run `black` for this file
         black $i
     fi

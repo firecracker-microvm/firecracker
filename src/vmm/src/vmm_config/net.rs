@@ -16,7 +16,7 @@ use crate::Error as VmmError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.
@@ -47,7 +47,7 @@ impl From<&Net> for NetworkInterfaceConfig {
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
 /// can be updated.
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceUpdateConfig {
     /// The net iface ID, as provided by the user at iface creation time.
@@ -81,23 +81,19 @@ impl fmt::Display for NetworkInterfaceError {
         match self {
             CreateNetworkDevice(err) => write!(f, "Could not create Network Device: {:?}", err),
             CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
-            GuestMacAddressInUse(mac_addr) => write!(
-                f,
-                "{}",
-                format!("The guest MAC address {} is already in use.", mac_addr)
-            ),
+            GuestMacAddressInUse(mac_addr) => {
+                write!(f, "The guest MAC address {mac_addr} is already in use.")
+            }
             DeviceUpdate(err) => write!(f, "Error during interface update (patch): {}", err),
             OpenTap(err) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
                 let mut tap_err = format!("{:?}", err);
-                tap_err = tap_err.replace("\"", "");
+                tap_err = tap_err.replace('\"', "");
 
                 write!(
                     f,
-                    "{}{}",
-                    "Cannot open TAP device. Invalid name/permissions. ".to_string(),
-                    tap_err
+                    "Cannot open TAP device. Invalid name/permissions. {tap_err}",
                 )
             }
         }
@@ -186,7 +182,7 @@ impl NetBuilder {
         devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
             cfg.host_dev_name.clone(),
-            cfg.guest_mac.as_ref(),
+            cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
         )
@@ -289,10 +285,7 @@ mod tests {
         let guest_mac_2 = "01:23:45:67:89:0b";
 
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
-        let expected_error = format!(
-            "The guest MAC address {} is already in use.",
-            guest_mac_1.to_string()
-        );
+        let expected_error = format!("The guest MAC address {} is already in use.", guest_mac_1);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             expected_error
@@ -317,10 +310,7 @@ mod tests {
         // Error Cases for UPDATE
         // Error Case: Update netif_2 mac using the same mac as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
-        let expected_error = format!(
-            "The guest MAC address {} is already in use.",
-            guest_mac_1.to_string()
-        );
+        let expected_error = format!("The guest MAC address {} is already in use.", guest_mac_1);
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             expected_error
@@ -389,7 +379,7 @@ mod tests {
         let net = Net::new_with_tap(
             net_id.to_string(),
             host_dev_name.to_string(),
-            Some(&MacAddr::parse_str(guest_mac).unwrap()),
+            Some(MacAddr::parse_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
         )

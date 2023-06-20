@@ -5,8 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::{Display, Formatter};
-use std::result;
+use std::fmt::Formatter;
+use std::{fmt, result};
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -65,7 +65,36 @@ pub enum Error {
     RestoreGic(arch::aarch64::gic::Error),
 }
 
-impl Display for Error {
+/// Error type for [`Vm::restore_state`]
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum RestoreStateError {
+    #[error("{0}")]
+    SetPit2(kvm_ioctls::Error),
+    #[error("{0}")]
+    SetClock(kvm_ioctls::Error),
+    #[error("{0}")]
+    SetIrqChipPicMaster(kvm_ioctls::Error),
+    #[error("{0}")]
+    SetIrqChipPicSlave(kvm_ioctls::Error),
+    #[error("{0}")]
+    SetIrqChipIoAPIC(kvm_ioctls::Error),
+}
+
+/// Error type for [`Vm::restore_state`]
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, derive_more::From)]
+pub struct RestoreStateError(arch::aarch64::gic::Error);
+#[cfg(target_arch = "aarch64")]
+impl fmt::Display for RestoreStateError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+#[cfg(target_arch = "aarch64")]
+impl std::error::Error for RestoreStateError {}
+
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::Error::*;
 
@@ -259,21 +288,32 @@ impl Vm {
     }
 
     #[cfg(target_arch = "x86_64")]
-    /// Restores the Kvm Vm state.
-    pub fn restore_state(&self, state: &VmState) -> Result<()> {
+    /// Restores the KVM VM state.
+    ///
+    /// # Errors
+    ///
+    /// When:
+    /// - [`kvm_ioctls::VmFd::set_pit`] errors.
+    /// - [`kvm_ioctls::VmFd::set_clock`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
+    pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
         self.fd
             .set_pit2(&state.pitstate)
-            .map_err(Error::VmSetPit2)?;
-        self.fd.set_clock(&state.clock).map_err(Error::VmSetClock)?;
+            .map_err(RestoreStateError::SetPit2)?;
+        self.fd
+            .set_clock(&state.clock)
+            .map_err(RestoreStateError::SetClock)?;
         self.fd
             .set_irqchip(&state.pic_master)
-            .map_err(Error::VmSetIrqChip)?;
+            .map_err(RestoreStateError::SetIrqChipPicMaster)?;
         self.fd
             .set_irqchip(&state.pic_slave)
-            .map_err(Error::VmSetIrqChip)?;
+            .map_err(RestoreStateError::SetIrqChipPicSlave)?;
         self.fd
             .set_irqchip(&state.ioapic)
-            .map_err(Error::VmSetIrqChip)?;
+            .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
         Ok(())
     }
 
@@ -287,11 +327,20 @@ impl Vm {
         })
     }
 
+    /// Restore the KVM VM state
+    ///
+    /// # Errors
+    ///
+    /// When [`GICDevice::restore_device`] errors.
     #[cfg(target_arch = "aarch64")]
-    pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<()> {
+    pub fn restore_state(
+        &self,
+        mpidrs: &[u64],
+        state: &VmState,
+    ) -> std::result::Result<(), RestoreStateError> {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
-            .map_err(Error::RestoreGic)
+            .map_err(RestoreStateError)
     }
 
     pub(crate) fn set_kvm_memory_regions(
@@ -316,7 +365,7 @@ impl Vm {
                     flags,
                 };
 
-                // Safe because the fd is a valid KVM file descriptor.
+                // SAFETY: Safe because the fd is a valid KVM file descriptor.
                 unsafe { self.fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::SetUserMemoryRegion)?;
@@ -347,6 +396,7 @@ pub struct VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::FromRawFd;
 
     use vm_memory::GuestAddress;

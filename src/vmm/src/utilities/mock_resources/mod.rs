@@ -73,7 +73,7 @@ impl MockVmResources {
     }
 
     pub fn with_boot_source(mut self, boot_source_cfg: BootSourceConfig) -> Self {
-        self.0.set_boot_source(boot_source_cfg).unwrap();
+        self.0.build_boot_source(boot_source_cfg).unwrap();
         self
     }
 

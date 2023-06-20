@@ -1,5 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
+
 mod api_server_adapter;
 mod metrics;
 
@@ -21,6 +26,7 @@ use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
+use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 // The reason we place default API socket under /run is that API socket is a
@@ -41,6 +47,10 @@ pub fn enable_ssbd_mitigation() {
     const PR_SPEC_STORE_BYPASS: u64 = 0;
     const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
 
+    // SAFETY: Parameters are valid since they are copied verbatim
+    // from the kernel's UAPI.
+    // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
+    // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
             PR_SET_SPECULATION_CTRL,
@@ -193,6 +203,11 @@ fn main_exitable() -> FcExitCode {
                     "Whether or not to include the file path and line number of the log's origin.",
                 ),
         )
+        .arg(
+            Argument::new("metrics-path")
+                .takes_value(true)
+                .help("Path to a fifo or a file used for configuring the metrics on startup."),
+        )
         .arg(Argument::new("boot-timer").takes_value(false).help(
             "Whether or not to load boot timer device for logging elapsed time since \
              InstanceStart command.",
@@ -289,7 +304,16 @@ fn main_exitable() -> FcExitCode {
             show_log_origin,
         );
         if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger:: {}", err));
+            return generic_error_exit(&format!("Could not initialize logger: {}", err));
+        };
+    }
+
+    if let Some(metrics_path) = arguments.single_value("metrics-path") {
+        let metrics_config = MetricsConfig {
+            metrics_path: PathBuf::from(metrics_path),
+        };
+        if let Err(err) = init_metrics(metrics_config) {
+            return generic_error_exit(&format!("Could not initialize metrics: {}", err));
         };
     }
 

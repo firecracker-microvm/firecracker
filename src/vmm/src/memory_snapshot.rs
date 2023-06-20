@@ -3,7 +3,6 @@
 
 //! Defines functionality for creating guest memory snapshots.
 
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;
 use std::time::Instant;
@@ -20,7 +19,7 @@ use vm_memory::{
 use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryRegionState {
     // This should have been named `base_guest_addr` since it's _guest_ addr, but for
@@ -34,7 +33,7 @@ pub struct GuestMemoryRegionState {
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
-#[derive(Debug, Default, PartialEq, Versionize)]
+#[derive(Debug, Default, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryState {
     /// List of regions.
@@ -66,31 +65,23 @@ where
 }
 
 /// Errors associated with dumping guest memory to file.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Cannot access file.
-    FileHandle(std::io::Error),
+    #[error("Cannot access file: {0:?}")]
+    FileHandle(#[from] std::io::Error),
     /// Cannot create memory.
-    CreateMemory(vm_memory::Error),
+    #[error("Cannot create memory: {0:?}")]
+    CreateMemory(#[from] vm_memory::Error),
     /// Cannot create region.
-    CreateRegion(vm_memory::MmapRegionError),
+    #[error("Cannot create memory region: {0:?}")]
+    CreateRegion(#[from] vm_memory::MmapRegionError),
     /// Cannot fetch system's page size.
-    PageSize(errno::Error),
+    #[error("Cannot fetch system's page size: {0:?}")]
+    PageSize(#[from] errno::Error),
     /// Cannot dump memory.
-    WriteMemory(GuestMemoryError),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::Error::*;
-        match self {
-            FileHandle(err) => write!(f, "Cannot access file: {:?}", err),
-            CreateMemory(err) => write!(f, "Cannot create memory: {:?}", err),
-            CreateRegion(err) => write!(f, "Cannot create memory region: {:?}", err),
-            PageSize(err) => write!(f, "Cannot fetch system's page size: {:?}", err),
-            WriteMemory(err) => write!(f, "Cannot dump memory: {:?}", err),
-        }
-    }
+    #[error("Cannot dump memory: {0:?}")]
+    WriteMemory(#[from] GuestMemoryError),
 }
 
 impl SnapshotMemory for GuestMemoryMmap {
@@ -446,13 +437,13 @@ mod tests {
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
             restored_guest_memory
-                .read(&mut actual_region.as_mut_slice(), GuestAddress(0))
+                .read(actual_region.as_mut_slice(), GuestAddress(0))
                 .unwrap();
             assert_eq!(first_region, actual_region);
 
             restored_guest_memory
                 .read(
-                    &mut actual_region.as_mut_slice(),
+                    actual_region.as_mut_slice(),
                     GuestAddress(page_size as u64 * 3),
                 )
                 .unwrap();
@@ -480,13 +471,13 @@ mod tests {
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
             restored_guest_memory
-                .read(&mut actual_region.as_mut_slice(), GuestAddress(0))
+                .read(actual_region.as_mut_slice(), GuestAddress(0))
                 .unwrap();
             assert_eq!(first_region, actual_region);
 
             restored_guest_memory
                 .read(
-                    &mut actual_region.as_mut_slice(),
+                    actual_region.as_mut_slice(),
                     GuestAddress(page_size as u64 * 3),
                 )
                 .unwrap();

@@ -6,6 +6,9 @@
 // found in the THIRD-PARTY file.
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 #![cfg(target_arch = "x86_64")]
@@ -19,7 +22,8 @@ use crate::common::*;
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::intel::{c3, t2};
+pub use crate::template::intel::{c3, t2, t2s};
+pub use crate::template::msrs_to_save_by_cpuid;
 
 mod cpu_leaf;
 
@@ -61,7 +65,7 @@ pub fn filter_cpuid(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error
     };
 
     if let Some(cpuid_transformer) = maybe_cpuid_transformer {
-        cpuid_transformer.process_cpuid(kvm_cpuid, &vm_spec)?;
+        cpuid_transformer.process_cpuid(kvm_cpuid, vm_spec)?;
     }
 
     Ok(())

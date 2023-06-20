@@ -12,7 +12,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -74,7 +74,8 @@ impl IfReqBuilder {
     }
 
     pub fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        // SAFETY: Since we don't call as_mut on the same union field more than once, this block is
+        // safe.
         let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
         ifrn_name.copy_from_slice(if_name.as_ref());
 
@@ -82,15 +83,12 @@ impl IfReqBuilder {
     }
 
     pub(crate) fn flags(mut self, flags: i16) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
-        let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
-        *ifru_flags = flags;
-
+        self.0.ifr_ifru.ifru_flags = flags;
         self
     }
 
     pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
-        // ioctl is safe. Called with a valid socket fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
         let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
@@ -108,18 +106,18 @@ impl Tap {
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
+        // SAFETY: Open calls are safe because we give a constant null-terminated
+        // string and verify the result.
         let fd = unsafe {
-            // Open calls are safe because we give a constant null-terminated
-            // string and verify the result.
             libc::open(
-                b"/dev/net/tun\0".as_ptr() as *const c_char,
+                b"/dev/net/tun\0".as_ptr().cast::<c_char>(),
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
         if fd < 0 {
             return Err(Error::OpenTun(IoError::last_os_error()));
         }
-        // We just checked that the fd is valid.
+        // SAFETY: We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
         let ifreq = IfReqBuilder::new()
@@ -127,10 +125,10 @@ impl Tap {
             .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
             .execute(&tuntap, TUNSETIFF())?;
 
-        // Safe since only the name is accessed, and it's cloned out.
         Ok(Tap {
             tap_file: tuntap,
-            if_name: unsafe { *ifreq.ifr_ifrn.ifrn_name.as_ref() },
+            // SAFETY: Safe since only the name is accessed, and it's cloned out.
+            if_name: unsafe { ifreq.ifr_ifrn.ifrn_name },
         })
     }
 
@@ -145,7 +143,7 @@ impl Tap {
 
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
-        // ioctl is safe. Called with a valid tap fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
@@ -156,7 +154,7 @@ impl Tap {
 
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
-        // ioctl is safe. Called with a valid tap fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         let ret = unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
@@ -174,7 +172,7 @@ impl Read for Tap {
 
 impl Write for Tap {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        self.tap_file.write(&buf)
+        self.tap_file.write(buf)
     }
 
     fn flush(&mut self) -> IoResult<()> {
@@ -190,6 +188,8 @@ impl AsRawFd for Tap {
 
 #[cfg(test)]
 pub mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::os::unix::ffi::OsStrExt;
 
     use net_gen::ETH_HLEN;
@@ -206,12 +206,9 @@ pub mod tests {
     #[test]
     fn test_tap_name() {
         // Sanity check that the assumed max iface name length is correct.
-        assert_eq!(
-            IFACE_NAME_MAX_LEN,
-            net_gen::ifreq__bindgen_ty_1::default()
-                .bindgen_union_field
-                .len()
-        );
+        assert_eq!(IFACE_NAME_MAX_LEN, unsafe {
+            net_gen::ifreq__bindgen_ty_1::default().ifrn_name.len()
+        });
 
         // Empty name - The tap should be named "tap0" by default
         let tap = Tap::open_named("").unwrap();

@@ -44,7 +44,7 @@ const ETH_IPV4_TPA_OFFSET: usize = 24;
 const IPV4_ADDR_LEN: usize = 4;
 
 /// Represents errors which may occur while parsing or writing a frame.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid hardware address length.
     HLen,

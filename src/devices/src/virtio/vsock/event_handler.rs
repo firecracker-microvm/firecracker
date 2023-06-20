@@ -336,7 +336,7 @@ mod tests {
             ctx.guest_rxvq.dtable[0].len.set(0);
 
             // The chain should've been processed, without employing the backend.
-            assert_eq!(ctx.device.process_rx(), true);
+            assert!(ctx.device.process_rx());
             assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
             assert_eq!(ctx.device.backend.rx_ok_cnt, 0);
         }

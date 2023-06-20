@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.1.0
+  version: 1.2.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -389,7 +389,7 @@ paths:
         204:
           description: Metrics system created.
         400:
-          description: Metrics system cannot be initialized due to bad input.
+          description: Metrics system cannot be initialized due to bad input request or metrics system already initialized.
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -805,6 +805,7 @@ definitions:
     enum:
       - C3
       - T2
+      - T2S
       - None
     default: "None"
 
@@ -1249,4 +1250,4 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
-        description: This parameter has been deprecated since v1.1.0.
+        description: This parameter has been deprecated since v1.0.0.

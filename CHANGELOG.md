@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.2.0]
+
+### Added
+
+- Added a new CPU template called `T2S`. This exposes the same CPUID as `T2` to
+  the Guest and also overwrites the `ARCH_CAPABILITIES` MSR to expose a reduced
+  set of capabilities. With regards to hardware vulnerabilities and mitigations,
+  the Guest vCPU will apear to look like a Skylake CPU, making it safe to
+  snapshot uVMs running on a newer host CPU (Cascade Lake) and restore on a host
+  that has a Skylake CPU.
+- Added a new CLI option `--metrics-path PATH`. It accepts a file parameter
+  where metrics will be sent to.
+- Added baselines for m6i.metal and m6a.metal for all long running performance
+  tests.
+- Releases now include debuginfo files.
+
+### Changed
+
+- Changed the jailer option `--exec-file` to fail if the filename does not
+  contain the string `firecracker` to prevent from running non-firecracker
+  binaries.
+- Upgraded Rust toolchain from 1.52.1 to 1.64.0.
+- Switched to specifying our dependencies using caret requirements instead
+  of comparison requirements.
+- Updated all dependencies to their respective newest versions.
+
+### Fixed
+
+- Made the `T2` template more robust by explicitly disabling additional
+  CPUID flags that should be off but were missed initially or that were
+  not available in the spec when the template was created.
+- Now MAC address is correctly displayed when queried with GET `/vm/config`
+  if left unspecified in both pre and post snapshot states.
+- Fixed a self-DoS scenario in the virtio-queue code by reporting and
+  terminating execution when the number of available descriptors reported
+  by the driver is higher than the queue size.
+- Fixed the bad handling of kernel cmdline parameters when init arguments were
+  provided in the `boot_args` field of the JSON body of the PUT `/boot-source`
+  request.
+- Fixed a bug on ARM64 hosts where the upper 64bits of the V0-V31 FL/SIMD
+  registers were not saved correctly when taking a snapshot, potentially
+  leading to data loss. This change invalidates all ARM64 snapshots taken
+  with versions of Firecracker <= 1.1.3.
+- Improved stability and security when saving CPU MSRs in snapshots.
+
 ## [1.1.0]
 
 ### Added

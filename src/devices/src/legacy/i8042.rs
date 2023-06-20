@@ -13,29 +13,26 @@ use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
 
+/// Errors thrown by the i8042 device.
 #[derive(Debug)]
 pub enum Error {
-    CloneCpuResetEvt(io::Error),
+    /// Failure in triggering the keyboard interrupt (guest disabled).
     KbdInterruptDisabled,
+    /// Failure in triggering the keyboard interrupt.
     KbdInterruptFailure(io::Error),
+    /// Internal i8042 buffer is full.
     InternalBufferFull,
 }
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CloneCpuResetEvt(io_err) => write!(
-                f,
-                "Could not clone CPU reset eventfd: {}.",
-                io_err.to_string()
-            ),
             Error::KbdInterruptDisabled => {
                 write!(f, "Keyboard interrupt disabled by guest driver.",)
             }
-            Error::KbdInterruptFailure(io_err) => write!(
-                f,
-                "Could not trigger keyboard interrupt: {}.",
-                io_err.to_string()
-            ),
+            Error::KbdInterruptFailure(io_err) => {
+                write!(f, "Could not trigger keyboard interrupt: {io_err}.",)
+            }
             Error::InternalBufferFull => write!(f, "i8042 internal buffer full."),
         }
     }
@@ -116,12 +113,21 @@ impl I8042Device {
         }
     }
 
-    /// Returns a clone of the CPU reset event fd
-    pub fn get_reset_evt_clone(&self) -> Result<EventFd> {
-        self.reset_evt.try_clone().map_err(Error::CloneCpuResetEvt)
+    /// Signal a ctrl-alt-del (reset) event.
+    #[inline]
+    pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
+        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
+        // Fail if we don't have room for the whole sequence.
+        if BUF_SIZE - self.buf_len() < 4 {
+            return Err(Error::InternalBufferFull);
+        }
+        self.trigger_key(KEY_CTRL)?;
+        self.trigger_key(KEY_ALT)?;
+        self.trigger_key(KEY_DEL)?;
+        Ok(())
     }
 
-    pub fn trigger_kbd_interrupt(&self) -> Result<()> {
+    fn trigger_kbd_interrupt(&self) -> Result<()> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
             return Err(Error::KbdInterruptDisabled);
@@ -131,7 +137,7 @@ impl I8042Device {
             .map_err(Error::KbdInterruptFailure)
     }
 
-    pub fn trigger_key(&mut self, key: u16) -> Result<()> {
+    fn trigger_key(&mut self, key: u16) -> Result<()> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
             if BUF_SIZE - self.buf_len() < 2 {
@@ -145,19 +151,6 @@ impl I8042Device {
             Ok(_) | Err(Error::KbdInterruptDisabled) => Ok(()),
             Err(err) => Err(err),
         }
-    }
-
-    #[inline]
-    pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
-        // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
-        // Fail if we don't have room for the whole sequence.
-        if BUF_SIZE - self.buf_len() < 4 {
-            return Err(Error::InternalBufferFull);
-        }
-        self.trigger_key(KEY_CTRL)?;
-        self.trigger_key(KEY_ALT)?;
-        self.trigger_key(KEY_DEL)?;
-        Ok(())
     }
 
     #[inline]
@@ -341,7 +334,7 @@ mod tests {
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         );
-        let reset_evt = i8042.get_reset_evt_clone().unwrap();
+        let reset_evt = i8042.reset_evt.try_clone().unwrap();
 
         // Check if reading in a 2-length array doesn't have side effects.
         let mut data = [1, 2];

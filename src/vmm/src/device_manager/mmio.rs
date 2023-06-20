@@ -36,7 +36,7 @@ use vm_memory::GuestAddress;
 #[derive(Debug)]
 pub enum Error {
     /// Failed to perform an operation on the bus.
-    BusError(devices::BusError),
+    Bus(devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found.
@@ -62,7 +62,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BusError(err) => write!(f, "failed to perform bus operation: {}", err),
+            Error::Bus(err) => write!(f, "failed to perform bus operation: {}", err),
             Error::Cmdline(err) => {
                 write!(f, "unable to add device to kernel command line: {}", err)
             }
@@ -88,7 +88,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 pub const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
-#[derive(Clone, Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MMIODeviceInfo {
     /// Mmio address at which the device is registered.
@@ -124,12 +124,12 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_new_slot(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
+    fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
             .collect::<vm_allocator::Result<_>>()
             .map_err(Error::AllocatorError)?;
-        let slot = MMIODeviceInfo {
+        let device_info = MMIODeviceInfo {
             addr: self
                 .address_allocator
                 .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
@@ -138,20 +138,20 @@ impl MMIODeviceManager {
             len: MMIO_LEN,
             irqs,
         };
-        Ok(slot)
+        Ok(device_info)
     }
 
     /// Register a device at some MMIO address.
     fn register_mmio_device(
         &mut self,
         identifier: (DeviceType, String),
-        slot: MMIODeviceInfo,
+        device_info: MMIODeviceInfo,
         device: Arc<Mutex<dyn BusDevice>>,
     ) -> Result<()> {
         self.bus
-            .insert(device, slot.addr, slot.len)
-            .map_err(Error::BusError)?;
-        self.id_to_dev_info.insert(identifier, slot);
+            .insert(device, device_info.addr, device_info.len)
+            .map_err(Error::Bus)?;
+        self.id_to_dev_info.insert(identifier, device_info);
         Ok(())
     }
 
@@ -161,11 +161,11 @@ impl MMIODeviceManager {
         vm: &VmFd,
         device_id: String,
         mmio_device: MmioTransport,
-        slot: &MMIODeviceInfo,
+        device_info: &MMIODeviceInfo,
     ) -> Result<()> {
         // Our virtio devices are currently hardcoded to use a single IRQ.
         // Validate that requirement.
-        if slot.irqs.len() != 1 {
+        if device_info.irqs.len() != 1 {
             return Err(Error::InvalidInput);
         }
         let identifier;
@@ -173,23 +173,28 @@ impl MMIODeviceManager {
             let locked_device = mmio_device.locked_device();
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
-                let io_addr =
-                    IoEventAddress::Mmio(slot.addr + u64::from(devices::virtio::NOTIFY_REG_OFFSET));
+                let io_addr = IoEventAddress::Mmio(
+                    device_info.addr + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
+                );
                 vm.register_ioevent(queue_evt, &io_addr, i as u32)
                     .map_err(Error::RegisterIoEvent)?;
             }
-            vm.register_irqfd(locked_device.interrupt_evt(), slot.irqs[0])
+            vm.register_irqfd(locked_device.interrupt_evt(), device_info.irqs[0])
                 .map_err(Error::RegisterIrqFd)?;
         }
 
-        self.register_mmio_device(identifier, slot.clone(), Arc::new(Mutex::new(mmio_device)))
+        self.register_mmio_device(
+            identifier,
+            device_info.clone(),
+            Arc::new(Mutex::new(mmio_device)),
+        )
     }
 
     /// Append a registered virtio-over-MMIO device to the kernel cmdline.
     #[cfg(target_arch = "x86_64")]
     pub fn add_virtio_device_to_cmdline(
         cmdline: &mut kernel_cmdline::Cmdline,
-        slot: &MMIODeviceInfo,
+        device_info: &MMIODeviceInfo,
     ) -> Result<()> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
@@ -197,7 +202,12 @@ impl MMIODeviceManager {
         // bytes to 1024; further, the '{}' formatting rust construct will automatically
         // transform it to decimal
         cmdline
-            .add_virtio_mmio_device(slot.len, GuestAddress(slot.addr), slot.irqs[0], None)
+            .add_virtio_mmio_device(
+                device_info.len,
+                GuestAddress(device_info.addr),
+                device_info.irqs[0],
+                None,
+            )
             .map_err(Error::Cmdline)
     }
 
@@ -210,82 +220,82 @@ impl MMIODeviceManager {
         mmio_device: MmioTransport,
         _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<MMIODeviceInfo> {
-        let mmio_slot = self.allocate_new_slot(1)?;
-        self.register_mmio_virtio(vm, device_id, mmio_device, &mmio_slot)?;
+        let device_info = self.allocate_mmio_resources(1)?;
+        self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
         #[cfg(target_arch = "x86_64")]
-        Self::add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
-        Ok(mmio_slot)
+        Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+        Ok(device_info)
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Register an early console at the specified MMIO address if given as parameter,
-    /// otherwise allocate a new MMIO slot for it.
+    /// Register an early console at the specified MMIO configuration if given as parameter,
+    /// otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
         serial: Arc<Mutex<SerialDevice>>,
-        dev_info_opt: Option<MMIODeviceInfo>,
+        device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
-        let slot = if let Some(dev_info) = dev_info_opt {
-            dev_info
+        let device_info = if let Some(device_info) = device_info_opt {
+            device_info
         } else {
-            self.allocate_new_slot(1)?
+            self.allocate_mmio_resources(1)?
         };
 
         vm.register_irqfd(
-            &serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
-            slot.irqs[0],
+            serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
+            device_info.irqs[0],
         )
         .map_err(Error::RegisterIrqFd)?;
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         // Register the newly created Serial object.
-        self.register_mmio_device(identifier, slot, serial)
+        self.register_mmio_device(identifier, device_info, serial)
     }
 
     #[cfg(target_arch = "aarch64")]
     /// Append the registered early console to the kernel cmdline.
     pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut kernel_cmdline::Cmdline) -> Result<()> {
-        let mmio_slot = self
+        let device_info = self
             .id_to_dev_info
             .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
             .ok_or(Error::DeviceNotFound)?;
         cmdline
-            .insert("earlycon", &format!("uart,mmio,0x{:08x}", mmio_slot.addr))
+            .insert("earlycon", &format!("uart,mmio,0x{:08x}", device_info.addr))
             .map_err(Error::Cmdline)
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Create and register a MMIO RTC device at the specified MMIO address if
-    /// given as parameter, otherwise allocate a new MMIO slot for it.
+    /// Create and register a MMIO RTC device at the specified MMIO configuration if
+    /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
         rtc: Arc<Mutex<RTCDevice>>,
-        dev_info_opt: Option<MMIODeviceInfo>,
+        device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
-        let slot = if let Some(dev_info) = dev_info_opt {
-            dev_info
+        let device_info = if let Some(device_info) = device_info_opt {
+            device_info
         } else {
-            self.allocate_new_slot(0)?
+            self.allocate_mmio_resources(1)?
         };
 
         // Create a new identifier for the RTC device.
         let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
         // Attach the newly created RTC device.
-        self.register_mmio_device(identifier, slot, rtc)
+        self.register_mmio_device(identifier, device_info, rtc)
     }
 
     /// Register a boot timer device.
     pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
         // Attach a new boot timer device.
-        let slot = self.allocate_new_slot(0)?;
+        let device_info = self.allocate_mmio_resources(0)?;
 
         let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
-        self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
+        self.register_mmio_device(identifier, device_info, Arc::new(Mutex::new(device)))
     }
 
     /// Gets the information of the devices registered up to some point in time.
@@ -309,11 +319,11 @@ impl MMIODeviceManager {
         device_type: DeviceType,
         device_id: &str,
     ) -> Option<&Mutex<dyn BusDevice>> {
-        if let Some(dev_info) = self
+        if let Some(device_info) = self
             .id_to_dev_info
             .get(&(device_type, device_id.to_string()))
         {
-            if let Some((_, device)) = self.bus.get_device(dev_info.addr) {
+            if let Some((_, device)) = self.bus.get_device(device_info.addr) {
                 return Some(device);
             }
         }
@@ -483,9 +493,9 @@ mod tests {
             dev_id: &str,
         ) -> Result<u64> {
             let mmio_device = MmioTransport::new(guest_mem, device);
-            let mmio_slot =
+            let device_info =
                 self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
-            Ok(mmio_slot.addr)
+            Ok(device_info.addr)
         }
     }
 
@@ -584,7 +594,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
@@ -613,7 +623,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
         #[cfg(target_arch = "aarch64")]
@@ -661,7 +671,7 @@ mod tests {
             // Use an exhaustive 'match' to make sure we cover all error variants.
             // When adding a new variant here, don't forget to also call this function with it.
             let msg = match err {
-                Error::BusError(_) => format!("{}{:?}", err, err),
+                Error::Bus(_) => format!("{}{:?}", err, err),
                 Error::Cmdline(_) => format!("{}{:?}", err, err),
                 Error::DeviceNotFound => format!("{}{:?}", err, err),
                 Error::EventFd(_) => format!("{}{:?}", err, err),
@@ -675,7 +685,7 @@ mod tests {
             };
             assert!(!msg.is_empty());
         };
-        check_fmt_err(Error::BusError(devices::BusError::Overlap));
+        check_fmt_err(Error::Bus(devices::BusError::Overlap));
         check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
@@ -712,7 +722,7 @@ mod tests {
             (arch::IRQ_BASE, arch::IRQ_MAX),
         )
         .unwrap();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
         let type_id = dummy.lock().unwrap().device_type();
@@ -734,7 +744,7 @@ mod tests {
 
         let id = "bar";
         assert!(device_manager
-            .get_device(DeviceType::Virtio(type_id), &id)
+            .get_device(DeviceType::Virtio(type_id), id)
             .is_none());
 
         let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));
@@ -766,15 +776,15 @@ mod tests {
             (arch::IRQ_BASE, arch::IRQ_MAX),
         )
         .unwrap();
-        let slot = device_manager.allocate_new_slot(0).unwrap();
-        assert_eq!(slot.irqs.len(), 0);
-        let slot = device_manager.allocate_new_slot(1).unwrap();
-        assert_eq!(slot.irqs[0], arch::IRQ_BASE);
+        let device_info = device_manager.allocate_mmio_resources(0).unwrap();
+        assert_eq!(device_info.irqs.len(), 0);
+        let device_info = device_manager.allocate_mmio_resources(1).unwrap();
+        assert_eq!(device_info.irqs[0], arch::IRQ_BASE);
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE + 1)
+                    .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
             "failed to allocate requested resource: The requested resource is not available."
@@ -785,15 +795,15 @@ mod tests {
             device_manager.irq_allocator.free_id(i).unwrap();
         }
 
-        let slot = device_manager
-            .allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1)
+        let device_info = device_manager
+            .allocate_mmio_resources(arch::IRQ_MAX - arch::IRQ_BASE - 1)
             .unwrap();
-        assert_eq!(slot.irqs[16], arch::IRQ_BASE + 16);
+        assert_eq!(device_info.irqs[16], arch::IRQ_BASE + 16);
         assert_eq!(
-            format!("{}", device_manager.allocate_new_slot(2).unwrap_err()),
+            format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
             "failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
-        assert!(device_manager.allocate_new_slot(0).is_ok());
+        assert!(device_manager.allocate_mmio_resources(0).is_ok());
     }
 }

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
+#![warn(clippy::ptr_as_ptr)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::cast_lossless)]
 //! Implements platform specific functionality.
 //! Supported platforms: x86_64 and aarch64.
 use std::{fmt, result};
