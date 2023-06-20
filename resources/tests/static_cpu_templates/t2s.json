@@ -26,7 +26,7 @@
       "modifiers": [
         {
           "register": "ebx",
-          "bitmap": "0b00000000000x000000000x1xx0x0x0xx"
+          "bitmap": "0b00000000000x000000x00x1xxxx0x0xx"
         },
         {
           "register": "ecx",

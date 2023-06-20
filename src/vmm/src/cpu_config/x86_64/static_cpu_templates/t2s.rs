@@ -85,11 +85,9 @@ pub fn t2s() -> CustomCpuTemplate {
                     // EBX:
                     // - Bit 02: SGX
                     // - Bit 04: HLE
-                    // - Bit 06: FDP_EXCPTN_ONLY
                     // - Bit 09: Enhanced REP MOVSB/STOSB
                     // - Bit 11: RTM
                     // - Bit 12: RDT-M
-                    // - Bit 13: Deprecates FPU CS and FPU DS
                     // - Bit 14: MPX
                     // - Bit 15: RDT-A
                     // - Bit 16: AVX512F
@@ -110,7 +108,7 @@ pub fn t2s() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b1111_1111_1110_1111_1111_1010_0101_0100,
+                            filter: 0b1111_1111_1110_1111_1101_1010_0001_0100,
                             value: 0b0000_0000_0000_0000_0000_0010_0000_0000,
                         },
                     },

@@ -30,10 +30,12 @@ See also: [boot protocol settings](boot-protocol.md)
 ## Intel-specific CPUID normalization
 
 | Description                                                    | Leaf                               | Subleaf | Register           | Bits  |
-|----------------------------------------------------------------|:----------------------------------:|:-------:|:------------------:|:----:|
+|----------------------------------------------------------------|:----------------------------------:|:-------:|:------------------:|:-----:|
 | Update deterministic cache parameters                          | 0x4                                | all     | EAX                | 31:14 |
 | Disable Intel Turbo Boost technology                           | 0x6                                | -       | EAX                | 1     |
 | Disable frequency selection                                    | 0x6                                | -       | ECX                | 3     |
+| Set FDP_EXCPTN_ONLY bit                                        | 0x7                                | 0x0     | EBX                | 6     |
+| Set "Deprecates FPU CS and FPU DS values" bit                  | 0x7                                | 0x0     | EBX                | 13    |
 | Disable performance monitoring                                 | 0xa                                | -       | EAX, EBX, ECX, EDX | all   |
 | Update brand string to use a default format and real frequency | 0x80000002, 0x80000003, 0x80000004 | -       | EAX, EBX, ECX, EDX | all   |
 
