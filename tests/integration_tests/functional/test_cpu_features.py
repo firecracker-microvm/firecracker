@@ -821,7 +821,6 @@ def check_masked_features(test_microvm, cpu_template):
                 (1 << 3) |  # BMI1
                 (1 << 4) |  # HLE
                 (1 << 5) |  # AVX2
-                (1 << 6) |  # FPDP
                 (1 << 8) |  # BMI2
                 (1 << 10) | # INVPCID
                 (1 << 11) | # RTM
@@ -907,7 +906,6 @@ def check_masked_features(test_microvm, cpu_template):
             (0x7, 0x0, "ebx",
                 (1 << 2) |  # SGX
                 (1 << 4) |  # HLE
-                (1 << 6) |  # FPDP
                 (1 << 11) | # RTM
                 (1 << 12) | # RDT_M
                 (1 << 14) | # MPX

@@ -85,11 +85,9 @@ pub fn t2a() -> CustomCpuTemplate {
                     // EBX:
                     // - Bit 02: Reserved (AMD APM) / SGX (Intel SDM)
                     // - Bit 04: Reserved (AMD APM) / HLE (Intel SDM)
-                    // - Bit 06: Reserved (AMD APM) / FDP_EXCPTN_ONLY (Intel SDM)
                     // - Bit 09: Reserved (AMD APM) / Enhanced REP MOVSB/STOSB (Intel SDM)
                     // - Bit 11: Reserved (AMD APM) / RTM (Intel SDM)
                     // - Bit 12: PQM (AMD APM) / RDT-M (Intel SDM)
-                    // - Bit 13: Reserved (AMD APM) / Deprecates FPU CS and FPU DS (Intel SDM)
                     // - Bit 14: Reserved (AMD APM) / MPX (Intel SDM)
                     // - Bit 15: PQE (AMD APM) / RDT-A (Intel SDM)
                     // - Bit 16: Reserved (AMD APM) / AVX512F (Intel SDM)
@@ -112,7 +110,7 @@ pub fn t2a() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b1111_1111_1110_1111_1111_1010_0101_0100,
+                            filter: 0b1111_1111_1110_1111_1101_1010_0001_0100,
                             value: 0b0000_0000_0000_0000_0000_0010_0000_0000,
                         },
                     },
