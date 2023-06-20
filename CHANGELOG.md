@@ -19,6 +19,7 @@
   of '_' as a separator.
 - Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX[6]) and ZERO_FCS_FDS bit
   (CPUID.7h.0:EBX[13]) in Intel's CPUID normalization process.
+- Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
 
 ### Fixed
 

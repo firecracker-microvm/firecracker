@@ -56,13 +56,10 @@ mod tests {
     use crate::utils::x86_64::{cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
 
     // Summary of CPUID modifiers:
-    // * As CPUID leaf 0x0 / subleaf 0x0 modifier exists in all the templates and its values are
-    //   different, it should be removed.
-    // * As CPUID leaf 0x1 / subleaf 0x0 modifier only exists in the second template, it should be
-    //   preserved.
-    // * As CPUID leaf 0x2 / subleaf 0x1 modifier exists in all the templates, EAX values are same
-    //   but EBX values are different, the EAX register modifier should be removed and the EBX
-    //   register modifier should be preserved.
+    // * A CPUID leaf 0x0 / subleaf 0x0 modifier exists in all the templates and its value is same.
+    // * A CPUID leaf 0x1 / subleaf 0x0 modifier only exists in the second template.
+    // * A CPUID leaf 0x2 / subleaf 0x1 modifier exists in all the templates, but EAX value is same
+    //   and EBX value is different across them.
     #[rustfmt::skip]
     fn build_input_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -114,7 +111,7 @@ mod tests {
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
                     cpuid_leaf_modifier!(0x2, 0x1, KvmCpuidFlags::SIGNIFICANT_INDEX, vec![
-                        cpuid_reg_modifier!(Ebx, 0x0),
+                        cpuid_reg_modifier!(Ebx, 0x0, 0b11),
                     ]),
                 ],
                 msr_modifiers: vec![],
@@ -125,7 +122,7 @@ mod tests {
                         cpuid_reg_modifier!(Eax, 0x0),
                     ]),
                     cpuid_leaf_modifier!(0x2, 0x1, KvmCpuidFlags::SIGNIFICANT_INDEX, vec![
-                        cpuid_reg_modifier!(Ebx, 0x1),
+                        cpuid_reg_modifier!(Ebx, 0x1, 0b11),
                     ]),
                 ],
                 msr_modifiers: vec![],
@@ -133,7 +130,7 @@ mod tests {
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
                     cpuid_leaf_modifier!(0x2, 0x1, KvmCpuidFlags::SIGNIFICANT_INDEX, vec![
-                        cpuid_reg_modifier!(Ebx, 0x2),
+                        cpuid_reg_modifier!(Ebx, 0x2, 0b11),
                     ]),
                 ],
                 msr_modifiers: vec![],
@@ -142,11 +139,9 @@ mod tests {
     }
 
     // Summary of MSR modifiers:
-    // * As addr 0x0 modifier exists in all the templates but its values are different, it should be
-    //   preserved.
-    // * As addr 0x1 modifier exists in all the templates and its values are same, it should be
-    //   removed.
-    // * As addr 0x2 modifier only exist in the third template, it should be preserved.
+    // * An addr 0x0 modifier exists in all the templates but its value is different.
+    // * An addr 0x1 modifier exists in all the templates and its value is same.
+    // * An addr 0x2 modifier only exists in the third template.
     #[rustfmt::skip]
     fn build_input_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -181,19 +176,19 @@ mod tests {
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
                 msr_modifiers: vec![
-                    msr_modifier!(0x0, 0x0),
+                    msr_modifier!(0x0, 0x0, 0b11),
                 ],
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
                 msr_modifiers: vec![
-                    msr_modifier!(0x0, 0x1),
+                    msr_modifier!(0x0, 0x1, 0b11),
                 ],
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
                 msr_modifiers: vec![
-                    msr_modifier!(0x0, 0x2),
+                    msr_modifier!(0x0, 0x2, 0b11),
                     msr_modifier!(0x2, 0x1),
                 ],
             },
