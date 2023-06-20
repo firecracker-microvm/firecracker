@@ -364,7 +364,7 @@ dependencies = [
  "autocfg",
  "cfg-if",
  "crossbeam-utils",
- "memoffset 0.7.1",
+ "memoffset",
  "scopeguard",
 ]
 
@@ -728,15 +728,6 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
 name = "memoffset"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "memoffset"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
@@ -784,15 +775,16 @@ version = "0.1.0"
 
 [[package]]
 name = "nix"
-version = "0.23.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
+checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
 dependencies = [
  "bitflags",
- "cc",
  "cfg-if",
  "libc",
- "memoffset 0.6.5",
+ "memoffset",
+ "pin-utils",
+ "static_assertions",
 ]
 
 [[package]]
@@ -853,6 +845,12 @@ name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
+
+[[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "plotters"
@@ -1142,6 +1140,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "subtle"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1237,7 +1241,7 @@ dependencies = [
 [[package]]
 name = "userfaultfd"
 version = "0.5.0"
-source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5#3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5"
+source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=b11a187b5743847dda76ed8df5419c3607d21375#b11a187b5743847dda76ed8df5419c3607d21375"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -1250,7 +1254,7 @@ dependencies = [
 [[package]]
 name = "userfaultfd-sys"
 version = "0.4.2"
-source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5#3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5"
+source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=b11a187b5743847dda76ed8df5419c3607d21375#b11a187b5743847dda76ed8df5419c3607d21375"
 dependencies = [
  "bindgen",
  "cc",

@@ -15,7 +15,7 @@ lazy_static = "1.4.0"
 libc = "0.2.117"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
-userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5", features = [
+userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "b11a187b5743847dda76ed8df5419c3607d21375", features = [
   "linux5_7",
 ] }
 versionize = "0.1.6"
