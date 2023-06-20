@@ -103,6 +103,7 @@ pub trait Numeric:
     + std::ops::BitAnd<Output = Self>
     + std::ops::BitOr<Output = Self>
     + std::ops::BitOrAssign<Self>
+    + std::ops::BitXor<Output = Self>
     + std::ops::Shl<u32, Output = Self>
     + std::ops::AddAssign<Self>
 {
