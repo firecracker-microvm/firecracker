@@ -99,7 +99,7 @@ def get_snap_restore_latency(
     ifaces = net_ifaces[:nets]
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(use_ramdisk=True)
+    vm.spawn(use_ramdisk=True, log_level="Info")
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=mem_size,
