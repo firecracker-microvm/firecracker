@@ -49,7 +49,7 @@ pub fn c3() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b11111111101011111101110101111100,
+                            filter: 0b11111111101011111101110100111100,
                             value: 0b00000000000000000000000000000000,
                         },
                     },

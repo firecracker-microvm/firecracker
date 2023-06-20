@@ -18,6 +18,9 @@ pub enum NormalizeCpuidError {
     /// Leaf 0x6 is missing from CPUID.
     #[error("Leaf 0x6 is missing from CPUID.")]
     MissingLeaf6,
+    /// Leaf 0x7 / subleaf 0 is missing from CPUID.
+    #[error("Leaf 0x7 / subleaf 0 is missing from CPUID.")]
+    MissingLeaf7,
     /// Leaf 0xA is missing from CPUID.
     #[error("Leaf 0xA is missing from CPUID.")]
     MissingLeafA,
@@ -85,6 +88,7 @@ impl super::IntelCpuid {
     ) -> Result<(), NormalizeCpuidError> {
         self.update_deterministic_cache_entry(cpu_count, cpus_per_core)?;
         self.update_power_management_entry()?;
+        self.update_extended_feature_flags_entry()?;
         self.update_performance_monitoring_entry()?;
         self.update_brand_string_entry()?;
 
@@ -194,6 +198,22 @@ impl super::IntelCpuid {
 
         // Clear X86 EPB feature. No frequency selection in the hypervisor.
         set_bit(&mut leaf_6.result.ecx, 3, false);
+        Ok(())
+    }
+
+    /// Update structured extended feature flags enumeration leaf
+    fn update_extended_feature_flags_entry(&mut self) -> Result<(), NormalizeCpuidError> {
+        let leaf_7_0 = self
+            .get_mut(&CpuidKey::subleaf(0x7, 0))
+            .ok_or(NormalizeCpuidError::MissingLeaf7)?;
+
+        // Set FDP_EXCPTN_ONLY bit (bit 6) and ZERO_FCS_FDS bit (bit 13) as recommended in kernel
+        // doc. These bits are reserved in AMD.
+        // https://lore.kernel.org/all/20220322110712.222449-3-pbonzini@redhat.com/
+        // https://github.com/torvalds/linux/commit/45016721de3c714902c6f475b705e10ae0bdd801
+        set_bit(&mut leaf_7_0.result.ebx, 6, true);
+        set_bit(&mut leaf_7_0.result.ebx, 13, true);
+
         Ok(())
     }
 
@@ -421,5 +441,31 @@ mod tests {
                     .unwrap()
             }),
         );
+    }
+
+    #[test]
+    fn test_update_extended_feature_flags_entry() {
+        let mut cpuid =
+            crate::cpu_config::x86_64::cpuid::IntelCpuid(std::collections::BTreeMap::from([(
+                crate::cpu_config::x86_64::cpuid::CpuidKey {
+                    leaf: 0x7,
+                    subleaf: 0,
+                },
+                crate::cpu_config::x86_64::cpuid::CpuidEntry {
+                    flags: crate::cpu_config::x86_64::cpuid::KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    ..Default::default()
+                },
+            )]));
+
+        cpuid.update_extended_feature_flags_entry().unwrap();
+
+        let leaf_7_0 = cpuid
+            .get(&crate::cpu_config::x86_64::cpuid::CpuidKey {
+                leaf: 0x7,
+                subleaf: 0,
+            })
+            .unwrap();
+        assert!((leaf_7_0.result.ebx & (1 << 6)) > 0);
+        assert!((leaf_7_0.result.ebx & (1 << 13)) > 0);
     }
 }
