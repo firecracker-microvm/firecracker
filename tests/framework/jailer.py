@@ -76,8 +76,6 @@ class JailerContext:
         self.resource_limits = resource_limits
         self.cgroup_ver = cgroup_ver
         self.parent_cgroup = parent_cgroup
-        self.ramfs_subdir_name = "ramfs"
-        self._ramfs_path = None
 
     # Disabling 'too-many-branches' warning for this function as it needs to
     # check every argument, so the number of branches will increase
@@ -148,15 +146,6 @@ class JailerContext:
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), "root")
 
-    def chroot_ramfs_path(self):
-        """Return the MicroVM chroot ramfs subfolder path."""
-        return os.path.join(self.chroot_path(), self.ramfs_subdir_name)
-
-    @property
-    def uses_ramfs(self):
-        """Is this jailer using ramfs?"""
-        return self._ramfs_path is not None
-
     def jailed_path(self, file_path, create=False, create_jail=False):
         """Create a hard link or block special device owned by uid:gid.
 
@@ -222,22 +211,12 @@ class JailerContext:
             return "ip netns exec {} ".format(self.netns)
         return ""
 
-    def setup(self, use_ramdisk=False):
+    def setup(self):
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None else DEFAULT_CHROOT_PATH,
             exist_ok=True,
         )
-
-        if use_ramdisk:
-            self._ramfs_path = self.chroot_ramfs_path()
-            os.makedirs(self._ramfs_path, exist_ok=True)
-            ramdisk_name = "ramfs-{}".format(self.jailer_id)
-            utils.run_cmd(
-                "mount -t ramfs -o size=1M {} {}".format(ramdisk_name, self._ramfs_path)
-            )
-            cmd = "chown {}:{} {}".format(self.uid, self.gid, self._ramfs_path)
-            utils.run_cmd(cmd)
 
         if self.netns and self.netns not in utils.run_cmd("ip netns list")[1]:
             utils.run_cmd("ip netns add {}".format(self.netns))
@@ -245,17 +224,8 @@ class JailerContext:
     def cleanup(self):
         """Clean up this jailer context."""
         # pylint: disable=subprocess-run-check
-        if self._ramfs_path:
-            utils.run_cmd("umount {}".format(self._ramfs_path), ignore_return_code=True)
-
         if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
-            try:
-                utils.run_cmd("ip netns del {}".format(self.netns))
-            except ChildProcessError:
-                # Sometimes, a race condition in pytest causes this destructor to run twice.
-                # Long-term, we'll want to do cleanup properly, but for now we ignore
-                # the exception
-                pass
+            utils.run_cmd("ip netns del {}".format(self.netns))
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
