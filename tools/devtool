@@ -137,9 +137,6 @@ OPT_UNATTENDED=false
 # Get the target prefix to avoid repeated calls to uname -m
 TARGET_PREFIX="$(uname -m)-unknown-linux-"
 
-DEFAULT_TEST_SESSION_ROOT_PATH=/srv
-DEFAULT_RAMDISK_PATH=/mnt/devtool-ramdisk
-
 
 # Check if Docker is available and exit if it's not.
 # Upon returning from this call, the caller can be certain Docker is available.
@@ -312,6 +309,8 @@ run_devctr() {
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
+        --tmpfs /srv:exec,dev,size=32G \
+        -v /boot:/boot \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
 }
@@ -410,11 +409,6 @@ cmd_help() {
     echo "        will be passed through to pytest."
     echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
     echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
-    echo "        -r, --ramdisk size[k|m|g]    Use a ramdisk of 'size' MB for
-                                               the entire test session (e.g
-                                               stored artifacts, Firecracker
-                                               binaries, logs/metrics FIFOs
-                                               and test created device files)."
     echo ""
 }
 
@@ -511,34 +505,6 @@ cmd_distclean() {
     fi
 }
 
-mount_ramdisk() {
-    local ramdisk_size="$1"
-    umount_ramdisk
-    DEFAULT_RAMDISK_PATH=$(sudo mktemp -d /mnt/devtool-ramdisk.XXXXXX)
-    ok_or_die "Could not create ramdisk directory"
-    sudo mkdir -p ${DEFAULT_RAMDISK_PATH} && \
-    sudo mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
-    ok_or_die "Failed to mount ramdisk to ${DEFAULT_RAMDISK_PATH}. Check the permission."
-    sudo mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
-    sudo mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
-
-    say "Using ramdisk: ${DEFAULT_RAMDISK_PATH}"
-}
-
-umount_ramdisk() {
-    if [ ! -e "${DEFAULT_RAMDISK_PATH}" ]; then
-        return 0
-    fi
-    if [ ! -d "${DEFAULT_RAMDISK_PATH}" ]; then
-        die "${DEFAULT_RAMDISK_PATH} is not a directory."
-    fi
-    if [ ! -w "${DEFAULT_RAMDISK_PATH}" ]; then
-        die "Failed to unmount ${DEFAULT_RAMDISK_PATH}. Check the permission."
-    fi
-    sudo umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
-    sudo rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
-}
-
 ensure_ci_artifacts() {
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
@@ -570,11 +536,6 @@ cmd_test() {
                 shift
                 local cpuset_mems="$1"
                 ;;
-            "-r"|"--ramdisk")
-                shift
-                local ramdisk_size="$1"
-                local ramdisk=true
-                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -593,11 +554,6 @@ cmd_test() {
     say "Kernel version: $(uname -r)"
     say "$(lscpu)"
     say "Starting test run ..."
-
-    if [[ $ramdisk = true ]]; then
-        mount_ramdisk ${ramdisk_size}
-        ramdisk_args="--env TMPDIR=${DEFAULT_TEST_SESSION_ROOT_PATH}/tmp --volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
-    fi
 
     # Testing (running Firecracker via the jailer) needs root access,
     # in order to set-up the Firecracker jail (manipulating cgroups, net
@@ -628,18 +584,12 @@ cmd_test() {
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
         --env-file env.list \
-        -v /boot:/boot \
-        ${ramdisk_args} \
         -- \
         ./tools/test.sh "$@"
 
     ret=$?
 
     say "Finished test run ..."
-
-    if [[ $ramdisk = true ]]; then
-        umount_ramdisk
-    fi
 
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
@@ -664,12 +614,7 @@ cmd_shell() {
         case "$1" in
             "-h"|"--help")          { cmd_help; exit 1; } ;;
             "-p"|"--privileged")    { privileged=true;  } ;;
-            "-r"|"--ramdisk")
-                  shift
-                  local ramdisk_size="$1"
-                  local ramdisk=true
-                  ;;
-              "--")               { shift; break;     } ;;
+            "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -680,11 +625,6 @@ cmd_shell() {
     # Make sure we have what we need to continue.
     ensure_devctr
     ensure_build_dir
-
-    if [[ $ramdisk = true ]]; then
-        mount_ramdisk ${ramdisk_size}
-        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
-    fi
 
     if [[ $privileged = true ]]; then
         # If requested, spin up a privileged container.
@@ -699,8 +639,6 @@ cmd_shell() {
             --ulimit memlock=-1:-1 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
-            -v /boot:/boot \
-            ${ramdisk_args} \
             -- \
             bash
         ret=$?
@@ -730,10 +668,6 @@ cmd_shell() {
             -- \
             bash --norc
         ret=$?
-    fi
-
-    if [[ $ramdisk = true ]]; then
-        umount_ramdisk
     fi
 
     return $ret
