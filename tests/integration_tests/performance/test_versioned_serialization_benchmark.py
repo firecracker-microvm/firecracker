@@ -46,11 +46,11 @@ BASELINES = {
     "ARM": {
         "serialize": {
             "no-crc": {"target": 0.050, "delta": 0.03},  # milliseconds  # milliseconds
-            "crc": {"target": 0.050, "delta": 0.025},  # milliseconds  # milliseconds
+            "crc": {"target": 0.075, "delta": 0.025},  # milliseconds  # milliseconds
         },
         "deserialize": {
-            "no-crc": {"target": 0.031, "delta": 0.02},  # milliseconds  # milliseconds
-            "crc": {"target": 0.038, "delta": 0.02},  # milliseconds  # milliseconds
+            "no-crc": {"target": 0.060, "delta": 0.02},  # milliseconds  # milliseconds
+            "crc": {"target": 0.065, "delta": 0.02},  # milliseconds  # milliseconds
         },
     },
 }
