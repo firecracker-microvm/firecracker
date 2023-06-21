@@ -248,9 +248,6 @@ class JailerContext:
         if self._ramfs_path:
             utils.run_cmd("umount {}".format(self._ramfs_path), ignore_return_code=True)
 
-        if self.jailer_id is not None:
-            shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
-
         if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
             try:
                 utils.run_cmd("ip netns del {}".format(self.netns))
