@@ -144,7 +144,7 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     obj["drives"][0]["path_on_host"] = rootfs.name
     obj["drives"][0]["is_read_only"] = True
     obj["machine-config"]["cpu_template"] = cpu_template
-    vm.create_jailed_resource(vm_config_file, create_jail=True)
+    vm.create_jailed_resource(vm_config_file)
     vm_config = Path(vm.chroot()) / vm_config_file.name
     vm_config.write_text(json.dumps(obj))
     vm.jailer.extra_args = {"config-file": vm_config_file.name}

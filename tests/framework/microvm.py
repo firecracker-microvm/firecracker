@@ -186,7 +186,7 @@ class Microvm:
         self.jailer_clone_pid = None
 
         # Copy the /etc/localtime file in the jailer root
-        self.jailer.copy_into_root("/etc/localtime", create_jail=True)
+        self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
         # Session name is composed of the last part of the temporary path
         # allocated by the current test session and the unique id of this
@@ -374,9 +374,9 @@ class Microvm:
         """Return all metric data points written by FC."""
         return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
-    def create_jailed_resource(self, path, create_jail=False):
+    def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
-        return self.jailer.jailed_path(path, create=True, create_jail=create_jail)
+        return self.jailer.jailed_path(path, create=True)
 
     def get_jailed_resource(self, path):
         """Get the relative jailed path to a resource."""
@@ -443,7 +443,7 @@ class Microvm:
         if log_file is not None:
             self.log_file = Path(self.path) / log_file
             self.log_file.touch()
-            self.create_jailed_resource(self.log_file, create_jail=True)
+            self.create_jailed_resource(self.log_file)
             # The default value for `level`, when configuring the
             # logger via cmd line, is `Warning`. We set the level
             # to `Debug` to also have the boot time printed in fifo.
@@ -452,13 +452,13 @@ class Microvm:
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
             self.metrics_file.touch()
-            self.create_jailed_resource(self.metrics_file, create_jail=True)
+            self.create_jailed_resource(self.metrics_file)
             self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
                 LOG.debug("metadata file exists, adding as a jailed resource")
-                self.create_jailed_resource(self.metadata_file, create_jail=True)
+                self.create_jailed_resource(self.metadata_file)
             self.jailer.extra_args.update(
                 {"metadata": os.path.basename(self.metadata_file)}
             )

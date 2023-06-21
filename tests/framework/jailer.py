@@ -146,7 +146,7 @@ class JailerContext:
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), "root")
 
-    def jailed_path(self, file_path, create=False, create_jail=False):
+    def jailed_path(self, file_path, create=False, subdir="."):
         """Create a hard link or block special device owned by uid:gid.
 
         Create a hard link or block special device from the specified file,
@@ -155,10 +155,9 @@ class JailerContext:
         """
         file_path = Path(file_path)
         chroot_path = Path(self.chroot_path())
-        global_p = chroot_path / file_path.name
-        if create_jail:
-            chroot_path.mkdir(parents=True, exist_ok=True)
-        jailed_p = Path("/") / file_path.name
+        global_p = chroot_path / subdir / file_path.name
+        global_p.parent.mkdir(parents=True, exist_ok=True)
+        jailed_p = Path("/") / subdir / file_path.name
         if create:
             stat_src = file_path.stat()
             if file_path.is_block_device():
@@ -176,23 +175,6 @@ class JailerContext:
 
             os.chown(global_p, self.uid, self.gid)
         return str(jailed_p)
-
-    def copy_into_root(self, file_path, create_jail=False):
-        """Copy a file in the jail root, owned by uid:gid.
-
-        Copy a file in the jail root, creating the folder path if
-        not existent, then change their owner to uid:gid.
-        """
-        global_path = os.path.join(self.chroot_path(), file_path.strip(os.path.sep))
-        if create_jail:
-            os.makedirs(self.chroot_path(), exist_ok=True)
-
-        os.makedirs(os.path.dirname(global_path), exist_ok=True)
-
-        shutil.copy(file_path, global_path)
-
-        cmd = "chown {}:{} {}".format(self.uid, self.gid, global_path)
-        utils.run_cmd(cmd)
 
     def netns_file_path(self):
         """Get the host netns file path for a jailer context.
