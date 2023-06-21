@@ -34,14 +34,10 @@ const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
 /// is in development preview.
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     match msg_opt {
-        None => warn!(
-            "{} {} is in development preview.",
-            DEV_PREVIEW_LOG_PREFIX, feature_name
-        ),
-        Some(msg) => warn!(
-            "{} {} is in development preview - {}",
-            DEV_PREVIEW_LOG_PREFIX, feature_name, msg
-        ),
+        None => warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview."),
+        Some(msg) => {
+            warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview - {msg}")
+        }
     }
 }
 
