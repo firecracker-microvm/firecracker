@@ -20,6 +20,7 @@ from framework.utils import (
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
+    summarize_cpu_percent,
 )
 from integration_tests.performance.configs import defs
 
@@ -155,41 +156,11 @@ def produce_iperf_output(
         # the last iperf3 server-client pair measurements.
         res = json.loads(futures[-1].result())
 
-        # We expect a single emulation thread tagged with `firecracker` name.
-        tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) > 0
-        for thread_id in cpu_load[tag]:
-            data = cpu_load[tag][thread_id]
-            data_len = len(data)
-            assert data_len == cpu_load_runtime
-            vmm_util = sum(data) / data_len
-            cpu_util_perc = res[IPERF3_END_RESULTS_TAG][
-                IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG
-            ] = {}
-            cpu_util_perc[CPU_UTILIZATION_VMM] = vmm_util
-            if DEBUG:
-                res[IPERF3_END_RESULTS_TAG][
-                    DEBUG_CPU_UTILIZATION_VMM_SAMPLES_TAG
-                ] = data
-
-        vcpus_util = 0
-        for vcpu in range(basevm.vcpus_count):
-            # We expect a single fc_vcpu thread tagged with
-            # f`fc_vcpu {vcpu}`.
-            tag = f"fc_vcpu {vcpu}"
-            assert tag in cpu_load and len(cpu_load[tag]) == 1
-            for thread_id in cpu_load[tag]:
-                data = cpu_load[tag][thread_id]
-                data_len = len(data)
-                assert data_len == cpu_load_runtime
-                if DEBUG:
-                    res[IPERF3_END_RESULTS_TAG][
-                        f"cpu_utilization_fc_vcpu_{vcpu}_samples"
-                    ] = data
-
-                vcpus_util += sum(data) / data_len
-
-        cpu_util_perc[CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
+        vmm_util, vcpu_util = summarize_cpu_percent(cpu_load)
+        res[IPERF3_END_RESULTS_TAG][IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = {
+            CPU_UTILIZATION_VMM: vmm_util,
+            CPU_UTILIZATION_VCPUS_TOTAL: vcpu_util,
+        }
 
         yield res
 

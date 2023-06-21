@@ -20,6 +20,7 @@ from framework.utils import (
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
+    summarize_cpu_percent,
 )
 from integration_tests.performance.configs import defs
 
@@ -129,35 +130,11 @@ def run_fio(env_id, basevm, mode, bs):
         rc, _, stderr = basevm.ssh.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
-        result = {}
         cpu_load = cpu_load_future.result()
-        tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) > 0
 
-        data = list(cpu_load[tag].values())[0]
-        data_len = len(data)
-        assert data_len == CONFIG["time"]
+        vmm_util, vcpu_util = summarize_cpu_percent(cpu_load)
+        result = {CPU_UTILIZATION_VMM: vmm_util, CPU_UTILIZATION_VCPUS_TOTAL: vcpu_util}
 
-        result[CPU_UTILIZATION_VMM] = sum(data) / data_len
-        if DEBUG:
-            result[CPU_UTILIZATION_VMM_SAMPLES_TAG] = data
-
-        vcpus_util = 0
-        for vcpu in range(basevm.vcpus_count):
-            # We expect a single fc_vcpu thread tagged with
-            # f`fc_vcpu {vcpu}`.
-            tag = f"fc_vcpu {vcpu}"
-            assert tag in cpu_load and len(cpu_load[tag]) == 1
-            data = list(cpu_load[tag].values())[0]
-            data_len = len(data)
-
-            assert data_len == CONFIG["time"]
-            if DEBUG:
-                samples_tag = f"cpu_utilization_fc_vcpu_{vcpu}_samples"
-                result[samples_tag] = data
-            vcpus_util += sum(data) / data_len
-
-        result[CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
         return result
 
 
