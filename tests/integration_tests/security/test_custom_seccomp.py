@@ -30,15 +30,15 @@ def _custom_filter_setup(test_microvm, json_filter):
 
 
 def _config_file_setup(test_microvm, vm_config_file):
-    test_microvm.create_jailed_resource(test_microvm.kernel_file, create_jail=True)
-    test_microvm.create_jailed_resource(test_microvm.rootfs_file, create_jail=True)
+    test_microvm.create_jailed_resource(test_microvm.kernel_file)
+    test_microvm.create_jailed_resource(test_microvm.rootfs_file)
 
     vm_config_path = os.path.join(test_microvm.path, os.path.basename(vm_config_file))
     with open(vm_config_file, encoding="utf-8") as f1:
         with open(vm_config_path, "w", encoding="utf-8") as f2:
             for line in f1:
                 f2.write(line)
-    test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
+    test_microvm.create_jailed_resource(vm_config_path)
     test_microvm.jailer.extra_args = {"config-file": os.path.basename(vm_config_file)}
 
     test_microvm.jailer.extra_args.update({"no-api": None})
