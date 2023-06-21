@@ -10,7 +10,7 @@ perf_test = {
     "block": {
         "label": "🖴 Block Performance",
         "test_path": "integration_tests/performance/test_block_performance.py",
-        "devtool_opts": "-r 16834m -c 1-10 -m 0",
+        "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 240,
     },
     "snapshot-latency": {

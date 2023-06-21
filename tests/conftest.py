@@ -169,7 +169,6 @@ def test_fc_session_root_path():
         prefix="fctest-", dir=defs.DEFAULT_TEST_SESSION_ROOT_PATH
     )
     yield fc_session_root_path
-    shutil.rmtree(fc_session_root_path)
 
 
 @pytest.fixture(scope="session")
@@ -315,6 +314,7 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
             for vm in self.vms:
                 vm.kill()
                 vm.jailer.cleanup()
+                shutil.rmtree(vm.jailer.chroot_base_with_id())
             shutil.rmtree(self.tmp_path)
 
     uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
