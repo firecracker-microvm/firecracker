@@ -18,10 +18,9 @@ class Provider(ABC):
         self._baselines = baselines
 
     @abstractmethod
-    def get(self, ms_name: str, st_name: str) -> dict:
-        """Return the baselines corresponding to the `ms_name` and `st_name`...
-
-        ...combination.
+    def get(self, metric_name: str, statistic_name: str) -> dict:
+        """
+        Return the baselines corresponding to given metric (e.g. 'vmm_cpu_utilization') and statistic (e.g. 'Avg') combination.
         """
 
     def read_baseline(self, data: dict):

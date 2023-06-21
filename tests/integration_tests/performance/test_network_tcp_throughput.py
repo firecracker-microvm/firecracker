@@ -71,9 +71,9 @@ class NetTCPThroughputBaselineProvider(BaselineProvider):
         super().__init__(DictQuery(baseline))
         self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
-    def get(self, ms_name: str, st_name: str) -> dict:
+    def get(self, metric_name: str, statistic_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
-        key = self._tag.format(ms_name, st_name)
+        key = self._tag.format(metric_name, statistic_name)
         baseline = self._baselines.get(key)
         if baseline:
             target = baseline.get("target")
