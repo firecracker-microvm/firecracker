@@ -374,17 +374,6 @@ class Microvm:
         """Return all metric data points written by FC."""
         return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
-    def copy_to_jail_ramfs(self, src):
-        """Copy a file to a jail ramfs."""
-        filename = os.path.basename(src)
-        dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
-        jailed_path = os.path.join("/", self.jailer.ramfs_subdir_name, filename)
-        shutil.copy(src, dest_path)
-        os.chmod(dest_path, 0o600)
-        cmd = "chown {}:{} {}".format(self.jailer.uid, self.jailer.gid, dest_path)
-        utils.run_cmd(cmd)
-        return jailed_path
-
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
         return self.jailer.jailed_path(path, create=True, create_jail=create_jail)
@@ -444,12 +433,11 @@ class Microvm:
         self,
         log_file="fc.log",
         log_level="Debug",
-        use_ramdisk=False,
         metrics_path="fc.ndjson",
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
-        self.jailer.setup(use_ramdisk=use_ramdisk)
+        self.jailer.setup()
         self.api = Api(self.jailer.api_socket_path())
 
         if log_file is not None:
@@ -609,7 +597,6 @@ class Microvm:
                 is_root_device=True,
                 is_read_only=read_only,
                 io_engine=rootfs_io_engine,
-                use_ramdisk=self.jailer.uses_ramfs,
             )
 
     def daemonize_jailer(self, jailer_param_list):
@@ -649,15 +636,10 @@ class Microvm:
         partuuid=None,
         cache_type=None,
         io_engine=None,
-        use_ramdisk=False,
     ):
         """Add a block device."""
 
-        if use_ramdisk:
-            path_on_jail = self.copy_to_jail_ramfs(path_on_host)
-        else:
-            path_on_jail = self.create_jailed_resource(path_on_host)
-
+        path_on_jail = self.create_jailed_resource(path_on_host)
         self.api.drive.put(
             drive_id=drive_id,
             path_on_host=path_on_jail,
