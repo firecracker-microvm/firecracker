@@ -1400,7 +1400,7 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )
     test_microvm.spawn()
-    test_microvm.api_session.untime()
+    test_microvm.time_api_request = False
 
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)

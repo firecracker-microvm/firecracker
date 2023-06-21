@@ -322,51 +322,12 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
-@pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
-)
-def test_cpu_config_change(test_microvm_with_api, cpu_template_helper, tmp_path):
+def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
     """
-    Verify that the current guest CPU config has not changed since the baseline
-    fingerprint was gathered.
+    Compare fingerprint files with filters between one taken at the moment and
+    a baseline file taken in a specific point in time.
     """
     # Generate VM config from test_microvm_with_api
-    microvm = test_microvm_with_api
-    microvm.spawn()
-    microvm.basic_config()
-    vm_config_path = save_vm_config(microvm, tmp_path)
-
-    # Dump a fingerprint with the generated VM config.
-    fingerprint_path = tmp_path / "fingerprint.json"
-    cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
-
-    # Baseline fingerprint.
-    baseline_path = Path(
-        f"{TEST_RESOURCES_DIR}/"
-        f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
-    )
-    # Use this code to generate baseline fingerprint.
-    # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
-
-    # Compare with baseline
-    actual_cpu_config = json.loads(fingerprint_path.read_text(encoding="utf-8"))[
-        "guest_cpu_config"
-    ]
-    baseline_cpu_config = json.loads(baseline_path.read_text(encoding="utf-8"))[
-        "guest_cpu_config"
-    ]
-    assert actual_cpu_config == baseline_cpu_config
-
-
-@pytest.mark.nonci
-def test_host_fingerprint_change(test_microvm_with_api, cpu_template_helper, tmp_path):
-    """
-    Verify that the host fingerprint has not changed since the baseline
-    fingerprint was gathered.
-    """
-    # Generate VM config from test_microvm_with_api
-    microvm = test_microvm_with_api
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)
@@ -387,7 +348,38 @@ def test_host_fingerprint_change(test_microvm_with_api, cpu_template_helper, tmp
     cpu_template_helper.fingerprint_compare(
         baseline_path,
         fingerprint_path,
-        filters=[
+        filters,
+    )
+
+
+@pytest.mark.skipif(
+    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
+)
+def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_helper):
+    """
+    Verify that the guest CPU config has not changed since the baseline
+    fingerprint was gathered.
+    """
+    detect_fingerprint_change(
+        test_microvm_with_api,
+        tmp_path,
+        cpu_template_helper,
+        ["guest_cpu_config"],
+    )
+
+
+@pytest.mark.nonci
+def test_host_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_helper):
+    """
+    Verify that the host fingerprint has not changed since the baseline
+    fingerprint was gathered.
+    """
+    detect_fingerprint_change(
+        test_microvm_with_api,
+        tmp_path,
+        cpu_template_helper,
+        [
             "kernel_version",
             "microcode_version",
             "bios_version",

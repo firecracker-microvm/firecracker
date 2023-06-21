@@ -381,7 +381,6 @@ class SnapshotCreate:
 
     def put(self, **args):
         """Create a snapshot of the microvm."""
-        self._api_session.untime()
         datax = self.create_json(**args)
         return self._api_session.put("{}".format(self._snapshot_cfg_url), json=datax)
 

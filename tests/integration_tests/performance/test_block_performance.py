@@ -257,7 +257,7 @@ def test_block_performance(
     """
     guest_mem_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn()
+    vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
     vm.ssh_network_config(network_config, "1")
     # Add a secondary block device for benchmark tests.
