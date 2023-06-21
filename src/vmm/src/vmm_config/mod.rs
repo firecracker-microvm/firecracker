@@ -6,7 +6,7 @@ use std::convert::{From, TryInto};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, LineWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Mutex;
 
@@ -270,7 +270,7 @@ impl FromStr for Level {
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
-    pub log_path: std::path::PathBuf,
+    pub log_path: PathBuf,
     /// The level of the Logger.
     pub level: Option<Level>,
     /// When enabled, the logger will append to the output the severity of the log entry.
@@ -280,7 +280,7 @@ pub struct LoggerConfig {
     /// Use the new logger format.
     pub new_format: Option<bool>,
     /// The profile file to output.
-    pub profile_file: Option<std::path::PathBuf>,
+    pub profile_file: Option<PathBuf>,
 }
 
 /// Error with actions on the `LoggerConfig`.
@@ -378,7 +378,7 @@ fn old_log<S: Subscriber + for<'span> LookupSpan<'span>>(
 }
 
 fn flame<S: Subscriber + for<'span> LookupSpan<'span>>(
-    profile_file: &std::path::PathBuf,
+    profile_file: &PathBuf,
 ) -> FlameLayer<S, BufWriter<File>> {
     // We can discard the flush guard as
     // > This type is only needed when using
