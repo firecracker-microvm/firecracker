@@ -19,7 +19,7 @@ pub use crate::metrics::{
     SharedStoreMetric, StoreMetric, METRICS,
 };
 
-#[allow(missing_docs)]
+/// Alias for `std::io::LineWriter<std::fs::File>`.
 pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
 
 /// Prefix to be used in log lines for functions/modules in Firecracker
