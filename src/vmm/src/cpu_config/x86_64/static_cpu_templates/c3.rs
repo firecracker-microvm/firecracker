@@ -128,7 +128,6 @@ pub fn c3() -> CustomCpuTemplate {
                     // - Bit 03: BMI1
                     // - Bit 04: HLE
                     // - Bit 05: AVX2
-                    // - Bit 06: FDP_EXCPTN_ONLY
                     // - Bit 08: BMI2
                     // - Bit 10: INVPCID
                     // - Bit 11: RTM
@@ -152,7 +151,7 @@ pub fn c3() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b1111_1111_1010_1111_1101_1101_0111_1100,
+                            filter: 0b1111_1111_1010_1111_1101_1101_0011_1100,
                             value: 0b0000_0000_0000_0000_0000_0000_0000_0000,
                         },
                     },
