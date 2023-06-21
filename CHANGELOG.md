@@ -4,6 +4,10 @@
 
 ### Added
 
+- [#3837](https://github.com/firecracker-microvm/firecracker/issues/3837): Added
+  official support for Linux 6.1. See
+  [prod-host-setup](./docs/prod-host-setup.md) for some security and performance
+  considerations.
 - [#4045](https://github.com/firecracker-microvm/firecracker/pull/4045)
   and [#4075](https://github.com/firecracker-microvm/firecracker/pull/4075):
   Added `snapshot-editor` tool for modifications of snapshot files.
