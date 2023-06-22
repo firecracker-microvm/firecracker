@@ -15,6 +15,7 @@
 //! in guest memory. This is done to avoid unnecessarily copying data from guest memory
 //! to temporary buffers, before passing it on to the vsock backend.
 
+use std::fmt::Debug;
 use std::io::ErrorKind;
 
 use utils::vm_memory::{
@@ -86,6 +87,7 @@ unsafe impl ByteValued for VsockPacketHeader {}
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:
 /// - the chain head, holding the packet header; and
 /// - (an optional) data/buffer descriptor, only present for data packets (VSOCK_OP_RW).
+#[derive(Debug)]
 pub struct VsockPacket {
     hdr_addr: GuestAddress,
     // For performance purposes we hold a local copy of the Packet header.
@@ -271,11 +273,11 @@ impl VsockPacket {
             .ok_or(VsockError::GuestMemoryBounds)
     }
 
-    pub fn read_at_offset_from(
+    pub fn read_at_offset_from<T: ReadVolatile + Debug>(
         &mut self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        src: &mut impl ReadVolatile,
+        src: &mut T,
         count: usize,
     ) -> Result<usize> {
         let mut dst = self.check_bounds_for_buffer_access(mem, offset, count)?;
@@ -295,11 +297,11 @@ impl VsockPacket {
         }
     }
 
-    pub fn write_from_offset_to(
+    pub fn write_from_offset_to<T: WriteVolatile + Debug>(
         &self,
         mem: &GuestMemoryMmap,
         offset: usize,
-        dst: &mut impl WriteVolatile,
+        dst: &mut T,
         count: usize,
     ) -> Result<usize> {
         let src = self.check_bounds_for_buffer_access(mem, offset, count)?;

@@ -13,6 +13,7 @@ pub enum Error {
 }
 
 /// A helper structure which can be used to run a one-time initialization.
+#[derive(Debug)]
 pub struct Init {
     state: AtomicUsize,
 }

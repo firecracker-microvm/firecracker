@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
@@ -86,6 +87,12 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
 #[derive(Copy, Clone)]
 pub struct IfReqBuilder(ifreq);
 
+impl fmt::Debug for IfReqBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "IfReqBuilder {{ .. }}")
+    }
+}
+
 impl IfReqBuilder {
     pub fn new() -> Self {
         Self(Default::default())
@@ -105,7 +112,11 @@ impl IfReqBuilder {
         self
     }
 
-    pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> std::io::Result<ifreq> {
+    pub(crate) fn execute<F: AsRawFd + Debug>(
+        mut self,
+        socket: &F,
+        ioctl: u64,
+    ) -> std::io::Result<ifreq> {
         // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
         if unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) } < 0 {
             return Err(IoError::last_os_error());

@@ -9,6 +9,7 @@
 mod common;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::Read;
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ pub enum InstallationError {
 /// memory that we can allocate while performing the deserialization.
 /// It's recommended that the integrator of the library uses this to prevent memory allocations
 /// DOS-es.
-pub fn deserialize_binary<R: Read>(
+pub fn deserialize_binary<R: Read + Debug>(
     reader: R,
     bytes_limit: Option<u64>,
 ) -> std::result::Result<BpfThreadMap, DeserializationError> {

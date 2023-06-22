@@ -6,25 +6,19 @@
 // found in the THIRD-PARTY file.
 
 //! Implements a wrapper over an UART serial device.
-use std::io::Write;
+use std::fmt::Debug;
+use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::Arc;
 use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, SerialDeviceMetrics};
+use log::{error, warn};
+use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};
 
 use crate::devices::legacy::EventFdTrigger;
-use crate::devices::BusDevice;
-
-// Cannot use multiple types as bounds for a trait object, so we define our own trait
-// which is a composition of the desired bounds. In this case, io::Read and AsRawFd.
-// Run `rustc --explain E0225` for more details.
-/// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd` traits.
-pub trait ReadableFd: io::Read + AsRawFd {}
 
 // Received Data Available interrupt - for letting the driver know that
 // there is some pending data to be processed.
@@ -42,7 +36,7 @@ pub trait RawIOHandler {
     fn raw_input(&mut self, _data: &[u8]) -> result::Result<(), RawIOError>;
 }
 
-impl<EV: SerialEvents, W: Write> RawIOHandler for Serial<EventFdTrigger, EV, W> {
+impl<EV: SerialEvents + Debug, W: Write + Debug> RawIOHandler for Serial<EventFdTrigger, EV, W> {
     // This is not used for anything and is basically just a dummy implementation for `raw_input`.
     fn raw_input(&mut self, data: &[u8]) -> result::Result<(), RawIOError> {
         // Fail fast if the serial is serviced with more data than it can buffer.
@@ -60,24 +54,23 @@ impl<EV: SerialEvents, W: Write> RawIOHandler for Serial<EventFdTrigger, EV, W> 
 }
 
 /// Wrapper over available events (i.e metrics, buffer ready etc).
+#[derive(Debug)]
 pub struct SerialEventsWrapper {
-    /// Metrics for this serial device.
-    pub metrics: Arc<SerialDeviceMetrics>,
     /// Buffer ready event.
     pub buffer_ready_event_fd: Option<EventFdTrigger>,
 }
 
 impl SerialEvents for SerialEventsWrapper {
     fn buffer_read(&self) {
-        self.metrics.read_count.inc();
+        METRICS.uart.read_count.inc();
     }
 
     fn out_byte(&self) {
-        self.metrics.write_count.inc();
+        METRICS.uart.write_count.inc();
     }
 
     fn tx_lost_byte(&self) {
-        self.metrics.missed_write_count.inc();
+        METRICS.uart.missed_write_count.inc();
     }
 
     fn in_buffer_empty(&self) {
@@ -95,15 +88,36 @@ impl SerialEvents for SerialEventsWrapper {
     }
 }
 
-/// Wrapper over the imported serial device.
-pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write> {
-    /// Serial device object.
-    pub serial: Serial<T, EV, W>,
-    /// Input to the serial device (needs to be readable).
-    pub input: Option<Box<dyn ReadableFd + Send>>,
+#[derive(Debug)]
+pub enum SerialOut {
+    Sink(std::io::Sink),
+    Stdout(std::io::Stdout),
+}
+impl std::io::Write for SerialOut {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Sink(sink) => sink.write(buf),
+            Self::Stdout(stdout) => stdout.write(buf),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Sink(sink) => sink.flush(),
+            Self::Stdout(stdout) => stdout.flush(),
+        }
+    }
 }
 
-impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
+/// Wrapper over the imported serial device.
+#[derive(Debug)]
+pub struct SerialWrapper<T: Trigger, EV: SerialEvents, I: Read + AsRawFd + Send> {
+    /// Serial device object.
+    pub serial: Serial<T, EV, SerialOut>,
+    /// Input to the serial device (needs to be readable).
+    pub input: Option<I>,
+}
+
+impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEventsWrapper, I> {
     fn handle_ewouldblock(&self, ops: &mut EventOps) {
         let buffer_ready_fd = self.buffer_ready_evt_fd();
         let input_fd = self.serial_input_fd();
@@ -171,16 +185,15 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
 }
 
 /// Type for representing a serial device.
-pub type SerialDevice =
-    SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<dyn io::Write + Send>>;
+pub type SerialDevice<I> = SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>;
 
-impl<W: std::io::Write> MutEventSubscriber
-    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, W>
+impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
+    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 {
     /// Handle events on the serial input fd.
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         #[inline]
-        fn unregister_source<T: AsRawFd>(ops: &mut EventOps, source: &T) {
+        fn unregister_source<T: AsRawFd + Debug>(ops: &mut EventOps, source: &T) {
             match ops.remove(Events::new(source, EventSet::IN)) {
                 Ok(_) => (),
                 Err(_) => error!("Could not unregister source fd: {}", source.as_raw_fd()),
@@ -264,127 +277,63 @@ impl<W: std::io::Write> MutEventSubscriber
     }
 }
 
-impl<W: Write + Send + 'static> BusDevice
-    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, W>
+impl<I: Read + AsRawFd + Send + Debug + 'static>
+    SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 {
-    fn read(&mut self, offset: u64, data: &mut [u8]) {
+    pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() != 1 {
-            self.serial.events().metrics.missed_read_count.inc();
+            METRICS.uart.missed_read_count.inc();
             return;
         }
         data[0] = self.serial.read(offset as u8);
     }
 
-    fn write(&mut self, offset: u64, data: &[u8]) {
+    pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
         if data.len() != 1 {
-            self.serial.events().metrics.missed_write_count.inc();
+            METRICS.uart.missed_write_count.inc();
             return;
         }
         if let Err(err) = self.serial.write(offset as u8, data[0]) {
             // Counter incremented for any handle_write() error.
             error!("Failed the write to serial: {:?}", err);
-            self.serial.events().metrics.error_count.inc();
+            METRICS.uart.error_count.inc();
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-    use std::sync::{Arc, Mutex};
-
     use utils::eventfd::EventFd;
 
     use super::*;
-
-    #[derive(Clone)]
-    struct SharedBuffer {
-        buf: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl SharedBuffer {
-        fn new() -> SharedBuffer {
-            SharedBuffer {
-                buf: Arc::new(Mutex::new(Vec::new())),
-            }
-        }
-    }
-
-    impl io::Write for SharedBuffer {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.buf.lock().unwrap().write(buf)
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            self.buf.lock().unwrap().flush()
-        }
-    }
-
-    #[test]
-    fn test_serial_bus_write() {
-        let serial_out = SharedBuffer::new();
-        let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
-
-        let metrics = Arc::new(SerialDeviceMetrics::default());
-        let mut serial = SerialDevice {
-            serial: Serial::with_events(
-                intr_evt,
-                SerialEventsWrapper {
-                    metrics: metrics.clone(),
-                    buffer_ready_event_fd: None,
-                },
-                Box::new(serial_out.clone()),
-            ),
-            input: None,
-        };
-        let invalid_writes_before = serial.serial.events().metrics.missed_write_count.count();
-        <dyn BusDevice>::write(&mut serial, 0u64, &[b'x', b'y']);
-        let writes_before = metrics.write_count.count();
-
-        let invalid_writes_after = metrics.missed_write_count.count();
-        assert_eq!(invalid_writes_before + 1, invalid_writes_after);
-        <dyn BusDevice>::write(&mut serial, 0u64, &[b'a']);
-        <dyn BusDevice>::write(&mut serial, 0u64, &[b'b']);
-        <dyn BusDevice>::write(&mut serial, 0u64, &[b'c']);
-        assert_eq!(
-            serial_out.buf.lock().unwrap().as_slice(),
-            &[b'a', b'b', b'c']
-        );
-
-        let invalid_writes_after_2 = metrics.missed_write_count.count();
-        let writes_after = metrics.write_count.count();
-        // The `invalid_write_count` metric should be the same as before the one-byte writes.
-        assert_eq!(invalid_writes_after_2, invalid_writes_after);
-        assert_eq!(writes_after, writes_before + 3);
-    }
 
     #[test]
     fn test_serial_bus_read() {
         let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-        let metrics = Arc::new(SerialDeviceMetrics::default());
+        let metrics = &METRICS.uart;
 
         let mut serial = SerialDevice {
             serial: Serial::with_events(
                 intr_evt,
                 SerialEventsWrapper {
-                    metrics: metrics.clone(),
                     buffer_ready_event_fd: None,
                 },
-                Box::new(std::io::sink()),
+                SerialOut::Sink(std::io::sink()),
             ),
-            input: None,
+            input: None::<std::io::Stdin>,
         };
         serial.serial.raw_input(&[b'a', b'b', b'c']).unwrap();
 
         let invalid_reads_before = metrics.missed_read_count.count();
         let mut v = [0x00; 2];
-        <dyn BusDevice>::read(&mut serial, 0u64, &mut v);
+        serial.bus_read(0u64, &mut v);
 
         let invalid_reads_after = metrics.missed_read_count.count();
         assert_eq!(invalid_reads_before + 1, invalid_reads_after);
 
         let mut v = [0x00; 1];
-        <dyn BusDevice>::read(&mut serial, 0u64, &mut v);
+        serial.bus_read(0u64, &mut v);
         assert_eq!(v[0], b'a');
 
         let invalid_reads_after_2 = metrics.missed_read_count.count();

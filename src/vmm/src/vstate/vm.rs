@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#[cfg(target_arch = "x86_64")]
+use std::fmt;
 use std::result;
 
 #[cfg(target_arch = "x86_64")]
@@ -109,6 +111,7 @@ pub enum RestoreStateError {
 pub type Result<T> = result::Result<T, Error>;
 
 /// A wrapper around creating and using a VM.
+#[derive(Debug)]
 pub struct Vm {
     fd: VmFd,
 
@@ -362,9 +365,22 @@ pub struct VmState {
     ioapic: kvm_irqchip,
 }
 
+#[cfg(target_arch = "x86_64")]
+impl fmt::Debug for VmState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VmState")
+            .field("pitstate", &self.pitstate)
+            .field("clock", &self.clock)
+            .field("pic_master", &"?")
+            .field("pic_slave", &"?")
+            .field("ioapic", &"?")
+            .finish()
+    }
+}
+
 /// Structure holding an general specific VM state.
 #[cfg(target_arch = "aarch64")]
-#[derive(Default, Versionize)]
+#[derive(Debug, Default, Versionize)]
 pub struct VmState {
     gic: GicState,
 }

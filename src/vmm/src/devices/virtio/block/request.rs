@@ -8,7 +8,8 @@
 use std::convert::From;
 use std::result;
 
-use logger::{error, IncMetric, METRICS};
+use log::error;
+use logger::{IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
@@ -49,17 +50,20 @@ impl From<u32> for RequestType {
     }
 }
 
+#[derive(Debug)]
 pub enum ProcessingResult {
     Submitted,
     Throttled,
     Executed(FinishedRequest),
 }
 
+#[derive(Debug)]
 pub struct FinishedRequest {
     pub num_bytes_to_mem: u32,
     pub desc_idx: u16,
 }
 
+#[derive(Debug)]
 enum Status {
     Ok { num_bytes_to_mem: u32 },
     IoErr { num_bytes_to_mem: u32, err: IoErr },
@@ -86,6 +90,7 @@ impl Status {
     }
 }
 
+#[derive(Debug)]
 pub struct PendingRequest {
     r#type: RequestType,
     data_len: u32,
@@ -180,7 +185,7 @@ impl PendingRequest {
 ///
 /// The header simplifies reading the request from memory as all request follow
 /// the same memory layout.
-#[derive(Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct RequestHeader {
     request_type: u32,
@@ -214,7 +219,7 @@ impl RequestHeader {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Request {
     pub r#type: RequestType,
     pub data_len: u32,
@@ -721,6 +726,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::let_with_type_underscore)]
     fn random_request_parse(
     ) -> impl Strategy<Value = (Result<Request, BlockError>, GuestMemoryMmap, Queue)> {
         // In this strategy we are going to generate random Requests/Errors and map them

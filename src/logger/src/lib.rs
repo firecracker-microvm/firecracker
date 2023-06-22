@@ -23,6 +23,9 @@ pub use crate::metrics::{
     SharedStoreMetric, StoreMetric, METRICS,
 };
 
+#[allow(missing_docs)]
+pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
+
 /// Prefix to be used in log lines for functions/modules in Firecracker
 /// that are not generally available.
 const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";

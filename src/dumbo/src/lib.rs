@@ -48,17 +48,19 @@ impl ByteBuffer for [u8] {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use super::*;
 
-    fn bb_len<T: ByteBuffer + ?Sized>(buf: &T) -> usize {
+    fn bb_len<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> usize {
         buf.len()
     }
 
-    fn bb_is_empty<T: ByteBuffer + ?Sized>(buf: &T) -> bool {
+    fn bb_is_empty<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> bool {
         buf.len() == 0
     }
 
-    fn bb_read_from_1<T: ByteBuffer + ?Sized>(src: &T, dst: &mut [u8]) {
+    fn bb_read_from_1<T: ByteBuffer + ?Sized + Debug>(src: &T, dst: &mut [u8]) {
         src.read_to_slice(1, dst);
     }
 

@@ -102,6 +102,7 @@ pub struct BalloonUpdateStatsConfig {
 
 /// A builder for `Balloon` devices from 'BalloonDeviceConfig'.
 #[cfg_attr(not(test), derive(Default))]
+#[derive(Debug)]
 pub struct BalloonBuilder {
     inner: Option<MutexBalloon>,
 }
@@ -147,6 +148,15 @@ impl BalloonBuilder {
 }
 
 #[cfg(test)]
+impl Default for BalloonBuilder {
+    fn default() -> BalloonBuilder {
+        let mut balloon = BalloonBuilder::new();
+        assert!(balloon.set(BalloonDeviceConfig::default()).is_ok());
+        balloon
+    }
+}
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
@@ -155,14 +165,6 @@ pub(crate) mod tests {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
-        }
-    }
-
-    impl Default for BalloonBuilder {
-        fn default() -> BalloonBuilder {
-            let mut balloon = BalloonBuilder::new();
-            assert!(balloon.set(BalloonDeviceConfig::default()).is_ok());
-            balloon
         }
     }
 

@@ -83,7 +83,7 @@ pub enum NetworkInterfaceError {
 type Result<T> = result::Result<T, NetworkInterfaceError>;
 
 /// Builder for a list of network devices.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct NetBuilder {
     net_devices: Vec<Arc<Mutex<Net>>>,
 }
@@ -183,7 +183,7 @@ impl NetBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::str;
+    use std::str::FromStr;
 
     use rate_limiter::RateLimiter;
 
@@ -203,7 +203,7 @@ mod tests {
         NetworkInterfaceConfig {
             iface_id: String::from(id),
             host_dev_name: String::from(name),
-            guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
+            guest_mac: Some(MacAddr::from_str(mac).unwrap()),
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
         }
@@ -324,7 +324,7 @@ mod tests {
         let net_if_cfg = create_netif(net_id, host_dev_name, guest_mac);
         assert_eq!(
             net_if_cfg.guest_mac.unwrap(),
-            MacAddr::parse_str(guest_mac).unwrap()
+            MacAddr::from_str(guest_mac).unwrap()
         );
 
         let mut net_builder = NetBuilder::new();
@@ -346,7 +346,7 @@ mod tests {
         let net = Net::new(
             net_id.to_string(),
             host_dev_name,
-            Some(MacAddr::parse_str(guest_mac).unwrap()),
+            Some(MacAddr::from_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
         )

@@ -15,7 +15,7 @@ pub(crate) const FSIZE_ARG: &str = "fsize";
 // Number of files resource argument name.
 pub(crate) const NO_FILE_ARG: &str = "no-file";
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Resource {
     // Size of created files.
     RlimitFsize,

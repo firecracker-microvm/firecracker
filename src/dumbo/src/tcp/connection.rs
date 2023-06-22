@@ -6,6 +6,7 @@
 //!
 //! [`Connection`]: struct.Connection.html
 
+use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
@@ -79,7 +80,7 @@ bitflags! {
 pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PassiveOpenError {
     /// The incoming segment is not a valid `SYN`.
     InvalidSyn,
@@ -88,7 +89,7 @@ pub enum PassiveOpenError {
 }
 
 /// Describes errors which may occur when an existing connection receives a TCP segment.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RecvError {
     /// The payload length is larger than the receive buffer size.
     BufferTooSmall,
@@ -97,8 +98,7 @@ pub enum RecvError {
 }
 
 /// Describes errors which may occur when a connection attempts to write a segment.
-#[derive(derive_more::From)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq, derive_more::From)]
 pub enum WriteNextError {
     /// The connection cannot write the segment because it has been previously reset.
     ConnectionReset,
@@ -155,7 +155,7 @@ pub enum WriteNextError {
 /// traffic handled by dumbo ever leaves a microVM.
 ///
 /// [`close`]: #method.close
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Clone)]
 pub struct Connection {
     // The sequence number to ACK at the next opportunity. This is 1 + the highest received
     // in-order sequence number.
@@ -200,7 +200,9 @@ pub struct Connection {
     status_flags: ConnStatusFlags,
 }
 
-fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, PassiveOpenError> {
+fn parse_mss_option<T: NetworkBytes + Debug>(
+    segment: &TcpSegment<T>,
+) -> Result<u16, PassiveOpenError> {
     match segment.parse_mss_option_unchecked(segment.header_len()) {
         Ok(Some(value)) => Ok(value.get()),
         Ok(None) => Ok(MSS_DEFAULT),
@@ -208,7 +210,7 @@ fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, Pas
     }
 }
 
-fn is_valid_syn<T: NetworkBytes>(segment: &TcpSegment<T>) -> bool {
+fn is_valid_syn<T: NetworkBytes + Debug>(segment: &TcpSegment<T>) -> bool {
     segment.flags_after_ns() == TcpFlags::SYN && segment.payload_len() == 0
 }
 
@@ -223,7 +225,7 @@ impl Connection {
     ///   first segment which has not been acknowledged yet. This uses an opaque time unit.
     /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before the
     ///   connection resets itself.
-    pub fn passive_open<T: NetworkBytes>(
+    pub fn passive_open<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
         local_rwnd_size: u32,
         rto_period: NonZeroU64,
@@ -307,7 +309,7 @@ impl Connection {
         self.flags_intersect(ConnStatusFlags::FIN_ACKED)
     }
 
-    fn is_same_syn<T: NetworkBytes>(&self, segment: &TcpSegment<T>) -> bool {
+    fn is_same_syn<T: NetworkBytes + Debug>(&self, segment: &TcpSegment<T>) -> bool {
         // This only really makes sense before getting into ESTABLISHED, but that's fine
         // because we only use it before that point.
         if !is_valid_syn(segment) || self.ack_to_send.0 != segment.sequence_number().wrapping_add(1)
@@ -318,7 +320,7 @@ impl Connection {
         matches!(parse_mss_option(segment), Ok(mss) if mss == self.mss)
     }
 
-    fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
+    fn reset_for_segment<T: NetworkBytes + Debug>(&mut self, s: &TcpSegment<T>) {
         if !self.rst_pending() {
             self.send_rst = Some(RstConfig::new(s));
         }
@@ -494,7 +496,7 @@ impl Connection {
 
     // We use this helper method to set up self.send_rst and prepare a return value in one go. It's
     // only used by the receive_segment() method.
-    fn reset_for_segment_helper<T: NetworkBytes>(
+    fn reset_for_segment_helper<T: NetworkBytes + Debug>(
         &mut self,
         s: &TcpSegment<T>,
         flags: RecvStatusFlags,
@@ -515,7 +517,7 @@ impl Connection {
     /// * `s` - The incoming segment.
     /// * `buf` - The receive buffer where payload data (if any) from `s` is going to be written.
     /// * `now` - An opaque timestamp representing the current moment in time.
-    pub fn receive_segment<T: NetworkBytes>(
+    pub fn receive_segment<T: NetworkBytes + Debug>(
         &mut self,
         s: &TcpSegment<T>,
         buf: &mut [u8],
@@ -729,7 +731,7 @@ impl Connection {
     // destination L3 addresses (which are required for checksum computation). We need this stupid
     // ?Sized trait bound, because otherwise Sized would be implied, and we can have unsized types
     // which implement ByteBuffer (such as [u8]), since payload expects a reference to some R.
-    fn write_segment<'a, R: ByteBuffer + ?Sized>(
+    fn write_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -766,7 +768,7 @@ impl Connection {
     }
 
     // Control segments are segments with no payload (at least I like to use this name).
-    fn write_control_segment<'a, R: ByteBuffer + ?Sized>(
+    fn write_control_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -820,7 +822,7 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
-    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized>(
+    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized + Debug>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -1018,19 +1020,12 @@ impl Connection {
 // actual TCP implementation.
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::fmt;
-
     use super::*;
 
     // A segment without options or a payload is 20 bytes long.
     const BASIC_SEGMENT_SIZE: usize = 20;
 
-    impl fmt::Debug for Connection {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(connection)")
-        }
-    }
-
+    #[derive(Debug)]
     pub struct ConnectionTester {
         buf: [u8; 2000],
         src_port: u16,
@@ -1062,7 +1057,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn passive_open<T: NetworkBytes>(
+        fn passive_open<T: NetworkBytes + Debug>(
             &self,
             s: &TcpSegment<T>,
         ) -> Result<Connection, PassiveOpenError> {
@@ -1117,7 +1112,7 @@ pub(crate) mod tests {
             segment
         }
 
-        fn receive_segment<T: NetworkBytes>(
+        fn receive_segment<T: NetworkBytes + Debug>(
             &mut self,
             c: &mut Connection,
             s: &TcpSegment<T>,
@@ -1140,7 +1135,7 @@ pub(crate) mod tests {
         // that the receive_segment() method also returns the specified RecvStatusFlags. We
         // also make sure the outgoing RST segment has additional_segment_flags set besides
         // TcpFlags::RST.
-        fn should_reset_after<T: NetworkBytes>(
+        fn should_reset_after<T: NetworkBytes + Debug>(
             &mut self,
             c: &mut Connection,
             s: &TcpSegment<T>,
@@ -1201,7 +1196,7 @@ pub(crate) mod tests {
     }
 
     // Verifies whether we are dealing with a control segment with the specified flags.
-    fn check_control_segment<T: NetworkBytes>(
+    fn check_control_segment<T: NetworkBytes + Debug>(
         s: &TcpSegment<T>,
         options_len: usize,
         flags_after_ns: TcpFlags,
@@ -1212,7 +1207,11 @@ pub(crate) mod tests {
 
     // Checks if the segment ACKs the specified sequence number, and whether the additional_flags
     // are set (besides ACK).
-    fn check_acks<T: NetworkBytes>(s: &TcpSegment<T>, ack_number: u32, additional_flags: TcpFlags) {
+    fn check_acks<T: NetworkBytes + Debug>(
+        s: &TcpSegment<T>,
+        ack_number: u32,
+        additional_flags: TcpFlags,
+    ) {
         assert_eq!(s.flags_after_ns(), TcpFlags::ACK | additional_flags);
         assert_eq!(s.ack_number(), ack_number);
     }

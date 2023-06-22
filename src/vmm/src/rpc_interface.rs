@@ -1,9 +1,11 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{self, Debug};
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use log::{error, info, warn};
 use logger::*;
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
@@ -202,6 +204,7 @@ pub enum VmmActionError {
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum VmmData {
     /// The balloon device configuration.
@@ -275,6 +278,21 @@ pub struct PrebootApiController<'a> {
     fatal_error: Option<FcExitCode>,
 }
 
+// TODO Remove when `EventManager` implements `std::fmt::Debug`.
+impl<'a> fmt::Debug for PrebootApiController<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PrebootApiController")
+            .field("seccomp_filters", &self.seccomp_filters)
+            .field("instance_info", &self.instance_info)
+            .field("vm_resources", &self.vm_resources)
+            .field("event_manager", &"?")
+            .field("built_vmm", &self.built_vmm)
+            .field("boot_path", &self.boot_path)
+            .field("fatal_error", &self.fatal_error)
+            .finish()
+    }
+}
+
 impl MmdsRequestHandler for PrebootApiController<'_> {
     fn mmds(&mut self) -> MutexGuard<'_, Mmds> {
         self.vm_resources.locked_mmds_or_default()
@@ -302,8 +320,8 @@ impl<'a> PrebootApiController<'a> {
         instance_info: InstanceInfo,
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
-    ) -> PrebootApiController<'a> {
-        PrebootApiController {
+    ) -> Self {
+        Self {
             seccomp_filters,
             instance_info,
             vm_resources,
@@ -599,6 +617,7 @@ impl<'a> PrebootApiController<'a> {
 }
 
 /// Enables RPC interaction with a running Firecracker VMM.
+#[derive(Debug)]
 pub struct RuntimeApiController {
     vmm: Arc<Mutex<Vmm>>,
     vm_resources: VmResources,
@@ -861,7 +880,6 @@ mod tests {
                     | (DriveConfig(_), DriveConfig(_))
                     | (InternalVmm(_), InternalVmm(_))
                     | (LoadSnapshot(_), LoadSnapshot(_))
-                    | (Logger(_), Logger(_))
                     | (MachineConfig(_), MachineConfig(_))
                     | (Metrics(_), Metrics(_))
                     | (Mmds(_), Mmds(_))
@@ -879,7 +897,7 @@ mod tests {
     }
 
     // Mock `VmResources` used for testing.
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     pub struct MockVmRes {
         pub vm_config: VmConfig,
         pub balloon: BalloonBuilder,

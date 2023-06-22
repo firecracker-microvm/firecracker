@@ -9,6 +9,7 @@ pub const NANOS_PER_SECOND: u64 = 1_000_000_000;
 pub const NANOS_PER_MILLISECOND: u64 = 1_000_000;
 
 /// Wrapper over `libc::clockid_t` to specify Linux Kernel clock source.
+#[derive(Debug)]
 pub enum ClockType {
     /// Equivalent to `libc::CLOCK_MONOTONIC`.
     Monotonic,
@@ -32,6 +33,7 @@ impl From<ClockType> for libc::clockid_t {
 }
 
 /// Structure representing the date in local time with nanosecond precision.
+#[derive(Debug)]
 pub struct LocalTime {
     /// Seconds in current minute.
     sec: i32,
@@ -105,7 +107,7 @@ impl fmt::Display for LocalTime {
 }
 
 /// Holds a micro-second resolution timestamp with both the real time and cpu time.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TimestampUs {
     /// Real time in microseconds.
     pub time_us: u64,

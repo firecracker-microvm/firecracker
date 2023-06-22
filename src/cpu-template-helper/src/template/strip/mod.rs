@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use vmm::cpu_config::templates::{Numeric, RegisterValueFilter};
 
@@ -26,8 +27,8 @@ pub enum Error {
 
 fn strip_common<K, V>(maps: &mut [HashMap<K, RegisterValueFilter<V>>]) -> Result<(), Error>
 where
-    K: ModifierMapKey,
-    V: Numeric,
+    K: ModifierMapKey + Debug,
+    V: Numeric + Debug,
 {
     if maps.len() < 2 {
         return Err(Error::NumberOfInputs);
