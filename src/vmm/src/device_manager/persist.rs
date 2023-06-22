@@ -130,7 +130,7 @@ pub struct ConnectedEntropyState {
 
 /// Holds the state of a legacy device connected to the MMIO space.
 #[cfg(target_arch = "aarch64")]
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedLegacyState {
     /// Device identifier.
     pub type_: DeviceType,
@@ -422,7 +422,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {
-                    let rtc = crate::builder::setup_rtc_device();
+                    let rtc = crate::devices::legacy::RTCDevice(vm_superio::Rtc::with_events(
+                        &logger::METRICS.rtc,
+                    ));
                     dev_manager
                         .address_allocator
                         .allocate(

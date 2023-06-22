@@ -473,7 +473,6 @@ impl Vmm {
                 serial_bus_device.unwrap().lock().expect("Poisoned lock");
             let serial = serial_device_locked
                 .serial_mut()
-                .unwrap()
                 .expect("Unexpected BusDeviceType");
 
             serial

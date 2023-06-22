@@ -60,7 +60,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,
     device_info: &HashMap<(DeviceType, String), T, S>,
-    gic_device: &dyn GICDevice,
+    gic_device: &GICDevice,
     initrd: &Option<super::InitrdConfig>,
 ) -> super::Result<()> {
     fdt::create_fdt(
