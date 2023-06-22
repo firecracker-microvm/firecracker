@@ -20,6 +20,7 @@ use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
+#[derive(Debug)]
 struct ApiServerAdapter {
     api_event_fd: EventFd,
     from_api: Receiver<ApiRequest>,

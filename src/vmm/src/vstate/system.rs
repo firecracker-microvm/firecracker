@@ -39,6 +39,7 @@ type Result<T> = result::Result<T, Error>;
 /// Describes a KVM context that gets attached to the microVM.
 /// It gives access to the functionality of the KVM wrapper as
 /// long as every required KVM capability is present on the host.
+#[derive(Debug)]
 pub struct KvmContext {
     kvm: Kvm,
     max_memslots: usize,

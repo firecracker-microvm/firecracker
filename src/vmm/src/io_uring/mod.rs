@@ -11,6 +11,7 @@ mod queue;
 pub mod restriction;
 
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -78,6 +79,7 @@ impl Error {
 }
 
 /// Main object representing an io_uring instance.
+#[derive(Debug)]
 pub struct IoUring {
     registered_fds_count: u32,
     squeue: SubmissionQueue,
@@ -163,7 +165,10 @@ impl IoUring {
     /// # Safety
     /// Unsafe because we pass a raw user_data pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub unsafe fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
+    pub unsafe fn push<T: Debug>(
+        &mut self,
+        op: Operation<T>,
+    ) -> std::result::Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
         match self.registered_fds_count {
@@ -196,7 +201,7 @@ impl IoUring {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
+    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>> {
         self.cqueue
             .pop()
             .map(|maybe_cqe| {
@@ -426,6 +431,7 @@ mod tests {
         result
     }
 
+    #[allow(clippy::let_with_type_underscore)]
     fn arbitrary_rw_operation(file_len: u32) -> impl Strategy<Value = Operation<u32>> {
         (
             // OpCode: 0 -> Write, 1 -> Read.

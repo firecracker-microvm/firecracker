@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
@@ -25,6 +26,7 @@ pub enum Error {
     GuestMemory(utils::vm_memory::GuestMemoryError),
 }
 
+#[derive(Debug)]
 pub struct AsyncFileEngine<T> {
     file: File,
     ring: IoUring,
@@ -32,12 +34,13 @@ pub struct AsyncFileEngine<T> {
     phantom: PhantomData<T>,
 }
 
+#[derive(Debug)]
 pub struct WrappedUserData<T> {
     addr: Option<GuestAddress>,
     user_data: T,
 }
 
-impl<T> WrappedUserData<T> {
+impl<T: Debug> WrappedUserData<T> {
     fn new(user_data: T) -> Self {
         WrappedUserData {
             addr: None,
@@ -61,7 +64,7 @@ impl<T> WrappedUserData<T> {
     }
 }
 
-impl<T> AsyncFileEngine<T> {
+impl<T: Debug> AsyncFileEngine<T> {
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
         log_dev_preview_warning("Async file IO", Option::None);
 

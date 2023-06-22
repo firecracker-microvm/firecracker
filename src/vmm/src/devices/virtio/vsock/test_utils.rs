@@ -20,6 +20,7 @@ use crate::devices::virtio::{
 
 type Result<T> = std::result::Result<T, VsockError>;
 
+#[derive(Debug)]
 pub struct TestBackend {
     pub evfd: EventFd,
     pub rx_err: Option<VsockError>,
@@ -111,6 +112,7 @@ impl VsockEpollListener for TestBackend {
 }
 impl VsockBackend for TestBackend {}
 
+#[derive(Debug)]
 pub struct TestContext {
     pub cid: u64,
     pub mem: GuestMemoryMmap,
@@ -175,6 +177,7 @@ impl Default for TestContext {
     }
 }
 
+#[derive(Debug)]
 pub struct EventHandlerContext<'a> {
     pub device: Vsock<TestBackend>,
     pub guest_rxvq: GuestQ<'a>,

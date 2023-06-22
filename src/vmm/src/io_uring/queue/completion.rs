@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::result::Result;
@@ -21,6 +22,7 @@ pub enum Error {
     VolatileMemory(VolatileMemoryError),
 }
 
+#[derive(Debug)]
 pub(crate) struct CompletionQueue {
     // Offsets.
     head_off: usize,
@@ -75,7 +77,7 @@ impl CompletionQueue {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub(crate) unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
+    pub(crate) unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;

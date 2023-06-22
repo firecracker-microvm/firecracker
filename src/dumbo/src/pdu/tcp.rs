@@ -8,6 +8,7 @@
 //! [Here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
 
 use std::cmp::min;
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::num::NonZeroU16;
 use std::result::Result;
@@ -91,12 +92,13 @@ pub enum Error {
 // make it more generic at some point.
 
 /// Interprets the inner bytes as a TCP segment.
+#[derive(Debug)]
 pub struct TcpSegment<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
+impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     /// Returns the source port.
     #[inline]
     pub fn source_port(&self) -> u16 {
@@ -306,7 +308,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
+impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
     /// Sets the source port.
     #[inline]
     pub fn set_source_port(&mut self, value: u16) -> &mut Self {
@@ -415,7 +417,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     ///   are required for TCP checksum computation. Skip the checksum altogether when `None`.
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn write_segment<R: ByteBuffer + ?Sized>(
+    pub fn write_segment<R: ByteBuffer + ?Sized + Debug>(
         buf: T,
         src_port: u16,
         dst_port: u16,
@@ -466,7 +468,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
+    pub fn write_incomplete_segment<R: ByteBuffer + ?Sized + Debug>(
         buf: T,
         seq_number: u32,
         ack_number: u32,
@@ -548,7 +550,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> Incomplete<TcpSegment<'a, T>> {
+impl<'a, T: NetworkBytesMut + Debug> Incomplete<TcpSegment<'a, T>> {
     /// Transforms `self` into a `TcpSegment<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the TCP checksum.
     #[inline]
@@ -572,21 +574,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<TcpSegment<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-
     use super::*;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for TcpSegment<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(TCP segment)")
-        }
-    }
-
-    impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<TcpSegment<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Incomplete TCP segment)")
-        }
-    }
 
     #[test]
     fn test_set_get() {

@@ -8,6 +8,7 @@
 //!
 //! [here]: https://en.wikipedia.org/wiki/Address_Resolution_Protocol
 use std::convert::From;
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
@@ -65,12 +66,13 @@ pub enum Error {
 /// ARP is a generic protocol as far as data
 /// link layer and network layer protocols go, but this particular implementation is concerned with
 /// ARP frames related to IPv4 over Ethernet.
+#[derive(Debug)]
 pub struct EthIPv4ArpFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
+impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
     /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
     ///
     ///  # Panics
@@ -183,7 +185,7 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
+impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
     #[allow(clippy::too_many_arguments)]
     fn write_raw(
         buf: T,
@@ -338,23 +340,17 @@ pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
+    use std::str::FromStr;
 
     use super::*;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(EthIPv4ArpFrame frame)")
-        }
-    }
 
     #[test]
     fn test_eth_ipv4_arp_frame() {
         let mut a = [0u8; 1000];
         let mut bad_array = [0u8; 1];
 
-        let sha = MacAddr::parse_str("01:23:45:67:89:ab").unwrap();
-        let tha = MacAddr::parse_str("cd:ef:01:23:45:67").unwrap();
+        let sha = MacAddr::from_str("01:23:45:67:89:ab").unwrap();
+        let tha = MacAddr::from_str("cd:ef:01:23:45:67").unwrap();
         let spa = Ipv4Addr::new(10, 1, 2, 3);
         let tpa = Ipv4Addr::new(10, 4, 5, 6);
 

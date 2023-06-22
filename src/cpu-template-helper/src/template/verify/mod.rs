@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use vmm::cpu_config::templates::{Numeric, RegisterValueFilter};
 
@@ -35,8 +36,8 @@ pub fn verify_common<K, V>(
     config: HashMap<K, RegisterValueFilter<V>>,
 ) -> Result<(), Error>
 where
-    K: ModifierMapKey,
-    V: Numeric,
+    K: ModifierMapKey + Debug,
+    V: Numeric + Debug,
 {
     for (key, template_value_filter) in template {
         let config_value_filter = config

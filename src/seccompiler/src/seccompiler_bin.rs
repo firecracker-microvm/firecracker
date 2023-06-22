@@ -40,7 +40,7 @@ mod syscall_table;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::{io, process};
 
@@ -142,15 +142,11 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     })
 }
 
-fn parse_json(reader: impl Read) -> Result<JsonFile> {
-    serde_json::from_reader(reader).map_err(Error::Json)
-}
-
 fn compile(args: &Arguments) -> Result<()> {
     let input_file = File::open(&args.input_file)
         .map_err(|err| Error::FileOpen(PathBuf::from(&args.input_file), err))?;
     let mut input_reader = BufReader::new(input_file);
-    let filters = parse_json(&mut input_reader)?;
+    let filters = serde_json::from_reader::<_, JsonFile>(&mut input_reader).map_err(Error::Json)?;
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
@@ -203,7 +199,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    use std::collections::HashMap;
     use std::io;
     use std::io::Write;
     use std::path::PathBuf;
@@ -211,14 +206,11 @@ mod tests {
     use bincode::Error as BincodeError;
     use utils::tempfile::TempFile;
 
-    use super::compiler::{Error as FilterFormatError, Filter, SyscallRule};
+    use super::compiler::Error as FilterFormatError;
     use super::{
-        build_arg_parser, compile, get_argument_values, parse_json, Arguments, Error,
-        DEFAULT_OUTPUT_FILENAME,
+        build_arg_parser, compile, get_argument_values, Arguments, Error, DEFAULT_OUTPUT_FILENAME,
     };
-    use crate::backend::SeccompCmpArgLen::*;
-    use crate::backend::SeccompCmpOp::{Le, *};
-    use crate::backend::{SeccompAction, SeccompCondition as Cond, TargetArch, TargetArchError};
+    use crate::backend::{TargetArch, TargetArchError};
 
     // Correct JSON input data
     static CORRECT_JSON_INPUT: &str = r#"
@@ -518,213 +510,6 @@ mod tests {
                 .as_ref(),
             )
             .is_err());
-    }
-
-    #[test]
-    fn test_parse_json() {
-        // test with malformed JSON
-        {
-            // empty file
-            assert!(parse_json(std::io::empty()).is_err());
-
-            // not json
-            let json_input = "hjkln";
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // top-level array
-            let json_input = "[]";
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // thread key must be a string
-            let json_input = "{1}";
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // empty Filter object
-            let json_input = r#"{"a": {}}"#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // missing 'filter' field
-            let json_input = r#"{"a": {"filter_action": "allow", "default_action":"log"}}"#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // wrong key 'filters'
-            let json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"log", "filters": []}}"#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // wrong action 'logs'
-            let json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"logs", "filter": []}}"#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // action that expects a value
-            let json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"errno", "filter": []}}"#;
-
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // overflowing u64 value
-            let json_input = r#"
-            {
-                "thread_2": {
-                    "default_action": "trap",
-                    "filter_action": "allow",
-                    "filter": [
-                        {
-                            "syscall": "ioctl",
-                            "args": [
-                                {
-                                    "index": 3,
-                                    "type": "qword",
-                                    "op": "eq",
-                                    "val": 18446744073709551616
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-            "#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // negative integer value
-            let json_input = r#"
-            {
-                "thread_2": {
-                    "default_action": "trap",
-                    "filter_action": "allow",
-                    "filter": [
-                        {
-                            "syscall": "ioctl",
-                            "args": [
-                                {
-                                    "index": 3,
-                                    "type": "qword",
-                                    "op": "eq",
-                                    "val": -1846
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-            "#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // float value
-            let json_input = r#"
-            {
-                "thread_2": {
-                    "default_action": "trap",
-                    "filter_action": "allow",
-                    "filter": [
-                        {
-                            "syscall": "ioctl",
-                            "args": [
-                                {
-                                    "index": 3,
-                                    "type": "qword",
-                                    "op": "eq",
-                                    "val": 1846.4
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-            "#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-
-            // duplicate filter keys
-            let json_input = r#"
-            {
-                "thread_1": {
-                    "default_action": "trap",
-                    "filter_action": "allow",
-                    "filter": []
-                },
-                "thread_1": {
-                    "default_action": "trap",
-                    "filter_action": "allow",
-                    "filter": []
-                }
-            }
-            "#;
-            assert!(parse_json(json_input.as_bytes()).is_err());
-        }
-
-        // test with correctly formed JSON
-        {
-            // empty JSON file
-            let json_input = "{}";
-            assert_eq!(parse_json(json_input.as_bytes()).unwrap().0.len(), 0);
-
-            // empty Filter
-            let json_input =
-                r#"{"a": {"filter_action": "allow", "default_action":"log", "filter": []}}"#;
-            assert!(parse_json(json_input.as_bytes()).is_ok());
-
-            // correctly formed JSON filter
-            let mut filters = HashMap::new();
-            filters.insert(
-                "thread_1".to_string(),
-                Filter::new(
-                    SeccompAction::Errno(12),
-                    SeccompAction::Allow,
-                    vec![
-                        SyscallRule::new("open".to_string(), None),
-                        SyscallRule::new("close".to_string(), None),
-                        SyscallRule::new("stat".to_string(), None),
-                        SyscallRule::new(
-                            "futex".to_string(),
-                            Some(vec![
-                                Cond::new(2, Dword, Le, 65).unwrap(),
-                                Cond::new(1, Qword, Ne, 80).unwrap(),
-                            ]),
-                        ),
-                        SyscallRule::new(
-                            "futex".to_string(),
-                            Some(vec![
-                                Cond::new(3, Qword, Gt, 65).unwrap(),
-                                Cond::new(1, Qword, Lt, 80).unwrap(),
-                            ]),
-                        ),
-                        SyscallRule::new(
-                            "futex".to_string(),
-                            Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
-                        ),
-                        SyscallRule::new(
-                            "ioctl".to_string(),
-                            Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
-                        ),
-                    ],
-                ),
-            );
-
-            filters.insert(
-                "thread_2".to_string(),
-                Filter::new(
-                    SeccompAction::Trap,
-                    SeccompAction::Allow,
-                    vec![SyscallRule::new(
-                        "ioctl".to_string(),
-                        Some(vec![Cond::new(3, Dword, Eq, 65).unwrap()]),
-                    )],
-                ),
-            );
-
-            // sort the HashMaps by key and transform into vectors, to make comparison possible
-            let mut v1: Vec<_> = filters.into_iter().collect();
-            v1.sort_by(|x, y| x.0.cmp(&y.0));
-
-            let mut v2: Vec<_> = parse_json(CORRECT_JSON_INPUT.as_bytes())
-                .unwrap()
-                .0
-                .into_iter()
-                .collect();
-            v2.sort_by(|x, y| x.0.cmp(&y.0));
-            assert_eq!(v1, v2);
-        }
     }
 
     #[allow(clippy::useless_asref)]

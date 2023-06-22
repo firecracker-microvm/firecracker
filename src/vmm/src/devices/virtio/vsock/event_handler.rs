@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Debug;
 /// The vsock object implements the runtime logic of our vsock device:
 /// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
 /// those    packets to the `VsockBackend`;
@@ -27,7 +28,8 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn, IncMetric, METRICS};
+use log::{debug, error, warn};
+use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
@@ -36,7 +38,7 @@ use crate::devices::virtio::VirtioDevice;
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: Debug + VsockBackend + 'static,
 {
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
@@ -151,7 +153,7 @@ where
 
 impl<B> MutEventSubscriber for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: Debug + VsockBackend + 'static,
 {
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();

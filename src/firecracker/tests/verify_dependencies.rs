@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::path::Path;
 
 use cargo_toml::{Dependency, DependencyDetail, DepsSet, Manifest};
@@ -43,7 +44,9 @@ fn test_no_comparison_requirements() {
 /// requirements.
 ///
 /// The return value maps the name of violating dependencies to the specified version
-fn violating_dependencies_of_cargo_toml(path: impl AsRef<Path>) -> HashMap<String, String> {
+fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
+    path: T,
+) -> HashMap<String, String> {
     let manifest = Manifest::from_path(path).unwrap();
 
     violating_dependencies_of_depsset(manifest.dependencies)
@@ -58,6 +61,7 @@ fn violating_dependencies_of_cargo_toml(path: impl AsRef<Path>) -> HashMap<Strin
 /// requirements
 ///
 /// The iterator produces tuples of the form (violating dependency, specified version)
+#[allow(clippy::let_with_type_underscore)]
 fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
     depsset.into_iter().filter_map(|(name, dependency)| {
         match dependency {

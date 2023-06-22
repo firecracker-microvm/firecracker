@@ -8,6 +8,7 @@ use std::os::raw::c_ulong;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, result};
@@ -127,11 +128,13 @@ impl Default for Mocks {
     }
 }
 
+#[derive(Debug)]
 pub enum NetQueue {
     Rx,
     Tx,
 }
 
+#[derive(Debug)]
 pub enum NetEvent {
     RxQueue,
     RxRateLimiter,
@@ -140,6 +143,7 @@ pub enum NetEvent {
     TxRateLimiter,
 }
 
+#[derive(Debug)]
 pub struct TapTrafficSimulator {
     socket: File,
     send_addr: libc::sockaddr_ll,
@@ -312,7 +316,7 @@ pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, Devi
 }
 
 pub fn default_guest_mac() -> MacAddr {
-    MacAddr::parse_str("11:22:33:44:55:66").unwrap()
+    MacAddr::from_str("11:22:33:44:55:66").unwrap()
 }
 
 pub fn set_mac(net: &mut Net, mac: MacAddr) {
@@ -332,7 +336,7 @@ pub mod test {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::sync::{Arc, Mutex, MutexGuard};
-    use std::{cmp, mem};
+    use std::{cmp, fmt, mem};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
     use logger::{IncMetric, METRICS};
@@ -357,6 +361,19 @@ pub mod test {
         pub mem: GuestMemoryMmap,
         pub rxq: VirtQueue<'a>,
         pub txq: VirtQueue<'a>,
+    }
+
+    impl fmt::Debug for TestHelper<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestHelper")
+                .field("event_manager", &"?")
+                .field("subscriber_id", &self.subscriber_id)
+                .field("net", &self.net)
+                .field("mem", &self.mem)
+                .field("rxq", &self.rxq)
+                .field("txq", &self.txq)
+                .finish()
+        }
     }
 
     impl<'a> TestHelper<'a> {

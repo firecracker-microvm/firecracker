@@ -9,7 +9,7 @@ license = "Apache-2.0"
 bench = false
 
 [dependencies]
-timerfd = "1.2.0"
+timerfd = "1.5.0"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 

@@ -36,6 +36,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// MSR range
+#[derive(Debug)]
 struct MsrRange {
     /// Base MSR address
     base: u32,

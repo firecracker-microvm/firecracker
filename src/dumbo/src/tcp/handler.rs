@@ -6,6 +6,7 @@
 //! [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
@@ -20,7 +21,7 @@ use crate::tcp::{NextSegmentStatus, RstConfig};
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
 /// Describes events which may occur when the handler receives packets.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RecvEvent {
     /// The local endpoint is done communicating, and has been removed.
     EndpointDone,
@@ -43,7 +44,7 @@ pub enum RecvEvent {
 }
 
 /// Describes events which may occur when the handler writes packets.
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WriteEvent {
     /// The local `Endpoint` transitioned to being done after this segment was written.
     EndpointDone,
@@ -56,8 +57,7 @@ pub enum WriteEvent {
 ///
 /// [`receive_packet`]: struct.TcpIPv4Handler.html#method.receive_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
-#[derive(derive_more::From)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq, derive_more::From)]
 pub enum RecvError {
     /// The inner segment has an invalid destination port.
     InvalidPort,
@@ -81,8 +81,7 @@ pub enum WriteNextError {
 // Generally speaking, a TCP/IPv4 connection is identified using the four-tuple (src_addr, src_port,
 // dst_addr, dst_port). However, the IPv4 address and TCP port of the MMDS endpoint are fixed, so
 // we can get away with uniquely identifying connections using just the remote address and port.
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 struct ConnectionTuple {
     remote_addr: Ipv4Addr,
     remote_port: u16,
@@ -121,6 +120,7 @@ impl ConnectionTuple {
 /// [`receive_packet`]: ../handler/struct.TcpIPv4Handler.html#method.receive_packet
 /// [`write_next_packet`]: ../handler/struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`next_segment_status`]: ../handler/struct.TcpIPv4Handler.html#method.next_segment_status
+#[derive(Debug)]
 pub struct TcpIPv4Handler {
     // Handler IPv4 address used for every connection.
     local_ipv4_addr: Ipv4Addr,
@@ -143,6 +143,7 @@ pub struct TcpIPv4Handler {
 
 // Only used locally, in the receive_packet method, to differentiate between different outcomes
 // associated with processing incoming packets.
+#[derive(Debug)]
 enum RecvSegmentOutcome {
     EndpointDone,
     EndpointRunning(NextSegmentStatus),
@@ -205,7 +206,7 @@ impl TcpIPv4Handler {
     /// Contains logic for handling incoming segments.
     ///
     /// Any changes to the state of the handler are communicated through an `Ok(RecvEvent)`.
-    pub fn receive_packet<T: NetworkBytes, F: FnOnce(Request) -> Response>(
+    pub fn receive_packet<T: NetworkBytes + Debug, F: FnOnce(Request) -> Response>(
         &mut self,
         packet: &IPv4Packet<T>,
         callback: F,
@@ -367,7 +368,7 @@ impl TcpIPv4Handler {
         }
     }
 
-    fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<T>) {
+    fn enqueue_rst<T: NetworkBytes + Debug>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<T>) {
         self.enqueue_rst_config(tuple, RstConfig::new(s));
     }
 
@@ -503,11 +504,13 @@ impl TcpIPv4Handler {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use super::*;
     use crate::pdu::bytes::NetworkBytesMut;
     use crate::tcp::tests::mock_callback;
 
-    fn inner_tcp_mut<'a, T: NetworkBytesMut>(
+    fn inner_tcp_mut<'a, T: NetworkBytesMut + Debug>(
         p: &'a mut IPv4Packet<'_, T>,
     ) -> TcpSegment<'a, &'a mut [u8]> {
         TcpSegment::from_bytes(p.payload_mut(), None).unwrap()

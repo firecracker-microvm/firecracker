@@ -49,6 +49,7 @@ pub struct VsockDeviceConfig {
     pub uds_path: String,
 }
 
+#[derive(Debug)]
 struct VsockAndUnixPath {
     vsock: MutexVsockUnix,
     uds_path: String,
@@ -66,7 +67,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
 }
 
 /// A builder of Vsock with Unix backend from 'VsockDeviceConfig'.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct VsockBuilder {
     inner: Option<VsockAndUnixPath>,
 }
