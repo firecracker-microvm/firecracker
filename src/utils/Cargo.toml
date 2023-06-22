@@ -10,7 +10,7 @@ bench = false
 
 [dependencies]
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
-libc = "0.2.117"
+libc = "0.2.146"
 serde = { version = "1.0.164", features = ["derive"] }
 thiserror = "1.0.32"
 versionize = "0.1.10"
