@@ -894,6 +894,17 @@ impl RtcEvents for RTCDeviceMetrics {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+impl RtcEvents for &'static RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        RTCDeviceMetrics::invalid_read(self);
+    }
+
+    fn invalid_write(&self) {
+        RTCDeviceMetrics::invalid_write(self);
+    }
+}
+
 /// Metrics for the seccomp filtering.
 #[derive(Debug, Default, Serialize)]
 pub struct SeccompMetrics {

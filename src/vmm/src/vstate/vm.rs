@@ -124,7 +124,7 @@ pub struct Vm {
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
-    irqchip_handle: Option<Box<dyn GICDevice>>,
+    irqchip_handle: Option<GICDevice>,
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -206,11 +206,8 @@ impl Vm {
     }
 
     /// Gets a reference to the irqchip of the VM.
-    pub fn get_irqchip(&self) -> &dyn GICDevice {
-        self.irqchip_handle
-            .as_ref()
-            .expect("IRQ chip not set")
-            .as_ref()
+    pub fn get_irqchip(&self) -> &GICDevice {
+        self.irqchip_handle.as_ref().expect("IRQ chip not set")
     }
 
     /// Saves and returns the Kvm Vm state.

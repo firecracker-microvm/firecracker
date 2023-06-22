@@ -24,8 +24,6 @@ use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-#[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::SerialDevice;
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
@@ -220,7 +218,7 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
-        serial: Arc<Mutex<SerialDevice<std::io::Stdin>>>,
+        serial: Arc<Mutex<BusDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
@@ -232,7 +230,13 @@ impl MMIODeviceManager {
         };
 
         vm.register_irqfd(
-            serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
+            serial
+                .lock()
+                .expect("Poisoned lock")
+                .serial_ref()
+                .unwrap()
+                .serial
+                .interrupt_evt(),
             device_info.irqs[0],
         )
         .map_err(Error::RegisterIrqFd)?;
@@ -259,7 +263,7 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
-        rtc: Arc<Mutex<RTCDevice>>,
+        rtc: RTCDevice,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
@@ -273,7 +277,11 @@ impl MMIODeviceManager {
         // Create a new identifier for the RTC device.
         let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
         // Attach the newly created RTC device.
-        self.register_mmio_device(identifier, device_info, rtc)
+        self.register_mmio_device(
+            identifier,
+            device_info,
+            Arc::new(Mutex::new(BusDevice::RTCDevice(rtc))),
+        )
     }
 
     /// Register a boot timer device.
