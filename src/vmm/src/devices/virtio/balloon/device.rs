@@ -762,6 +762,12 @@ pub(crate) mod tests {
         // Make sure nothing got written.
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
+
+        // Large offset that may cause an overflow.
+        balloon.write_config(u64::MAX, &new_config_space);
+        // Make sure nothing got written.
+        balloon.read_config(0, &mut actual_config_space);
+        assert_eq!(actual_config_space, expected_config_space);
     }
 
     #[test]

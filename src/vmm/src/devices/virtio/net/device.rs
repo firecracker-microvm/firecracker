@@ -998,6 +998,13 @@ pub mod tests {
         new_config_read = [0u8; MAC_ADDR_LEN];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
+
+        // Large offset that may cause an overflow.
+        net.write_config(u64::MAX, &new_config);
+        // Verify old config was untouched.
+        new_config_read = [0u8; MAC_ADDR_LEN];
+        net.read_config(0, &mut new_config_read);
+        assert_eq!(new_config, new_config_read);
     }
 
     #[test]
