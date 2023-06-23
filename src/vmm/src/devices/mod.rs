@@ -12,8 +12,8 @@ pub mod pseudo;
 pub mod virtio;
 
 pub use bus::{Bus, BusDevice, BusError};
-use log::error;
 use logger::{IncMetric, METRICS};
+use tracing::error;
 
 use crate::devices::virtio::{QueueError, VsockError};
 

@@ -3,7 +3,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
@@ -32,7 +32,7 @@ impl Block {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        log::debug!("block: activate event");
+        tracing::debug!("block: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }

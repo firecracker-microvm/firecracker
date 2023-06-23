@@ -7,13 +7,13 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use log::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
 use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
+use tracing::warn;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};

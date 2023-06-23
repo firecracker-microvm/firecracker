@@ -3,7 +3,8 @@
 
 use std::convert::TryInto;
 
-use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
+use logger::{IncMetric, RTCDeviceMetrics, METRICS};
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct RTCDevice(pub vm_superio::Rtc<&'static RTCDeviceMetrics>);

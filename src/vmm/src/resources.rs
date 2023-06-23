@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
@@ -19,7 +20,6 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{
     MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
@@ -27,6 +27,7 @@ use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
+use crate::vmm_config::{LoggerConfig, LoggerConfigError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, derive_more::From)]
@@ -138,7 +139,7 @@ impl VmResources {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, instance_info)?;
+            logger.init()?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
@@ -184,7 +185,7 @@ impl VmResources {
             resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
-            log::info!("Successfully added metadata to mmds from file");
+            info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
@@ -482,7 +483,6 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
     use std::str::FromStr;
 
-    use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
@@ -856,18 +856,15 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        ) {
-            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
-            _ => unreachable!(),
-        }
-
-        // The previous call enables the logger. We need to disable it.
-        LOGGER.set_max_level(LevelFilter::Off);
+        assert!(matches!(
+            VmResources::from_json(
+                json.as_str(),
+                &default_instance_info,
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+            ),
+            Err(Error::Logger(LoggerConfigError::File(_))),
+        ));
 
         // Invalid path for metrics pipe.
         json = format!(

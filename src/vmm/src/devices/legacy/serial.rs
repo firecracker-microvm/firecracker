@@ -12,8 +12,8 @@ use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
 use logger::{IncMetric, METRICS};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};

@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use kvm_ioctls::*;
-use logger::{error, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -175,7 +175,7 @@ impl KvmVcpu {
         METRICS.vcpu.failures.inc();
         // TODO: Are we sure we want to finish running a vcpu upon
         // receiving a vm exit that is not necessarily an error?
-        error!("Unexpected exit reason on vcpu run: {:?}", exit);
+        tracing::error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(VcpuError::UnhandledKvmExit(format!("{:?}", exit)))
     }
 }
