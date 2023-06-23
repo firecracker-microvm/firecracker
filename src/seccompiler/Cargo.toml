@@ -22,5 +22,6 @@ libc = "0.2.147"
 serde = { version = "1.0.171", features = ["derive"] }
 serde_json = "1.0.100"
 thiserror = "1.0.43"
+tracing = { version = "0.1.37", features = ["attributes"] }
 
 utils = { path = "../utils" }

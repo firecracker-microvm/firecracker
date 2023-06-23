@@ -14,15 +14,14 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
-};
+use logger::{update_metric_with_elapsed_time, ProcessTimeReporter, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
 use seccompiler::BpfProgramRef;
 use serde_json::json;
+use tracing::{debug, error, info, warn};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;

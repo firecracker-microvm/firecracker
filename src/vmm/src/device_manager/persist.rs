@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use log::{error, warn};
 use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
+use tracing::{error, warn};
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
