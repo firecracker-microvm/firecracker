@@ -4,7 +4,7 @@
 use core::fmt;
 use std::convert::{From, TryInto};
 use std::fs::{File, OpenOptions};
-use std::io::{self, LineWriter, Write};
+use std::io::{self, BufWriter, LineWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::str::FromStr;
@@ -14,6 +14,7 @@ use libc::O_NONBLOCK;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
 use tracing_core::{Event, Subscriber};
+use tracing_flame::FlameLayer;
 use tracing_subscriber::fmt::format::{self, FormatEvent, FormatFields};
 use tracing_subscriber::fmt::{FmtContext, Layer};
 use tracing_subscriber::prelude::*;
@@ -278,6 +279,8 @@ pub struct LoggerConfig {
     pub show_log_origin: Option<bool>,
     /// Use the new logger format.
     pub new_format: Option<bool>,
+    /// The profile file to output.
+    pub profile_file: Option<std::path::PathBuf>,
 }
 
 /// Error with actions on the `LoggerConfig`.
@@ -294,13 +297,24 @@ pub enum LoggerConfigError {
     Write(std::io::Error),
 }
 
+macro_rules! registry {
+    ($($x:expr),*) => {
+        {
+            tracing_subscriber::registry()
+            $(
+                .with($x)
+            )*
+        }
+    }
+}
+
 impl LoggerConfig {
     const INIT_MESSAGE: &str = concat!("Running Firecracker v", env!("FIRECRACKER_VERSION"), "\n");
 
     /// Initializes the logger.
     pub fn init(&self) -> std::result::Result<(), LoggerConfigError> {
         let level = tracing::Level::from(self.level.unwrap_or_default());
-        let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+        let filter = tracing_subscriber::filter::LevelFilter::from_level(level);
 
         // In case we open a FIFO, in order to not block the instance if nobody is consuming the
         // message that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
@@ -320,17 +334,11 @@ impl LoggerConfig {
         // Wrap file to satisfy `tracing_subscriber::fmt::MakeWriter`.
         let writer = Mutex::new(LineWriter::new(file));
 
-        // Initialize the layers.
-        if self.new_format.unwrap_or_default() {
-            tracing_subscriber::registry()
-                .with(level_filter)
-                .with(new_log(self, writer))
-                .try_init()
-        } else {
-            tracing_subscriber::registry()
-                .with(level_filter)
-                .with(old_log(self, writer))
-                .try_init()
+        match (self.new_format.unwrap_or_default(), &self.profile_file) {
+            (true, Some(p)) => registry!(filter, new_log(self, writer), flame(p)).try_init(),
+            (false, Some(p)) => registry!(filter, old_log(self, writer), flame(p)).try_init(),
+            (true, None) => registry!(filter, new_log(self, writer)).try_init(),
+            (false, None) => registry!(filter, old_log(self, writer)).try_init(),
         }
         .map_err(LoggerConfigError::Init)?;
 
@@ -367,6 +375,18 @@ fn old_log<S: Subscriber + for<'span> LookupSpan<'span>>(
             show_log_origin: config.show_log_origin.unwrap_or_default(),
         })
         .with_writer(writer)
+}
+
+fn flame<S: Subscriber + for<'span> LookupSpan<'span>>(
+    profile_file: &std::path::PathBuf,
+) -> FlameLayer<S, BufWriter<File>> {
+    // We can discard the flush guard as
+    // > This type is only needed when using
+    // > `tracing::subscriber::set_global_default`, which prevents the drop
+    // > implementation of layers from running when the program exits.
+    // See https://docs.rs/tracing-flame/0.2.0/tracing_flame/struct.FlushGuard.html
+    let (flame_layer, _guard) = FlameLayer::with_file(profile_file).unwrap();
+    flame_layer
 }
 
 // use std::sync::atomic::AtomicUsize;

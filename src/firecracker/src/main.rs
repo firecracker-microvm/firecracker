@@ -204,6 +204,11 @@ fn main_exitable() -> FcExitCode {
                 .help("Whether to use the new logging output format."),
         )
         .arg(
+            Argument::new("profile-file")
+                .takes_value(true)
+                .help("Path to a fifo or a file used for configuring the profiler on startup."),
+        )
+        .arg(
             Argument::new("metrics-path")
                 .takes_value(true)
                 .help("Path to a fifo or a file used for configuring the metrics on startup."),
@@ -303,6 +308,7 @@ fn main_exitable() -> FcExitCode {
             show_level: Some(arguments.flag_present("show-level")),
             show_log_origin: Some(arguments.flag_present("show-log-origin")),
             new_format: Some(arguments.flag_present("new-format")),
+            profile_file: arguments.single_value("profile-file").map(PathBuf::from),
         };
 
         if let Err(err) = logger_config.init() {
