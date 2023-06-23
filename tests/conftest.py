@@ -41,8 +41,8 @@ from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_par
 from framework.microvm import Microvm
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
-    SUPPORTED_CPU_TEMPLATES,
-    SUPPORTED_CUSTOM_CPU_TEMPLATES,
+    custom_cpu_templates_params,
+    static_cpu_templates_params,
 )
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
@@ -330,14 +330,14 @@ def firecracker_release(request, record_property):
     return firecracker
 
 
-@pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
+@pytest.fixture(params=static_cpu_templates_params())
 def cpu_template(request, record_property):
-    """Return all CPU templates supported by the vendor."""
-    record_property("cpu_template", request.param)
+    """Return all static CPU templates supported by the vendor."""
+    record_property("static_cpu_template", request.param)
     return request.param
 
 
-@pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
+@pytest.fixture(params=custom_cpu_templates_params())
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
     record_property("custom_cpu_template", request.param["name"])
