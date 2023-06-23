@@ -142,8 +142,6 @@ class Microvm:
     process.
     """
 
-    SCREEN_LOGFILE = "/tmp/screen-{}.log"
-
     def __init__(
         self,
         resource_path,
@@ -188,16 +186,8 @@ class Microvm:
         # Copy the /etc/localtime file in the jailer root
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
-        # Session name is composed of the last part of the temporary path
-        # allocated by the current test session and the unique id of this
-        # microVM. It should be unique.
-        self._session_name = (
-            os.path.basename(os.path.normpath(resource_path)) + self._microvm_id
-        )
-
         # Initialize the logging subsystem.
         self._screen_pid = None
-        self._screen_log = None
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
 
@@ -387,9 +377,17 @@ class Microvm:
         return self.jailer.chroot_path()
 
     @property
+    def screen_session(self):
+        """The screen session name
+
+        The id of this microVM, which should be unique.
+        """
+        return self.id
+
+    @property
     def screen_log(self):
         """Get the screen log file."""
-        return self._screen_log
+        return f"/tmp/screen-{self.screen_session}.log"
 
     @property
     def screen_pid(self):
@@ -483,10 +481,9 @@ class Microvm:
             self.daemonize_jailer(jailer_param_list)
         else:
             # This file will collect any output from 'screen'ed Firecracker.
-            self._screen_log = self.SCREEN_LOGFILE.format(self._session_name)
             screen_pid, binary_pid = utils.start_screen_process(
-                self._screen_log,
-                self._session_name,
+                self.screen_log,
+                self.screen_session,
                 self._jailer_binary_path,
                 jailer_param_list,
             )
@@ -527,10 +524,8 @@ class Microvm:
 
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
-        input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}"'
-        utils.run_cmd(
-            input_cmd.format(session=self._session_name, input_string=input_string)
-        )
+        input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
+        return utils.run_cmd(input_cmd)
 
     def basic_config(
         self,
