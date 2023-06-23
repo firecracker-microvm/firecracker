@@ -2092,6 +2092,7 @@ mod tests {
                 show_level: Some(false),
                 show_log_origin: Some(false),
                 new_format: Some(false),
+                profile_file: None,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
