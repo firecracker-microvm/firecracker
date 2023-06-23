@@ -38,7 +38,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_params
-from framework.microvm import Microvm
+from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
     custom_cpu_templates_params,
@@ -280,46 +280,10 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
     One can comment the removal line, if it helps with debugging.
     """
 
-    class MicroVMFactory:
-        """MicroVM factory"""
-
-        def __init__(self, tmp_path, bin_cloner):
-            self.tmp_path = Path(tmp_path)
-            self.bin_cloner_path = bin_cloner
-            self.vms = []
-
-        def build(self, kernel=None, rootfs=None, **kwargs):
-            """Build a microvm"""
-            vm = Microvm(
-                resource_path=self.tmp_path,
-                bin_cloner_path=self.bin_cloner_path,
-                **kwargs,
-            )
-            self.vms.append(vm)
-            if kernel is not None:
-                vm.kernel_file = kernel
-            if rootfs is not None:
-                ssh_key = rootfs.with_suffix(".id_rsa")
-                # copy only iff not a read-only rootfs
-                rootfs_path = rootfs
-                if rootfs_path.suffix != ".squashfs":
-                    rootfs_path = Path(vm.path) / rootfs.name
-                    shutil.copyfile(rootfs, rootfs_path)
-                vm.rootfs_file = rootfs_path
-                vm.ssh_key = ssh_key
-            return vm
-
-        def kill(self):
-            """Clean up all built VMs"""
-            for vm in self.vms:
-                vm.kill()
-                vm.jailer.cleanup()
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
-            shutil.rmtree(self.tmp_path)
-
     uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
     yield uvm_factory
     uvm_factory.kill()
+    shutil.rmtree(fc_tmp_path)
 
 
 @pytest.fixture(params=firecracker_artifacts())

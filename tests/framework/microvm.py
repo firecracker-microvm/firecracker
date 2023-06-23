@@ -802,6 +802,45 @@ class Microvm:
         return self.ssh_iface(0)
 
 
+class MicroVMFactory:
+    """MicroVM factory"""
+
+    def __init__(self, base_path, bin_cloner):
+        self.base_path = Path(base_path)
+        self.bin_cloner_path = bin_cloner
+        self.vms = []
+
+    def build(self, kernel=None, rootfs=None, microvm_id=None, **kwargs):
+        """Build a microvm"""
+        vm = Microvm(
+            resource_path=self.base_path,
+            microvm_id=microvm_id or str(uuid.uuid4()),
+            bin_cloner_path=self.bin_cloner_path,
+            **kwargs,
+        )
+        self.vms.append(vm)
+        if kernel is not None:
+            vm.kernel_file = kernel
+        if rootfs is not None:
+            ssh_key = rootfs.with_suffix(".id_rsa")
+            # copy only iff not a read-only rootfs
+            rootfs_path = rootfs
+            if rootfs_path.suffix != ".squashfs":
+                rootfs_path = Path(vm.path) / rootfs.name
+                shutil.copyfile(rootfs, rootfs_path)
+            vm.rootfs_file = rootfs_path
+            vm.ssh_key = ssh_key
+        return vm
+
+    def kill(self):
+        """Clean up all built VMs"""
+        for vm in self.vms:
+            vm.kill()
+            vm.jailer.cleanup()
+            if len(vm.jailer.jailer_id) > 0:
+                shutil.rmtree(vm.jailer.chroot_base_with_id())
+
+
 class Serial:
     """Class for serial console communication with a Microvm."""
 

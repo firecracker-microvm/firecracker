@@ -63,6 +63,7 @@ class JailerContext:
         further adjusted by each test even with None values.
         """
         self.jailer_id = jailer_id
+        assert jailer_id is not None
         self.exec_file = exec_file
         self.uid = uid
         self.gid = gid

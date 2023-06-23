@@ -19,7 +19,7 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 os.chdir("tests")
 from framework.artifacts import disks, kernels
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
-from framework.microvm import Microvm
+from framework.microvm import MicroVMFactory
 from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
@@ -114,6 +114,7 @@ def main():
     bin_cloner_path = compile_file(
         file_name="newpid_cloner.c", bin_name="newpid_cloner", dest_path=root_path
     )
+    vm_factory = MicroVMFactory(root_path, bin_cloner_path)
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
@@ -123,10 +124,7 @@ def main():
         for kernel in kernels(glob="vmlinux-*"):
             for rootfs in disks(glob="ubuntu-*.squashfs"):
                 print(kernel, rootfs, cpu_template)
-                vm = Microvm(
-                    resource_path=root_path,
-                    bin_cloner_path=bin_cloner_path,
-                )
+                vm = vm_factory.build()
                 create_snapshots(vm, rootfs, kernel, cpu_template)
 
 
