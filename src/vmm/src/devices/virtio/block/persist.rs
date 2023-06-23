@@ -6,10 +6,10 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use log::warn;
 use rate_limiter::persist::RateLimiterState;
 use rate_limiter::RateLimiter;
 use snapshot::Persist;
+use tracing::warn;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;

@@ -24,8 +24,8 @@ use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use log::{debug, error, warn};
 use logger::{IncMetric, METRICS};
+use tracing::{debug, error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};

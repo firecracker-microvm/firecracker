@@ -6,9 +6,9 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use log::{debug, error};
 use logger::{IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
+use tracing::{debug, error};
 use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;

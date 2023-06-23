@@ -248,7 +248,7 @@ impl TokenAuthority {
             self.cipher = TokenAuthority::create_cipher(&mut self.entropy_pool)?;
             // Reset encrypted tokens count.
             self.num_encrypted_tokens = 0;
-            logger::warn!(
+            tracing::warn!(
                 "The limit of tokens generated under current MMDS token authority
                 has been reached. MMDS's token authority entity has been reseeded
                 and all previously created tokens are now invalid."

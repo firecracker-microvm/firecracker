@@ -5,8 +5,9 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, METRICS};
+use logger::{IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 
 /// Metrics reporting period.

@@ -11,8 +11,9 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
+use logger::ProcessTimeReporter;
 use seccompiler::BpfThreadMap;
+use tracing::{error, warn};
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vmm::resources::VmResources;

@@ -67,11 +67,11 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use log::{error, info, warn};
 use logger::{MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
+use tracing::{error, info, warn};
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;

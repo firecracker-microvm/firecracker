@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::{fs, io, result};
 
-use logger::warn;
+use tracing::warn;
 
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;

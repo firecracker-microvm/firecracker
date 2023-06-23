@@ -4,6 +4,7 @@
 #![cfg(test)]
 #![doc(hidden)]
 
+use std::fmt::Debug;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
@@ -211,7 +212,7 @@ pub fn read_packet_data(pkt: &VsockPacket, mem: &GuestMemoryMmap, how_much: usiz
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend,
+    B: VsockBackend + Debug,
 {
     pub fn write_element_in_queue(vsock: &Vsock<B>, idx: usize, val: u64) {
         if idx > vsock.queue_events.len() - 1 {

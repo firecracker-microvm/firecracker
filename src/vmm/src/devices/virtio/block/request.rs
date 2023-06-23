@@ -8,9 +8,9 @@
 use std::convert::From;
 use std::result;
 
-use log::error;
 use logger::{IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
+use tracing::error;
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
