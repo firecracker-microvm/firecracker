@@ -151,31 +151,30 @@ class Microvm:
 
     def __init__(
         self,
-        resource_path,
-        fc_binary_path,
-        jailer_binary_path,
-        microvm_id=None,
-        monitor_memory=True,
+        resource_path: Path,
+        microvm_id: str,
+        fc_binary_path: Path,
+        jailer_binary_path: Path,
+        monitor_memory: bool = True,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
-        if microvm_id is None:
-            microvm_id = str(uuid.uuid4())
+        assert microvm_id is not None
         self._microvm_id = microvm_id
 
         # Compose the paths to the resources specific to this microvm.
-        self._path = os.path.join(resource_path, microvm_id)
-        os.makedirs(self._path, exist_ok=True)
+        self._path = resource_path / microvm_id
+        self._path.mkdir(parents=True, exist_ok=True)
         self.kernel_file = None
         self.rootfs_file = None
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
 
-        self._fc_binary_path = str(fc_binary_path)
+        self._fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
-        self._jailer_binary_path = str(jailer_binary_path)
+        self._jailer_binary_path = Path(jailer_binary_path)
         assert jailer_binary_path.exists()
 
         # Create the jailer context associated with this microvm.
@@ -801,13 +800,13 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, base_path, fc_binary_path, jailer_binary_path):
+    def __init__(self, base_path: Path, fc_binary_path: Path, jailer_binary_path: Path):
         self.base_path = Path(base_path)
         self.vms = []
-        self.fc_binary_path = fc_binary_path
-        self.jailer_binary_path = jailer_binary_path
+        self.fc_binary_path = Path(fc_binary_path)
+        self.jailer_binary_path = Path(jailer_binary_path)
 
-    def build(self, kernel=None, rootfs=None, microvm_id=None, **kwargs):
+    def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
         vm = Microvm(
             resource_path=self.base_path,
