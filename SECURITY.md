@@ -1,8 +1,8 @@
 # Security Issue Policy
 
-If you uncover a security issue with Firecracker, please write to us on
-<firecracker-security-disclosures@amazon.com>. Please encrypt sensitive
-information using the [PGP key](PGP-KEY.asc).
+If you uncover a security issue with Firecracker, instead of posting a PR
+please write to us on <firecracker-security-disclosures@amazon.com> with details of the patch.
+Please encrypt sensitive information using the [PGP key](PGP-KEY.asc).
 
 Once the Firecracker [maintainers](MAINTAINERS.md) become aware (or are made
 aware) of a security issue, they will immediately assess it. Based on impact and

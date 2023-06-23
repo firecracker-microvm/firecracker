@@ -15,6 +15,7 @@ Developer Certificate of Origin and signing off your commits, please check
 
 ## PR Checklist
 
+- [ ] [security policy](https://github.com/firecracker-microvm/firecracker/blob/main/SECURITY.md) is reviewed and this is not a security PR.
 - [ ] If a specific issue led to this PR, this PR closes the issue.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Any required documentation changes (code and docs) are included in this PR.
