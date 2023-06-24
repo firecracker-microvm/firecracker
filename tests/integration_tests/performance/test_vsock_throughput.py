@@ -284,7 +284,7 @@ def test_vsock_throughput(
 
     mem_size_mib = 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn()
+    vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.ssh_network_config(network_config, "1")
     # Create a vsock device

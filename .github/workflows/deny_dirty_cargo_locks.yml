@@ -14,10 +14,10 @@ jobs:
       - name: "Check no Cargo.lock files are dirty"
         run: |
           exit_code=0
-          is_dirty=0
           # This breaks for paths with whitespaces in them, but we have an integration test
           # that prevents those from existing in this repository.
           for f in $(find . -name 'Cargo.lock' -not -path "./build/*"); do
+            is_dirty=0
             (
               cd "$(dirname "$f")"
               cargo --locked metadata --format-version 1 >/dev/null 2>&1

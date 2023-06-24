@@ -191,8 +191,6 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     logger = logging.getLogger("snapshot_load_failure")
     vm = test_microvm_with_api
     vm.spawn(log_level="Info")
-    # only works if log level is Debug
-    vm.time_api_requests = False
 
     # Create two empty files for snapshot state and snapshot memory
     chroot_path = vm.jailer.chroot_path()

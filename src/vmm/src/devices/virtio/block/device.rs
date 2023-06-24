@@ -578,15 +578,18 @@ impl VirtioDevice for Block {
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        let data_len = data.len() as u64;
-        let config_len = self.config_space.len() as u64;
-        if offset + data_len > config_len {
+        let start = usize::try_from(offset).ok();
+        let end = start.and_then(|s| s.checked_add(data.len()));
+        let Some(dst) = start
+            .zip(end)
+            .and_then(|(start, end)| self.config_space.get_mut(start..end)) else
+        {
             error!("Failed to write config space");
             METRICS.block.cfg_fails.inc();
             return;
-        }
+        };
 
-        self.config_space[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
+        dst.copy_from_slice(data);
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
@@ -749,6 +752,12 @@ mod tests {
         // Invalid write.
         let new_config_space = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
         block.write_config(5, &new_config_space);
+        // Make sure nothing got written.
+        block.read_config(0, &mut actual_config_space);
+        assert_eq!(actual_config_space, expected_config_space);
+
+        // Large offset that may cause an overflow.
+        block.write_config(u64::MAX, &new_config_space);
         // Make sure nothing got written.
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
