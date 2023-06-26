@@ -117,9 +117,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "317ac01be6aa44a5a3957e5f55d33ee9803bc42954434d2a05957903b0cbf71e"
+checksum = "84a36faed486b67c64132841663dc60d11cfaa717bcfdef5530d9109573cbe9a"
 dependencies = [
  "aws-lc-sys",
  "mirai-annotations",
@@ -129,11 +129,11 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e63301f0c20f3c7a75dc1cad2d2b04057ba124237813f8de2c1b5c3b98c71fc"
+checksum = "2b37b4af8e0c9d68204098ef86a871e1776723be570bfd96e45f9fa52914c2dd"
 dependencies = [
- "bindgen",
+ "bindgen 0.66.1",
  "cmake",
  "dunce",
  "libc",
@@ -162,6 +162,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfdf7b466f9a4903edc73f95d6d2bcd5baf8ae620638762244d3f60143643cc5"
 dependencies = [
  "bitflags 1.3.2",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "peeking_take_while",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.16",
+]
+
+[[package]]
+name = "bindgen"
+version = "0.66.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
+dependencies = [
+ "bitflags 2.3.1",
  "cexpr",
  "clang-sys",
  "lazy_static",
@@ -1280,7 +1301,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95e584ef49b61e34905229acfa185429edca64d47c449f31ff4371dc1ba4544c"
 dependencies = [
- "bindgen",
+ "bindgen 0.65.1",
  "cc",
  "cfg-if",
 ]
