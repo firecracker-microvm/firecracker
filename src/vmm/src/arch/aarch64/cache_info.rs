@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-use logger::warn;
+use log::warn;
 
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
@@ -15,8 +15,10 @@ pub(crate) enum CacheInfoError {
     FailedToReadCacheInfo(#[from] io::Error),
     #[error("Invalid cache configuration found for {0}: {1}")]
     InvalidCacheAttr(String, String),
-    #[error("Cannot proceed with reading cache info.")]
-    MissingCacheConfig,
+    #[error("Cannot read cache level.")]
+    MissingCacheLevel,
+    #[error("Cannot read cache type.")]
+    MissingCacheType,
     #[error("{0}")]
     MissingOptionalAttr(String, CacheEntry),
 }
@@ -76,29 +78,17 @@ impl CacheEntry {
 
         // If the cache level or the type cannot be retrieved we stop the process
         // of populating the cache levels.
-        match store.get_by_key(index, "level") {
-            Ok(level) => {
-                cache.level = level.parse::<u8>().map_err(|err| {
-                    CacheInfoError::InvalidCacheAttr("level".to_string(), err.to_string())
-                })?;
-            }
-            Err(err) => {
-                // If we cannot read the cache level even for the first level of cache, we will
-                // stop processing anymore cache info and log an error.
-                warn!("Could not read cache level for index {}: {}", index, err);
-                return Err(CacheInfoError::MissingCacheConfig);
-            }
-        }
-        match store.get_by_key(index, "type") {
-            Ok(cache_type) => cache.type_ = CacheType::try_from(&cache_type)?,
-            Err(err) => {
-                warn!(
-                    "Could not read type for cache level {}: {}",
-                    cache.level, err
-                );
-                return Err(CacheInfoError::MissingCacheConfig);
-            }
-        }
+        let level_str = store
+            .get_by_key(index, "level")
+            .map_err(|_| CacheInfoError::MissingCacheLevel)?;
+        cache.level = level_str.parse::<u8>().map_err(|err| {
+            CacheInfoError::InvalidCacheAttr("level".to_string(), err.to_string())
+        })?;
+
+        let cache_type_str = store
+            .get_by_key(index, "type")
+            .map_err(|_| CacheInfoError::MissingCacheType)?;
+        cache.type_ = CacheType::try_from(&cache_type_str)?;
 
         if let Ok(shared_cpu_map) = store.get_by_key(index, "shared_cpu_map") {
             cache.cpus_per_unit = mask_str2bit_count(shared_cpu_map.trim_end())?;
@@ -296,22 +286,20 @@ pub(crate) fn read_cache_config(
     let mut logged_missing_attr = false;
     let engine = CacheEngine::default();
 
-    for index in 0..(MAX_CACHE_LEVEL + 1) {
+    for index in 0..=MAX_CACHE_LEVEL {
         match CacheEntry::from_index(index, engine.store.as_ref()) {
             Ok(cache) => {
                 append_cache_level(cache_l1, cache_non_l1, cache);
             }
+            // Missing cache level or type means not further search is necessary.
+            Err(CacheInfoError::MissingCacheLevel) | Err(CacheInfoError::MissingCacheType) => break,
             // Missing cache files is not necessary an error so we
-            // do not propagate it upwards. We were prudent enough to log a warning.
-            Err(CacheInfoError::MissingCacheConfig) => return Ok(()),
+            // do not propagate it upwards. We were prudent enough to log it.
             Err(CacheInfoError::MissingOptionalAttr(msg, cache)) => {
                 let level = cache.level;
                 append_cache_level(cache_l1, cache_non_l1, cache);
                 if !msg.is_empty() && !logged_missing_attr {
-                    warn!(
-                        "{}",
-                        format!("Could not read the {} for cache level {}.", msg, level)
-                    );
+                    warn!("Could not read the {msg} for cache level {level}.");
                     logged_missing_attr = true;
                 }
             }
@@ -437,10 +425,7 @@ mod tests {
         let res = CacheEntry::from_index(0, engine.store.as_ref());
         assert!(res.is_err());
         // We did create the level file but we still do not have the type file.
-        assert_eq!(
-            format!("{}", res.unwrap_err()),
-            "Cannot proceed with reading cache info."
-        );
+        assert!(matches!(res.unwrap_err(), CacheInfoError::MissingCacheType));
 
         let engine = CacheEngine::new(&default_map);
         let res = CacheEntry::from_index(0, engine.store.as_ref());
