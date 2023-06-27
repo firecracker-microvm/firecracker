@@ -18,14 +18,9 @@ pub mod iff;
 // generated with bindgen /usr/include/linux/if_tun.h --no-unstable-rust
 // --constified-enum '*' --with-derive-default
 pub mod if_tun;
-// generated with bindgen /usr/include/linux/in.h --no-unstable-rust
-// --constified-enum '*' --with-derive-default
-// Name is "inn" to avoid conflicting with "in" keyword.
-pub mod inn;
 // generated with bindgen /usr/include/linux/sockios.h --no-unstable-rust
 // --constified-enum '*' --with-derive-default
 pub mod sockios;
 pub use crate::if_tun::*;
 pub use crate::iff::*;
-pub use crate::inn::*;
 pub use crate::sockios::*;
