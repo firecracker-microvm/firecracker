@@ -42,15 +42,6 @@ EOF
 
 KERNEL_HEADERS_HOME="/usr"
 
-info "BINDGEN in.h"
-fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/in.h" \
-           --allowlist-var='IP.*' \
-           --allowlist-var='IN.*' \
-           --allowlist-var='MCAST' \
-           --allowlist-type='in_.*' \
-           --allowlist-type='ip_.*' \
-    |replace_linux_int_types >src/net_gen/src/inn.rs
-
 info "BINDGEN sockios.h"
 fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/net_gen/src/sockios.rs
 
