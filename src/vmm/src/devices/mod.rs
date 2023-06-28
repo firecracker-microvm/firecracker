@@ -6,14 +6,15 @@
 // found in the THIRD-PARTY file.
 use std::io;
 
-mod bus;
+pub mod bus;
 pub mod legacy;
 pub mod pseudo;
 pub mod virtio;
 
-use logger::{error, IncMetric, METRICS};
+pub use bus::{Bus, BusDevice, Error as BusError};
+use log::error;
+use logger::{IncMetric, METRICS};
 
-pub use self::bus::{Bus, BusDevice, Error as BusError};
 use crate::devices::virtio::{QueueError, VsockError};
 
 // Function used for reporting error in terms of logging

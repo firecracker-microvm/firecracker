@@ -3,6 +3,7 @@
 
 //! Defines state and support structures for persisting Vsock devices and backends.
 
+use std::fmt::Debug;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -15,43 +16,45 @@ use super::*;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_VSOCK};
 
-#[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Versionize)]
 pub struct VsockState {
     pub backend: VsockBackendState,
     pub frontend: VsockFrontendState,
 }
 
-/// The Vsock serializable state.
-#[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+/// The Vsock serializable state.
+#[derive(Debug, Clone, Versionize)]
 pub struct VsockFrontendState {
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
-/// An enum for the serializable backend state types.
-#[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+/// An enum for the serializable backend state types.
+#[derive(Debug, Clone, Versionize)]
 pub enum VsockBackendState {
     Uds(VsockUdsState),
 }
 
-/// The Vsock Unix Backend serializable state.
-#[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+/// The Vsock Unix Backend serializable state.
+#[derive(Debug, Clone, Versionize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
+#[derive(Debug)]
 pub struct VsockConstructorArgs<B> {
     pub mem: GuestMemoryMmap,
     pub backend: B,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
+#[derive(Debug)]
 pub struct VsockUdsConstructorArgs {
     // cid available in VsockFrontendState.
     pub cid: u64,
@@ -83,7 +86,7 @@ impl Persist<'_> for VsockUnixBackend {
 
 impl<B> Persist<'_> for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: VsockBackend + 'static + Debug,
 {
     type State = VsockFrontendState;
     type ConstructorArgs = VsockConstructorArgs<B>;

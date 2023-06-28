@@ -61,43 +61,41 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
+use std::fmt::Debug;
 use std::io::Write;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
-use lazy_static::lazy_static;
+#[cfg(target_arch = "aarch64")]
+use log::warn;
 use serde::{Serialize, Serializer};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::rtc_pl031::RtcEvents;
 
-use super::extract_guard;
-#[cfg(target_arch = "aarch64")]
-use crate::warn;
+use super::FcLineWriter;
 
-lazy_static! {
-    /// Static instance used for handling metrics.
-    pub static ref METRICS: Metrics<FirecrackerMetrics> = Metrics::new(FirecrackerMetrics::default());
-}
+/// Static instance used for handling metrics.
+pub static METRICS: Metrics<FirecrackerMetrics, FcLineWriter> =
+    Metrics::<FirecrackerMetrics, FcLineWriter>::new(FirecrackerMetrics::new());
 
 /// Metrics system.
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call operations on metrics using a non-mut static global variable.
-pub struct Metrics<T: Serialize> {
+#[derive(Debug)]
+pub struct Metrics<T: Serialize, M: Write + Send> {
     // Metrics will get flushed here.
-    metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
-    is_initialized: AtomicBool,
+    metrics_buf: OnceLock<Mutex<M>>,
     pub app_metrics: T,
 }
 
-impl<T: Serialize> Metrics<T> {
+impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// Creates a new instance of the current metrics.
     // TODO: We need a better name than app_metrics (something that says that these are the actual
     // values that we are writing to the metrics_buf).
-    pub fn new(app_metrics: T) -> Metrics<T> {
+    pub const fn new(app_metrics: T) -> Metrics<T, M> {
         Metrics {
-            metrics_buf: Mutex::new(None),
-            is_initialized: AtomicBool::new(false),
+            metrics_buf: OnceLock::new(),
             app_metrics,
         }
     }
@@ -114,17 +112,10 @@ impl<T: Serialize> Metrics<T> {
     /// # Arguments
     ///
     /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
-    pub fn init(&self, metrics_dest: Box<dyn Write + Send>) -> Result<(), MetricsError> {
-        if self.is_initialized.load(Ordering::Relaxed) {
-            return Err(MetricsError::AlreadyInitialized);
-        }
-        {
-            let mut g = extract_guard(self.metrics_buf.lock());
-
-            *g = Some(metrics_dest);
-        }
-        self.is_initialized.store(true, Ordering::Relaxed);
-        Ok(())
+    pub fn init(&self, metrics_dest: M) -> Result<(), MetricsError> {
+        self.metrics_buf
+            .set(Mutex::new(metrics_dest))
+            .map_err(|_| MetricsError::AlreadyInitialized)
     }
 
     /// Writes metrics to the destination provided as argument upon initialization of the metrics.
@@ -147,10 +138,10 @@ impl<T: Serialize> Metrics<T> {
     /// The alternative is to hold a Mutex over the entire function call, but this increases the
     /// known deadlock potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
-        if self.is_initialized.load(Ordering::Relaxed) {
+        if let Some(lock) = self.metrics_buf.get() {
             match serde_json::to_string(&self.app_metrics) {
                 Ok(msg) => {
-                    if let Some(guard) = extract_guard(self.metrics_buf.lock()).as_mut() {
+                    if let Ok(mut guard) = lock.lock() {
                         // No need to explicitly call flush because the underlying LineWriter
                         // flushes automatically whenever a newline is
                         // detected (and we always end with a newline the
@@ -178,7 +169,7 @@ impl<T: Serialize> Metrics<T> {
     }
 }
 
-impl<T: Serialize> Deref for Metrics<T> {
+impl<T: Serialize + Debug, M: Write + Send + Debug> Deref for Metrics<T, M> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -235,13 +226,25 @@ pub trait StoreMetric {
 // counters on each metric.
 // 1st member - current value being updated
 // 2nd member - old value that gets the current value whenever metrics is flushed to disk
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SharedIncMetric(AtomicUsize, AtomicUsize);
+impl SharedIncMetric {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self(AtomicUsize::new(0), AtomicUsize::new(0))
+    }
+}
 
 /// Representation of a metric that is expected to hold a value that can be accessed
 /// from more than one thread, so more synchronization is necessary.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SharedStoreMetric(AtomicUsize);
+impl SharedStoreMetric {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self(AtomicUsize::new(0))
+    }
+}
 
 impl IncMetric for SharedIncMetric {
     // While the order specified for this operation is still Relaxed, the actual instruction will
@@ -291,6 +294,7 @@ impl Serialize for SharedStoreMetric {
 
 /// Reporter object which computes the process wall time and
 /// process CPU time and populates the metric with the results.
+#[derive(Debug)]
 pub struct ProcessTimeReporter {
     // Process start time in us.
     start_time_us: Option<u64>,
@@ -344,7 +348,7 @@ impl ProcessTimeReporter {
 // in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
 
 /// Metrics related to the internal API server.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct ApiServerMetrics {
     /// Measures the process's startup time in microseconds.
     pub process_startup_time_us: SharedStoreMetric,
@@ -355,9 +359,20 @@ pub struct ApiServerMetrics {
     /// Number of timeouts during communication with the VMM.
     pub sync_vmm_send_timeout_count: SharedIncMetric,
 }
+impl ApiServerMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            process_startup_time_us: SharedStoreMetric::new(),
+            process_startup_time_cpu_us: SharedStoreMetric::new(),
+            sync_response_fails: SharedIncMetric::new(),
+            sync_vmm_send_timeout_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to GET API Requests for counting user triggered actions and/or failures.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct GetRequestsMetrics {
     /// Number of GETs for getting information on the instance.
     pub instance_info_count: SharedIncMetric,
@@ -368,9 +383,20 @@ pub struct GetRequestsMetrics {
     /// Number of GETs for getting the VMM version.
     pub vmm_version_count: SharedIncMetric,
 }
+impl GetRequestsMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            instance_info_count: SharedIncMetric::new(),
+            machine_cfg_count: SharedIncMetric::new(),
+            mmds_count: SharedIncMetric::new(),
+            vmm_version_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct PutRequestsMetrics {
     /// Number of PUTs triggering an action on the VM.
     pub actions_count: SharedIncMetric,
@@ -413,9 +439,36 @@ pub struct PutRequestsMetrics {
     /// Number of failures in creating a vsock device.
     pub vsock_fails: SharedIncMetric,
 }
+impl PutRequestsMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            actions_count: SharedIncMetric::new(),
+            actions_fails: SharedIncMetric::new(),
+            boot_source_count: SharedIncMetric::new(),
+            boot_source_fails: SharedIncMetric::new(),
+            drive_count: SharedIncMetric::new(),
+            drive_fails: SharedIncMetric::new(),
+            logger_count: SharedIncMetric::new(),
+            logger_fails: SharedIncMetric::new(),
+            machine_cfg_count: SharedIncMetric::new(),
+            machine_cfg_fails: SharedIncMetric::new(),
+            cpu_cfg_count: SharedIncMetric::new(),
+            cpu_cfg_fails: SharedIncMetric::new(),
+            metrics_count: SharedIncMetric::new(),
+            metrics_fails: SharedIncMetric::new(),
+            network_count: SharedIncMetric::new(),
+            network_fails: SharedIncMetric::new(),
+            mmds_count: SharedIncMetric::new(),
+            mmds_fails: SharedIncMetric::new(),
+            vsock_count: SharedIncMetric::new(),
+            vsock_fails: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct PatchRequestsMetrics {
     /// Number of tries to PATCH a block device.
     pub drive_count: SharedIncMetric,
@@ -434,18 +487,42 @@ pub struct PatchRequestsMetrics {
     /// Number of failures in PATCHing an mmds.
     pub mmds_fails: SharedIncMetric,
 }
+impl PatchRequestsMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            drive_count: SharedIncMetric::new(),
+            drive_fails: SharedIncMetric::new(),
+            network_count: SharedIncMetric::new(),
+            network_fails: SharedIncMetric::new(),
+            machine_cfg_count: SharedIncMetric::new(),
+            machine_cfg_fails: SharedIncMetric::new(),
+            mmds_count: SharedIncMetric::new(),
+            mmds_fails: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics related to deprecated user-facing API calls.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct DeprecatedApiMetrics {
     /// Total number of calls to deprecated HTTP endpoints.
     pub deprecated_http_api_calls: SharedIncMetric,
     /// Total number of calls to deprecated CMD line parameters.
     pub deprecated_cmd_line_api_calls: SharedIncMetric,
 }
+impl DeprecatedApiMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            deprecated_http_api_calls: SharedIncMetric::new(),
+            deprecated_cmd_line_api_calls: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Balloon Device associated metrics.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct BalloonDeviceMetrics {
     /// Number of times when activate failed on a balloon device.
     pub activate_fails: SharedIncMetric,
@@ -460,9 +537,22 @@ pub struct BalloonDeviceMetrics {
     /// Number of times when handling events on a balloon device failed.
     pub event_fails: SharedIncMetric,
 }
+impl BalloonDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            activate_fails: SharedIncMetric::new(),
+            inflate_count: SharedIncMetric::new(),
+            stats_updates_count: SharedIncMetric::new(),
+            stats_update_fails: SharedIncMetric::new(),
+            deflate_count: SharedIncMetric::new(),
+            event_fails: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Block Device associated metrics.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct BlockDeviceMetrics {
     /// Number of times when activate failed on a block device.
     pub activate_fails: SharedIncMetric,
@@ -500,9 +590,33 @@ pub struct BlockDeviceMetrics {
     /// This happens when the io_uring submission queue is full.
     pub io_engine_throttled_events: SharedIncMetric,
 }
+impl BlockDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            activate_fails: SharedIncMetric::new(),
+            cfg_fails: SharedIncMetric::new(),
+            no_avail_buffer: SharedIncMetric::new(),
+            event_fails: SharedIncMetric::new(),
+            execute_fails: SharedIncMetric::new(),
+            invalid_reqs_count: SharedIncMetric::new(),
+            flush_count: SharedIncMetric::new(),
+            queue_event_count: SharedIncMetric::new(),
+            rate_limiter_event_count: SharedIncMetric::new(),
+            update_count: SharedIncMetric::new(),
+            update_fails: SharedIncMetric::new(),
+            read_bytes: SharedIncMetric::new(),
+            write_bytes: SharedIncMetric::new(),
+            read_count: SharedIncMetric::new(),
+            write_count: SharedIncMetric::new(),
+            rate_limiter_throttled_events: SharedIncMetric::new(),
+            io_engine_throttled_events: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to the i8042 device.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct I8042DeviceMetrics {
     /// Errors triggered while using the i8042 device.
     pub error_count: SharedIncMetric,
@@ -517,9 +631,22 @@ pub struct I8042DeviceMetrics {
     /// Bytes written by this device.
     pub write_count: SharedIncMetric,
 }
+impl I8042DeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+            read_count: SharedIncMetric::new(),
+            reset_count: SharedIncMetric::new(),
+            write_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics for the logging subsystem.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct LoggerSystemMetrics {
     /// Number of misses on flushing metrics.
     pub missed_metrics_count: SharedIncMetric,
@@ -530,9 +657,20 @@ pub struct LoggerSystemMetrics {
     /// Number of errors while trying to log human readable content.
     pub log_fails: SharedIncMetric,
 }
+impl LoggerSystemMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            missed_metrics_count: SharedIncMetric::new(),
+            metrics_fails: SharedIncMetric::new(),
+            missed_log_count: SharedIncMetric::new(),
+            log_fails: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics for the MMDS functionality.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct MmdsMetrics {
     /// Number of frames rerouted to MMDS.
     pub rx_accepted: SharedIncMetric,
@@ -557,9 +695,27 @@ pub struct MmdsMetrics {
     /// The number of connections cleaned up by the MMDS TCP handler.
     pub connections_destroyed: SharedIncMetric,
 }
+impl MmdsMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            rx_accepted: SharedIncMetric::new(),
+            rx_accepted_err: SharedIncMetric::new(),
+            rx_accepted_unusual: SharedIncMetric::new(),
+            rx_bad_eth: SharedIncMetric::new(),
+            rx_count: SharedIncMetric::new(),
+            tx_bytes: SharedIncMetric::new(),
+            tx_count: SharedIncMetric::new(),
+            tx_errors: SharedIncMetric::new(),
+            tx_frames: SharedIncMetric::new(),
+            connections_created: SharedIncMetric::new(),
+            connections_destroyed: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Network-related metrics.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct NetDeviceMetrics {
     /// Number of times when activate failed on a network device.
     pub activate_fails: SharedIncMetric,
@@ -616,6 +772,40 @@ pub struct NetDeviceMetrics {
     /// Number of packets with a spoofed mac, sent by the guest.
     pub tx_spoofed_mac_count: SharedIncMetric,
 }
+impl NetDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            activate_fails: SharedIncMetric::new(),
+            cfg_fails: SharedIncMetric::new(),
+            mac_address_updates: SharedIncMetric::new(),
+            no_rx_avail_buffer: SharedIncMetric::new(),
+            no_tx_avail_buffer: SharedIncMetric::new(),
+            event_fails: SharedIncMetric::new(),
+            rx_queue_event_count: SharedIncMetric::new(),
+            rx_event_rate_limiter_count: SharedIncMetric::new(),
+            rx_partial_writes: SharedIncMetric::new(),
+            rx_rate_limiter_throttled: SharedIncMetric::new(),
+            rx_tap_event_count: SharedIncMetric::new(),
+            rx_bytes_count: SharedIncMetric::new(),
+            rx_packets_count: SharedIncMetric::new(),
+            rx_fails: SharedIncMetric::new(),
+            rx_count: SharedIncMetric::new(),
+            tap_read_fails: SharedIncMetric::new(),
+            tap_write_fails: SharedIncMetric::new(),
+            tx_bytes_count: SharedIncMetric::new(),
+            tx_malformed_frames: SharedIncMetric::new(),
+            tx_fails: SharedIncMetric::new(),
+            tx_count: SharedIncMetric::new(),
+            tx_packets_count: SharedIncMetric::new(),
+            tx_partial_reads: SharedIncMetric::new(),
+            tx_queue_event_count: SharedIncMetric::new(),
+            tx_rate_limiter_event_count: SharedIncMetric::new(),
+            tx_rate_limiter_throttled: SharedIncMetric::new(),
+            tx_spoofed_mac_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Performance metrics related for the moment only to snapshots.
 // These store the duration of creating/loading a snapshot and of
@@ -625,7 +815,7 @@ pub struct NetDeviceMetrics {
 // snapshot creation is stored in the metric. If the user is interested
 // in all the durations, a `FlushMetrics` request should be sent after
 // each `create` request.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct PerformanceMetrics {
     /// Measures the snapshot full create time, at the API (user) level, in microseconds.
     pub full_create_snapshot: SharedStoreMetric,
@@ -648,10 +838,27 @@ pub struct PerformanceMetrics {
     /// Measures the microVM resuming duration, at the VMM level, in microseconds.
     pub vmm_resume_vm: SharedStoreMetric,
 }
+impl PerformanceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            full_create_snapshot: SharedStoreMetric::new(),
+            diff_create_snapshot: SharedStoreMetric::new(),
+            load_snapshot: SharedStoreMetric::new(),
+            pause_vm: SharedStoreMetric::new(),
+            resume_vm: SharedStoreMetric::new(),
+            vmm_full_create_snapshot: SharedStoreMetric::new(),
+            vmm_diff_create_snapshot: SharedStoreMetric::new(),
+            vmm_load_snapshot: SharedStoreMetric::new(),
+            vmm_pause_vm: SharedStoreMetric::new(),
+            vmm_resume_vm: SharedStoreMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to the RTC device.
 #[cfg(target_arch = "aarch64")]
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct RTCDeviceMetrics {
     /// Errors triggered while using the RTC device.
     pub error_count: SharedIncMetric,
@@ -659,6 +866,17 @@ pub struct RTCDeviceMetrics {
     pub missed_read_count: SharedIncMetric,
     /// Number of superfluous write intents on this RTC device.
     pub missed_write_count: SharedIncMetric,
+}
+#[cfg(target_arch = "aarch64")]
+impl RTCDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+        }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -676,15 +894,34 @@ impl RtcEvents for RTCDeviceMetrics {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+impl RtcEvents for &'static RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        RTCDeviceMetrics::invalid_read(self);
+    }
+
+    fn invalid_write(&self) {
+        RTCDeviceMetrics::invalid_write(self);
+    }
+}
+
 /// Metrics for the seccomp filtering.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct SeccompMetrics {
     /// Number of errors inside the seccomp filtering.
     pub num_faults: SharedStoreMetric,
 }
+impl SeccompMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            num_faults: SharedStoreMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to the UART device.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct SerialDeviceMetrics {
     /// Errors triggered while using the UART device.
     pub error_count: SharedIncMetric,
@@ -699,12 +936,25 @@ pub struct SerialDeviceMetrics {
     /// Number of succeeded write calls.
     pub write_count: SharedIncMetric,
 }
+impl SerialDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            flush_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+            read_count: SharedIncMetric::new(),
+            write_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics related to signals.
 /// Deadly signals must be of `SharedStoreMetric` type, since they can ever be either 0 or 1.
 /// This avoids a tricky race condition caused by the unatomic serialize method of
 /// `SharedIncMetric`, between two threads calling `METRICS.write()`.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct SignalMetrics {
     /// Number of times that SIGBUS was handled.
     pub sigbus: SharedStoreMetric,
@@ -721,9 +971,23 @@ pub struct SignalMetrics {
     /// Number of times that SIGILL was handled.
     pub sigill: SharedStoreMetric,
 }
+impl SignalMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            sigbus: SharedStoreMetric::new(),
+            sigsegv: SharedStoreMetric::new(),
+            sigxfsz: SharedStoreMetric::new(),
+            sigxcpu: SharedStoreMetric::new(),
+            sigpipe: SharedIncMetric::new(),
+            sighup: SharedStoreMetric::new(),
+            sigill: SharedStoreMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to VCPUs' mode of functioning.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct VcpuMetrics {
     /// Number of KVM exits for handling input IO.
     pub exit_io_in: SharedIncMetric,
@@ -736,18 +1000,39 @@ pub struct VcpuMetrics {
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
 }
+impl VcpuMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            exit_io_in: SharedIncMetric::new(),
+            exit_io_out: SharedIncMetric::new(),
+            exit_mmio_read: SharedIncMetric::new(),
+            exit_mmio_write: SharedIncMetric::new(),
+            failures: SharedIncMetric::new(),
+        }
+    }
+}
 
 /// Metrics specific to the machine manager as a whole.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct VmmMetrics {
     /// Number of device related events received for a VM.
     pub device_events: SharedIncMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedStoreMetric,
 }
+impl VmmMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            device_events: SharedIncMetric::new(),
+            panic_count: SharedStoreMetric::new(),
+        }
+    }
+}
 
 /// Vsock-related metrics.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct VsockDeviceMetrics {
     /// Number of times when activate failed on a vsock device.
     pub activate_fails: SharedIncMetric,
@@ -790,8 +1075,35 @@ pub struct VsockDeviceMetrics {
     /// Number of times read() has failed.
     pub rx_read_fails: SharedIncMetric,
 }
+impl VsockDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            activate_fails: SharedIncMetric::new(),
+            cfg_fails: SharedIncMetric::new(),
+            rx_queue_event_fails: SharedIncMetric::new(),
+            tx_queue_event_fails: SharedIncMetric::new(),
+            ev_queue_event_fails: SharedIncMetric::new(),
+            muxer_event_fails: SharedIncMetric::new(),
+            conn_event_fails: SharedIncMetric::new(),
+            rx_queue_event_count: SharedIncMetric::new(),
+            tx_queue_event_count: SharedIncMetric::new(),
+            rx_bytes_count: SharedIncMetric::new(),
+            tx_bytes_count: SharedIncMetric::new(),
+            rx_packets_count: SharedIncMetric::new(),
+            tx_packets_count: SharedIncMetric::new(),
+            conns_added: SharedIncMetric::new(),
+            conns_killed: SharedIncMetric::new(),
+            conns_removed: SharedIncMetric::new(),
+            killq_resync: SharedIncMetric::new(),
+            tx_flush_fails: SharedIncMetric::new(),
+            tx_write_fails: SharedIncMetric::new(),
+            rx_read_fails: SharedIncMetric::new(),
+        }
+    }
+}
 
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct EntropyDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
@@ -808,10 +1120,30 @@ pub struct EntropyDeviceMetrics {
     /// Number of events associated with the rate limiter
     pub rate_limiter_event_count: SharedIncMetric,
 }
+impl EntropyDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            activate_fails: SharedIncMetric::new(),
+            entropy_event_fails: SharedIncMetric::new(),
+            entropy_event_count: SharedIncMetric::new(),
+            entropy_bytes: SharedIncMetric::new(),
+            host_rng_fails: SharedIncMetric::new(),
+            entropy_rate_limiter_throttled: SharedIncMetric::new(),
+            rate_limiter_event_count: SharedIncMetric::new(),
+        }
+    }
+}
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SerializeToUtcTimestampMs;
+impl SerializeToUtcTimestampMs {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        SerializeToUtcTimestampMs
+    }
+}
 
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -822,7 +1154,7 @@ impl Serialize for SerializeToUtcTimestampMs {
 }
 
 /// Structure storing all metrics while enforcing serialization support on them.
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
     /// API Server related metrics.
@@ -851,7 +1183,7 @@ pub struct FirecrackerMetrics {
     pub put_api_requests: PutRequestsMetrics,
     #[cfg(target_arch = "aarch64")]
     /// Metrics related to the RTC device.
-    pub rtc: Arc<RTCDeviceMetrics>,
+    pub rtc: RTCDeviceMetrics,
     /// Metrics related to seccomp filtering.
     pub seccomp: SeccompMetrics,
     /// Metrics related to a vcpu's functioning.
@@ -859,7 +1191,7 @@ pub struct FirecrackerMetrics {
     /// Metrics related to the virtual machine manager.
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
-    pub uart: Arc<SerialDeviceMetrics>,
+    pub uart: SerialDeviceMetrics,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
     /// Metrics related to virtio-vsockets.
@@ -867,10 +1199,39 @@ pub struct FirecrackerMetrics {
     /// Metrics related to virtio-rng entropy device.
     pub entropy: EntropyDeviceMetrics,
 }
+impl FirecrackerMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            utc_timestamp_ms: SerializeToUtcTimestampMs::new(),
+            api_server: ApiServerMetrics::new(),
+            balloon: BalloonDeviceMetrics::new(),
+            block: BlockDeviceMetrics::new(),
+            deprecated_api: DeprecatedApiMetrics::new(),
+            get_api_requests: GetRequestsMetrics::new(),
+            i8042: I8042DeviceMetrics::new(),
+            latencies_us: PerformanceMetrics::new(),
+            logger: LoggerSystemMetrics::new(),
+            mmds: MmdsMetrics::new(),
+            net: NetDeviceMetrics::new(),
+            patch_api_requests: PatchRequestsMetrics::new(),
+            put_api_requests: PutRequestsMetrics::new(),
+            #[cfg(target_arch = "aarch64")]
+            rtc: RTCDeviceMetrics::new(),
+            seccomp: SeccompMetrics::new(),
+            vcpu: VcpuMetrics::new(),
+            vmm: VmmMetrics::new(),
+            uart: SerialDeviceMetrics::new(),
+            signals: SignalMetrics::new(),
+            vsock: VsockDeviceMetrics::new(),
+            entropy: EntropyDeviceMetrics::new(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use std::io::ErrorKind;
+    use std::io::{ErrorKind, LineWriter};
     use std::sync::atomic::fence;
     use std::sync::Arc;
     use std::thread;
@@ -881,20 +1242,20 @@ mod tests {
 
     #[test]
     fn test_init() {
-        let m = METRICS.deref();
+        let m = &METRICS;
 
         // Trying to write metrics, when metrics system is not initialized, should not throw error.
         let res = m.write();
         assert!(res.is_ok() && !res.unwrap());
 
         let f = TempFile::new().expect("Failed to create temporary metrics file");
-        assert!(m.init(Box::new(f.into_file()),).is_ok());
+        assert!(m.init(LineWriter::new(f.into_file())).is_ok());
 
         assert!(m.write().is_ok());
 
         let f = TempFile::new().expect("Failed to create temporary metrics file");
 
-        assert!(m.init(Box::new(f.into_file()),).is_err());
+        assert!(m.init(LineWriter::new(f.into_file())).is_err());
     }
 
     #[test]

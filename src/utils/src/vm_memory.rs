@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Debug;
 use std::io::{Error as IoError, ErrorKind};
 use std::os::unix::io::AsRawFd;
 
@@ -197,7 +198,7 @@ pub trait ReadVolatile {
 /// guest memory [1].
 ///
 /// [1]: https://github.com/rust-vmm/vm-memory/pull/217
-pub trait WriteVolatile {
+pub trait WriteVolatile: Debug {
     /// Tries to write some bytes from the given [`VolatileSlice`] buffer, returning how many bytes
     /// were written.
     ///
@@ -266,8 +267,8 @@ impl ReadVolatile for std::os::unix::net::UnixStream {
 /// the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes read.
-fn read_volatile_raw_fd(
-    raw_fd: &mut impl AsRawFd,
+fn read_volatile_raw_fd<Fd: AsRawFd + Debug>(
+    raw_fd: &mut Fd,
     buf: &mut VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
@@ -312,8 +313,8 @@ impl WriteVolatile for std::os::unix::net::UnixStream {
 /// data stored in the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes written.
-fn write_volatile_raw_fd(
-    raw_fd: &mut impl AsRawFd,
+fn write_volatile_raw_fd<Fd: AsRawFd + Debug>(
+    raw_fd: &mut Fd,
     buf: &VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
@@ -452,6 +453,7 @@ mod tests {
     use crate::get_page_size;
     use crate::tempfile::TempFile;
 
+    #[derive(Debug)]
     enum AddrOp {
         Read,
         Write,

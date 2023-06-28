@@ -33,7 +33,8 @@ function fc-bindgen {
     non_snake_case,
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
-    clippy::cast_lossless
+    clippy::cast_lossless,
+    missing_debug_implementations
 )]
 
 EOF

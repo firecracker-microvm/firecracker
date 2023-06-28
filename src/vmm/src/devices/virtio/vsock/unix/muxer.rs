@@ -31,11 +31,13 @@
 ///    To route all these events to their handlers, the muxer uses another `HashMap` object,
 ///    mapping `RawFd`s to `EpollListener`s.
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{debug, error, info, warn, IncMetric, METRICS};
+use log::{debug, error, info, warn};
+use logger::{IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::vm_memory::GuestMemoryMmap;
 
@@ -67,6 +69,7 @@ pub enum MuxerRx {
 }
 
 /// An epoll listener, registered under the muxer's nested epoll FD.
+#[derive(Debug)]
 enum EpollListener {
     /// The listener is a `MuxerConnection`, identified by `key`, and interested in the events
     /// in `evset`. Since `MuxerConnection` implements `VsockEpollListener`, notifications will
@@ -80,6 +83,7 @@ enum EpollListener {
 }
 
 /// The vsock connection multiplexer.
+#[derive(Debug)]
 pub struct VsockMuxer {
     /// Guest CID.
     cid: u64,
@@ -787,6 +791,7 @@ mod tests {
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
 
+    #[derive(Debug)]
     struct MuxerTestContext {
         _vsock_test_ctx: VsockTestContext,
         pkt: VsockPacket,
@@ -944,12 +949,13 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct LocalListener {
         path: PathBuf,
         sock: UnixListener,
     }
     impl LocalListener {
-        fn new<P: AsRef<Path> + Clone>(path: P) -> Self {
+        fn new<P: AsRef<Path> + Clone + Debug>(path: P) -> Self {
             let path_buf = path.as_ref().to_path_buf();
             let sock = UnixListener::bind(path).unwrap();
             sock.set_nonblocking(true).unwrap();

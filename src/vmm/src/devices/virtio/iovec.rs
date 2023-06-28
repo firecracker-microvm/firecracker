@@ -24,6 +24,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 // Describes a sub-region of a buffer described as a slice of `iovec` structs.
+#[derive(Debug)]
 struct IovVecSubregion<'a> {
     // An iterator of the iovec items we are iterating
     iovecs: Vec<iovec>,

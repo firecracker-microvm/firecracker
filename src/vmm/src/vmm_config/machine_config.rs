@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::fmt;
+use std::fmt::{self, Debug};
 
 use serde::{de, Deserialize, Serialize};
 
@@ -237,7 +237,7 @@ impl From<&VmConfig> for MachineConfig {
 fn deserialize_vcpu_num<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialOrd + From<u8>,
+    T: Deserialize<'de> + PartialOrd + From<u8> + Debug,
 {
     let val = T::deserialize(d)?;
 
@@ -262,7 +262,7 @@ where
 fn deserialize_smt<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialEq + From<bool>,
+    T: Deserialize<'de> + PartialEq + From<bool> + Debug,
 {
     let val = T::deserialize(d)?;
 

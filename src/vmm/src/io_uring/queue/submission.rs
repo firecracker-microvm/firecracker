@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::io::Error as IOError;
 use std::mem;
 use std::num::Wrapping;
@@ -28,6 +29,7 @@ pub enum Error {
     Submit(IOError),
 }
 
+#[derive(Debug)]
 pub(crate) struct SubmissionQueue {
     io_uring_fd: RawFd,
 
@@ -83,7 +85,7 @@ impl SubmissionQueue {
     /// # Safety
     /// Unsafe because we pass a raw `user_data` pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub(crate) unsafe fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
+    pub(crate) unsafe fn push<T: Debug>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail

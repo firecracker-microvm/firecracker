@@ -3,7 +3,6 @@
 
 use std::io;
 
-use logger::error;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
@@ -36,7 +35,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
         if page_frame_number == v[pfn_index - 1] {
-            error!("Skipping duplicate PFN {}.", page_frame_number);
+            log::error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
 
@@ -118,6 +117,8 @@ pub(crate) fn remove_range(
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use utils::vm_memory::Bytes;
 
     use super::*;
@@ -263,12 +264,14 @@ mod tests {
 
     use crate::devices::virtio::test_utils::single_region_mem;
 
+    #[allow(clippy::let_with_type_underscore)]
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32
         // elements.
         prop::collection::vec(0..std::u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
     }
 
+    #[allow(clippy::let_with_type_underscore)]
     fn random_pfn_100() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32
         // elements (0 - 100).
@@ -285,7 +288,7 @@ mod tests {
         result
     }
 
-    fn sort_and_dedup<T: Ord + Clone>(v: &[T]) -> Vec<T> {
+    fn sort_and_dedup<T: Ord + Clone + Debug>(v: &[T]) -> Vec<T> {
         let mut sorted_v = v.to_vec();
         sorted_v.sort_unstable();
         sorted_v.dedup();

@@ -10,6 +10,7 @@
 mod parsed_request;
 mod request;
 
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -44,6 +45,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Structure associated with the API server implementation.
+#[derive(Debug)]
 pub struct ApiServer {
     /// Sender which allows passing messages to the VMM.
     api_request_sender: mpsc::Sender<ApiRequest>,
@@ -225,7 +227,7 @@ impl ApiServer {
         request: &Request,
         request_processing_start_us: u64,
     ) -> Response {
-        match ParsedRequest::try_from_request(request).map(|r| r.into_parts()) {
+        match ParsedRequest::try_from(request).map(|r| r.into_parts()) {
             Ok((req_action, mut parsing_info)) => {
                 let mut response = match req_action {
                     RequestAction::Sync(vmm_action) => {
@@ -291,13 +293,13 @@ impl ApiServer {
     }
 
     /// An HTTP response which also includes a body.
-    pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
+    pub(crate) fn json_response<T: Into<String> + Debug>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
         response.set_body(Body::new(body.into()));
         response
     }
 
-    fn json_fault_message<T: AsRef<str> + serde::Serialize>(msg: T) -> String {
+    fn json_fault_message<T: AsRef<str> + serde::Serialize + Debug>(msg: T) -> String {
         json!({ "fault_message": msg }).to_string()
     }
 }

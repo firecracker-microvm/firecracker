@@ -30,11 +30,13 @@ pub struct GuestRegionUffdMapping {
     pub offset: u64,
 }
 
+#[derive(Debug)]
 struct MemRegion {
     mapping: GuestRegionUffdMapping,
     page_states: HashMap<u64, MemPageState>,
 }
 
+#[derive(Debug)]
 pub struct UffdPfHandler {
     mem_regions: Vec<MemRegion>,
     backing_buffer: *const u8,
@@ -44,7 +46,7 @@ pub struct UffdPfHandler {
     _firecracker_pid: u32,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum MemPageState {
     Uninitialized,
     FromFile,

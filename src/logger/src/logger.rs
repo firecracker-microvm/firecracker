@@ -76,6 +76,7 @@
 //! Logs can be flushed either to stdout/stderr or to a byte-oriented sink (File, FIFO, Ring Buffer
 //! etc).
 
+use std::fmt::{self, Debug};
 use std::io::{sink, stderr, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
@@ -117,6 +118,19 @@ pub struct Logger {
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
     instance_id: RwLock<String>,
+}
+
+impl fmt::Debug for Logger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Logger")
+            .field("init", &self.init)
+            .field("log_buf", &"?")
+            .field("show_level", &self.show_level)
+            .field("show_file_path", &self.show_file_path)
+            .field("show_line_numbers", &self.show_line_numbers)
+            .field("instance_id", &self.instance_id)
+            .finish()
+    }
 }
 
 impl Logger {

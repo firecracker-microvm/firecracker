@@ -1,6 +1,8 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+
 use logger::{error, info, log_enabled, Level};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
@@ -27,14 +29,13 @@ use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
-#[derive(Default)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct ParsingInfo {
     deprecation_message: Option<String>,
 }
@@ -52,10 +53,71 @@ impl ParsingInfo {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(crate) struct ParsedRequest {
     action: RequestAction,
     parsing_info: ParsingInfo,
+}
+
+impl TryFrom<&Request> for ParsedRequest {
+    type Error = Error;
+    fn try_from(request: &Request) -> Result<Self, Self::Error> {
+        let request_uri = request.uri().get_abs_path().to_string();
+        log_received_api_request(describe(
+            request.method(),
+            request_uri.as_str(),
+            request.body.as_ref(),
+        ));
+
+        // Split request uri by '/' by doing:
+        // 1. Trim starting '/' characters
+        // 2. Splitting by '/'
+        let mut path_tokens = request_uri.trim_start_matches('/').split_terminator('/');
+        let path = path_tokens.next().unwrap_or("");
+
+        match (request.method(), path, request.body.as_ref()) {
+            (Method::Get, "", None) => parse_get_instance_info(),
+            (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.next()),
+            (Method::Get, "version", None) => parse_get_version(),
+            (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
+                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
+            }
+            (Method::Get, "machine-config", None) => parse_get_machine_config(),
+            (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, _, Some(_)) => method_to_error(Method::Get),
+            (Method::Put, "actions", Some(body)) => parse_put_actions(body),
+            (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
+            (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
+            (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
+            (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.next()),
+            (Method::Put, "logger", Some(body)) => parse_put_logger(body),
+            (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
+            (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
+            (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.next()),
+            (Method::Put, "network-interfaces", Some(body)) => {
+                parse_put_net(body, path_tokens.next())
+            }
+            (Method::Put, "shutdown-internal", None) => {
+                Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
+            }
+            (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
+            (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
+            (Method::Put, _, None) => method_to_error(Method::Put),
+            (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.next()),
+            (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.next()),
+            (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),
+            (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
+            (Method::Patch, "network-interfaces", Some(body)) => {
+                parse_patch_net(body, path_tokens.next())
+            }
+            (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
+            (Method::Patch, _, None) => method_to_error(Method::Patch),
+            (method, unknown_uri, _) => {
+                Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
+            }
+        }
+    }
 }
 
 impl ParsedRequest {
@@ -74,74 +136,9 @@ impl ParsedRequest {
         &mut self.parsing_info
     }
 
-    pub(crate) fn try_from_request(request: &Request) -> Result<ParsedRequest, Error> {
-        let request_uri = request.uri().get_abs_path().to_string();
-        log_received_api_request(describe(
-            request.method(),
-            request_uri.as_str(),
-            request.body.as_ref(),
-        ));
-
-        // Split request uri by '/' by doing:
-        // 1. Trim starting '/' characters
-        // 2. Splitting by '/'
-        let path_tokens: Vec<&str> = request_uri
-            .trim_start_matches('/')
-            .split_terminator('/')
-            .collect();
-        let path = if path_tokens.is_empty() {
-            ""
-        } else {
-            path_tokens[0]
-        };
-
-        match (request.method(), path, request.body.as_ref()) {
-            (Method::Get, "", None) => parse_get_instance_info(),
-            (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
-            (Method::Get, "version", None) => parse_get_version(),
-            (Method::Get, "vm", None) if path_tokens.get(1) == Some(&"config") => {
-                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
-            }
-            (Method::Get, "machine-config", None) => parse_get_machine_config(),
-            (Method::Get, "mmds", None) => parse_get_mmds(),
-            (Method::Get, _, Some(_)) => method_to_error(Method::Get),
-            (Method::Put, "actions", Some(body)) => parse_put_actions(body),
-            (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
-            (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
-            (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
-            (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
-            (Method::Put, "logger", Some(body)) => parse_put_logger(body),
-            (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
-            (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
-            (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.get(1)),
-            (Method::Put, "network-interfaces", Some(body)) => {
-                parse_put_net(body, path_tokens.get(1))
-            }
-            (Method::Put, "shutdown-internal", None) => {
-                Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
-            }
-            (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
-            (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
-            (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
-            (Method::Put, _, None) => method_to_error(Method::Put),
-            (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.get(1)),
-            (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
-            (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),
-            (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
-            (Method::Patch, "network-interfaces", Some(body)) => {
-                parse_patch_net(body, path_tokens.get(1))
-            }
-            (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
-            (Method::Patch, _, None) => method_to_error(Method::Patch),
-            (method, unknown_uri, _) => {
-                Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
-            }
-        }
-    }
-
     pub(crate) fn success_response_with_data<T>(body_data: &T) -> Response
     where
-        T: ?Sized + Serialize,
+        T: ?Sized + Serialize + Debug,
     {
         info!("The request was executed successfully. Status code: 200 OK.");
         let mut response = Response::new(Version::Http11, StatusCode::OK);
@@ -423,7 +420,7 @@ pub mod tests {
         assert!(connection.try_read().is_ok());
 
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_err());
+        assert!(ParsedRequest::try_from(&req).is_err());
     }
 
     #[test]
@@ -450,13 +447,11 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        if let Err(Error::Generic(StatusCode::BadRequest, err_msg)) =
-            ParsedRequest::try_from_request(&req)
-        {
-            assert_eq!(err_msg, "GET request cannot have a body.");
-        } else {
-            panic!("GET request with body failed the tests.")
-        }
+        let parsed_request = ParsedRequest::try_from(&req);
+        assert!(matches!(
+            &parsed_request,
+            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "GET request cannot have a body.",
+        ));
     }
 
     #[test]
@@ -468,13 +463,11 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        if let Err(Error::Generic(StatusCode::BadRequest, err_msg)) =
-            ParsedRequest::try_from_request(&req)
-        {
-            assert_eq!(err_msg, "Empty PUT request.");
-        } else {
-            panic!("Empty PUT request failed the tests.");
-        };
+        let parsed_request = ParsedRequest::try_from(&req);
+        assert!(matches!(
+            &parsed_request,
+            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "Empty PUT request.",
+        ));
     }
 
     #[test]
@@ -486,13 +479,11 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        if let Err(Error::Generic(StatusCode::BadRequest, err_msg)) =
-            ParsedRequest::try_from_request(&req)
-        {
-            assert_eq!(err_msg, "Empty PATCH request.");
-        } else {
-            panic!("Empty PATCH request failed the tests.");
-        };
+        let parsed_request = ParsedRequest::try_from(&req);
+        assert!(matches!(
+            &parsed_request,
+            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "Empty PATCH request.",
+        ));
     }
 
     #[test]
@@ -633,7 +624,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -645,7 +636,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -657,7 +648,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -669,7 +660,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -681,7 +672,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -693,7 +684,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -706,7 +697,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -720,7 +711,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -735,7 +726,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -748,7 +739,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -765,7 +756,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -779,7 +770,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -792,7 +783,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -805,7 +796,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -819,7 +810,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
 
         let body = "{\"foo\":\"bar\"}";
         sender
@@ -827,7 +818,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
 
         // `/mmds/config`
         let body = "{ \"ipv4_address\": \"169.254.170.2\", \"network_interfaces\": [\"iface0\"] }";
@@ -836,7 +827,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -855,7 +846,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -869,7 +860,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
 
         let body = "{ \"snapshot_path\": \"foo\", \"mem_backend\": { \"backend_type\": \"File\", \
                     \"backend_path\": \"bar\" }, \"enable_diff_snapshots\": true }";
@@ -879,7 +870,7 @@ pub mod tests {
 
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
 
         let body =
             "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"resume_vm\": true }";
@@ -889,7 +880,7 @@ pub mod tests {
 
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -901,7 +892,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        match ParsedRequest::try_from_request(&req).unwrap().into_parts() {
+        match ParsedRequest::try_from(&req).unwrap().into_parts() {
             (RequestAction::ShutdownInternal, _) => (),
             _ => panic!("wrong parsed request"),
         };
@@ -917,7 +908,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -930,7 +921,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -943,14 +934,14 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
         let body = "{ \"stats_polling_interval_s\": 1 }";
         sender
             .write_all(http_request("PATCH", "/balloon/statistics", Some(body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -963,7 +954,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -976,7 +967,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
         let body =
             "{ \"vcpu_count\": 1, \"mem_size_mib\": 1, \"smt\": false, \"cpu_template\": \"C3\" }";
         sender
@@ -985,9 +976,9 @@ pub mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         #[cfg(target_arch = "x86_64")]
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
         #[cfg(target_arch = "aarch64")]
-        assert!(ParsedRequest::try_from_request(&req).is_err());
+        assert!(ParsedRequest::try_from(&req).is_err());
     }
 
     #[test]
@@ -1007,7 +998,7 @@ pub mod tests {
         assert!(result.is_ok());
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let request_result = ParsedRequest::try_from_request(&req);
+        let request_result = ParsedRequest::try_from(&req);
         assert!(request_result.is_ok(), "{}", request_result.err().unwrap());
     }
 
@@ -1020,7 +1011,7 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 
     #[test]
@@ -1033,6 +1024,6 @@ pub mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        assert!(ParsedRequest::try_from(&req).is_ok());
     }
 }

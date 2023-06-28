@@ -13,6 +13,7 @@ use utils::epoll::EventSet;
 pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;
 
 /// Object to drive periodic reporting of metrics.
+#[derive(Debug)]
 pub(crate) struct PeriodicMetrics {
     write_metrics_event_fd: TimerFd,
     #[cfg(test)]

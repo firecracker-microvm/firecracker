@@ -5,10 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{error, warn};
+use log::warn;
 use utils::eventfd::EventFd;
 use utils::vm_memory::GuestMemoryMmap;
 
@@ -17,6 +18,7 @@ use crate::devices::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRIN
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
+#[derive(Debug)]
 pub enum DeviceState {
     Inactive,
     Activated(GuestMemoryMmap),
@@ -40,12 +42,14 @@ impl DeviceState {
     }
 }
 
+#[derive(Debug)]
 pub enum IrqType {
     Config,
     Vring,
 }
 
 /// Helper struct that is responsible for triggering guest IRQs
+#[derive(Debug)]
 pub struct IrqTrigger {
     pub(crate) irq_status: Arc<AtomicUsize>,
     pub(crate) irq_evt: EventFd,
@@ -67,7 +71,7 @@ impl IrqTrigger {
         self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
 
         self.irq_evt.write(1).map_err(|err| {
-            error!("Failed to send irq to the guest: {:?}", err);
+            log::error!("Failed to send irq to the guest: {:?}", err);
             err
         })?;
 
@@ -171,8 +175,8 @@ pub trait VirtioDevice: AsAny + Send {
     }
 }
 
-impl std::fmt::Debug for dyn VirtioDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Debug for dyn VirtioDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "VirtioDevice type {}", self.device_type())
     }
 }
@@ -222,6 +226,7 @@ pub(crate) mod tests {
         assert!(irq_trigger.trigger_irq(IrqType::Vring).is_err());
     }
 
+    #[derive(Debug)]
     struct MockVirtioDevice {
         acked_features: u64,
     }

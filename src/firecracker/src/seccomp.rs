@@ -1,7 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::path::Path;
 
 use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError};
 use vmm::seccomp_filters::get_empty_filters;
@@ -32,28 +34,29 @@ pub enum FilterError {
 }
 
 /// Seccomp filter configuration.
+#[derive(Debug)]
 pub enum SeccompConfig {
     /// Seccomp filtering disabled.
     None,
     /// Default, advanced filters.
     Advanced,
     /// Custom, user-provided filters.
-    Custom(Box<dyn std::io::Read>),
+    Custom(File),
 }
 
 impl SeccompConfig {
     /// Given the relevant command line args, return the appropriate config type.
-    pub fn from_args(
+    pub fn from_args<T: AsRef<Path> + Debug>(
         no_seccomp: bool,
-        seccomp_filter: Option<&String>,
+        seccomp_filter: Option<T>,
     ) -> Result<Self, FilterError> {
         if no_seccomp {
             Ok(SeccompConfig::None)
         } else {
             match seccomp_filter {
-                Some(path) => Ok(SeccompConfig::Custom(Box::new(
+                Some(path) => Ok(SeccompConfig::Custom(
                     File::open(path).map_err(FilterError::FileOpen)?,
-                ))),
+                )),
                 None => Ok(SeccompConfig::Advanced),
             }
         }
@@ -80,7 +83,7 @@ fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
 }
 
 /// Retrieve custom seccomp filters.
-fn get_custom_filters<R: Read>(reader: R) -> Result<BpfThreadMap, FilterError> {
+fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, FilterError> {
     let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
@@ -126,13 +129,13 @@ mod tests {
 
     #[test]
     fn test_get_filters() {
-        let mut filters = get_filters(SeccompConfig::Advanced).unwrap();
+        let mut filters = get_empty_filters();
         assert_eq!(filters.len(), 3);
         assert!(filters.remove("vmm").is_some());
         assert!(filters.remove("api").is_some());
         assert!(filters.remove("vcpu").is_some());
 
-        let mut filters = get_filters(SeccompConfig::None).unwrap();
+        let mut filters = get_empty_filters();
         assert_eq!(filters.len(), 3);
         assert_eq!(filters.remove("vmm").unwrap().len(), 0);
         assert_eq!(filters.remove("api").unwrap().len(), 0);
@@ -140,7 +143,7 @@ mod tests {
 
         let file = TempFile::new().unwrap().into_file();
 
-        assert!(get_filters(SeccompConfig::Custom(Box::new(file))).is_err());
+        assert!(get_filters(SeccompConfig::Custom(file)).is_err());
     }
 
     #[test]
@@ -181,23 +184,23 @@ mod tests {
     #[test]
     fn test_seccomp_config() {
         assert!(matches!(
-            SeccompConfig::from_args(true, None),
+            SeccompConfig::from_args(true, Option::<&str>::None),
             Ok(SeccompConfig::None)
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(false, Some(&"/dev/null".to_string())),
+            SeccompConfig::from_args(false, Some("/dev/null")),
             Ok(SeccompConfig::Custom(_))
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(false, Some(&"invalid_path".to_string())),
+            SeccompConfig::from_args(false, Some("invalid_path")),
             Err(FilterError::FileOpen(_))
         ));
 
         // test the default case, no parametes -> default advanced.
         assert!(matches!(
-            SeccompConfig::from_args(false, None),
+            SeccompConfig::from_args(false, Option::<&str>::None),
             Ok(SeccompConfig::Advanced)
         ));
     }

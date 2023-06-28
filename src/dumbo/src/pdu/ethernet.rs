@@ -4,6 +4,7 @@
 //! Contains support for parsing and writing Ethernet frames. Does not currently offer support for
 //! 802.1Q tags.
 
+use std::fmt::Debug;
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
@@ -33,12 +34,13 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an Ethernet frame.
+#[derive(Debug)]
 pub struct EthernetFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
+impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
     /// Interprets `bytes` as an Ethernet frame without any validity checks.
     ///
     /// # Panics
@@ -99,7 +101,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
+impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
     /// Attempts to write an Ethernet frame using the given header fields to `buf`.
     fn new_with_header(
         buf: T,
@@ -165,7 +167,7 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
+impl<'a, T: NetworkBytes + Debug> Incomplete<EthernetFrame<'a, T>> {
     /// Completes the inner frame by shrinking it to its actual length.
     ///
     /// # Panics
@@ -183,23 +185,17 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
+    use std::str::FromStr;
 
     use super::*;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Ethernet frame)")
-        }
-    }
 
     #[test]
     fn test_ethernet_frame() {
         let mut a = [0u8; 10000];
         let mut bad_array = [0u8; 1];
 
-        let dst_mac = MacAddr::parse_str("01:23:45:67:89:ab").unwrap();
-        let src_mac = MacAddr::parse_str("cd:ef:01:23:45:67").unwrap();
+        let dst_mac = MacAddr::from_str("01:23:45:67:89:ab").unwrap();
+        let src_mac = MacAddr::from_str("cd:ef:01:23:45:67").unwrap();
         let ethertype = 1289;
 
         assert_eq!(

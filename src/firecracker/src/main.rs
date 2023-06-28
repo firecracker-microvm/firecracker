@@ -295,12 +295,12 @@ fn main_exitable() -> FcExitCode {
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
 
-        let logger_config = LoggerConfig::new(
-            PathBuf::from(log),
-            logger_level,
+        let logger_config = LoggerConfig {
+            log_path: PathBuf::from(log),
+            level: logger_level,
             show_level,
             show_log_origin,
-        );
+        };
         if let Err(err) = init_logger(logger_config, &instance_info) {
             return generic_error_exit(&format!("Could not initialize logger: {}", err));
         };

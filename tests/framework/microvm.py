@@ -554,7 +554,9 @@ class Microvm:
     @retry(delay=0.1, tries=5)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
-        assert message in self.log_data
+        assert (
+            message in self.log_data
+        ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
     @retry(delay=0.1, tries=5)
     def check_any_log_message(self, messages):

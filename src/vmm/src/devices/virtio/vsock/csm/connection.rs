@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
+use std::fmt::Debug;
 /// The main job of `VsockConnection` is to forward data traffic, back and forth, between a
 /// guest-side AF_VSOCK socket and a host-side generic `Read + Write + AsRawFd` stream, while
 /// also managing its internal state.
@@ -83,7 +84,8 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use logger::{debug, error, info, warn, IncMetric, METRICS};
+use log::{debug, error, info, warn};
+use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 
@@ -101,6 +103,7 @@ pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `ReadVolatile + Write + WriteVolatile + AsRawFd` stream.
+#[derive(Debug)]
 pub struct VsockConnection<S: VsockConnectionBackend> {
     /// The current connection state.
     state: ConnState,
@@ -138,7 +141,7 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
 
 impl<S> VsockChannel for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Fill in a vsock packet, to be delivered to our peer (the guest driver).
     ///
@@ -400,7 +403,7 @@ where
 
 impl<S> AsRawFd for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Get the file descriptor that this connection wants polled.
     ///
@@ -413,7 +416,7 @@ where
 
 impl<S> VsockEpollListener for VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Get the event set that this connection is interested in.
     ///
@@ -490,7 +493,7 @@ where
 
 impl<S> VsockConnection<S>
 where
-    S: VsockConnectionBackend,
+    S: VsockConnectionBackend + Debug,
 {
     /// Create a new guest-initiated connection object.
     pub fn new_peer_init(
@@ -693,6 +696,7 @@ mod tests {
     const PEER_PORT: u32 = 1003;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
 
+    #[derive(Debug)]
     enum StreamState {
         Closed,
         Error(ErrorKind),
@@ -700,6 +704,7 @@ mod tests {
         WouldBlock,
     }
 
+    #[derive(Debug)]
     struct TestStream {
         fd: EventFd,
         read_buf: Vec<u8>,
@@ -791,7 +796,7 @@ mod tests {
 
     impl<S> VsockConnection<S>
     where
-        S: VsockConnectionBackend,
+        S: VsockConnectionBackend + Debug,
     {
         /// Get the fwd_cnt value from the connection.
         pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
@@ -824,6 +829,7 @@ mod tests {
     // packet.  A single `VsockConnection` object will also suffice for our testing needs. We'll
     // be using a specially crafted `Read + Write + AsRawFd` object as a backing stream, so that
     // we can control the various error conditions that might arise.
+    #[derive(Debug)]
     struct CsmTestContext {
         _vsock_test_ctx: TestContext,
         pkt: VsockPacket,

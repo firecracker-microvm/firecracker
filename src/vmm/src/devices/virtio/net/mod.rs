@@ -24,6 +24,7 @@ pub use self::device::Net;
 pub use self::event_handler::*;
 
 /// Enum representing the Net device queue types
+#[derive(Debug)]
 pub enum NetQueue {
     /// The RX queue
     Rx,

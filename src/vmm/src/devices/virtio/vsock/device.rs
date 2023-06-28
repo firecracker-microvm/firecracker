@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Debug;
 use std::result;
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
@@ -23,7 +24,8 @@ use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::{debug, error, warn, IncMetric, METRICS};
+use log::{debug, error, warn};
+use logger::{IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};
@@ -50,6 +52,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
+#[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
     pub(crate) queues: Vec<VirtQueue>,
@@ -74,7 +77,7 @@ pub struct Vsock<B> {
 
 impl<B> Vsock<B>
 where
-    B: VsockBackend,
+    B: VsockBackend + Debug,
 {
     pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
@@ -248,7 +251,7 @@ where
 
 impl<B> VirtioDevice for Vsock<B>
 where
-    B: VsockBackend + 'static,
+    B: VsockBackend + Debug + 'static,
 {
     fn avail_features(&self) -> u64 {
         self.avail_features

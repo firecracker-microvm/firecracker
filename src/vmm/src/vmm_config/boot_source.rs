@@ -51,7 +51,7 @@ pub enum BootSourceConfigError {
 }
 
 /// Holds the kernel specification (both configuration as well as runtime details).
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BootSource {
     /// The boot source configuration.
     pub config: BootSourceConfig,
@@ -61,6 +61,7 @@ pub struct BootSource {
 }
 
 /// Holds the kernel builder (created and validates based on BootSourceConfig).
+#[derive(Debug)]
 pub struct BootConfig {
     /// The commandline validated against correctness.
     pub cmdline: linux_loader::cmdline::Cmdline,

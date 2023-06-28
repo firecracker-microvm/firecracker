@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#[cfg(target_arch = "x86_64")]
+use std::fmt;
 use std::result;
 
 #[cfg(target_arch = "x86_64")]
@@ -109,6 +111,7 @@ pub enum RestoreStateError {
 pub type Result<T> = result::Result<T, Error>;
 
 /// A wrapper around creating and using a VM.
+#[derive(Debug)]
 pub struct Vm {
     fd: VmFd,
 
@@ -121,7 +124,7 @@ pub struct Vm {
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
-    irqchip_handle: Option<Box<dyn GICDevice>>,
+    irqchip_handle: Option<GICDevice>,
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -203,11 +206,8 @@ impl Vm {
     }
 
     /// Gets a reference to the irqchip of the VM.
-    pub fn get_irqchip(&self) -> &dyn GICDevice {
-        self.irqchip_handle
-            .as_ref()
-            .expect("IRQ chip not set")
-            .as_ref()
+    pub fn get_irqchip(&self) -> &GICDevice {
+        self.irqchip_handle.as_ref().expect("IRQ chip not set")
     }
 
     /// Saves and returns the Kvm Vm state.
@@ -362,9 +362,22 @@ pub struct VmState {
     ioapic: kvm_irqchip,
 }
 
+#[cfg(target_arch = "x86_64")]
+impl fmt::Debug for VmState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VmState")
+            .field("pitstate", &self.pitstate)
+            .field("clock", &self.clock)
+            .field("pic_master", &"?")
+            .field("pic_slave", &"?")
+            .field("ioapic", &"?")
+            .finish()
+    }
+}
+
 /// Structure holding an general specific VM state.
 #[cfg(target_arch = "aarch64")]
-#[derive(Default, Versionize)]
+#[derive(Debug, Default, Versionize)]
 pub struct VmState {
     gic: GicState,
 }

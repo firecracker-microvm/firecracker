@@ -6,6 +6,7 @@ mod chroot;
 mod env;
 mod resource_limits;
 use std::ffi::{CString, NulError, OsString};
+use std::fmt::{Debug, Display};
 use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io, process, result};
@@ -227,14 +228,14 @@ pub fn build_arg_parser() -> ArgParser<'static> {
 // to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
 pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
 where
-    T: AsRef<Path>,
-    V: ::std::fmt::Display,
+    T: AsRef<Path> + Debug,
+    V: Display + Debug,
 {
     fs::write(file_path, format!("{}\n", value))
         .map_err(|err| Error::Write(PathBuf::from(file_path.as_ref()), err))
 }
 
-pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String> {
     let mut line = fs::read_to_string(file_path)
         .map_err(|err| Error::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
 
@@ -322,7 +323,7 @@ fn clean_env_vars() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
+pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
         .to_path_buf()
