@@ -601,6 +601,19 @@ cmd_test() {
     # We need to run a privileged container to get that kind of access.
     env |grep -P "^(AWS_EMF_|BUILDKITE_)" > env.list
 
+    if [[ "$BUILDKITE" = "true" ]]; then
+      # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
+      # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
+      sudo sh -c "echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo" &> /dev/null
+
+      # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
+      # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
+      # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
+      sudo sh -c "echo "performance" | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor" &> /dev/null
+
+      say "Detected CI, tuning CPU frequency scaling for reduced variability"
+    fi
+
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
