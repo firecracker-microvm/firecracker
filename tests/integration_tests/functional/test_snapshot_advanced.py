@@ -10,9 +10,10 @@ from test_balloon import _test_rss_memory_lower
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
+from framework.properties import global_props
 
 # Define 4 scratch drives.
-scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
+scratch_drives = ["vdb", "vdc", "vdd", "vde"]
 
 
 def test_restore_old_to_current(
@@ -26,6 +27,11 @@ def test_restore_old_to_current(
     2. Restore with the current build
     """
 
+    # due to bug fixed in commit 8dab78b
+    firecracker_version = firecracker_release.version_tuple
+    if global_props.instance == "m6a.metal" and firecracker_version < (1, 3, 3):
+        pytest.skip("incompatible with AMD and Firecracker <1.3.3")
+
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     diff_snapshots = True
     vm = microvm_factory.build(
@@ -37,7 +43,6 @@ def test_restore_old_to_current(
     )
     vm.spawn()
     vm.basic_config(track_dirty_pages=True)
-
     snapshot = create_snapshot_helper(
         vm,
         drives=scratch_drives,
