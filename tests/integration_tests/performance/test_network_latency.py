@@ -65,8 +65,6 @@ def consume_ping_output(cons, raw_data, requests):
     4 packets transmitted, 4 received, 0% packet loss, time 3005ms
     rtt min/avg/max/mdev = 17.478/17.705/17.808/0.210 ms
     """
-    st_keys = ["Min", "Avg", "Max", "Stddev"]
-
     output = raw_data.strip().split("\n")
     assert len(output) > 2
 
@@ -76,32 +74,17 @@ def consume_ping_output(cons, raw_data, requests):
     stat_values = re.findall(pattern_stats, stat_values)[0]
     assert len(stat_values) == 4
 
-    for index, stat_value in enumerate(stat_values[:4]):
-        cons.consume_stat(
-            st_name=st_keys[index], ms_name=LATENCY, value=float(stat_value)
-        )
+    cons.consume_stat(st_name="Avg", ms_name=LATENCY, value=float(stat_values[1]))
 
     # Compute percentiles.
     seqs = output[1 : requests + 1]
     times = []
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
-    for index, seq in enumerate(seqs):
+    for seq in seqs:
         time = re.findall(pattern_time, seq)
         assert len(time) == 1
         times.append(time[0])
 
-    sorted_times = sorted(times)
-    cons.consume_stat(
-        st_name="Percentile50", ms_name=LATENCY, value=sorted_times[int(requests * 0.5)]
-    )
-    cons.consume_stat(
-        st_name="Percentile90", ms_name=LATENCY, value=sorted_times[int(requests * 0.9)]
-    )
-    cons.consume_stat(
-        st_name="Percentile99",
-        ms_name=LATENCY,
-        value=sorted_times[int(requests * 0.99)],
-    )
     return [("ping_latency", float(x), "Milliseconds") for x in times]
 
 
