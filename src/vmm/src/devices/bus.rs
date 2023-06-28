@@ -12,20 +12,6 @@ use std::collections::btree_map::BTreeMap;
 use std::result;
 use std::sync::{Arc, Mutex};
 
-use crate::devices::virtio::AsAny;
-
-/// Trait for devices that respond to reads or writes in an arbitrary address space.
-///
-/// The device does not care where it exists in address space as each method is only given an offset
-/// into its allocated portion of address space.
-#[allow(unused_variables)]
-pub trait BusDevice: AsAny + Send {
-    /// Reads at `offset` from this device
-    fn read(&mut self, offset: u64, data: &mut [u8]) {}
-    /// Writes at `offset` into this device
-    fn write(&mut self, offset: u64, data: &[u8]) {}
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The insertion failed because the new device overlapped with an old device.
@@ -62,9 +48,171 @@ impl PartialOrd for BusRange {
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
 /// only restriction is that no two devices can overlap in this address space.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Bus {
-    devices: BTreeMap<BusRange, Arc<Mutex<dyn BusDevice>>>,
+    devices: BTreeMap<BusRange, Arc<Mutex<BusDevice>>>,
+}
+
+use event_manager::{EventOps, Events, MutEventSubscriber};
+
+#[cfg(target_arch = "aarch64")]
+use super::legacy::RTCDevice;
+use super::legacy::{I8042Device, SerialDevice};
+use super::pseudo::BootTimer;
+use super::virtio::MmioTransport;
+
+#[derive(Debug)]
+pub enum BusDevice {
+    I8042Device(I8042Device),
+    #[cfg(target_arch = "aarch64")]
+    RTCDevice(RTCDevice),
+    BootTimer(BootTimer),
+    MmioTransport(MmioTransport),
+    Serial(SerialDevice<std::io::Stdin>),
+    #[cfg(test)]
+    Dummy(DummyDevice),
+    #[cfg(test)]
+    Constant(ConstantDevice),
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub struct DummyDevice;
+
+#[cfg(test)]
+impl DummyDevice {
+    pub fn bus_write(&mut self, _offset: u64, _data: &[u8]) {}
+    pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub struct ConstantDevice;
+
+#[cfg(test)]
+impl ConstantDevice {
+    pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
+        for (i, v) in data.iter_mut().enumerate() {
+            *v = (offset as u8) + (i as u8);
+        }
+    }
+
+    fn bus_write(&mut self, offset: u64, data: &[u8]) {
+        for (i, v) in data.iter().enumerate() {
+            assert_eq!(*v, (offset as u8) + (i as u8))
+        }
+    }
+}
+
+impl BusDevice {
+    pub fn i8042_device_ref(&self) -> Option<&I8042Device> {
+        match self {
+            Self::I8042Device(x) => Some(x),
+            _ => None,
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    pub fn rtc_device_ref(&self) -> Option<&RTCDevice> {
+        match self {
+            Self::RTCDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn boot_timer_ref(&self) -> Option<&BootTimer> {
+        match self {
+            Self::BootTimer(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn mmio_transport_ref(&self) -> Option<&MmioTransport> {
+        match self {
+            Self::MmioTransport(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn serial_ref(&self) -> Option<&SerialDevice<std::io::Stdin>> {
+        match self {
+            Self::Serial(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn i8042_device_mut(&mut self) -> Option<&mut I8042Device> {
+        match self {
+            Self::I8042Device(x) => Some(x),
+            _ => None,
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    pub fn rtc_device_mut(&mut self) -> Option<&mut RTCDevice> {
+        match self {
+            Self::RTCDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn boot_timer_mut(&mut self) -> Option<&mut BootTimer> {
+        match self {
+            Self::BootTimer(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn mmio_transport_mut(&mut self) -> Option<&mut MmioTransport> {
+        match self {
+            Self::MmioTransport(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn serial_mut(&mut self) -> Option<&mut SerialDevice<std::io::Stdin>> {
+        match self {
+            Self::Serial(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn read(&mut self, offset: u64, data: &mut [u8]) {
+        match self {
+            Self::I8042Device(x) => x.bus_read(offset, data),
+            #[cfg(target_arch = "aarch64")]
+            Self::RTCDevice(x) => x.bus_read(offset, data),
+            Self::BootTimer(x) => x.bus_read(offset, data),
+            Self::MmioTransport(x) => x.bus_read(offset, data),
+            Self::Serial(x) => x.bus_read(offset, data),
+            #[cfg(test)]
+            Self::Dummy(x) => x.bus_read(offset, data),
+            #[cfg(test)]
+            Self::Constant(x) => x.bus_read(offset, data),
+        }
+    }
+
+    pub fn write(&mut self, offset: u64, data: &[u8]) {
+        match self {
+            Self::I8042Device(x) => x.bus_write(offset, data),
+            #[cfg(target_arch = "aarch64")]
+            Self::RTCDevice(x) => x.bus_write(offset, data),
+            Self::BootTimer(x) => x.bus_write(offset, data),
+            Self::MmioTransport(x) => x.bus_write(offset, data),
+            Self::Serial(x) => x.bus_write(offset, data),
+            #[cfg(test)]
+            Self::Dummy(x) => x.bus_write(offset, data),
+            #[cfg(test)]
+            Self::Constant(x) => x.bus_write(offset, data),
+        }
+    }
+}
+
+impl MutEventSubscriber for BusDevice {
+    fn process(&mut self, event: Events, ops: &mut EventOps) {
+        match self {
+            Self::Serial(serial) => serial.process(event, ops),
+            _ => panic!(),
+        }
+    }
+    fn init(&mut self, ops: &mut EventOps) {
+        match self {
+            Self::Serial(serial) => serial.init(ops),
+            _ => panic!(),
+        }
+    }
 }
 
 impl Bus {
@@ -75,7 +223,7 @@ impl Bus {
         }
     }
 
-    fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<dyn BusDevice>)> {
+    fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<BusDevice>)> {
         // for when we switch to rustc 1.17: self.devices.range(..addr).iter().rev().next()
         for (range, dev) in self.devices.iter().rev() {
             if range.0 <= addr {
@@ -85,7 +233,7 @@ impl Bus {
         None
     }
 
-    pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<dyn BusDevice>)> {
+    pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
             if offset < len {
@@ -96,7 +244,7 @@ impl Bus {
     }
 
     /// Puts the given device at the given address space.
-    pub fn insert(&mut self, device: Arc<Mutex<dyn BusDevice>>, base: u64, len: u64) -> Result<()> {
+    pub fn insert(&mut self, device: Arc<Mutex<BusDevice>>, base: u64, len: u64) -> Result<()> {
         if len == 0 {
             return Err(Error::Overlap);
         }
@@ -160,28 +308,10 @@ impl Bus {
 mod tests {
     use super::*;
 
-    struct DummyDevice;
-    impl BusDevice for DummyDevice {}
-
-    struct ConstantDevice;
-    impl BusDevice for ConstantDevice {
-        fn read(&mut self, offset: u64, data: &mut [u8]) {
-            for (i, v) in data.iter_mut().enumerate() {
-                *v = (offset as u8) + (i as u8);
-            }
-        }
-
-        fn write(&mut self, offset: u64, data: &[u8]) {
-            for (i, v) in data.iter().enumerate() {
-                assert_eq!(*v, (offset as u8) + (i as u8))
-            }
-        }
-    }
-
     #[test]
     fn bus_insert() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(DummyDevice));
+        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
         // Insert len should not be 0.
         assert!(bus.insert(dummy.clone(), 0x10, 0).is_err());
         assert!(bus.insert(dummy.clone(), 0x10, 0x10).is_ok());
@@ -209,7 +339,7 @@ mod tests {
     #[test]
     fn bus_read_write() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(DummyDevice));
+        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
         assert!(bus.insert(dummy, 0x10, 0x10).is_ok());
         assert!(bus.read(0x10, &mut [0, 0, 0, 0]));
         assert!(bus.write(0x10, &[0, 0, 0, 0]));
@@ -226,7 +356,7 @@ mod tests {
     #[test]
     fn bus_read_write_values() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(ConstantDevice));
+        let dummy = Arc::new(Mutex::new(BusDevice::Constant(ConstantDevice)));
         assert!(bus.insert(dummy, 0x10, 0x10).is_ok());
 
         let mut values = [0, 1, 2, 3];
@@ -249,7 +379,11 @@ mod tests {
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         assert!(bus
-            .insert(Arc::new(Mutex::new(DummyDevice)), 0x10, 0x10)
+            .insert(
+                Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice))),
+                0x10,
+                0x10
+            )
             .is_ok());
         assert!(bus.write(0x10, &data));
         let bus_clone = bus.clone();

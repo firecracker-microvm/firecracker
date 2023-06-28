@@ -83,6 +83,7 @@ pub struct RateLimiterConfig {
 }
 
 /// A public-facing, stateless structure, specifying RateLimiter properties updates.
+#[derive(Debug)]
 pub struct RateLimiterUpdate {
     /// Possible update to the RateLimiter::bandwidth bucket.
     pub bandwidth: BucketUpdate,
@@ -177,14 +178,8 @@ fn open_file_nonblock(path: &Path) -> Result<File> {
         .open(path)
 }
 
-type FcLineWriter = io::LineWriter<File>;
-
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use utils::tempfile::TempFile;
-
     use super::*;
 
     const SIZE: u64 = 1024 * 1024;
@@ -233,19 +228,5 @@ mod tests {
         let generated_rl_conf = RateLimiterConfig::from(&rl);
         assert_eq!(generated_rl_conf, rl_conf);
         assert_eq!(generated_rl_conf.into_option(), Some(rl_conf));
-    }
-
-    #[test]
-    fn test_fifo_line_writer() {
-        let log_file_temp =
-            TempFile::new().expect("Failed to create temporary output logging file.");
-        let good_file = log_file_temp.as_path().to_path_buf();
-        let maybe_fifo = open_file_nonblock(&good_file);
-        assert!(maybe_fifo.is_ok());
-        let mut fw = FcLineWriter::new(maybe_fifo.unwrap());
-
-        let msg = String::from("some message");
-        assert!(fw.write(msg.as_bytes()).is_ok());
-        assert!(fw.flush().is_ok());
     }
 }

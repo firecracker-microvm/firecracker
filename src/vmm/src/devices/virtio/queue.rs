@@ -9,7 +9,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use logger::error;
+use log::error;
 use utils::vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
@@ -49,6 +49,7 @@ struct Descriptor {
 unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
+#[derive(Debug)]
 pub struct DescriptorChain<'a> {
     desc_table: GuestAddress,
     queue_size: u16,
@@ -151,6 +152,7 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct DescriptorIterator<'a>(Option<DescriptorChain<'a>>);
 
 impl<'a> IntoIterator for DescriptorChain<'a> {

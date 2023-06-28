@@ -14,12 +14,13 @@ use crate::devices::virtio::persist::PersistError as VirtioStateError;
 use crate::devices::virtio::rng::{Entropy, Error as EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
 use crate::devices::virtio::{VirtioDeviceState, TYPE_RNG};
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct EntropyState {
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
 }
 
+#[derive(Debug)]
 pub struct EntropyConstructorArgs(GuestMemoryMmap);
 
 impl EntropyConstructorArgs {

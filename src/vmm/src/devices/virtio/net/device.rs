@@ -14,7 +14,8 @@ use std::{cmp, mem, result};
 use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use libc::EAGAIN;
-use logger::{error, warn, IncMetric, METRICS};
+use log::{error, warn};
+use logger::{IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
@@ -41,6 +42,7 @@ use crate::devices::virtio::{
 };
 use crate::devices::{report_net_event_fail, Error as DeviceError};
 
+#[derive(Debug)]
 enum FrontendError {
     AddUsed,
     DescriptorChainTooSmall,
@@ -92,6 +94,7 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
+#[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
 
@@ -832,6 +835,7 @@ impl VirtioDevice for Net {
 #[macro_use]
 pub mod tests {
     use std::net::Ipv4Addr;
+    use std::str::FromStr;
     use std::time::Duration;
     use std::{io, mem, thread};
 
@@ -918,14 +922,14 @@ pub mod tests {
     #[test]
     fn test_virtio_device_type() {
         let mut net = default_net();
-        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
         assert_eq!(net.device_type(), TYPE_NET);
     }
 
     #[test]
     fn test_virtio_device_features() {
         let mut net = default_net();
-        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
         // Test `features()` and `ack_features()`.
         let features = 1 << VIRTIO_NET_F_GUEST_CSUM
@@ -954,10 +958,10 @@ pub mod tests {
     #[test]
     fn test_virtio_device_read_config() {
         let mut net = default_net();
-        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
         // Test `read_config()`. This also validates the MAC was properly configured.
-        let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
+        let mac = MacAddr::from_str("11:22:33:44:55:66").unwrap();
         let mut config_mac = [0u8; MAC_ADDR_LEN];
         net.read_config(0, &mut config_mac);
         assert_eq!(&config_mac, mac.get_bytes());
@@ -971,7 +975,7 @@ pub mod tests {
     #[test]
     fn test_virtio_device_rewrite_config() {
         let mut net = default_net();
-        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
         let new_config: [u8; MAC_ADDR_LEN] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
         net.write_config(0, &new_config);
@@ -1456,9 +1460,9 @@ pub mod tests {
     fn test_mmds_detour_and_injection() {
         let mut net = default_net();
 
-        let src_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
+        let src_mac = MacAddr::from_str("11:11:11:11:11:11").unwrap();
         let src_ip = Ipv4Addr::new(10, 1, 2, 3);
-        let dst_mac = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
+        let dst_mac = MacAddr::from_str("22:22:22:22:22:22").unwrap();
         let dst_ip = Ipv4Addr::new(169, 254, 169, 254);
 
         let (frame_buf, frame_len) = create_arp_request(src_mac, src_ip, dst_mac, dst_ip);
@@ -1495,10 +1499,10 @@ pub mod tests {
     fn test_mac_spoofing_detection() {
         let mut net = default_net();
 
-        let guest_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
-        let not_guest_mac = MacAddr::parse_str("33:33:33:33:33:33").unwrap();
+        let guest_mac = MacAddr::from_str("11:11:11:11:11:11").unwrap();
+        let not_guest_mac = MacAddr::from_str("33:33:33:33:33:33").unwrap();
         let guest_ip = Ipv4Addr::new(10, 1, 2, 3);
-        let dst_mac = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
+        let dst_mac = MacAddr::from_str("22:22:22:22:22:22").unwrap();
         let dst_ip = Ipv4Addr::new(10, 1, 1, 1);
 
         let (frame_buf, frame_len) = create_arp_request(guest_mac, guest_ip, dst_mac, dst_ip);

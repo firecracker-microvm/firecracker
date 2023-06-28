@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{debug, error, warn};
+use log::{error, warn};
 use utils::epoll::EventSet;
 
 use crate::devices::report_balloon_event_fail;
@@ -36,7 +36,7 @@ impl Balloon {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("balloon: activate event");
+        log::debug!("balloon: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume balloon activate event: {:?}", err);
         }

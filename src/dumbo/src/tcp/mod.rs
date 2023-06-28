@@ -7,6 +7,7 @@ pub mod connection;
 mod endpoint;
 pub mod handler;
 
+use std::fmt::Debug;
 use std::num::Wrapping;
 
 use crate::pdu::bytes::NetworkBytes;
@@ -22,7 +23,7 @@ pub const MSS_DEFAULT: u16 = 536;
 /// Describes whether a particular entity (a [`Connection`] for example) has segments to send.
 ///
 /// [`Connection`]: connection/struct.Connection.html
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NextSegmentStatus {
     /// At least one segment is available immediately.
     Available,
@@ -34,8 +35,7 @@ pub enum NextSegmentStatus {
 
 /// Represents the configuration of the sequence number and `ACK` number fields for outgoing
 /// `RST` segments.
-#[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RstConfig {
     /// The `RST` segment will carry the specified sequence number, and will not have
     /// the `ACK` flag set.
@@ -47,7 +47,7 @@ pub enum RstConfig {
 
 impl RstConfig {
     /// Creates a `RstConfig` in response to the given segment.
-    pub fn new<T: NetworkBytes>(s: &TcpSegment<T>) -> Self {
+    pub fn new<T: NetworkBytes + Debug>(s: &TcpSegment<T>) -> Self {
         if s.flags_after_ns().intersects(TcpFlags::ACK) {
             // If s contains an ACK number, we use that as the sequence number of the RST.
             RstConfig::Seq(s.ack_number())

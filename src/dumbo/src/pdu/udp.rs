@@ -9,6 +9,7 @@
 //! [1]: https://tools.ietf.org/html/rfc768
 //! [2]: https://tools.ietf.org/html/rfc5405
 
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 
 use super::bytes::{InnerBytes, NetworkBytes};
@@ -40,12 +41,13 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as a UDP datagram.
+#[derive(Debug)]
 pub struct UdpDatagram<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
+impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
     /// Interprets `bytes` as a UDP datagram without any validity checks.
     ///
     /// # Panics
@@ -121,7 +123,7 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
+impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
     /// Writes an incomplete UDP datagram, which is missing the `checksum`, `src_port` and
     /// `dst_port` fields.
     ///
@@ -182,7 +184,7 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
+impl<'a, T: NetworkBytesMut + Debug> Incomplete<UdpDatagram<'a, T>> {
     /// Transforms `self` into a `UdpDatagram<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the checksum.
     #[inline]
@@ -207,22 +209,8 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-
     use super::*;
     use crate::pdu::udp::UdpDatagram;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for UdpDatagram<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(UDP datagram)")
-        }
-    }
-
-    impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<UdpDatagram<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Incomplete UDP datagram)")
-        }
-    }
 
     #[test]
     #[allow(clippy::len_zero)]

@@ -59,7 +59,9 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
     pattern += "\\].*"
 
     mo = re.match(pattern, tag_and_msg)
-    assert mo is not None
+    assert (
+        mo is not None
+    ), f"Log message ({tag_and_msg}) does not match pattern ({pattern})."
 
     if show_level:
         tag_level = mo.group(3)

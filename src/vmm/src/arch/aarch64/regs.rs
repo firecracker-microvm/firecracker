@@ -111,6 +111,7 @@ arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
 
 /// Different aarch64 registers sizes
+#[derive(Debug)]
 pub enum RegSize {
     /// 8 bit register
     U8,

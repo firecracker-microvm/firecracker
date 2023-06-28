@@ -64,6 +64,7 @@
 //! read/write goes beyond the boundaries of a slice. Callers must take the necessary precautions
 //! to avoid panics.
 
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -151,12 +152,13 @@ impl<'a> NetworkBytesMut for &'a mut [u8] {}
 // This struct is used as a convenience for any type which contains a generic member implementing
 // NetworkBytes with a lifetime, so we don't have to also add the PhantomData member each time. We
 // use pub(super) here because we only want this to be usable by the child modules of `pdu`.
+#[derive(Debug)]
 pub(super) struct InnerBytes<'a, T: 'a> {
     bytes: T,
     phantom: PhantomData<&'a T>,
 }
 
-impl<'a, T> InnerBytes<'a, T> {
+impl<'a, T: Debug> InnerBytes<'a, T> {
     /// Creates a new instance as a wrapper around `bytes`.
     #[inline]
     pub fn new(bytes: T) -> Self {
@@ -167,7 +169,7 @@ impl<'a, T> InnerBytes<'a, T> {
     }
 }
 
-impl<'a, T: Deref<Target = [u8]>> Deref for InnerBytes<'a, T> {
+impl<'a, T: Deref<Target = [u8]> + Debug> Deref for InnerBytes<'a, T> {
     type Target = [u8];
 
     #[inline]
@@ -176,21 +178,21 @@ impl<'a, T: Deref<Target = [u8]>> Deref for InnerBytes<'a, T> {
     }
 }
 
-impl<'a, T: DerefMut<Target = [u8]>> DerefMut for InnerBytes<'a, T> {
+impl<'a, T: DerefMut<Target = [u8]> + Debug> DerefMut for InnerBytes<'a, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [u8] {
         self.bytes.deref_mut()
     }
 }
 
-impl<'a, T: NetworkBytes> NetworkBytes for InnerBytes<'a, T> {
+impl<'a, T: NetworkBytes + Debug> NetworkBytes for InnerBytes<'a, T> {
     #[inline]
     fn shrink_unchecked(&mut self, len: usize) {
         self.bytes.shrink_unchecked(len);
     }
 }
 
-impl<'a, T: NetworkBytesMut> NetworkBytesMut for InnerBytes<'a, T> {}
+impl<'a, T: NetworkBytesMut + Debug> NetworkBytesMut for InnerBytes<'a, T> {}
 
 #[cfg(test)]
 mod tests {

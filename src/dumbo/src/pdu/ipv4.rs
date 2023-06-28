@@ -8,6 +8,7 @@
 //! [here]: https://en.wikipedia.org/wiki/IPv4#Packet_structure
 
 use std::convert::From;
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
@@ -55,12 +56,13 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an IPv4 packet.
+#[derive(Debug)]
 pub struct IPv4Packet<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
+impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
     /// the length of the inner byte sequence.
     ///
@@ -247,7 +249,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
+impl<'a, T: NetworkBytesMut + Debug> IPv4Packet<'a, T> {
     /// Attempts to write an IPv4 packet header to `buf`, making sure there is enough space.
     ///
     /// This method returns an incomplete packet, because the size of the payload might be unknown
@@ -381,7 +383,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 /// It can be transformed into an `IPv4Packet` by specifying the size of the payload, and
 /// shrinking the inner byte sequence to be as large as the packet itself (this includes setting
 /// the `total length` header field).
-impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
+impl<'a, T: NetworkBytesMut + Debug> Incomplete<IPv4Packet<'a, T>> {
     /// Transforms `self` into an `IPv4Packet` based on the supplied header and payload length. May
     /// panic for invalid values of the input parameters.
     ///
@@ -466,24 +468,10 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-
     use super::*;
     use crate::MacAddr;
 
     const MAX_HEADER_LEN: usize = 60;
-
-    impl<'a, T: NetworkBytes> fmt::Debug for IPv4Packet<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(IPv4 packet)")
-        }
-    }
-
-    impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<IPv4Packet<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "(Incomplete IPv4 packet)")
-        }
-    }
 
     #[test]
     fn test_set_get() {

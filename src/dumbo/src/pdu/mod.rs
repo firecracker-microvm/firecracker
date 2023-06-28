@@ -7,6 +7,7 @@
 //! protocol. Ethernet frames, IP packets, and TCP segments are all examples of protocol data
 //! units.
 
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 
 use crate::pdu::bytes::NetworkBytes;
@@ -27,11 +28,12 @@ pub mod udp;
 /// should be equal to the actual size for a complete PDU. To that end, whenever a variable-length
 /// payload is involved, the slice is shrunk to an exact fit. The particular ways of completing an
 /// `Incomplete<T>` are implemented for each specific PDU.
+#[derive(Debug)]
 pub struct Incomplete<T> {
     inner: T,
 }
 
-impl<T> Incomplete<T> {
+impl<T: Debug> Incomplete<T> {
     #[inline]
     fn new(inner: T) -> Self {
         Incomplete { inner }
@@ -51,7 +53,7 @@ impl<T> Incomplete<T> {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum ChecksumProto {
     Tcp = PROTOCOL_TCP,
     Udp = PROTOCOL_UDP,
@@ -71,7 +73,7 @@ enum ChecksumProto {
 ///
 /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
 #[inline]
-fn compute_checksum<T: NetworkBytes>(
+fn compute_checksum<T: NetworkBytes + Debug>(
     bytes: &T,
     src_addr: Ipv4Addr,
     dst_addr: Ipv4Addr,

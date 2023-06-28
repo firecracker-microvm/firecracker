@@ -5,7 +5,6 @@ use std::convert::From;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use logger::info;
 use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
@@ -104,7 +103,7 @@ pub struct VmmConfig {
 
 /// A data structure that encapsulates the device configurations
 /// held in the Vmm.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
     pub vm_config: VmConfig,
@@ -186,7 +185,7 @@ impl VmResources {
             resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
-            info!("Successfully added metadata to mmds from file");
+            log::info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
@@ -482,6 +481,7 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use std::os::linux::fs::MetadataExt;
+    use std::str::FromStr;
 
     use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
@@ -513,7 +513,7 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .to_string(),
-            guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
+            guest_mac: Some(MacAddr::from_str("01:23:45:67:89:0a").unwrap()),
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
         }
@@ -1542,7 +1542,7 @@ mod tests {
         // Clone the existing net config in order to obtain a new one.
         let mut new_net_device_cfg = default_net_cfg();
         new_net_device_cfg.iface_id = "new_net_if".to_string();
-        new_net_device_cfg.guest_mac = Some(MacAddr::parse_str("01:23:45:67:89:0c").unwrap());
+        new_net_device_cfg.guest_mac = Some(MacAddr::from_str("01:23:45:67:89:0c").unwrap());
         new_net_device_cfg.host_dev_name = "dummy_path2".to_string();
         assert_eq!(vm_resources.net_builder.len(), 1);
 

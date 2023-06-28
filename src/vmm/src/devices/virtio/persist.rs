@@ -177,6 +177,7 @@ pub struct MmioTransportState {
     config_generation: u32,
 }
 
+#[derive(Debug)]
 pub struct MmioTransportConstructorArgs {
     pub mem: GuestMemoryMmap,
     pub device: Arc<Mutex<dyn VirtioDevice>>,

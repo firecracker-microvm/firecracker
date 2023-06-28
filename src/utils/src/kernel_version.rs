@@ -14,8 +14,7 @@ pub enum Error {
     InvalidInt(std::num::ParseIntError),
 }
 
-#[derive(PartialEq, Eq, PartialOrd)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug, PartialEq, Eq, PartialOrd)]
 pub struct KernelVersion {
     major: u16,
     minor: u16,

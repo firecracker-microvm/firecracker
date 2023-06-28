@@ -4,10 +4,10 @@
 //! Auxiliary module for configuring the logger.
 use std::path::PathBuf;
 
-use logger::{LevelFilter, LOGGER};
+use logger::{FcLineWriter, LevelFilter, LOGGER};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
-use super::{open_file_nonblock, FcLineWriter};
+use super::open_file_nonblock;
 use crate::vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
@@ -147,7 +147,6 @@ mod tests {
 
     use super::*;
     use crate::devices::pseudo::BootTimer;
-    use crate::devices::BusDevice;
 
     #[test]
     fn test_init_logger() {
@@ -192,7 +191,7 @@ mod tests {
 
         // Validate logging the boot time works.
         let mut boot_timer = BootTimer::new(TimestampUs::default());
-        boot_timer.write(0, &[123]);
+        boot_timer.bus_write(0, &[123]);
 
         let mut line = String::new();
         loop {

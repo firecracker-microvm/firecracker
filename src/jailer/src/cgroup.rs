@@ -3,6 +3,7 @@
 
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -19,12 +20,14 @@ const PROC_MOUNTS: &str = if cfg!(test) {
 };
 
 // Holds information on a cgroup mount point discovered on the system
+#[derive(Debug)]
 struct CgroupMountPoint {
     dir: String,
     options: String,
 }
 
 // Allows creation of cgroups on the system for both versions
+#[derive(Debug)]
 pub struct CgroupBuilder {
     version: u8,
     hierarchies: HashMap<String, PathBuf>,
@@ -158,16 +161,20 @@ impl CgroupBuilder {
     }
 }
 
+#[derive(Debug)]
 struct CgroupBase {
     file: String,      // file representing the cgroup (e.g cpuset.mems).
     value: String,     // value that will be written into the file.
     location: PathBuf, // microVM cgroup location for the specific controller.
 }
 
+#[derive(Debug)]
 pub struct CgroupV1 {
     base: CgroupBase,
     cg_parent_depth: u16, // depth of the nested cgroup hierarchy
 }
+
+#[derive(Debug)]
 pub struct CgroupV2(CgroupBase);
 
 pub trait Cgroup {
@@ -324,7 +331,7 @@ impl CgroupV2 {
     // of it's parent. This rule applies recursively.
     fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<()>
     where
-        P: AsRef<Path>,
+        P: AsRef<Path> + Debug,
     {
         let cg_subtree_ctrl = path.as_ref().join("cgroup.subtree_control");
         if !cg_subtree_ctrl.exists() {
@@ -346,7 +353,7 @@ impl CgroupV2 {
     // cgroup path specified by the mount_point parameter
     fn controller_available<P>(controller: &str, mount_point: P) -> bool
     where
-        P: AsRef<Path>,
+        P: AsRef<Path> + Debug,
     {
         let controller_list_file = mount_point.as_ref().join("cgroup.controllers");
         let f = match File::open(controller_list_file) {
@@ -419,12 +426,14 @@ impl Cgroup for CgroupV2 {
 
 #[cfg(test)]
 pub mod test_util {
+    use std::fmt::Debug;
     use std::fs::{self, File, OpenOptions};
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
     use super::PROC_MOUNTS;
 
+    #[derive(Debug)]
     pub struct MockCgroupFs {
         mounts_file: File,
     }
@@ -436,13 +445,10 @@ pub mod test_util {
         const MOCK_PROCDIR: &'static str = "/tmp/firecracker/test/jailer/proc";
         pub const MOCK_SYS_CGROUPS_DIR: &'static str = "/tmp/firecracker/test/jailer/sys_cgroup";
 
-        pub fn create_file_with_contents<P>(
+        pub fn create_file_with_contents<P: AsRef<Path> + Debug>(
             filename: P,
             contents: &str,
-        ) -> std::result::Result<(), std::io::Error>
-        where
-            P: AsRef<Path>,
-        {
+        ) -> std::result::Result<(), std::io::Error> {
             let mut file = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -519,6 +525,7 @@ pub mod test_util {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
     use std::io::{BufReader, Write};
     use std::path::PathBuf;
 
@@ -531,7 +538,7 @@ mod tests {
     // Utility function to read the first line in a file
     fn read_first_line<P>(filename: P) -> std::result::Result<String, std::io::Error>
     where
-        P: AsRef<Path>,
+        P: AsRef<Path> + Debug,
     {
         let file = File::open(filename)?;
         let mut reader = BufReader::new(file);

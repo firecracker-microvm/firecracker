@@ -3,24 +3,23 @@
 
 mod regs;
 
-use std::boxed::Box;
 use std::result;
 
-use kvm_ioctls::DeviceFd;
+use kvm_ioctls::{DeviceFd, VmFd};
 
-use crate::arch::aarch64::gic::{Error, GICDevice, GicState};
+use crate::arch::aarch64::gic::{Error, GicState};
 
 type Result<T> = result::Result<T, Error>;
 
-pub(crate) struct GICv3 {
-    /// The file descriptor for the KVM device
-    fd: DeviceFd,
+#[derive(Debug)]
+pub struct GICv3(super::GIC);
 
-    /// GIC device properties, to be used for setting up the fdt entry
-    properties: [u64; 4],
+impl std::ops::Deref for GICv3 {
+    type Target = super::GIC;
 
-    /// Number of CPUs handled by the device
-    vcpu_count: u64,
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl GICv3 {
@@ -52,35 +51,20 @@ impl GICv3 {
     fn get_redists_size(vcpu_count: u64) -> u64 {
         vcpu_count * GICv3::KVM_VGIC_V3_REDIST_SIZE
     }
-}
 
-impl GICDevice for GICv3 {
-    fn version() -> u32 {
-        kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3
-    }
+    pub const VERSION: u32 = kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3;
 
-    fn device_fd(&self) -> &DeviceFd {
-        &self.fd
-    }
-
-    fn device_properties(&self) -> &[u64] {
-        &self.properties
-    }
-
-    fn vcpu_count(&self) -> u64 {
-        self.vcpu_count
-    }
-
-    fn fdt_compatibility(&self) -> &str {
+    pub fn fdt_compatibility(&self) -> &str {
         "arm,gic-v3"
     }
 
-    fn fdt_maint_irq(&self) -> u32 {
+    pub fn fdt_maint_irq(&self) -> u32 {
         GICv3::ARCH_GIC_V3_MAINT_IRQ
     }
 
-    fn create_device(fd: DeviceFd, vcpu_count: u64) -> Box<dyn GICDevice> {
-        Box::new(GICv3 {
+    /// Create the GIC device object
+    pub fn create_device(fd: DeviceFd, vcpu_count: u64) -> Self {
+        GICv3(super::GIC {
             fd,
             properties: [
                 GICv3::get_dist_addr(),
@@ -92,15 +76,15 @@ impl GICDevice for GICv3 {
         })
     }
 
-    fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
+    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
         regs::save_state(&self.fd, mpidrs)
     }
 
-    fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
+    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
         regs::restore_state(&self.fd, mpidrs, state)
     }
 
-    fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
+    pub fn init_device_attributes(gic_device: &Self) -> Result<()> {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
@@ -120,6 +104,80 @@ impl GICDevice for GICv3 {
             &GICv3::get_redists_addr(gic_device.vcpu_count()) as *const u64 as u64,
             0,
         )?;
+
+        Ok(())
+    }
+
+    /// Initialize a GIC device
+    pub fn init_device(vm: &VmFd) -> Result<DeviceFd> {
+        let mut gic_device = kvm_bindings::kvm_create_device {
+            type_: Self::VERSION,
+            fd: 0,
+            flags: 0,
+        };
+
+        vm.create_device(&mut gic_device).map_err(Error::CreateGIC)
+    }
+
+    /// Method to initialize the GIC device
+    pub fn create(vm: &VmFd, vcpu_count: u64) -> Result<Self> {
+        let vgic_fd = Self::init_device(vm)?;
+
+        let device = Self::create_device(vgic_fd, vcpu_count);
+
+        Self::init_device_attributes(&device)?;
+
+        Self::finalize_device(&device)?;
+
+        Ok(device)
+    }
+
+    /// Finalize the setup of a GIC device
+    pub fn finalize_device(gic_device: &Self) -> Result<()> {
+        // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
+        // SPIs are used to signal interrupts from various peripherals accessible across
+        // the whole system so these are the ones that we increment when adding a new virtio device.
+        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a
+        // total of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
+        let nr_irqs: u32 = super::layout::IRQ_MAX;
+        let nr_irqs_ptr = &nr_irqs as *const u32;
+        Self::set_device_attribute(
+            gic_device.device_fd(),
+            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
+            0,
+            nr_irqs_ptr as u64,
+            0,
+        )?;
+
+        // Finalize the GIC.
+        // See https://code.woboq.org/linux/linux/virt/kvm/arm/vgic/vgic-kvm-device.c.html#211.
+        Self::set_device_attribute(
+            gic_device.device_fd(),
+            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
+            u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_CTRL_INIT),
+            0,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Set a GIC device attribute
+    pub fn set_device_attribute(
+        fd: &DeviceFd,
+        group: u32,
+        attr: u64,
+        addr: u64,
+        flags: u32,
+    ) -> Result<()> {
+        let attr = kvm_bindings::kvm_device_attr {
+            flags,
+            group,
+            attr,
+            addr,
+        };
+        fd.set_device_attr(&attr)
+            .map_err(|err| Error::DeviceAttribute(err, true, group))?;
 
         Ok(())
     }

@@ -3,14 +3,13 @@
 
 use std::convert::TryInto;
 use std::fs::File;
-use std::io;
 use std::io::Read;
 use std::ops::Add;
 use std::path::Path;
+use std::{fmt, io};
 
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
-use logger::warn;
 use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
 
@@ -80,6 +79,17 @@ pub struct TokenAuthority {
     entropy_pool: File,
     // Additional Authentication Data used for encryption and decryption.
     aad: String,
+}
+// TODO When https://github.com/RustCrypto/AEADs/pull/532 is merged replace these manual
+// implementation with `#[derive(Debug)]`.
+impl fmt::Debug for TokenAuthority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenAuthority")
+            .field("num_encrypted_tokens", &self.num_encrypted_tokens)
+            .field("entropy_pool", &self.entropy_pool)
+            .field("aad", &self.aad)
+            .finish()
+    }
 }
 
 impl TokenAuthority {
@@ -238,7 +248,7 @@ impl TokenAuthority {
             self.cipher = TokenAuthority::create_cipher(&mut self.entropy_pool)?;
             // Reset encrypted tokens count.
             self.num_encrypted_tokens = 0;
-            warn!(
+            logger::warn!(
                 "The limit of tokens generated under current MMDS token authority
                 has been reached. MMDS's token authority entity has been reseeded
                 and all previously created tokens are now invalid."

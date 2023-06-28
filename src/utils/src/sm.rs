@@ -1,6 +1,8 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
+
 /// Simple abstraction of a state machine.
 ///
 /// `StateMachine<T>` is a wrapper over `T` that also encodes state information for `T`.
@@ -13,12 +15,19 @@
 pub struct StateMachine<T> {
     function: Option<StateFn<T>>,
 }
+impl<T> Debug for StateMachine<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateMachine")
+            .field("function", &self.function.map(|f| f as usize))
+            .finish()
+    }
+}
 
 /// Type representing a state handler of a `StateMachine<T>` machine. Each state handler
 /// is a function from `T` that handles a specific state of `T`.
 type StateFn<T> = fn(&mut T) -> StateMachine<T>;
 
-impl<T> StateMachine<T> {
+impl<T: Debug> StateMachine<T> {
     /// Creates a new state wrapper.
     ///
     /// # Arguments
@@ -70,6 +79,7 @@ mod tests {
     use super::*;
 
     // DummyMachine with states `s1`, `s2` and `s3`.
+    #[derive(Debug)]
     struct DummyMachine {
         private_data_s1: bool,
         private_data_s2: bool,

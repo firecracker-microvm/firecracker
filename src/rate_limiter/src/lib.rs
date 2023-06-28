@@ -47,7 +47,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
 
-use logger::error;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 pub mod persist;
@@ -234,9 +233,10 @@ impl TokenBucket {
 
             // This operation requests a bandwidth higher than the bucket size
             if tokens > self.size {
-                error!(
+                logger::error!(
                     "Consumed {} tokens from bucket of size {}",
-                    tokens, self.size
+                    tokens,
+                    self.size
                 );
                 // Empty the bucket and report an overconsumption of
                 // (remaining tokens / size) times larger than the bucket size
@@ -298,6 +298,7 @@ impl TokenBucket {
 }
 
 /// Enum that describes the type of token used.
+#[derive(Debug)]
 pub enum TokenType {
     /// Token type used for bandwidth limiting.
     Bytes,
@@ -306,6 +307,7 @@ pub enum TokenType {
 }
 
 /// Enum that describes the type of token bucket update.
+#[derive(Debug)]
 pub enum BucketUpdate {
     /// No Update - same as before.
     None,

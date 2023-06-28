@@ -14,9 +14,9 @@ use versionize_derive::Versionize;
 use super::ns::MmdsNetworkStack;
 use crate::Mmds;
 
-/// State of a MmdsNetworkStack.
-#[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
+/// State of a MmdsNetworkStack.
+#[derive(Debug, Clone, Versionize)]
 pub struct MmdsNetworkStackState {
     mac_addr: [u8; MAC_ADDR_LEN],
     ipv4_addr: u32,
