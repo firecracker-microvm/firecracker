@@ -12,6 +12,7 @@ import time
 import pytest
 
 import host_tools.logging as log_tools
+from framework.properties import global_props
 from framework.utils import (
     configure_mmds,
     generate_mmds_get_request,
@@ -639,6 +640,11 @@ def test_mmds_older_snapshot(
     Ensures that the MMDS version is persisted or initialised with the default
     if the FC version does not support this feature.
     """
+
+    # due to bug fixed in commit 8dab78b
+    firecracker_version = firecracker_release.version_tuple
+    if global_props.instance == "m6a.metal" and firecracker_version < (1, 3, 3):
+        pytest.skip("incompatible with AMD and Firecracker <1.3.3")
 
     microvm = microvm_factory.build(
         guest_kernel,

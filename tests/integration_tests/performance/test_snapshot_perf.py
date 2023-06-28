@@ -9,6 +9,7 @@ import platform
 import pytest
 
 import host_tools.logging as log_tools
+from framework.properties import global_props
 from framework.stats import consumer, producer, types
 from framework.utils import CpuMap
 
@@ -83,6 +84,11 @@ def test_older_snapshot_resume_latency(
     # some arbitrary one
     if "4.14" not in guest_kernel.name:
         pytest.skip("just test one guest kernel")
+
+    # due to bug fixed in commit 8dab78b
+    firecracker_version = firecracker_release.version_tuple
+    if global_props.instance == "m6a.metal" and firecracker_version < (1, 3, 3):
+        pytest.skip("incompatible with AMD and Firecracker <1.3.3")
 
     vcpus, guest_mem_mib = 2, 512
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
