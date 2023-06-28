@@ -51,6 +51,8 @@ class Core:
             name=name, iterations=iterations, results={}, custom=custom
         )
         self._failure_aggregator = CoreException()
+        self.metrics_test = None
+        self.metrics = None
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
@@ -65,11 +67,19 @@ class Core:
         for tag, pipe in self._pipes.items():
             for iteration in range(iterations):
                 raw_data = pipe.producer.produce()
-                if isinstance(raw_data, types.GeneratorType):
-                    for data in raw_data:
-                        pipe.consumer.ingest(iteration, data)
-                else:
-                    pipe.consumer.ingest(iteration, raw_data)
+                if not isinstance(raw_data, types.GeneratorType):
+                    raw_data = [raw_data]
+                for data in raw_data:
+                    raws = pipe.consumer.ingest(iteration, data)
+                    if raws is not None:
+                        dimensions = self.custom.copy()
+                        dimensions["test"] = self.metrics_test
+                        self.metrics.set_dimensions(dimensions)
+                        for name, val, unit in raws:
+                            self.metrics.put_metric(name, val, unit)
+                            self.metrics.set_property("iteration", iteration)
+                        self.metrics.flush()
+
             try:
                 stats, custom = pipe.consumer.process(fail_fast)
             except (ProcessingException, AssertionError) as err:

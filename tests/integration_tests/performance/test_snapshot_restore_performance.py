@@ -209,10 +209,10 @@ def test_snapshot_scaling_vcpus(
     st_core.run_exercise()
 
 
-# exponent=8 takes around 400s seconds
+# mem_exponent=7 takes around 100s
 @pytest.mark.nonci
 @pytest.mark.timeout(10 * 60)
-@pytest.mark.parametrize("mem_exponent", range(1, 9))
+@pytest.mark.parametrize("mem_exponent", range(1, 8))
 def test_snapshot_scaling_mem(
     bin_cloner_path, microvm_factory, rootfs, guest_kernel, mem_exponent, st_core
 ):
