@@ -232,11 +232,15 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
     pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
         for i in 0..header_len / 2 {
-            sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
+            sum = sum
+                .checked_add(u32::from(
+                    self.bytes.ntohs_unchecked(i.checked_mul(2).unwrap()),
+                ))
+                .unwrap();
         }
 
         while sum >> 16 != 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
+            sum = (sum & 0xffff).checked_add(sum >> 16).unwrap();
         }
 
         !(sum as u16)
@@ -398,7 +402,7 @@ impl<'a, T: NetworkBytesMut + Debug> Incomplete<IPv4Packet<'a, T>> {
         payload_len: usize,
         compute_checksum: bool,
     ) -> IPv4Packet<'a, T> {
-        let total_len = header_len + payload_len;
+        let total_len = header_len.checked_add(payload_len).unwrap();
         {
             let packet = &mut self.inner;
 
@@ -431,7 +435,7 @@ impl<'a, T: NetworkBytesMut + Debug> Incomplete<IPv4Packet<'a, T>> {
         payload_len: usize,
         compute_checksum: bool,
     ) -> IPv4Packet<'a, T> {
-        let header_len = OPTIONS_OFFSET + options_len;
+        let header_len = OPTIONS_OFFSET.checked_add(options_len).unwrap();
         self.with_header_and_payload_len_unchecked(header_len, payload_len, compute_checksum)
     }
 

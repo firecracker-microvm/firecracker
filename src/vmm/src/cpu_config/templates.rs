@@ -107,6 +107,7 @@ pub trait Numeric:
     + std::ops::BitXor<Output = Self>
     + std::ops::Shl<u32, Output = Self>
     + std::ops::AddAssign<Self>
+    + num_traits::ops::checked::CheckedShl
 {
     /// Number of bits for type
     const BITS: u32;
@@ -150,7 +151,7 @@ where
     where
         S: Serializer,
     {
-        let mut bitmap_str = Vec::with_capacity(V::BITS as usize + 2);
+        let mut bitmap_str = Vec::with_capacity((V::BITS as usize).checked_add(2).unwrap());
         bitmap_str.push(b'0');
         bitmap_str.push(b'b');
 
@@ -158,7 +159,7 @@ where
             match self.filter.bit(i) {
                 true => {
                     let val = self.value.bit(i);
-                    bitmap_str.push(b'0' + u8::from(val));
+                    bitmap_str.push(b'0'.checked_add(u8::from(val)).unwrap());
                 }
                 false => bitmap_str.push(b'x'),
             }
@@ -197,11 +198,11 @@ where
                 b'_' => continue,
                 b'x' => {}
                 b'0' => {
-                    filter |= V::one() << i;
+                    filter |= V::one().checked_shl(i).unwrap();
                 }
                 b'1' => {
-                    filter |= V::one() << i;
-                    value |= V::one() << i;
+                    filter |= V::one().checked_shl(i).unwrap();
+                    value |= V::one().checked_shl(i).unwrap();
                 }
                 c => {
                     return Err(D::Error::custom(format!(
@@ -210,7 +211,7 @@ where
                     )))
                 }
             }
-            i += 1;
+            i = i.checked_add(1).unwrap();
         }
         Ok(RegisterValueFilter { filter, value })
     }

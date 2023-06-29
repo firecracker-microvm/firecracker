@@ -29,6 +29,7 @@ vm-allocator = "0.1.0"
 vm-fdt = "0.2.0"
 vm-superio = "0.7.0"
 log = { version = "0.4.17", features = ["serde"] }
+num-traits = "0.2.15"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }

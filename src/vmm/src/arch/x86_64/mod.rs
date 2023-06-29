@@ -87,7 +87,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
     }
 
     let align_to_pagesize = |address| address & !(super::PAGE_SIZE - 1);
-    Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
+    Ok(align_to_pagesize(lowmem_size.checked_sub(initrd_size).unwrap()) as u64)
 }
 
 /// Configures the system and should be called once per vm before starting vcpu threads.
@@ -140,7 +140,10 @@ pub fn configure_system(
             himem_start.raw_value(),
             // it's safe to use unchecked_offset_from because
             // mem_end > himem_start
-            last_addr.unchecked_offset_from(himem_start) + 1,
+            last_addr
+                .unchecked_offset_from(himem_start)
+                .checked_add(1)
+                .unwrap(),
             E820_RAM,
         )?;
     } else {
@@ -159,7 +162,10 @@ pub fn configure_system(
                 first_addr_past_32bits.raw_value(),
                 // it's safe to use unchecked_offset_from because
                 // mem_end > first_addr_past_32bits
-                last_addr.unchecked_offset_from(first_addr_past_32bits) + 1,
+                last_addr
+                    .unchecked_offset_from(first_addr_past_32bits)
+                    .checked_add(1)
+                    .unwrap(),
                 E820_RAM,
             )?;
         }
@@ -187,7 +193,7 @@ fn add_e820_entry(
     params.e820_table[params.e820_entries as usize].addr = addr;
     params.e820_table[params.e820_entries as usize].size = size;
     params.e820_table[params.e820_entries as usize].type_ = mem_type;
-    params.e820_entries += 1;
+    params.e820_entries = params.e820_entries.checked_add(1).unwrap();
 
     Ok(())
 }

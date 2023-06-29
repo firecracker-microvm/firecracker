@@ -165,7 +165,7 @@ impl Endpoint {
 
         // Advance receive_buf_left by how many bytes were actually written.
         if let Some(len) = value {
-            self.receive_buf_left += len.get();
+            self.receive_buf_left = self.receive_buf_left.checked_add(len.get()).unwrap();
         };
 
         if !self.response_buf.is_empty()
@@ -192,14 +192,16 @@ impl Endpoint {
             // parse_request_bytes() expects the entire request contents as parameter.
             if self.receive_buf_left > 2 {
                 let b = self.receive_buf.as_mut();
-                for i in 0..self.receive_buf_left - 1 {
+                for i in 0..self.receive_buf_left.checked_sub(1).unwrap() {
                     // We're basically looking for a double new line, which can only appear at the
                     // end of a valid request.
                     if b[i] == b'\n' {
-                        let end = if b[i + 1] == b'\n' {
-                            i + 2
-                        } else if i + 3 <= self.receive_buf_left && &b[i + 1..i + 3] == b"\r\n" {
-                            i + 3
+                        let end = if b[i.checked_add(1).unwrap()] == b'\n' {
+                            i.checked_add(2).unwrap()
+                        } else if i.checked_add(3).unwrap() <= self.receive_buf_left
+                            && &b[i.checked_add(1).unwrap()..i.checked_add(3).unwrap()] == b"\r\n"
+                        {
+                            i.checked_add(3).unwrap()
                         } else {
                             continue;
                         };
@@ -218,10 +220,10 @@ impl Endpoint {
                         // others to the beginning of the buffer, and updating receive_buf_left.
                         // Also, advance the rwnd edge of the inner connection.
                         // TODO: Maximum efficiency.
-                        for j in 0..b.len() - end {
-                            b[j] = b[j + end];
+                        for j in 0..b.len().checked_sub(end).unwrap() {
+                            b[j] = b[j.checked_add(end).unwrap()];
                         }
-                        self.receive_buf_left -= end;
+                        self.receive_buf_left = self.receive_buf_left.checked_sub(end).unwrap();
                         self.connection.advance_local_rwnd_edge(end as u32);
                         break;
                     }

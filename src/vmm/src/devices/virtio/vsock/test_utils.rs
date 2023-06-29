@@ -69,12 +69,12 @@ impl VsockChannel for TestBackend {
                 let buf_size = pkt.buf_size();
                 if buf_size > 0 {
                     let buf: Vec<u8> = (0..buf_size)
-                        .map(|i| cool_buf[i % cool_buf.len()])
+                        .map(|i| cool_buf[i.checked_rem(cool_buf.len()).unwrap()])
                         .collect();
                     pkt.read_at_offset_from(mem, 0, &mut buf.as_slice(), buf_size)
                         .unwrap();
                 }
-                self.rx_ok_cnt += 1;
+                self.rx_ok_cnt = self.rx_ok_cnt.checked_add(1).unwrap();
                 Ok(())
             }
             Some(err) => Err(err),
@@ -84,7 +84,7 @@ impl VsockChannel for TestBackend {
     fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<()> {
         match self.tx_err.take() {
             None => {
-                self.tx_ok_cnt += 1;
+                self.tx_ok_cnt = self.tx_ok_cnt.checked_add(1).unwrap();
                 Ok(())
             }
             Some(err) => Err(err),
@@ -214,7 +214,7 @@ where
     B: VsockBackend,
 {
     pub fn write_element_in_queue(vsock: &Vsock<B>, idx: usize, val: u64) {
-        if idx > vsock.queue_events.len() - 1 {
+        if idx > vsock.queue_events.len().checked_sub(1).unwrap() {
             panic!("Index bigger than the number of queues of this device");
         }
         vsock.queue_events[idx].write(val).unwrap();

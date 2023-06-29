@@ -463,7 +463,10 @@ impl KvmVcpu {
         // We accept values within a tolerance of 250 parts
         // per million beacuse it is common for TSC frequency
         // to differ due to calibration at boot time.
-        let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
+        let diff = i64::from(self.get_tsc_khz()?)
+            .checked_sub(i64::from(state_tsc_freq))
+            .unwrap()
+            .abs();
         Ok(diff > (f64::from(state_tsc_freq) * TSC_KHZ_TOL).round() as i64)
     }
 

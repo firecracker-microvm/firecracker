@@ -530,7 +530,7 @@ mod tests {
         assert!(log.len() >= expected.len());
         assert_eq!(
             expected,
-            std::str::from_utf8(&log[log.len() - expected.len()..]).unwrap()
+            std::str::from_utf8(&log[log.len().checked_sub(expected.len()).unwrap()..]).unwrap()
         );
     }
 

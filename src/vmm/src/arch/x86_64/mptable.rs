@@ -128,12 +128,26 @@ fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
 
 fn compute_mp_size(num_cpus: u8) -> usize {
     mem::size_of::<MpfIntelWrapper>()
-        + mem::size_of::<MpcTableWrapper>()
-        + mem::size_of::<MpcCpuWrapper>() * (num_cpus as usize)
-        + mem::size_of::<MpcIoapicWrapper>()
-        + mem::size_of::<MpcBusWrapper>()
-        + mem::size_of::<MpcIntsrcWrapper>() * (IRQ_MAX as usize + 1)
-        + mem::size_of::<MpcLintsrcWrapper>() * 2
+        .checked_add(mem::size_of::<MpcTableWrapper>())
+        .unwrap()
+        .checked_add(
+            mem::size_of::<MpcCpuWrapper>()
+                .checked_mul(num_cpus as usize)
+                .unwrap(),
+        )
+        .unwrap()
+        .checked_add(mem::size_of::<MpcIoapicWrapper>())
+        .unwrap()
+        .checked_add(mem::size_of::<MpcBusWrapper>())
+        .unwrap()
+        .checked_add(
+            mem::size_of::<MpcIntsrcWrapper>()
+                .checked_mul((IRQ_MAX as usize).checked_add(1).unwrap())
+                .unwrap(),
+        )
+        .unwrap()
+        .checked_add(mem::size_of::<MpcLintsrcWrapper>().checked_mul(2).unwrap())
+        .unwrap()
 }
 
 /// Performs setup of the MP table for the given `num_cpus`.
@@ -148,11 +162,11 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
     let mp_size = compute_mp_size(num_cpus);
 
     let mut checksum: u8 = 0;
-    let ioapicid: u8 = num_cpus + 1;
+    let ioapicid: u8 = num_cpus.checked_add(1).unwrap();
 
     // The checked_add here ensures the all of the following base_mp.unchecked_add's will be without
     // overflow.
-    if let Some(end_mp) = base_mp.checked_add((mp_size - 1) as u64) {
+    if let Some(end_mp) = base_mp.checked_add((mp_size.checked_sub(1).unwrap()) as u64) {
         if !mem.address_in_range(end_mp) {
             return Err(Error::NotEnoughMemory);
         }
@@ -169,7 +183,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         mpf_intel.0.signature = SMP_MAGIC_IDENT;
         mpf_intel.0.length = 1;
         mpf_intel.0.specification = 4;
-        mpf_intel.0.physptr = (base_mp.raw_value() + size) as u32;
+        mpf_intel.0.physptr = base_mp.raw_value().checked_add(size).unwrap() as u32;
         mpf_intel.0.checksum = mpf_intel_compute_checksum(&mpf_intel.0);
         mem.write_obj(mpf_intel, base_mp)
             .map_err(|_| Error::WriteMpfIntel)?;

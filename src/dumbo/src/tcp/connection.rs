@@ -331,7 +331,7 @@ impl Connection {
     }
 
     fn rto_expired(&self, now: u64) -> bool {
-        now - self.rto_start >= self.rto_period
+        now.checked_sub(self.rto_start).unwrap() >= self.rto_period
     }
 
     // We send a FIN control segment if every data byte up to the self.send_fin sequence number
@@ -488,7 +488,7 @@ impl Connection {
         {
             NextSegmentStatus::Available
         } else if self.highest_ack_received != self.first_not_sent {
-            NextSegmentStatus::Timeout(self.rto_start + self.rto_period)
+            NextSegmentStatus::Timeout(self.rto_start.checked_add(self.rto_period).unwrap())
         } else {
             NextSegmentStatus::Nothing
         }
@@ -545,7 +545,7 @@ impl Connection {
             }
         }
 
-        let payload_len = s.len() - s.header_len();
+        let payload_len = s.len().checked_sub(s.header_len()).unwrap();
         let mut recv_status_flags = RecvStatusFlags::empty();
 
         if !self.synack_sent() {
@@ -859,7 +859,7 @@ impl Connection {
             if self.rto_expired(now) {
                 // If we exceeded the maximum retransmission count, reset the connection and call
                 // write_next_segment one more time to generate the RST.
-                self.rto_count += 1;
+                self.rto_count = self.rto_count.checked_add(1).unwrap();
                 if self.rto_count >= self.rto_count_max {
                     self.reset();
                     return self.write_next_segment(buf, mss_reserved, payload_src, now);
@@ -886,7 +886,7 @@ impl Connection {
             // Decide what sequence number to send next. Check out if a timeout expired first.
             let seq_to_send =
                 if self.highest_ack_received != self.first_not_sent && self.rto_expired(now) {
-                    self.rto_count += 1;
+                    self.rto_count = self.rto_count.checked_add(1).unwrap();
                     if self.rto_count >= self.rto_count_max {
                         self.reset();
                         return self.write_next_segment(buf, mss_reserved, payload_src, now);
@@ -1201,7 +1201,10 @@ pub(crate) mod tests {
         options_len: usize,
         flags_after_ns: TcpFlags,
     ) {
-        assert_eq!(s.len(), BASIC_SEGMENT_SIZE + options_len);
+        assert_eq!(
+            s.len(),
+            BASIC_SEGMENT_SIZE.checked_add(options_len).unwrap()
+        );
         assert_eq!(s.flags_after_ns(), flags_after_ns);
     }
 

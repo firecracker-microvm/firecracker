@@ -292,7 +292,9 @@ impl Balloon {
                     }
                     // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
                     // desc.
-                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len / SIZE_OF_U32 {
+                    if MAX_PAGE_COMPACT_BUFFER.checked_sub(pfn_buffer_idx).unwrap()
+                        < len / SIZE_OF_U32
+                    {
                         queue.undo_pop();
                         break;
                     }
@@ -309,7 +311,7 @@ impl Balloon {
                             .map_err(|_| BalloonError::MalformedDescriptor)?;
 
                         self.pfn_buffer[pfn_buffer_idx] = page_frame_number;
-                        pfn_buffer_idx += 1;
+                        pfn_buffer_idx = pfn_buffer_idx.checked_add(1).unwrap();
                     }
                 }
 

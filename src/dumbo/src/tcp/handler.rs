@@ -560,7 +560,7 @@ mod tests {
         loop {
             let (o, _) = write_next(h, buf.as_mut())?;
             if let Some(packet) = o {
-                count += 1;
+                count = count.checked_add(1).unwrap();
                 assert_eq!(packet.source_address(), src_addr);
                 assert_eq!(packet.destination_address(), remote_addr);
             } else {

@@ -367,7 +367,7 @@ impl Vmm {
         vcpu_seccomp_filter: Arc<BpfProgram>,
     ) -> std::result::Result<(), StartVcpusError> {
         let vcpu_count = vcpus.len();
-        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
+        let barrier = Arc::new(Barrier::new(vcpu_count.checked_add(1).unwrap()));
 
         if let Some(stdin) = self.events_observer.as_mut() {
             // Set raw mode for stdin.

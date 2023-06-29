@@ -122,7 +122,7 @@ impl TokenAuthority {
         // Encode struct into base64 in order to obtain token string.
         let encoded_token = token.base64_encode()?;
         // Increase the count of encrypted tokens.
-        self.num_encrypted_tokens += 1;
+        self.num_encrypted_tokens = self.num_encrypted_tokens.checked_add(1).unwrap();
 
         Ok(encoded_token)
     }
@@ -273,7 +273,11 @@ impl TokenAuthority {
         // to current time (also in milliseconds). This addition is safe
         // because ttl is verified beforehand and can never be more than
         // 6h (21_600_000 ms).
-        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
+        now_as_milliseconds.add(
+            u64::from(ttl_as_seconds)
+                .checked_mul(MILLISECONDS_PER_SECOND)
+                .unwrap(),
+        )
     }
 }
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#![allow(clippy::arithmetic_side_effects)]
+
 use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;

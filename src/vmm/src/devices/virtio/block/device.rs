@@ -180,7 +180,7 @@ impl DiskProperties {
         // The config space is little endian.
         let mut config = Vec::with_capacity(BLOCK_CONFIG_SPACE_SIZE);
         for i in 0..BLOCK_CONFIG_SPACE_SIZE {
-            config.push((self.nsectors >> (8 * i)) as u8);
+            config.push((self.nsectors >> i.checked_mul(8).unwrap()) as u8);
         }
         config
     }
@@ -1390,21 +1390,21 @@ mod tests {
             .unwrap();
 
         for i in 0..count {
-            let idx = i * 2;
+            let idx = i.checked_mul(2).unwrap();
 
             let hdr_desc = &vq.dtable[idx as usize];
             hdr_desc.addr.set(hdr_addr.0);
             hdr_desc.flags.set(VIRTQ_DESC_F_NEXT);
-            hdr_desc.next.set(idx + 1);
+            hdr_desc.next.set(idx.checked_add(1).unwrap());
 
-            let status_desc = &vq.dtable[idx as usize + 1];
+            let status_desc = &vq.dtable[(idx as usize).checked_add(1).unwrap()];
             status_desc.addr.set(status_addr.0);
             status_desc.flags.set(VIRTQ_DESC_F_WRITE);
             status_desc.len.set(4);
             status_addr = status_addr.checked_add(4).unwrap();
 
             vq.avail.ring[i as usize].set(idx);
-            vq.avail.idx.set(i + 1);
+            vq.avail.idx.set(i.checked_add(1).unwrap());
         }
     }
 
@@ -1414,7 +1414,9 @@ mod tests {
 
         for i in 0..count {
             let used = vq.used.ring[i as usize].get();
-            let status_addr = vq.dtable[used.id as usize + 1].addr.get();
+            let status_addr = vq.dtable[(used.id as usize).checked_add(1).unwrap()]
+                .addr
+                .get();
             assert_eq!(used.len, 1);
             assert_eq!(
                 vq.memory()

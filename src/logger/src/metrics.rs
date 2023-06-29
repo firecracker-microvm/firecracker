@@ -277,7 +277,11 @@ impl Serialize for SharedIncMetric {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // There's no serializer.serialize_usize() for some reason :(
         let snapshot = self.0.load(Ordering::Relaxed);
-        let res = serializer.serialize_u64(snapshot as u64 - self.1.load(Ordering::Relaxed) as u64);
+        let res = serializer.serialize_u64(
+            (snapshot as u64)
+                .checked_sub(self.1.load(Ordering::Relaxed) as u64)
+                .unwrap(),
+        );
 
         if res.is_ok() {
             self.1.store(snapshot, Ordering::Relaxed);
@@ -321,7 +325,9 @@ impl ProcessTimeReporter {
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
-            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                .checked_sub(start_time)
+                .unwrap();
             METRICS
                 .api_server
                 .process_startup_time_us
@@ -333,8 +339,10 @@ impl ProcessTimeReporter {
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
-                - cpu_start_time
-                + self.parent_cpu_time_us.unwrap_or_default();
+                .checked_sub(cpu_start_time)
+                .unwrap()
+                .checked_add(self.parent_cpu_time_us.unwrap_or_default())
+                .unwrap();
             METRICS
                 .api_server
                 .process_startup_time_cpu_us

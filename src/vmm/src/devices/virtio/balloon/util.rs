@@ -34,7 +34,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
 
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
-        if page_frame_number == v[pfn_index - 1] {
+        if page_frame_number == v[pfn_index.checked_sub(1).unwrap()] {
             log::error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
@@ -46,9 +46,9 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // since `v[previous]` is before all of them in the sorted array and `length`
         // was incremented for each consecutive one. This is true only because we skip
         // duplicates.
-        if page_frame_number == v[previous] + length {
+        if page_frame_number == v[previous].checked_add(length).unwrap() {
             // If so, extend that range.
-            length += 1;
+            length = length.checked_add(1).unwrap();
         } else {
             // Otherwise, push (previous, length) to the result vector.
             result.push((v[previous], length));
@@ -72,7 +72,9 @@ pub(crate) fn remove_range(
     let (guest_address, range_len) = range;
 
     if let Some(region) = guest_memory.find_region(guest_address) {
-        if guest_address.0 + range_len > region.start_addr().0 + region.len() {
+        if guest_address.0.checked_add(range_len).unwrap()
+            > region.start_addr().0.checked_add(region.len()).unwrap()
+        {
             return Err(RemoveRegionError::MalformedRange);
         }
         let phys_address = guest_memory
@@ -283,7 +285,7 @@ mod tests {
     fn uncompact(compacted: Vec<(u32, u32)>) -> Vec<u32> {
         let mut result = Vec::new();
         for (start, len) in compacted {
-            result.extend(start..start + len);
+            result.extend(start..start.checked_add(len).unwrap());
         }
         result
     }

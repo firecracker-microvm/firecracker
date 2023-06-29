@@ -94,7 +94,7 @@ impl SnapshotMemory for GuestMemoryMmap {
                 offset,
             });
 
-            offset += region.len();
+            offset = offset.checked_add(region.len()).unwrap();
         });
         guest_memory_state
     }
@@ -126,18 +126,26 @@ impl SnapshotMemory for GuestMemoryMmap {
                 for (i, v) in kvm_bitmap.iter().enumerate() {
                     for j in 0..64 {
                         let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
-                        let page_offset = ((i * 64) + j) * page_size;
+                        let page_offset = i
+                            .checked_mul(64)
+                            .unwrap()
+                            .checked_add(j)
+                            .unwrap()
+                            .checked_mul(page_size)
+                            .unwrap();
                         let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
                         if is_kvm_page_dirty || is_firecracker_page_dirty {
                             // We are at the start of a new batch of dirty pages.
                             if write_size == 0 {
                                 // Seek forward over the unmodified pages.
                                 writer
-                                    .seek(SeekFrom::Start(writer_offset + page_offset as u64))
+                                    .seek(SeekFrom::Start(
+                                        (page_offset as u64).checked_add(writer_offset).unwrap(),
+                                    ))
                                     .unwrap();
                                 dirty_batch_start = page_offset as u64;
                             }
-                            write_size += page_size;
+                            write_size = page_size.checked_add(write_size).unwrap();
                         } else if write_size > 0 {
                             // We are at the end of a batch of dirty pages.
                             writer.write_all_volatile(
@@ -157,7 +165,7 @@ impl SnapshotMemory for GuestMemoryMmap {
                         &region.get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
                     )?;
                 }
-                writer_offset += region.len();
+                writer_offset = region.len().checked_add(writer_offset).unwrap();
                 if let Some(bitmap) = firecracker_bitmap {
                     bitmap.reset();
                 }

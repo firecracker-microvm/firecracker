@@ -14,6 +14,7 @@ bench = false
 [dependencies]
 clap = { version = "4.3.8", features = ["derive", "string"] }
 libc = "0.2.147"
+num-traits = "0.2.15"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.99"
 thiserror = "1.0.32"

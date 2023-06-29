@@ -365,6 +365,7 @@ version = "1.5.0-dev"
 dependencies = [
  "clap",
  "libc",
+ "num-traits",
  "serde",
  "serde_json",
  "thiserror",
@@ -1421,6 +1422,7 @@ dependencies = [
  "logger",
  "mmds",
  "net_gen",
+ "num-traits",
  "proptest",
  "rate_limiter",
  "seccompiler",

@@ -182,7 +182,10 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
-            .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
+            .checked_offset(
+                boot_gdt_addr,
+                index.checked_mul(mem::size_of::<u64>()).unwrap(),
+            )
             .ok_or(Error::WriteGDT)?;
         guest_mem
             .write_obj(*entry, addr)
@@ -213,11 +216,13 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
     sregs.gdt.base = BOOT_GDT_OFFSET;
-    sregs.gdt.limit = mem::size_of_val(&gdt_table) as u16 - 1;
+    sregs.gdt.limit = (mem::size_of_val(&gdt_table) as u16)
+        .checked_sub(1)
+        .unwrap();
 
     write_idt_value(0, mem)?;
     sregs.idt.base = BOOT_IDT_OFFSET;
-    sregs.idt.limit = mem::size_of::<u64>() as u16 - 1;
+    sregs.idt.limit = (mem::size_of::<u64>() as u16).checked_sub(1).unwrap();
 
     sregs.cs = code_seg;
     sregs.ds = data_seg;
@@ -250,8 +255,11 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()>
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
     for i in 0..512 {
-        mem.write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
-            .map_err(|_| Error::WritePDEAddress)?;
+        mem.write_obj(
+            0x83u64.checked_add(i << 21).unwrap(),
+            boot_pde_addr.unchecked_add(i.checked_mul(8).unwrap()),
+        )
+        .map_err(|_| Error::WritePDEAddress)?;
     }
 
     sregs.cr3 = boot_pml4_addr.raw_value();
@@ -270,7 +278,7 @@ mod tests {
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
         let mem_size = mem_size.unwrap_or(page_size as u64) as usize;
-        if mem_size % page_size == 0 {
+        if mem_size.checked_rem(page_size).unwrap() == 0 {
             utils::vm_memory::test_utils::create_anon_guest_memory(
                 &[(GuestAddress(0), mem_size)],
                 false,
@@ -313,8 +321,14 @@ mod tests {
     fn validate_page_tables(gm: &GuestMemoryMmap, sregs: &kvm_sregs) {
         assert_eq!(0xa003, read_u64(gm, PML4_START));
         assert_eq!(0xb003, read_u64(gm, PDPTE_START));
-        for i in 0..512 {
-            assert_eq!((i << 21) + 0x83u64, read_u64(gm, PDE_START + (i * 8)));
+        for i in 0..512u64 {
+            assert_eq!(
+                (i << 21).checked_add(0x83u64).unwrap(),
+                read_u64(
+                    gm,
+                    PDE_START.checked_add(i.checked_mul(8).unwrap()).unwrap()
+                )
+            );
         }
 
         assert_eq!(PML4_START, sregs.cr3);

@@ -10,7 +10,8 @@
     non_snake_case,
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
-    missing_debug_implementations
+    missing_debug_implementations,
+    clippy::arithmetic_side_effects
 )]
 
 pub const ETH_ALEN: u32 = 6;

@@ -54,7 +54,7 @@ impl PeriodicMetrics {
 
         #[cfg(test)]
         {
-            self.flush_counter += 1;
+            self.flush_counter = self.flush_counter.checked_add(1).unwrap();
         }
     }
 }

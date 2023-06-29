@@ -95,8 +95,8 @@ impl fmt::Display for LocalTime {
         write!(
             f,
             "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}",
-            self.year + 1900,
-            self.mon + 1,
+            self.year.checked_add(1900).unwrap(),
+            self.mon.checked_add(1).unwrap(),
             self.mday,
             self.hour,
             self.min,
@@ -153,7 +153,8 @@ pub fn get_time_ns(clock_type: ClockType) -> u64 {
     unsafe { libc::clock_gettime(clock_type.into(), &mut time_struct) };
     u64::try_from(seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow"))
         .unwrap()
-        + u64::try_from(time_struct.tv_nsec).unwrap()
+        .checked_add(u64::try_from(time_struct.tv_nsec).unwrap())
+        .unwrap()
 }
 
 /// Returns a timestamp in microseconds based on the provided clock type.

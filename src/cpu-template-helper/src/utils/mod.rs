@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use num_traits::CheckedShl;
 use vmm::builder::{build_microvm_for_boot, StartMicrovmError};
 use vmm::cpu_config::templates::Numeric;
 use vmm::resources::VmResources;
@@ -40,7 +41,7 @@ impl<V: Numeric> DiffString<V> for V {
     fn to_diff_string(template: V, config: V) -> String {
         let mut diff = String::new();
         for i in (0..V::BITS).rev() {
-            let mask = V::one() << i;
+            let mask = CheckedShl::checked_shl(&V::one(),i).unwrap();
             let template_bit = template & mask;
             let config_bit = config & mask;
             diff.push(match template_bit == config_bit {

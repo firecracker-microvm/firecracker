@@ -440,11 +440,11 @@ impl VsockMuxer {
         // until we reach an EOL terminator (or our buffer space runs out).  Yeah, not
         // particularly proud of this approach, but it will have to do for now.
         let mut blen = MIN_READ_LEN;
-        while buf[blen - 1] != b'\n' && blen < buf.len() {
+        while buf[blen.checked_sub(1).unwrap()] != b'\n' && blen < buf.len() {
             stream
                 .read_exact(&mut buf[blen..=blen])
                 .map_err(Error::UnixRead)?;
-            blen += 1;
+            blen = blen.checked_add(1).unwrap();
         }
 
         let mut word_iter = std::str::from_utf8(&buf[..blen])
@@ -578,7 +578,8 @@ impl VsockMuxer {
         //
 
         loop {
-            self.local_port_last = (self.local_port_last + 1) & !(1 << 31) | (1 << 30);
+            self.local_port_last =
+                self.local_port_last.checked_add(1).unwrap() & !(1 << 31) | (1 << 30);
             if self.local_port_set.insert(self.local_port_last) {
                 break;
             }
@@ -883,8 +884,12 @@ mod tests {
             let mut conn_lsn_count = 0usize;
             for key in self.muxer.listener_map.values() {
                 match key {
-                    EpollListener::LocalStream(_) => local_lsn_count += 1,
-                    EpollListener::Connection { .. } => conn_lsn_count += 1,
+                    EpollListener::LocalStream(_) => {
+                        local_lsn_count = local_lsn_count.checked_add(1).unwrap()
+                    }
+                    EpollListener::Connection { .. } => {
+                        conn_lsn_count = conn_lsn_count.checked_add(1).unwrap()
+                    }
                     _ => (),
                 };
             }
@@ -907,7 +912,10 @@ mod tests {
             // Just after having accepted a new local connection, the muxer should've added a new
             // `LocalStream` listener to its `listener_map`.
             let (local_lsn_count, _) = self.count_epoll_listeners();
-            assert_eq!(local_lsn_count, init_local_lsn_count + 1);
+            assert_eq!(
+                local_lsn_count,
+                init_local_lsn_count.checked_add(1).unwrap()
+            );
 
             let buf = format!("CONNECT {}\n", peer_port);
             stream.write_all(buf.as_bytes()).unwrap();
@@ -919,7 +927,7 @@ mod tests {
             // LocalStream epoll listener and added a Connection epoll listener.
             let (local_lsn_count, conn_lsn_count) = self.count_epoll_listeners();
             assert_eq!(local_lsn_count, init_local_lsn_count);
-            assert_eq!(conn_lsn_count, init_conn_lsn_count + 1);
+            assert_eq!(conn_lsn_count, init_conn_lsn_count.checked_add(1).unwrap());
 
             // A LocalInit connection should've been added to the muxer connection map.  A new
             // local port should also have been allocated for the new LocalInit connection.

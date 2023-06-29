@@ -47,7 +47,15 @@ fn build_guarded_region(
     let page_size = crate::get_page_size().expect("Cannot retrieve page size.");
     // Create the guarded range size (received size + X pages),
     // where X is defined as a constant GUARD_PAGE_COUNT.
-    let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
+    let guarded_size = size
+        .checked_add(
+            GUARD_PAGE_COUNT
+                .checked_mul(2)
+                .unwrap()
+                .checked_mul(page_size)
+                .unwrap(),
+        )
+        .unwrap();
 
     // Map the guarded range to PROT_NONE
     // SAFETY: Safe because the parameters are valid.
@@ -74,7 +82,9 @@ fn build_guarded_region(
         None => (-1, 0),
     };
 
-    let region_start_addr = guard_addr as usize + page_size * GUARD_PAGE_COUNT;
+    let region_start_addr = (guard_addr as usize)
+        .checked_add(page_size.checked_mul(GUARD_PAGE_COUNT).unwrap())
+        .unwrap();
 
     // Inside the protected range, starting with guard_addr + PAGE_SIZE,
     // map the requested range with received protection and flags
@@ -512,19 +522,21 @@ mod tests {
         }
 
         // Try a read/write operation against the left guard border of the range
-        let left_border = (addr as usize - page_size) as *mut u8;
+        let left_border = (addr as usize).checked_sub(page_size).unwrap() as *mut u8;
         fork_and_run(&|| AddrOp::Read.apply_on_addr(left_border), true);
         fork_and_run(&|| AddrOp::Write.apply_on_addr(left_border), true);
 
         // Try a read/write operation against the right guard border of the range
-        let right_border = (addr as usize + region.size()) as *mut u8;
+        let right_border = (addr as usize).checked_add(region.size()).unwrap() as *mut u8;
         fork_and_run(&|| AddrOp::Read.apply_on_addr(right_border), true);
         fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
     }
 
     fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
-        let right_page_guard = region.as_ptr() as usize + region.size();
+        let right_page_guard = (region.as_ptr() as usize)
+            .checked_add(region.size())
+            .unwrap();
 
         fork_and_run(
             &|| {
@@ -535,7 +547,7 @@ mod tests {
                     }
                     AddrOp::Write.apply_on_addr(addr as *mut u8);
 
-                    addr += page_size;
+                    addr = addr.checked_add(page_size).unwrap();
                 }
             },
             false,

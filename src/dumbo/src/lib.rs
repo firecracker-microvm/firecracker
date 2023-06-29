@@ -42,7 +42,7 @@ impl ByteBuffer for [u8] {
     #[inline]
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]) {
         let buf_len = buf.len();
-        buf.copy_from_slice(&self[offset..offset + buf_len]);
+        buf.copy_from_slice(&self[offset..offset.checked_add(buf_len).unwrap()]);
     }
 }
 

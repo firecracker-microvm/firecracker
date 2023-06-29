@@ -129,7 +129,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     pub fn header_len_rsvd_ns(&self) -> (usize, u8, bool) {
         let value = self.bytes[DATAOFF_RSVD_NS_OFFSET];
         let data_offset = value >> 4;
-        let header_len = data_offset as usize * 4;
+        let header_len = (data_offset as usize).checked_mul(4).unwrap();
         let rsvd = value & 0x0e;
         let ns = (value & 1) != 0;
         (header_len, rsvd, ns)
@@ -202,7 +202,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     /// Returns the length of the payload.
     #[inline]
     pub fn payload_len(&self) -> usize {
-        self.len() - self.header_len()
+        self.len().checked_sub(self.header_len()).unwrap()
     }
 
     /// Computes the TCP checksum of the segment. More details about TCP checksum computation can
@@ -226,7 +226,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         header_len: usize,
     ) -> Result<Option<NonZeroU16>, Error> {
         let b = self.options_unchecked(header_len);
-        let mut i = 0;
+        let mut i = 0usize;
 
         // All TCP options (except EOL and NOP) are encoded using x bytes (x >= 2), where the first
         // byte represents the option kind, the second is the option length (including these first
@@ -234,18 +234,18 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         // the MSS option is 4, so the option data encodes an u16 in network order.
 
         // The MSS option is 4 bytes wide, so we need at least 4 more bytes to look for it.
-        while i + 3 < b.len() {
+        while i.checked_add(3).unwrap() < b.len() {
             match b[i] {
                 OPTION_KIND_EOL => break,
                 OPTION_KIND_NOP => {
-                    i += 1;
+                    i = i.checked_add(1).unwrap();
                     continue;
                 }
                 OPTION_KIND_MSS => {
                     // Read from option data (we skip checking if the len is valid).
                     // TODO: To be super strict, we should make sure there aren't additional MSS
                     // options present (which would be super wrong). Should we be super strict?
-                    let mss = b.ntohs_unchecked(i + 2);
+                    let mss = b.ntohs_unchecked(i.checked_add(2).unwrap());
                     if mss < MSS_MIN {
                         return Err(Error::MssOption);
                     }
@@ -254,7 +254,9 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
                 }
                 _ => {
                     // Some other option; just skip opt_len bytes in total.
-                    i += b[i + 1] as usize;
+                    i = i
+                        .checked_add(b[i.checked_add(1).unwrap()] as usize)
+                        .unwrap();
                     continue;
                 }
             }
@@ -493,7 +495,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
             0
         };
 
-        segment_len += options_len;
+        segment_len = segment_len.checked_add(options_len).unwrap();
 
         if buf.len() < segment_len {
             return Err(Error::SliceTooShort);
@@ -505,7 +507,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         segment
             .set_sequence_number(seq_number)
             .set_ack_number(ack_number)
-            .set_header_len_rsvd_ns(OPTIONS_OFFSET + options_len, false)
+            .set_header_len_rsvd_ns(OPTIONS_OFFSET.checked_add(options_len).unwrap(), false)
             .set_flags_after_ns(flags_after_ns)
             .set_window_size(window_size)
             .set_urgent_pointer(0);
@@ -522,7 +524,8 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
 
             // The subtraction makes sense because we previously checked that
             // buf.len() >= segment_len.
-            let mut room_for_payload = min(segment.len() - segment_len, mss_left);
+            let mut room_for_payload =
+                min(segment.len().checked_sub(segment_len).unwrap(), mss_left);
             room_for_payload = min(room_for_payload, left_to_read);
 
             if room_for_payload == 0 {
@@ -534,13 +537,13 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
             // `offset + room_for_payload <= payload_buf.len()`.
             payload_buf.read_to_slice(
                 0,
-                &mut segment.bytes[segment_len..segment_len + room_for_payload],
+                &mut segment.bytes[segment_len..segment_len.checked_add(room_for_payload).unwrap()],
             );
             room_for_payload
         } else {
             0
         };
-        segment_len += payload_bytes_count;
+        segment_len = segment_len.checked_add(payload_bytes_count).unwrap();
 
         // This is ok because segment_len <= buf.len().
         segment.bytes.shrink_unchecked(segment_len);

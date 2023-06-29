@@ -159,7 +159,10 @@ impl MMIODeviceManager {
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
-                    device_info.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
+                    device_info
+                        .addr
+                        .checked_add(u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET))
+                        .unwrap(),
                 );
                 vm.register_ioevent(queue_evt, &io_addr, i as u32)
                     .map_err(Error::RegisterIoEvent)?;
@@ -306,9 +309,9 @@ impl MMIODeviceManager {
     /// Gets the number of interrupts used by the devices registered.
     pub fn used_irqs_count(&self) -> usize {
         let mut irq_number = 0;
-        self.get_device_info()
-            .iter()
-            .for_each(|(_, device_info)| irq_number += device_info.irqs.len());
+        self.get_device_info().iter().for_each(|(_, device_info)| {
+            irq_number = device_info.irqs.len().checked_add(irq_number).unwrap()
+        });
         irq_number
     }
 

@@ -287,7 +287,7 @@ pub fn enable(tap: &Tap) {
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
-    let mut frame = utils::rand::rand_alphanumerics(len - vnet_hdr_len())
+    let mut frame = utils::rand::rand_alphanumerics(len.checked_sub(vnet_hdr_len()).unwrap())
         .as_bytes()
         .to_vec();
     tap_traffic_simulator.push_tx_packet(&frame);
@@ -451,7 +451,7 @@ pub mod test {
 
             // Create the descriptor chain.
             let mut iter = desc_list.iter().peekable();
-            let mut addr = self.data_addr() + addr_offset;
+            let mut addr = self.data_addr().checked_add(addr_offset).unwrap();
             while let Some(&(index, len, flags)) = iter.next() {
                 let desc = &queue.dtable[index as usize];
                 desc.set(addr, len, flags, 0);
@@ -460,17 +460,19 @@ pub mod test {
                     desc.next.set(next_index);
                 }
 
-                addr += u64::from(len);
+                addr = addr.checked_add(u64::from(len)).unwrap();
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
+                addr = addr
+                    .checked_add(u64::from(utils::rand::xor_pseudo_rng_u32()) % 10)
+                    .unwrap();
             }
 
             // Mark the chain as available.
             if let Some(&(index, _, _)) = desc_list.first() {
                 let ring_index = queue.avail.idx.get();
                 queue.avail.ring[ring_index as usize].set(index);
-                queue.avail.idx.set(ring_index + 1);
+                queue.avail.idx.set(ring_index.checked_add(1).unwrap());
             }
             event_fd.write(1).unwrap();
         }
@@ -490,7 +492,7 @@ pub mod test {
             // Check that the frame has been deferred.
             assert!(self.net().rx_deferred_frame);
             // Check that the descriptor chain has been discarded.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
+            assert_eq!(self.rxq.used.idx.get(), used_idx.checked_add(1).unwrap());
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
 
             frame
@@ -512,7 +514,7 @@ pub mod test {
                 self.event_manager.run_with_timeout(100).unwrap()
             );
             // Check that the expected frame was sent to the Rx queue eventually.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
+            assert_eq!(self.rxq.used.idx.get(), used_idx.checked_add(1).unwrap());
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len() as u32);
@@ -525,7 +527,7 @@ pub mod test {
             let mut frame = utils::rand::rand_alphanumerics(frame_len)
                 .as_bytes()
                 .to_vec();
-            let prefix_len = vnet_hdr_len() + ETH_HLEN as usize;
+            let prefix_len = vnet_hdr_len().checked_add(ETH_HLEN as usize).unwrap();
             frame.splice(..prefix_len, vec![0; prefix_len]);
 
             let mut frame_slice = frame.as_slice();

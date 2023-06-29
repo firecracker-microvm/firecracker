@@ -70,7 +70,7 @@ pub fn kvm_segment_from_gdt(entry: u64, table_index: u8) -> kvm_segment {
     kvm_segment {
         base: get_base(entry),
         limit: get_limit(entry),
-        selector: u16::from(table_index * 8),
+        selector: u16::from(table_index.checked_mul(8).unwrap()),
         type_: get_type(entry),
         present: get_p(entry),
         dpl: get_dpl(entry),

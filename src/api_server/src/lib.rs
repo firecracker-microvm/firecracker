@@ -207,7 +207,8 @@ impl ApiServer {
                     })?;
 
                 let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                    - request_processing_start_us;
+                    .checked_sub(request_processing_start_us)
+                    .unwrap();
                 debug!("Total previous API call duration: {} us.", delta_us);
 
                 if self.shutdown_flag {

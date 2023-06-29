@@ -58,6 +58,8 @@ pub(crate) const fn vnet_hdr_len() -> usize {
 // This returns the maximum frame header length. This includes the VNET header plus
 // the maximum L2 frame header bytes which includes the ethernet frame header plus
 // the header IPv4 ARP header which is 28 bytes long.
+// `Option::<T>::unwrap` is not const on stable so `checked_add` cannot be used it.
+#[allow(clippy::arithmetic_side_effects)]
 const fn frame_hdr_len() -> usize {
     vnet_hdr_len() + FRAME_HEADER_MAX_LEN
 }
@@ -438,7 +440,7 @@ impl Net {
 
         if let Some(ns) = mmds_ns {
             if ns.is_mmds_frame(headers) {
-                let mut frame = vec![0u8; frame_iovec.len() - vnet_hdr_len()];
+                let mut frame = vec![0u8; frame_iovec.len().checked_sub(vnet_hdr_len()).unwrap()];
                 // Ok to unwrap here, because we are passing a buffer that has the exact size
                 // of the `IoVecBuffer` minus the VNET headers.
                 frame_iovec.read_at(&mut frame, vnet_hdr_len()).unwrap();
@@ -488,7 +490,7 @@ impl Net {
                 METRICS.mmds.tx_frames.inc();
                 METRICS.mmds.tx_bytes.add(len);
                 init_vnet_hdr(&mut self.rx_frame_buf);
-                return Ok(vnet_hdr_len() + len);
+                return Ok(vnet_hdr_len().checked_add(len).unwrap());
             }
         }
 
@@ -1445,7 +1447,11 @@ pub mod tests {
         let mut frame = incomplete_frame.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
 
         // Save the total frame length.
-        let frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
+        let frame_len = vnet_hdr_len()
+            .checked_add(frame.payload_offset())
+            .unwrap()
+            .checked_add(ETH_IPV4_FRAME_LEN)
+            .unwrap();
 
         // Create the ARP request.
         let arp_request =

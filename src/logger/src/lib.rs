@@ -57,7 +57,9 @@ fn extract_guard<G>(lock_result: LockResult<G>) -> G {
 /// Helper function for updating the value of a store metric with elapsed time since some time in a
 /// past.
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
-    let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
+    let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+        .checked_sub(start_time_us)
+        .unwrap();
     metric.store(delta_us as usize);
     delta_us
 }

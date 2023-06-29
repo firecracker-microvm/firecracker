@@ -21,8 +21,14 @@ impl BootTimer {
         if data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE {
             let now_tm_us = TimestampUs::default();
 
-            let boot_time_us = now_tm_us.time_us - self.start_ts.time_us;
-            let boot_time_cpu_us = now_tm_us.cputime_us - self.start_ts.cputime_us;
+            let boot_time_us = now_tm_us
+                .time_us
+                .checked_sub(self.start_ts.time_us)
+                .unwrap();
+            let boot_time_cpu_us = now_tm_us
+                .cputime_us
+                .checked_sub(self.start_ts.cputime_us)
+                .unwrap();
             log::info!(
                 "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
                 boot_time_us,

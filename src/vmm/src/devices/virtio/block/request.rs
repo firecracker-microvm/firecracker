@@ -124,7 +124,7 @@ impl PendingRequest {
             .write_obj(status_code as u8, self.status_addr)
             .map(|_| {
                 // Account for the status byte
-                num_bytes_to_mem + 1
+                num_bytes_to_mem.checked_add(1).unwrap()
             })
             .unwrap_or_else(|err| {
                 error!("Failed to write virtio block status: {:?}", err);
@@ -777,26 +777,39 @@ mod tests {
 
         // Randomize descriptor addresses. Assumed page size as max buffer len.
         let base_addr = sparsity & 0x0000_FFFF_FFFF_F000; // 48 bit base, page aligned.
-        let max_desc_len = 0x1000;
+        let max_desc_len = 0x1000u64;
 
         // First addr starts at page base + 1.
         let req_type_addr = GuestAddress(base_addr).checked_add(0x1000).unwrap();
 
         // Use first 4 bits of randomness to shift the gap size between this descriptor
         // and the next one.
-        let mut next_desc_dist = max_desc_len + (0x1000 << (sparsity & 0xF));
+        let mut next_desc_dist = max_desc_len
+            .checked_add(0x1000 << (sparsity & 0xF))
+            .unwrap();
         let data_addr = req_type_addr.checked_add(next_desc_dist).unwrap();
 
         // Use next 4 bits of randomness to shift gap size between this descriptor
         // and the next one.
-        next_desc_dist = max_desc_len + (0x1000 << ((sparsity & 0xF0) >> 4));
+        next_desc_dist = max_desc_len
+            .checked_add(
+                0x1000u64
+                    .checked_shl(((sparsity & 0xF0) >> 4) as u32)
+                    .unwrap(),
+            )
+            .unwrap();
         let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
 
         let mem_end = status_addr.checked_add(max_desc_len).unwrap();
         let mem: GuestMemoryMmap = create_anon_guest_memory(
             &[(
                 GuestAddress(base_addr),
-                (mem_end.0 - base_addr).try_into().unwrap(),
+                mem_end
+                    .0
+                    .checked_sub(base_addr)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
             )],
             false,
         )
@@ -808,14 +821,16 @@ mod tests {
 
         // Make sure that data_len is a multiple of 512
         // and that 512 <= data_len <= (4096 + 512).
-        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE as u32 - 1)) + 1;
+        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE as u32).checked_sub(1).unwrap())
+            .checked_add(1)
+            .unwrap();
         let sectors_len = u64::from(valid_data_len) / SECTOR_SIZE;
         // Craft a random request with the randomized parameters.
         let mut request = Request {
             r#type: request_type,
             data_len: valid_data_len,
             status_addr,
-            sector: sector & (NUM_DISK_SECTORS - sectors_len),
+            sector: sector & NUM_DISK_SECTORS.checked_sub(sectors_len).unwrap(),
             data_addr,
         };
         let mut request_header = RequestHeader::new(virtio_request_id, request.sector);
@@ -892,10 +907,13 @@ mod tests {
             match request.r#type {
                 RequestType::In | RequestType::Out => {
                     // data_len is not a multiple of 512
-                    chain
-                        .data_desc
-                        .len
-                        .set(valid_data_len + (data_len % 511) + 1);
+                    chain.data_desc.len.set(
+                        valid_data_len
+                            .checked_add(data_len % 511)
+                            .unwrap()
+                            .checked_add(1)
+                            .unwrap(),
+                    );
                     return (Err(BlockError::InvalidDataLength), mem, q);
                 }
                 RequestType::GetDeviceID => {
@@ -914,7 +932,7 @@ mod tests {
         if *coins.next().unwrap() {
             match request.r#type {
                 RequestType::In | RequestType::Out => {
-                    request_header.sector = (sector | NUM_DISK_SECTORS) + 1;
+                    request_header.sector = (sector | NUM_DISK_SECTORS).checked_add(1).unwrap();
                     chain.set_header(request_header);
                     return (Err(BlockError::InvalidOffset), mem, q);
                 }

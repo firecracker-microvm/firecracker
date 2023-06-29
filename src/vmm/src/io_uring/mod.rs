@@ -173,7 +173,7 @@ impl IoUring {
         let fd = op.fd() as i32;
         match self.registered_fds_count {
             0 => Err((Error::NoRegisteredFds, op.user_data())),
-            len if fd < 0 || (len as i32 - 1) < fd => {
+            len if fd < 0 || (len as i32).checked_sub(1).unwrap() < fd => {
                 Err((Error::InvalidFixedFd(fd), op.user_data()))
             }
             _ => {
@@ -184,7 +184,7 @@ impl IoUring {
                     .push(op.into_sqe())
                     .map(|res| {
                         // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
-                        self.num_ops += 1;
+                        self.num_ops = self.num_ops.checked_add(1).unwrap();
                         res
                     })
                     .map_err(|err_tuple: (SQueueError, T)| -> (Error, T) {
@@ -285,7 +285,10 @@ impl IoUring {
         .map_err(Error::RegisterFile)?;
 
         // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
-        self.registered_fds_count += files.len() as u32;
+        self.registered_fds_count = self
+            .registered_fds_count
+            .checked_add(files.len() as u32)
+            .unwrap();
         Ok(())
     }
 
@@ -446,9 +449,9 @@ mod tests {
                     // len
                     Just(len),
                     // offset
-                    (0u32..(file_len - len)),
+                    (0u32..file_len.checked_sub(len).unwrap()),
                     // mem region offset
-                    (0u32..(file_len - len)),
+                    (0u32..file_len.checked_sub(len).unwrap()),
                 )
             })
             .prop_map(move |(op, len, off, mem_off)| {

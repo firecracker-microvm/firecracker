@@ -246,7 +246,8 @@ impl Mmds {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
         let value = if path.ends_with('/') {
-            self.data_store.pointer(&path.as_str()[..(path.len() - 1)])
+            self.data_store
+                .pointer(&path.as_str()[..path.len().checked_sub(1).unwrap()])
         } else {
             self.data_store.pointer(path.as_str())
         };

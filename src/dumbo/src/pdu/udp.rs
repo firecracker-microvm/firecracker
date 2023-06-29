@@ -134,7 +134,7 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
     #[inline]
     pub fn write_incomplete_datagram(buf: T, payload: &[u8]) -> Result<Incomplete<Self>, Error> {
         let mut packet = UdpDatagram::from_bytes(buf, None)?;
-        let len = payload.len() + UDP_HEADER_SIZE;
+        let len = payload.len().checked_add(UDP_HEADER_SIZE).unwrap();
 
         // TODO working with IPv4 only for now
         if len > IPV4_MAX_UDP_PACKET_SIZE {

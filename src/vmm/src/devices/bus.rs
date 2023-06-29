@@ -93,13 +93,13 @@ pub struct ConstantDevice;
 impl ConstantDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         for (i, v) in data.iter_mut().enumerate() {
-            *v = (offset as u8) + (i as u8);
+            *v = (offset as u8).checked_add(i as u8).unwrap();
         }
     }
 
     fn bus_write(&mut self, offset: u64, data: &[u8]) {
         for (i, v) in data.iter().enumerate() {
-            assert_eq!(*v, (offset as u8) + (i as u8))
+            assert_eq!(*v, (offset as u8).checked_add(i as u8).unwrap())
         }
     }
 }
@@ -235,7 +235,7 @@ impl Bus {
 
     pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
-            let offset = addr - start;
+            let offset = addr.checked_sub(start).unwrap();
             if offset < len {
                 return Some((offset, dev));
             }
@@ -258,7 +258,9 @@ impl Bus {
         // range of another device. To catch that case, we search for a device with a range before
         // the new device's range's end. If there is no existing device in that range that starts
         // after the new device, then there will be no overlap.
-        if let Some((BusRange(start, _), _)) = self.first_before(base + len - 1) {
+        if let Some((BusRange(start, _), _)) =
+            self.first_before(base.checked_add(len).unwrap().checked_sub(1).unwrap())
+        {
             // Such a device only conflicts with the new device if it also starts after the new
             // device because of our initial `get_device` check above.
             if start >= base {

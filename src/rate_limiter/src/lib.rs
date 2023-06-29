@@ -71,7 +71,7 @@ fn gcd(x: u64, y: u64) -> u64 {
     let mut y = y;
     while y != 0 {
         let t = y;
-        y = x % y;
+        y = x.checked_rem(y).unwrap();
         x = t;
     }
     x
@@ -136,10 +136,11 @@ impl TokenBucket {
         // Get the greatest common factor between `size` and `complete_refill_time_ns`.
         let common_factor = gcd(size, complete_refill_time_ns);
         // The division will be exact since `common_factor` is a factor of `size`.
-        let processed_capacity: u64 = size / common_factor;
+        let processed_capacity: u64 = size.checked_div(common_factor).unwrap();
         // The division will be exact since `common_factor` is a factor of
         // `complete_refill_time_ns`.
-        let processed_refill_time: u64 = complete_refill_time_ns / common_factor;
+        let processed_refill_time: u64 =
+            complete_refill_time_ns.checked_div(common_factor).unwrap();
 
         Some(TokenBucket {
             size,
@@ -159,9 +160,17 @@ impl TokenBucket {
     fn auto_replenish(&mut self) {
         // Compute time passed since last refill/update.
         let now = Instant::now();
+        // There is no `checked` variation for `Sub<Duration> for Instant`.
+        #[allow(clippy::arithmetic_side_effects)]
         let time_delta = (now - self.last_update).as_nanos();
 
-        if time_delta >= u128::from(self.refill_time * NANOSEC_IN_ONE_MILLISEC) {
+        if time_delta
+            >= u128::from(
+                self.refill_time
+                    .checked_mul(NANOSEC_IN_ONE_MILLISEC)
+                    .unwrap(),
+            )
+        {
             self.budget = self.size;
             self.last_update = now;
         } else {
@@ -177,7 +186,11 @@ impl TokenBucket {
             let processed_capacity = u128::from(self.processed_capacity);
             let processed_refill_time = u128::from(self.processed_refill_time);
 
-            let tokens = (time_delta * processed_capacity) / processed_refill_time;
+            let tokens = time_delta
+                .checked_mul(processed_capacity)
+                .unwrap()
+                .checked_div(processed_refill_time)
+                .unwrap();
 
             // We increment `self.last_update` by the minimum time required to generate `tokens`, in
             // the case where we have the time to generate `1.8` tokens but only
@@ -188,9 +201,19 @@ impl TokenBucket {
             // We want the integer division here to round up instead of down (as if we round down,
             // we would allow some fraction of a nano second to be used twice, allowing
             // for the generation of one extra token in extreme circumstances).
-            let mut time_adjustment = tokens * processed_refill_time / processed_capacity;
-            if tokens * processed_refill_time % processed_capacity != 0 {
-                time_adjustment += 1;
+            let mut time_adjustment = tokens
+                .checked_mul(processed_refill_time)
+                .unwrap()
+                .checked_div(processed_capacity)
+                .unwrap();
+            if tokens
+                .checked_mul(processed_refill_time)
+                .unwrap()
+                .checked_rem(processed_capacity)
+                .unwrap()
+                != 0
+            {
+                time_adjustment = time_adjustment.checked_add(1).unwrap();
             }
 
             // Ensure that we always generate as many tokens as we can: assert that the "unused"
@@ -198,12 +221,20 @@ impl TokenBucket {
             // single token (= processed_refill_time / processed_capacity)
             debug_assert!(time_adjustment <= time_delta);
             debug_assert!(
-                (time_delta - time_adjustment) * processed_capacity <= processed_refill_time
+                time_delta
+                    .checked_sub(time_adjustment)
+                    .unwrap()
+                    .checked_mul(processed_capacity)
+                    .unwrap()
+                    <= processed_refill_time
             );
 
             // time_adjustment is at most time_delta, and since time_delta <= u64::MAX, this cast is
             // fine
-            self.last_update += Duration::from_nanos(time_adjustment as u64);
+            self.last_update = self
+                .last_update
+                .checked_add(Duration::from_nanos(time_adjustment as u64))
+                .unwrap();
             self.budget = std::cmp::min(self.budget.saturating_add(tokens as u64), self.size);
         }
     }
@@ -214,7 +245,7 @@ impl TokenBucket {
         if self.one_time_burst > 0 {
             // We still have burst budget for *all* tokens requests.
             if self.one_time_burst >= tokens {
-                self.one_time_burst -= tokens;
+                self.one_time_burst = self.one_time_burst.checked_sub(tokens).unwrap();
                 self.last_update = Instant::now();
                 // No need to continue to the refill process, we still have burst budget to consume
                 // from.
@@ -222,7 +253,7 @@ impl TokenBucket {
             } else {
                 // We still have burst budget for *some* of the tokens requests.
                 // The tokens left unfulfilled will be consumed from current `self.budget`.
-                tokens -= self.one_time_burst;
+                tokens = tokens.checked_sub(self.one_time_burst).unwrap();
                 self.one_time_burst = 0;
             }
         }
@@ -240,7 +271,7 @@ impl TokenBucket {
                 );
                 // Empty the bucket and report an overconsumption of
                 // (remaining tokens / size) times larger than the bucket size
-                tokens -= self.budget;
+                tokens = tokens.checked_sub(self.budget).unwrap();
                 self.budget = 0;
                 return BucketReduction::OverConsumption(tokens as f64 / self.size as f64);
             }
@@ -251,7 +282,7 @@ impl TokenBucket {
             }
         }
 
-        self.budget -= tokens;
+        self.budget = self.budget.checked_sub(tokens).unwrap();
         BucketReduction::Success
     }
 

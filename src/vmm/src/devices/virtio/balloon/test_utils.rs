@@ -29,7 +29,7 @@ pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
 
 pub fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u16) {
     // Set the index of the next request.
-    queue.avail.idx.set((idx + 1) as u16);
+    queue.avail.idx.set(idx.checked_add(1).unwrap() as u16);
     // Set the current descriptor table entry index.
     queue.avail.ring[idx].set(idx as u16);
     // Set the current descriptor table entry.
@@ -38,7 +38,7 @@ pub fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u1
 
 pub fn check_request_completion(queue: &VirtQueue, idx: usize) {
     // Check that the next used will be idx + 1.
-    assert_eq!(queue.used.idx.get(), (idx + 1) as u16);
+    assert_eq!(queue.used.idx.get(), idx.checked_add(1).unwrap() as u16);
     // Check that the current used is idx.
     assert_eq!(queue.used.ring[idx].get().id, idx as u32);
     // The length of the completed request is 0.

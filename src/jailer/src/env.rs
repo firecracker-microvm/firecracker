@@ -308,8 +308,9 @@ impl Env {
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
         // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us =
-            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
+        self.jailer_cpu_time_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
+            .checked_sub(self.start_time_cpu_us)
+            .unwrap();
 
         // Duplicate the current process. The child process will belong to the previously created
         // PID namespace. The current process will not be moved into the newly created namespace,

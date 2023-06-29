@@ -17,7 +17,11 @@ macro_rules! check_metric_after_block {
     ($metric:expr, $delta:expr, $block:expr) => {{
         let before = $metric.count();
         let _ = $block;
-        assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        assert_eq!(
+            $metric.count(),
+            before.checked_add($delta).unwrap(),
+            "unexpected metric value"
+        );
     }};
 }
 
@@ -43,7 +47,7 @@ pub struct InputData {
 impl InputData {
     pub fn get_slice(&self, len: usize) -> &[u8] {
         let old_pos = self.read_pos.fetch_add(len, Ordering::AcqRel);
-        &self.data[old_pos..old_pos + len]
+        &self.data[old_pos..old_pos.checked_add(len).unwrap()]
     }
 }
 
@@ -182,7 +186,7 @@ where
     T: Debug + utils::vm_memory::ByteValued,
 {
     fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16, alignment: usize) -> Self {
-        assert_eq!(start.0 & (alignment as u64 - 1), 0);
+        assert_eq!(start.0 & (alignment as u64).checked_sub(1).unwrap(), 0);
 
         let flags = SomeplaceInMemory::new(start, mem);
         let idx = flags.next_place();
@@ -239,7 +243,7 @@ impl<'a> VirtQueue<'a> {
     // We try to make sure things are aligned properly :-s
     pub fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16) -> Self {
         // power of 2?
-        assert!(qsize > 0 && qsize & (qsize - 1) == 0);
+        assert!(qsize > 0 && qsize & qsize.checked_sub(1).unwrap() == 0);
 
         let mut dtable = Vec::with_capacity(qsize as usize);
 
@@ -258,7 +262,8 @@ impl<'a> VirtQueue<'a> {
         const USED_ALIGN: u64 = 4;
 
         let mut x = avail.end().0;
-        x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
+        x = x.checked_add(USED_ALIGN).unwrap().checked_sub(1).unwrap()
+            & !USED_ALIGN.checked_sub(1).unwrap();
 
         let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN as usize);
 
@@ -463,7 +468,7 @@ pub(crate) mod test {
 
             // Create the descriptor chain
             let mut iter = desc_list.iter().peekable();
-            let mut addr = self.data_address() + addr_offset;
+            let mut addr = self.data_address().checked_add(addr_offset).unwrap();
             while let Some(&(index, len, flags)) = iter.next() {
                 let desc = &vq.dtable[index as usize];
                 desc.set(addr, len, flags, 0);
@@ -472,17 +477,23 @@ pub(crate) mod test {
                     desc.next.set(next_index);
                 }
 
-                addr += u64::from(len);
+                addr = addr.checked_add(u64::from(len)).unwrap();
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
+                addr = addr
+                    .checked_add(
+                        u64::from(utils::rand::xor_pseudo_rng_u32())
+                            .checked_rem(10)
+                            .unwrap(),
+                    )
+                    .unwrap();
             }
 
             // Mark the chain as available.
             if let Some(&(index, _, _)) = desc_list.first() {
                 let ring_index = vq.avail.idx.get();
                 vq.avail.ring[ring_index as usize].set(index);
-                vq.avail.idx.set(ring_index + 1);
+                vq.avail.idx.set(ring_index.checked_add(1).unwrap());
             }
             event_fd.write(1).unwrap();
         }

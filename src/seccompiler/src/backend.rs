@@ -291,11 +291,20 @@ impl SeccompCondition {
 
         // Offset to the argument specified by `arg_number`.
         // Cannot overflow because the value will be at most 16 + 6 * 8 = 64.
-        let arg_offset = SECCOMP_DATA_ARGS_OFFSET + self.arg_number * SECCOMP_DATA_ARG_SIZE;
+        let arg_offset = SECCOMP_DATA_ARGS_OFFSET
+            .checked_add(self.arg_number.checked_mul(SECCOMP_DATA_ARG_SIZE).unwrap())
+            .unwrap();
 
         // Extracts offsets of most significant and least significant halves of argument.
         // Addition cannot overflow because it's at most `arg_offset` + 4 = 68.
-        let (msb_offset, lsb_offset) = { (arg_offset + SECCOMP_DATA_ARG_SIZE / 2, arg_offset) };
+        let (msb_offset, lsb_offset) = {
+            (
+                arg_offset
+                    .checked_add(SECCOMP_DATA_ARG_SIZE.checked_div(2).unwrap())
+                    .unwrap(),
+                arg_offset,
+            )
+        };
 
         (msb, lsb, msb_offset, lsb_offset)
     }
@@ -321,7 +330,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Dword => vec![],
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JEQ + BPF_K,
+                    msb,
+                    0,
+                    offset.checked_add(2).unwrap(),
+                ),
             ],
         };
 
@@ -345,7 +359,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
-                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JEQ + BPF_K,
+                    msb,
+                    0,
+                    offset.checked_add(2).unwrap(),
+                ),
             ],
         };
 
@@ -369,7 +388,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
-                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JEQ + BPF_K,
+                    msb,
+                    0,
+                    offset.checked_add(2).unwrap(),
+                ),
             ],
         };
 
@@ -392,7 +416,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Dword => vec![],
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JGT + BPF_K,
+                    msb,
+                    offset.checked_add(3).unwrap(),
+                    0,
+                ),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
             ],
         };
@@ -416,7 +445,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Dword => vec![],
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JGT + BPF_K,
+                    msb,
+                    offset.checked_add(3).unwrap(),
+                    0,
+                ),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
             ],
         };
@@ -447,7 +481,12 @@ impl SeccompCondition {
             SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
-                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
+                BPF_JUMP(
+                    BPF_JMP + BPF_JEQ + BPF_K,
+                    msb,
+                    0,
+                    offset.checked_add(3).unwrap(),
+                ),
             ],
         };
 
@@ -573,18 +612,20 @@ impl SeccompRule {
             //   last rule chain.
             let helper_jumps = vec![
                 BPF_STMT(BPF_JMP + BPF_JA, 2),
-                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
-                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
+                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset).checked_add(1).unwrap()),
+                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset).checked_add(1).unwrap()),
             ];
-            *rule_len += helper_jumps.len();
+            *rule_len = rule_len.checked_add(helper_jumps.len()).unwrap();
             accumulator.push(helper_jumps);
             *offset = 1;
         }
 
         let condition = condition.into_bpf(*offset);
-        *rule_len += condition.len();
+        *rule_len = rule_len.checked_add(condition.len()).unwrap();
         // Safe to unwrap since we checked that condition length is less than `CONDITION_MAX_LEN`.
-        *offset += u8::try_from(condition.len()).unwrap();
+        *offset = offset
+            .checked_add(u8::try_from(condition.len()).unwrap())
+            .unwrap();
         accumulator.push(condition);
     }
 }
@@ -600,8 +641,12 @@ impl From<SeccompRule> for BpfProgram {
     fn from(rule: SeccompRule) -> Self {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
-        let mut accumulator =
-            Vec::with_capacity(rule.conditions.len() * CONDITION_MAX_LEN as usize);
+        let mut accumulator = Vec::with_capacity(
+            rule.conditions
+                .len()
+                .checked_mul(CONDITION_MAX_LEN as usize)
+                .unwrap(),
+        );
         let mut rule_len = 1;
         let mut offset = 1;
         accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(rule.action))]);
@@ -614,9 +659,9 @@ impl From<SeccompRule> for BpfProgram {
         // The two initial jump statements are prepended to the rule.
         let rule_jumps = vec![
             BPF_STMT(BPF_JMP + BPF_JA, 1),
-            BPF_STMT(BPF_JMP + BPF_JA, u32::from(offset) + 1),
+            BPF_STMT(BPF_JMP + BPF_JA, u32::from(offset).checked_add(1).unwrap()),
         ];
-        rule_len += rule_jumps.len();
+        rule_len = rule_len.checked_add(rule_jumps.len()).unwrap();
         accumulator.push(rule_jumps);
 
         // Finally, builds the translated rule by consuming the accumulator.
@@ -711,7 +756,7 @@ impl SeccompFilter {
 
         // The chain starts with a comparison checking the loaded syscall number against the
         // syscall number of the chain.
-        let mut built_syscall = Vec::with_capacity(1 + chain_len + 1);
+        let mut built_syscall = Vec::with_capacity(chain_len.checked_add(2).unwrap());
         built_syscall.push(BPF_JUMP(
             BPF_JMP + BPF_JEQ + BPF_K,
             u32::try_from(syscall_number).unwrap(),
@@ -729,7 +774,7 @@ impl SeccompFilter {
         built_syscall.push(BPF_STMT(BPF_RET + BPF_K, default_action));
 
         // The chain is appended to the result.
-        *filter_len += built_syscall.len();
+        *filter_len = filter_len.checked_add(built_syscall.len()).unwrap();
         accumulator.push(built_syscall);
 
         // BPF programs are limited to 4096 statements.
@@ -780,7 +825,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
 
         // The default action is once again appended, it is reached if all syscall number
         // comparisons fail.
-        filter_len += 1;
+        filter_len = filter_len.checked_add(1).unwrap();
         accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
 
         // Finally, builds the translated filter by consuming the accumulator.

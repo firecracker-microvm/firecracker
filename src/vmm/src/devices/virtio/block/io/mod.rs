@@ -242,14 +242,14 @@ pub mod tests {
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
-        for offset in addr.0..addr.0 + u64::from(len) {
+        for offset in addr.0..addr.0.checked_add(u64::from(len)).unwrap() {
             assert!(bitmap.dirty_at(offset as usize));
         }
     }
 
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
-        for offset in addr.0..addr.0 + u64::from(len) {
+        for offset in addr.0..addr.0.checked_add(u64::from(len)).unwrap() {
             assert!(!bitmap.dirty_at(offset as usize));
         }
     }

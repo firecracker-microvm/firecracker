@@ -86,7 +86,8 @@ impl<'a> DescriptorChain<'a> {
             return None;
         }
 
-        let desc_head = mem.checked_offset(desc_table, (index as usize) * 16)?;
+        let desc_head =
+            mem.checked_offset(desc_table, (index as usize).checked_mul(16).unwrap())?;
         mem.checked_offset(desc_head, 16)?;
 
         // These reads can't fail unless Guest memory is hopelessly broken.
@@ -142,7 +143,7 @@ impl<'a> DescriptorChain<'a> {
         if self.has_next() {
             DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
                 |mut c| {
-                    c.ttl = self.ttl - 1;
+                    c.ttl = self.ttl.checked_sub(1).unwrap();
                     c
                 },
             )
@@ -236,15 +237,17 @@ impl Queue {
     pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
         let queue_size = u64::from(self.actual_size());
         let desc_table = self.desc_table;
-        let desc_table_size = 16 * queue_size;
+        let desc_table_size = queue_size.checked_mul(16).unwrap();
         let avail_ring = self.avail_ring;
-        let avail_ring_size = 6 + 2 * queue_size;
+        let avail_ring_size = queue_size.checked_mul(2).unwrap().checked_add(6).unwrap();
         let used_ring = self.used_ring;
-        let used_ring_size = 6 + 8 * queue_size;
+        let used_ring_size = queue_size.checked_mul(8).unwrap().checked_add(6).unwrap();
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
-        } else if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0
+        } else if self.size > self.max_size
+            || self.size == 0
+            || (self.size & self.size.checked_sub(1).unwrap()) != 0
         {
             error!("virtio queue with invalid size: {}", self.size);
             false
@@ -381,7 +384,15 @@ impl Queue {
         // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
         // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
         // 2-byte items, so the offset will be:
-        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
+        let index_offset = self
+            .next_avail
+            .0
+            .checked_rem(self.actual_size())
+            .unwrap()
+            .checked_mul(2)
+            .unwrap()
+            .checked_add(4)
+            .unwrap();
 
         // `self.is_valid()` already performed all the bound checks on the descriptor table
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
@@ -420,8 +431,9 @@ impl Queue {
         }
 
         let used_ring = self.used_ring;
-        let next_used = u64::from(self.next_used.0 % self.actual_size());
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
+        let next_used = u64::from(self.next_used.0.checked_rem(self.actual_size()).unwrap());
+        let used_elem =
+            used_ring.unchecked_add(next_used.checked_mul(8).unwrap().checked_add(4).unwrap());
 
         mem.write_obj(u32::from(desc_index), used_elem)?;
 
@@ -456,18 +468,26 @@ impl Queue {
     #[inline(always)]
     pub fn used_event(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
         // We need to find the `used_event` field from the avail ring.
-        let used_event_addr = self
-            .avail_ring
-            .unchecked_add(u64::from(4 + 2 * self.actual_size()));
+        let used_event_addr = self.avail_ring.unchecked_add(
+            u64::from(self.actual_size())
+                .checked_mul(2)
+                .unwrap()
+                .checked_add(4)
+                .unwrap(),
+        );
 
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
     }
 
     /// Helper method that writes `val` to the `avail_event` field of the used ring.
     fn set_avail_event(&mut self, val: u16, mem: &GuestMemoryMmap) {
-        let avail_event_addr = self
-            .used_ring
-            .unchecked_add(u64::from(4 + 8 * self.actual_size()));
+        let avail_event_addr = self.used_ring.unchecked_add(
+            u64::from(self.actual_size())
+                .checked_mul(8)
+                .unwrap()
+                .checked_add(4)
+                .unwrap(),
+        );
 
         mem.write_obj(val, avail_event_addr).unwrap();
     }
@@ -551,9 +571,10 @@ mod tests {
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
-            let avail_event_addr = self
-                .used_ring
-                .unchecked_add(u64::from(4 + 8 * self.actual_size()));
+            let avail_event_addr = self.used_ring.unchecked_add(u64::from(
+                4u16.checked_add(8u16.checked_mul(self.actual_size()).unwrap())
+                    .unwrap(),
+            ));
 
             mem.read_obj::<u16>(avail_event_addr).unwrap()
         }

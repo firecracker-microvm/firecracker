@@ -47,7 +47,7 @@ struct MsrRange {
 impl MsrRange {
     /// Returns whether `msr` is contained in this MSR range.
     fn contains(&self, msr: u32) -> bool {
-        self.base <= msr && msr < self.base + self.nmsrs
+        self.base <= msr && msr < self.base.checked_add(self.nmsrs).unwrap()
     }
 }
 

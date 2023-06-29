@@ -315,7 +315,7 @@ impl<'a> Arguments<'a> {
     // the extra arguments, meaning all parameters specified after `--`.
     fn split_args(args: &[String]) -> (&[String], &[String]) {
         if let Some(index) = args.iter().position(|arg| arg == ARG_SEPARATOR) {
-            return (&args[..index], &args[index + 1..]);
+            return (&args[..index], &args[index.checked_add(1).unwrap()..]);
         }
 
         (args, &[])

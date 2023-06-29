@@ -231,7 +231,11 @@ fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16
 
             // Trying to avoid the race condition described above. We don't care about the result,
             // because we check once more if line.is_empty() after the end of this block.
-            let _ = inherit_from_parent_aux(&mut parent.to_path_buf(), file_name, retry_depth - 1);
+            let _ = inherit_from_parent_aux(
+                &mut parent.to_path_buf(),
+                file_name,
+                retry_depth.checked_sub(1).unwrap(),
+            );
             line = readln_special(&parent_file)?;
         }
 
@@ -281,10 +285,11 @@ impl CgroupV1 {
         let mut path = controller_path.to_path_buf();
         path.push(parent_cg);
         path.push(id);
-        let mut depth = 0;
-        for _ in parent_cg.components() {
-            depth += 1;
-        }
+        let depth = parent_cg
+            .components()
+            .enumerate()
+            .map(|(i, _)| i as u16)
+            .sum();
 
         Ok(CgroupV1 {
             base: CgroupBase {

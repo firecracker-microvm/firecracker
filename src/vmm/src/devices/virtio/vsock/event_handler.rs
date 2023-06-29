@@ -434,7 +434,8 @@ mod tests {
             // vsock packet header descriptor as well.
             if desc_idx == 1 {
                 // The vsock packet len field has offset 24 in the header.
-                let hdr_len_addr = GuestAddress(ctx.guest_txvq.dtable[0].addr.get() + 24);
+                let hdr_len_addr =
+                    GuestAddress(ctx.guest_txvq.dtable[0].addr.get().checked_add(24).unwrap());
                 test_ctx
                     .mem
                     .write_obj(len.to_le_bytes(), hdr_len_addr)

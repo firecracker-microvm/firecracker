@@ -107,7 +107,7 @@ impl I8042Device {
     pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
         // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
         // Fail if we don't have room for the whole sequence.
-        if BUF_SIZE - self.buf_len() < 4 {
+        if BUF_SIZE.checked_sub(self.buf_len()).unwrap() < 4 {
             return Err(Error::InternalBufferFull);
         }
         self.trigger_key(KEY_CTRL)?;
@@ -129,7 +129,7 @@ impl I8042Device {
     fn trigger_key(&mut self, key: u16) -> Result<()> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
-            if BUF_SIZE - self.buf_len() < 2 {
+            if BUF_SIZE.checked_sub(self.buf_len()).unwrap() < 2 {
                 return Err(Error::InternalBufferFull);
             }
             self.push_byte((key >> 8) as u8)?;

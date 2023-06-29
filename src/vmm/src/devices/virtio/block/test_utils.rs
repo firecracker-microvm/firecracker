@@ -194,7 +194,7 @@ pub fn read_blk_req_descriptors(vq: &VirtQueue) {
         status_addr,
         len,
         VIRTQ_DESC_F_WRITE,
-        (status_desc + 1) as u16,
+        status_desc.checked_add(1).unwrap() as u16,
     );
 
     // Mark the next available descriptor.

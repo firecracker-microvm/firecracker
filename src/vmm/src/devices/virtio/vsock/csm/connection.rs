@@ -182,8 +182,11 @@ where
         // Same thing goes for locally-initiated connections that need to yield a connection
         // request.
         if self.pending_rx.remove(PendingRx::Request) {
-            self.expiry =
-                Some(Instant::now() + Duration::from_millis(defs::CONN_REQUEST_TIMEOUT_MS));
+            self.expiry = Some(
+                Instant::now()
+                    .checked_add(Duration::from_millis(defs::CONN_REQUEST_TIMEOUT_MS))
+                    .unwrap(),
+            );
             pkt.set_op(uapi::VSOCK_OP_REQUEST);
             return Ok(());
         }
@@ -225,7 +228,9 @@ where
                         // receive any more data.
                         self.state = ConnState::LocalClosed;
                         self.expiry = Some(
-                            Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
+                            Instant::now()
+                                .checked_add(Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS))
+                                .unwrap(),
                         );
                         pkt.set_op(uapi::VSOCK_OP_SHUTDOWN)
                             .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_RCV)
@@ -349,7 +354,9 @@ where
                         self.pending_rx.insert(PendingRx::Rst);
                     } else {
                         self.expiry = Some(
-                            Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
+                            Instant::now()
+                                .checked_add(Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS))
+                                .unwrap(),
                         );
                     }
                 }
@@ -637,7 +644,12 @@ where
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
         if written < len {
-            pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
+            pkt.write_from_offset_to(
+                mem,
+                written,
+                &mut self.tx_buf,
+                len.checked_sub(written).unwrap(),
+            )?;
         }
 
         Ok(())
@@ -894,7 +906,7 @@ mod tests {
         fn set_peer_credit(&mut self, credit: u32) {
             assert!(credit < self.conn.peer_buf_alloc);
             self.conn.peer_fwd_cnt = Wrapping(0);
-            self.conn.rx_cnt = Wrapping(self.conn.peer_buf_alloc - credit);
+            self.conn.rx_cnt = Wrapping(self.conn.peer_buf_alloc.checked_sub(credit).unwrap());
             assert_eq!(self.conn.peer_avail_credit(), credit as usize);
         }
 

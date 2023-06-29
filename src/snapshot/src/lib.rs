@@ -307,14 +307,14 @@ mod tests {
         fn field3_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
             // Fail if semantic serialization is called for the previous versions only.
             assert!(target_version < 3);
-            self.field_x += 1;
+            self.field_x = self.field_x.checked_add(1).unwrap();
             Ok(())
         }
 
         fn field3_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
             // Fail if semantic deserialization is called for the latest version.
             assert!(source_version < 3);
-            self.field_x += 1;
+            self.field_x = self.field_x.checked_add(1).unwrap();
             if self.field0 == 7777 {
                 return Err(versionize::VersionizeError::Semantic(
                     "field0 is 7777".to_owned(),

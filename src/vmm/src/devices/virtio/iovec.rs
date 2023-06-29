@@ -69,7 +69,7 @@ impl<'a> IovVecSubregion<'a> {
                 // If offset is bigger than the length of the current `iovec`, this `iovec` is not
                 // part of the sub-range
                 if offset >= iov.iov_len {
-                    offset -= iov.iov_len;
+                    offset = offset.checked_sub(iov.iov_len).unwrap();
                     return None;
                 }
 
@@ -80,9 +80,9 @@ impl<'a> IovVecSubregion<'a> {
 
                 // SAFETY: This is safe because we chacked that `offset < iov.iov_len`.
                 let iov_base = unsafe { iov.iov_base.add(offset) };
-                let iov_len = std::cmp::min(iov.iov_len - offset, size);
+                let iov_len = std::cmp::min(iov.iov_len.checked_sub(offset).unwrap(), size);
                 offset = 0;
-                size -= iov_len;
+                size = size.checked_sub(iov_len).unwrap();
 
                 Some(iovec { iov_base, iov_len })
             })
@@ -96,7 +96,9 @@ impl<'a> IovVecSubregion<'a> {
 
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.iovecs.iter().fold(0, |acc, iov| acc + iov.iov_len)
+        self.iovecs
+            .iter()
+            .fold(0, |acc, iov| acc.checked_add(iov.iov_len).unwrap())
     }
 }
 
@@ -146,7 +148,7 @@ impl IoVecBuffer {
                 iov_base,
                 iov_len: desc.len as size_t,
             });
-            len += desc.len as usize;
+            len = len.checked_add(desc.len as usize).unwrap();
 
             next_descriptor = desc.next_descriptor();
         }
@@ -204,7 +206,7 @@ impl IoVecBuffer {
                     std::ptr::copy_nonoverlapping(src, buf_ptr, iov.iov_len);
                     buf_ptr = buf_ptr.add(iov.iov_len);
                 }
-                bytes += iov.iov_len;
+                bytes = iov.iov_len.checked_add(bytes).unwrap();
             });
 
             bytes
@@ -251,7 +253,7 @@ impl IoVecBufferMut {
                 iov_base,
                 iov_len: desc.len as size_t,
             });
-            len += desc.len as usize;
+            len = len.checked_add(desc.len as usize).unwrap();
         }
 
         Ok(Self { vecs, len })
@@ -298,7 +300,7 @@ impl IoVecBufferMut {
                     std::ptr::copy_nonoverlapping(buf_ptr, dst, iov.iov_len);
                     buf_ptr = buf_ptr.add(iov.iov_len);
                 }
-                bytes += iov.iov_len;
+                bytes = iov.iov_len.checked_add(bytes).unwrap();
             });
 
             bytes
@@ -334,7 +336,7 @@ mod tests {
             let vecs = buffer
                 .into_iter()
                 .map(|slice| {
-                    len += slice.len();
+                    len = slice.len().checked_add(len).unwrap();
                     iovec {
                         iov_base: slice.as_ptr() as *mut c_void,
                         iov_len: slice.len(),
@@ -383,7 +385,14 @@ mod tests {
         };
 
         for j in 0..4 {
-            vq.dtable[j].set(0x20000 + 64 * j as u64, 64, flags, (j + 1) as u16);
+            vq.dtable[j].set(
+                0x20000usize
+                    .checked_add(64usize.checked_mul(j).unwrap())
+                    .unwrap() as u64,
+                64,
+                flags,
+                j.checked_add(1).unwrap() as u16,
+            );
         }
 
         // one chain: (0, 1, 2, 3)
