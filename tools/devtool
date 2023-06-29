@@ -723,6 +723,7 @@ cmd_shell() {
 }
 
 cmd_sh() {
+    ensure_build_dir
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \
