@@ -181,6 +181,7 @@ def consume_output(cons, result):
     """Consumer function."""
     restore_latency = result[RESTORE_LATENCY]
     for value in restore_latency:
+        yield RESTORE_LATENCY, value, "Milliseconds"
         cons.consume_data(RESTORE_LATENCY, value)
 
 

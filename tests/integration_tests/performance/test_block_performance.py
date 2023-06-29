@@ -30,7 +30,6 @@ CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
-DEBUG = False
 FIO = "fio"
 
 # Measurements tags.
@@ -130,12 +129,7 @@ def run_fio(env_id, basevm, mode, bs):
         rc, _, stderr = basevm.ssh.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
-        cpu_load = cpu_load_future.result()
-
-        vmm_util, vcpu_util = summarize_cpu_percent(cpu_load)
-        result = {CPU_UTILIZATION_VMM: vmm_util, CPU_UTILIZATION_VCPUS_TOTAL: vcpu_util}
-
-        return result
+        return cpu_load_future.result()
 
 
 class DataDirection(Enum):
@@ -195,27 +189,35 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
                     values[measurement_id][value_idx] = []
                 values[measurement_id][value_idx].append(int(data[1].strip()))
 
-    for measurement_id, value_indexes in values.items():
-        for idx in value_indexes:
+    for measurement_id, data in values.items():
+        for time in data:
             # Discard data points which were not measured by all jobs.
-            if len(value_indexes[idx]) != numjobs:
+            if len(data[time]) != numjobs:
                 continue
 
-            value = sum(value_indexes[idx])
-            if DEBUG:
-                cons.consume_custom(measurement_id, value)
+            yield from [
+                (f"{measurement_id}_{vcpu}", throughput, "Megabits/Second")
+                for vcpu, throughput in enumerate(data[time])
+            ]
+
+            value = sum(data[time])
             cons.consume_data(measurement_id, value)
 
 
-def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
+def consume_fio_output(cons, cpu_load, numjobs, mode, bs, env_id, logs_path):
     """Consumer function."""
-    cpu_utilization_vmm = result[CPU_UTILIZATION_VMM]
-    cpu_utilization_vcpus = result[CPU_UTILIZATION_VCPUS_TOTAL]
+    vmm_util, vcpu_util = summarize_cpu_percent(cpu_load)
 
-    cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_utilization_vmm)
-    cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_utilization_vcpus)
+    cons.consume_stat("Avg", CPU_UTILIZATION_VMM, vmm_util)
+    cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, vcpu_util)
 
-    read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
+    for thread_name, data in cpu_load.items():
+        yield from [
+            (f"cpu_utilization_{thread_name}", x, "Percent")
+            for x in list(data.values())[0]
+        ]
+
+    yield from read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
 @pytest.mark.nonci
