@@ -70,7 +70,8 @@ class IPerf3Test:
             cpu_load_future = executor.submit(
                 get_cpu_percent,
                 self._microvm.jailer_clone_pid,
-                self._runtime,
+                # Ignore the final two data points as they are impacted by test teardown
+                self._runtime - 2,
                 self._omit,
             )
 
@@ -106,7 +107,7 @@ class IPerf3Test:
         cmd = self.guest_command(client_idx).with_arg(mode).build()
 
         pinned_cmd = (
-            f"taskset --cpu-list {client_idx % self._microvm.vcpus_count}" f" {cmd}"
+            f"taskset --cpu-list {client_idx % self._microvm.vcpus_count} {cmd}"
         )
         rc, stdout, stderr = self._microvm.ssh.execute_command(pinned_cmd)
 
