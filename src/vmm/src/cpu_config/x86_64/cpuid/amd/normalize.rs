@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::NonZeroU8;
+
 use crate::cpu_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
 use crate::cpu_config::x86_64::cpuid::normalize::{
     get_range, set_bit, set_range, CheckedAssignError,
@@ -121,7 +123,7 @@ impl super::AmdCpuid {
         // The total number of logical CPUs.
         cpu_count: u8,
         // The number of logical CPUs per core.
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), NormalizeCpuidError> {
         self.passthrough_cache_topology()?;
         self.update_structured_extended_entry()?;
@@ -290,7 +292,7 @@ impl super::AmdCpuid {
     fn update_extended_cache_topology_entry(
         &mut self,
         cpu_count: u8,
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), ExtendedCacheTopologyError> {
         for i in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x8000001d, i)) {
@@ -326,7 +328,7 @@ impl super::AmdCpuid {
                     // The L1 & L2 cache is shared by at most 2 hyper-threads
                     1 | 2 => {
                         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-                        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+                        let sub = u32::from(cpus_per_core.get().checked_sub(1).unwrap());
                         set_range(&mut subleaf.result.eax, 14..26, sub)
                             .map_err(ExtendedCacheTopologyError::NumSharingCache)?;
                     }
@@ -353,7 +355,7 @@ impl super::AmdCpuid {
     fn update_extended_apic_id_entry(
         &mut self,
         cpu_index: u8,
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), ExtendedApicIdError> {
         /// 1 node per processor.
         const NODES_PER_PROCESSOR: u32 = 0;
@@ -367,7 +369,7 @@ impl super::AmdCpuid {
         // logical CPU 3 -> core id: 1
         //
         // SAFETY: We know `cpus_per_core != 0` therefore this is always safe.
-        let core_id = u32::from(cpu_index.checked_div(cpus_per_core).unwrap());
+        let core_id = u32::from(cpu_index.checked_div(cpus_per_core.get()).unwrap());
 
         let leaf_8000001e = self
             .get_mut(&CpuidKey::leaf(0x8000001e))
@@ -397,7 +399,7 @@ impl super::AmdCpuid {
         // threads_per_compute_unit: 8..16,
         //
         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
-        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+        let sub = u32::from(cpus_per_core.get().checked_sub(1).unwrap());
         set_range(&mut leaf_8000001e.result.ebx, 8..16, sub)
             .map_err(ExtendedApicIdError::ThreadPerComputeUnit)?;
 

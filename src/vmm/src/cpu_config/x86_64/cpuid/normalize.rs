@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::NonZeroU8;
+
 use crate::cpu_config::x86_64::cpuid::{
     cpuid, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
 };
@@ -185,6 +187,10 @@ const fn mask(range: std::ops::Range<u8>) -> u32 {
 impl super::Cpuid {
     /// Applies required modifications to CPUID respective of a vCPU.
     ///
+    /// # Panics
+    ///
+    /// When `1u8.checked_shl(u32::from(cpu_bits)).map(NonZeroU8::new).is_none()`.
+    ///
     /// # Errors
     ///
     /// When:
@@ -201,9 +207,11 @@ impl super::Cpuid {
         // The number of bits needed to enumerate logical CPUs per core.
         cpu_bits: u8,
     ) -> Result<(), NormalizeCpuidError> {
-        let cpus_per_core = 1u8
-            .checked_shl(u32::from(cpu_bits))
-            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
+        let cpus_per_core = NonZeroU8::new(
+            1u8.checked_shl(u32::from(cpu_bits))
+                .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?,
+        )
+        .unwrap();
         self.update_vendor_id()?;
         self.update_feature_info_entry(cpu_index, cpu_count)?;
         self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)?;
@@ -328,7 +336,7 @@ impl super::Cpuid {
         cpu_index: u8,
         cpu_count: u8,
         cpu_bits: u8,
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), ExtendedTopologyError> {
         /// Level type used for setting thread level processor topology.
         const LEVEL_TYPE_THREAD: u32 = 1;
@@ -420,8 +428,12 @@ impl super::Cpuid {
 
                         // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
                         // level Otherwise there are 2
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+                        set_range(
+                            &mut subleaf.result.ebx,
+                            0..16,
+                            u32::from(cpus_per_core.get()),
+                        )
+                        .map_err(ExtendedTopologyError::LogicalProcessors)?;
 
                         set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_THREAD)
                             .map_err(ExtendedTopologyError::LevelType)?;
@@ -572,10 +584,12 @@ mod tests {
         let cpu_index = 0;
         let cpu_count = 2;
         let cpu_bits = u8::from(cpu_count > 1 && smt);
-        let cpus_per_core = 1u8
-            .checked_shl(u32::from(cpu_bits))
-            .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))
-            .unwrap();
+        let cpus_per_core = NonZeroU8::new(
+            1u8.checked_shl(u32::from(cpu_bits))
+                .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))
+                .unwrap(),
+        )
+        .unwrap();
 
         // Case 1: Intel CPUID
         let mut intel_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(

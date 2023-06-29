@@ -66,6 +66,8 @@ pub enum DeterministicCacheError {
     MaxCorePerPackage(CheckedAssignError),
 }
 
+use std::num::NonZeroU8;
+
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.
 #[allow(clippy::multiple_inherent_impl)]
@@ -84,7 +86,7 @@ impl super::IntelCpuid {
         // The total number of logical CPUs.
         cpu_count: u8,
         // The number of logical CPUs per core.
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), NormalizeCpuidError> {
         self.update_deterministic_cache_entry(cpu_count, cpus_per_core)?;
         self.update_power_management_entry()?;
@@ -100,7 +102,7 @@ impl super::IntelCpuid {
     fn update_deterministic_cache_entry(
         &mut self,
         cpu_count: u8,
-        cpus_per_core: u8,
+        cpus_per_core: NonZeroU8,
     ) -> Result<(), DeterministicCacheError> {
         for i in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x4, i)) {
@@ -134,7 +136,7 @@ impl super::IntelCpuid {
                     // L1 & L2 Cache
                     // The L1 & L2 cache is shared by at most 2 hyperthreads
                     1 | 2 => {
-                        let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
+                        let sub = u32::from(cpus_per_core.get().checked_sub(1).unwrap());
                         set_range(&mut subleaf.result.eax, 14..26, sub)
                             .map_err(DeterministicCacheError::MaxCpusPerCore)?;
                     }
@@ -153,8 +155,7 @@ impl super::IntelCpuid {
                 }
 
                 // We know `cpus_per_core !=0` therefore this is always safe.
-                #[allow(clippy::unwrap_used)]
-                let cores = cpu_count.checked_div(cpus_per_core).unwrap();
+                let cores = cpu_count.checked_div(cpus_per_core.get()).unwrap();
 
                 // Maximum number of addressable IDs for processor cores in the physical package.
                 // - Add one to the return value to get the result.
