@@ -148,3 +148,21 @@ def consume_iperf3_output(stats_consumer, iperf_result):
 
     stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VMM, vmm_util)
     stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, vcpu_util)
+
+    for idx, time_series in enumerate(iperf_result["g2h"]):
+        yield from [
+            (f"{THROUGHPUT}_g2h_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
+            for x in time_series["intervals"]
+        ]
+
+    for idx, time_series in enumerate(iperf_result["h2g"]):
+        yield from [
+            (f"{THROUGHPUT}_h2g_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
+            for x in time_series["intervals"]
+        ]
+
+    for thread_name, data in iperf_result["cpu_load_raw"].items():
+        yield from [
+            (f"cpu_utilization_{thread_name}", x, "Percent")
+            for x in list(data.values())[0]
+        ]
