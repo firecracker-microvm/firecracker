@@ -255,13 +255,11 @@ def msr_cpu_template_fxt(request):
     return request.param
 
 
-@pytest.mark.skipif(
-    UNSUPPORTED_HOST_KERNEL,
-    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
-)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22):
+def test_cpu_rdmsr(
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22, results_dir
+):
     """
     Test MSRs that are available to the guest.
 
@@ -312,10 +310,16 @@ def test_cpu_rdmsr(microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubunt
     # Load baseline
     host_cpu = global_props.cpu_codename
     host_kv = global_props.host_linux_version
-    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel).group(1)
+    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     baseline_file_name = (
         f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
+    # save it as an artifact, so we don't have to manually launch an instance to
+    # get a baseline
+    save_msrs = results_dir / baseline_file_name
+    save_msrs.write_text(stdout)
+
+    # Load baseline
     baseline_file_path = DATA_FILES / baseline_file_name
     # We can use the following line when regathering baselines.
     # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
