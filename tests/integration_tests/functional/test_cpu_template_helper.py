@@ -265,8 +265,12 @@ def test_cpu_config_dump_vs_actual(
 
     # Compare CPUID between actual and dumped CPU config.
     # Verify all the actual CPUIDs are covered and match with the dumped one.
+    keys_not_in_dump = {}
     for key, actual in actual_cpu_config["cpuid"].items():
         if (key[0], key[1]) in UNAVAILABLE_CPUID_ON_DUMP_LIST:
+            continue
+        if key not in dump_cpu_config["cpuid"]:
+            keys_not_in_dump[key] = actual_cpu_config["cpuid"][key]
             continue
         dump = dump_cpu_config["cpuid"][key]
 
@@ -277,6 +281,8 @@ def test_cpu_config_dump_vs_actual(
             f"Mismatched CPUID for leaf={key[0]:#x} subleaf={key[1]:#x} reg={key[2]}:"
             f"{actual=:#034b} vs. {dump=:#034b}"
         )
+
+    assert len(keys_not_in_dump) == 0
 
     # Verify all CPUID on the dumped CPU config are covered in actual one.
     for key, dump in dump_cpu_config["cpuid"].items():
