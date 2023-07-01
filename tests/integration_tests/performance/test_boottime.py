@@ -158,3 +158,36 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
     if network:
         microvm.add_net_iface()
     microvm.start()
+
+
+@pytest.mark.parametrize(
+    "vcpu_count,mem_size_mib",
+    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+)
+def test_boottime(
+    microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
+):
+    """Test boot time with different guest configurations"""
+
+    metrics.set_dimensions(
+        {
+            **DIMENSIONS,
+            "guest_kernel": guest_kernel.name,
+            "vcpus": str(vcpu_count),
+            "mem_size_mib": str(mem_size_mib),
+        }
+    )
+
+    for _ in range(10):
+        vm = microvm_factory.build(guest_kernel, rootfs)
+        vm.jailer.extra_args.update({"boot-timer": None})
+        vm.spawn()
+        vm.basic_config(
+            vcpu_count=vcpu_count,
+            mem_size_mib=mem_size_mib,
+            boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+        )
+        vm.add_net_iface()
+        vm.start()
+        boottime_us = _get_microvm_boottime(vm)
+        metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
