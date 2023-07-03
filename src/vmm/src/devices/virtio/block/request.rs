@@ -25,7 +25,7 @@ use crate::devices::virtio::SECTOR_SIZE;
 pub enum IoErr {
     GetId(GuestMemoryError),
     PartialTransfer { completed: u32, expected: u32 },
-    FileEngine(block_io::Error),
+    FileEngine(block_io::BlockIoError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

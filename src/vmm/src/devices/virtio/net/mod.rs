@@ -18,7 +18,7 @@ pub mod persist;
 mod tap;
 pub mod test_utils;
 
-pub use tap::{Error as TapError, Tap};
+pub use tap::{Tap, TapError};
 
 pub use self::device::Net;
 pub use self::event_handler::*;

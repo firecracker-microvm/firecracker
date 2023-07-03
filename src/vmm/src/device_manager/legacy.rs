@@ -20,7 +20,7 @@ use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error)]
-pub enum Error {
+pub enum LegacyDeviceError {
     /// Cannot add legacy device to Bus.
     #[error("Failed to add legacy device to Bus: {0}")]
     BusError(crate::devices::BusError),
@@ -72,7 +72,10 @@ impl PortIODeviceManager {
     const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
 
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(serial: Arc<Mutex<BusDevice>>, i8042_reset_evfd: EventFd) -> Result<Self, Error> {
+    pub fn new(
+        serial: Arc<Mutex<BusDevice>>,
+        i8042_reset_evfd: EventFd,
+    ) -> Result<Self, LegacyDeviceError> {
         debug_assert!(matches!(*serial.lock().unwrap(), BusDevice::Serial(_)));
         let io_bus = crate::devices::Bus::new();
         let com_evt_1_3 = serial
@@ -101,7 +104,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), Error> {
+    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), LegacyDeviceError> {
         let serial_2_4 = Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
@@ -150,13 +153,19 @@ impl PortIODeviceManager {
 
         vm_fd
             .register_irqfd(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)
-            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+            .map_err(|e| {
+                LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
+            })?;
         vm_fd
             .register_irqfd(&self.com_evt_2_4, Self::COM_EVT_2_4_GSI)
-            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+            .map_err(|e| {
+                LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
+            })?;
         vm_fd
             .register_irqfd(&self.kbd_evt, Self::KBD_EVT_GSI)
-            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+            .map_err(|e| {
+                LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
+            })?;
 
         Ok(())
     }

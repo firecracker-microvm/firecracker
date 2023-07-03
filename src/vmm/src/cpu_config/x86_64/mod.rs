@@ -18,7 +18,7 @@ use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Error {
+pub enum CpuConfigurationError {
     /// Failure in processing the CPUID in template for x86_64 CPU configuration.
     #[error("Template changes a CPUID entry not supported by KVM: Leaf: {0:0x}, Subleaf: {1:0x}")]
     CpuidFeatureNotSupported(u32, u32),
@@ -30,7 +30,7 @@ pub enum Error {
     CpuidFromKvmCpuid(crate::cpu_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctls failed.
     #[error("KVM vcpu ioctl failed: {0}")]
-    VcpuIoctl(crate::vstate::vcpu::VcpuError),
+    VcpuIoctl(crate::vstate::vcpu::KvmVcpuError),
 }
 
 /// CPU configuration for x86_64 CPUs
@@ -46,7 +46,10 @@ pub struct CpuConfiguration {
 
 impl CpuConfiguration {
     /// Modifies provided config with changes from template
-    pub fn apply_template(self, template: &CustomCpuTemplate) -> Result<Self, Error> {
+    pub fn apply_template(
+        self,
+        template: &CustomCpuTemplate,
+    ) -> Result<Self, CpuConfigurationError> {
         let Self {
             mut cpuid,
             mut msrs,
@@ -81,7 +84,7 @@ impl CpuConfiguration {
                     }
                 }
             } else {
-                return Err(Error::CpuidFeatureNotSupported(
+                return Err(CpuConfigurationError::CpuidFeatureNotSupported(
                     cpuid_key.leaf,
                     cpuid_key.subleaf,
                 ));
@@ -92,7 +95,7 @@ impl CpuConfiguration {
             if let Some(reg_value) = msrs.get_mut(&modifier.addr) {
                 *reg_value = modifier.bitmap.apply(*reg_value);
             } else {
-                return Err(Error::MsrNotSupported(modifier.addr));
+                return Err(CpuConfigurationError::MsrNotSupported(modifier.addr));
             }
         }
 
@@ -244,7 +247,7 @@ mod tests {
         );
         assert_eq!(
             cpu_config_result.unwrap_err(),
-            Error::CpuidFeatureNotSupported(
+            CpuConfigurationError::CpuidFeatureNotSupported(
                 guest_template.cpuid_modifiers[0].leaf,
                 guest_template.cpuid_modifiers[0].subleaf
             )
@@ -261,7 +264,7 @@ mod tests {
         );
         assert_eq!(
             cpu_config_result.unwrap_err(),
-            Error::MsrNotSupported(guest_template.msr_modifiers[0].addr)
+            CpuConfigurationError::MsrNotSupported(guest_template.msr_modifiers[0].addr)
         )
     }
 }

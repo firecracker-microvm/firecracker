@@ -16,7 +16,7 @@ use super::regs::*;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Error {
+pub enum VcpuError {
     /// Failed to get a register value.
     #[error("Failed to get register {0}: {1}")]
     GetOneReg(u64, kvm_ioctls::Error),
@@ -46,11 +46,11 @@ pub enum Error {
 /// # Arguments
 ///
 /// * `regs` - reference [`Aarch64RegisterVec`] structure with all registers of a VCPU.
-pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, Error> {
+pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, VcpuError> {
     let midr_el1 = regs.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
         Some(register) => Ok(register.value::<u64, 8>() as u32 >> 24),
-        None => Err(Error::GetMidrEl1(
+        None => Err(VcpuError::GetMidrEl1(
             "Failed to find MIDR_EL1 in vCPU state!".to_string(),
         )),
     }
@@ -58,16 +58,16 @@ pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, 
 
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
-pub fn get_manufacturer_id_from_host() -> Result<u32, Error> {
+pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuError> {
     let midr_el1_path =
         &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
 
     let midr_el1 = std::fs::read_to_string(midr_el1_path).map_err(|err| {
-        Error::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
+        VcpuError::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
     let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
     let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16)
-        .map_err(|err| Error::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {err}",)))?;
+        .map_err(|err| VcpuError::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {err}",)))?;
 
     Ok(manufacturer_id >> 24)
 }
@@ -84,7 +84,7 @@ pub fn setup_boot_regs(
     cpu_id: u8,
     boot_ip: u64,
     mem: &GuestMemoryMmap,
-) -> Result<(), Error> {
+) -> Result<(), VcpuError> {
     let kreg_off = offset__of!(kvm_regs, regs);
 
     // Get the register index of the PSTATE (Processor State) register.
@@ -92,7 +92,7 @@ pub fn setup_boot_regs(
     let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
     vcpufd
         .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
-        .map_err(|err| Error::SetOneReg(id, err))?;
+        .map_err(|err| VcpuError::SetOneReg(id, err))?;
 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
@@ -101,7 +101,7 @@ pub fn setup_boot_regs(
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
         vcpufd
             .set_one_reg(id, &boot_ip.to_le_bytes())
-            .map_err(|err| Error::SetOneReg(id, err))?;
+            .map_err(|err| VcpuError::SetOneReg(id, err))?;
 
         // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
         // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
@@ -111,17 +111,17 @@ pub fn setup_boot_regs(
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
         vcpufd
             .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
-            .map_err(|err| Error::SetOneReg(id, err))?;
+            .map_err(|err| VcpuError::SetOneReg(id, err))?;
     }
     Ok(())
 }
 
 /// Read the MPIDR - Multiprocessor Affinity Register.
-pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, Error> {
+pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuError> {
     // MPIDR register is 64 bit wide on aarch64
     let mut mpidr = [0_u8; 8];
     match vcpufd.get_one_reg(MPIDR_EL1, &mut mpidr) {
-        Err(err) => Err(Error::GetOneReg(MPIDR_EL1, err)),
+        Err(err) => Err(VcpuError::GetOneReg(MPIDR_EL1, err)),
         Ok(_) => Ok(u64::from_le_bytes(mpidr)),
     }
 }
@@ -131,7 +131,7 @@ pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, Error> {
 /// # Arguments
 ///
 /// * `regs` - Input/Output vector of registers.
-pub fn get_all_registers(vcpufd: &VcpuFd, state: &mut Aarch64RegisterVec) -> Result<(), Error> {
+pub fn get_all_registers(vcpufd: &VcpuFd, state: &mut Aarch64RegisterVec) -> Result<(), VcpuError> {
     get_registers(vcpufd, &get_all_registers_ids(vcpufd)?, state)
 }
 
@@ -145,12 +145,12 @@ pub fn get_registers(
     vcpufd: &VcpuFd,
     ids: &[u64],
     regs: &mut Aarch64RegisterVec,
-) -> Result<(), Error> {
+) -> Result<(), VcpuError> {
     let mut big_reg = [0_u8; 256];
     for id in ids.iter() {
         let reg_size = vcpufd
             .get_one_reg(*id, &mut big_reg)
-            .map_err(|e| Error::GetOneReg(*id, e))?;
+            .map_err(|e| VcpuError::GetOneReg(*id, e))?;
         let reg_ref = Aarch64RegisterRef::new(*id, &big_reg[0..reg_size]);
         regs.push(reg_ref);
     }
@@ -158,13 +158,13 @@ pub fn get_registers(
 }
 
 /// Returns all registers ids, including core and system
-pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, Error> {
+pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
-    let mut reg_list = RegList::new(500).map_err(Error::Fam)?;
+    let mut reg_list = RegList::new(500).map_err(VcpuError::Fam)?;
     vcpufd
         .get_reg_list(&mut reg_list)
-        .map_err(Error::GetRegList)?;
+        .map_err(VcpuError::GetRegList)?;
     Ok(reg_list.as_slice().to_vec())
 }
 
@@ -173,11 +173,11 @@ pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, Error> {
 /// # Arguments
 ///
 /// * `regs` - Slice of registers to be set.
-pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), Error> {
+pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), VcpuError> {
     for reg in regs.iter() {
         vcpufd
             .set_one_reg(reg.id, reg.as_slice())
-            .map_err(|e| Error::SetOneReg(reg.id, e))?;
+            .map_err(|e| VcpuError::SetOneReg(reg.id, e))?;
     }
     Ok(())
 }
@@ -187,8 +187,8 @@ pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), E
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, Error> {
-    vcpufd.get_mp_state().map_err(Error::GetMp)
+pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, VcpuError> {
+    vcpufd.get_mp_state().map_err(VcpuError::GetMp)
 }
 
 /// Set the state of the system registers.
@@ -197,8 +197,8 @@ pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, Error> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure for returning the state of the system registers.
-pub fn set_mpstate(vcpufd: &VcpuFd, state: kvm_mp_state) -> Result<(), Error> {
-    vcpufd.set_mp_state(state).map_err(Error::SetMp)
+pub fn set_mpstate(vcpufd: &VcpuFd, state: kvm_mp_state) -> Result<(), VcpuError> {
+    vcpufd.set_mp_state(state).map_err(VcpuError::SetMp)
 }
 
 #[cfg(test)]
@@ -221,7 +221,7 @@ mod tests {
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(matches!(
             res.unwrap_err(),
-            Error::SetOneReg(0x6030000000100042, _)
+            VcpuError::SetOneReg(0x6030000000100042, _)
         ));
 
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
@@ -241,7 +241,10 @@ mod tests {
 
         // Must fail when vcpu is not initialized yet.
         let res = get_mpidr(&vcpu);
-        assert!(matches!(res.unwrap_err(), Error::GetOneReg(MPIDR_EL1, _)));
+        assert!(matches!(
+            res.unwrap_err(),
+            VcpuError::GetOneReg(MPIDR_EL1, _)
+        ));
 
         vcpu.vcpu_init(&kvi).unwrap();
         assert_eq!(get_mpidr(&vcpu).unwrap(), 0x8000_0000);
@@ -258,7 +261,7 @@ mod tests {
         // Must fail when vcpu is not initialized yet.
         let mut regs = Aarch64RegisterVec::default();
         let res = get_all_registers(&vcpu, &mut regs);
-        assert!(matches!(res.unwrap_err(), Error::GetRegList(_)));
+        assert!(matches!(res.unwrap_err(), VcpuError::GetRegList(_)));
 
         vcpu.vcpu_init(&kvi).unwrap();
         get_all_registers(&vcpu, &mut regs).unwrap();
@@ -282,9 +285,9 @@ mod tests {
         unsafe { libc::close(vcpu.as_raw_fd()) };
 
         let res = get_mpstate(&vcpu);
-        assert!(matches!(res.unwrap_err(), Error::GetMp(_)));
+        assert!(matches!(res.unwrap_err(), VcpuError::GetMp(_)));
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
-        assert!(matches!(res.unwrap_err(), Error::SetMp(_)));
+        assert!(matches!(res.unwrap_err(), VcpuError::SetMp(_)));
     }
 }

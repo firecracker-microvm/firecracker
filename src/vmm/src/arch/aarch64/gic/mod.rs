@@ -43,7 +43,7 @@ impl GIC {
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum GicError {
     /// Error while calling KVM ioctl for setting up the global interrupt controller.
     #[error("Error while calling KVM ioctl for setting up the global interrupt controller: {0}")]
     CreateGIC(kvm_ioctls::Error),
@@ -127,7 +127,7 @@ impl GICDevice {
     }
 
     /// Setup the device-specific attributes
-    pub fn init_device_attributes(gic_device: &Self) -> Result<(), Error> {
+    pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         match gic_device {
             Self::V2(x) => GICv2::init_device_attributes(x),
             Self::V3(x) => GICv3::init_device_attributes(x),
@@ -135,7 +135,7 @@ impl GICDevice {
     }
 
     /// Method to save the state of the GIC device.
-    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, Error> {
+    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, GicError> {
         match self {
             Self::V2(x) => x.save_device(mpidrs),
             Self::V3(x) => x.save_device(mpidrs),
@@ -143,7 +143,7 @@ impl GICDevice {
     }
 
     /// Method to restore the state of the GIC device.
-    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), Error> {
+    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
         match self {
             Self::V2(x) => x.restore_device(mpidrs, state),
             Self::V3(x) => x.restore_device(mpidrs, state),
@@ -160,7 +160,7 @@ pub fn create_gic(
     vm: &VmFd,
     vcpu_count: u64,
     version: Option<GICVersion>,
-) -> Result<GICDevice, Error> {
+) -> Result<GICDevice, GicError> {
     match version {
         Some(GICVersion::GICV2) => GICv2::create(vm, vcpu_count).map(GICDevice::V2),
         Some(GICVersion::GICV3) => GICv3::create(vm, vcpu_count).map(GICDevice::V3),

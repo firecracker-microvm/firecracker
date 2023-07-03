@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-use crate::devices::virtio::rng::{Entropy, Error as EntropyError};
+use crate::devices::virtio::rng::{Entropy, EntropyError};
 
 /// This struct represents the strongly typed equivalent of the json body from entropy device
 /// related requests.

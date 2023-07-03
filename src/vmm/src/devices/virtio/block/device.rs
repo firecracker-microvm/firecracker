@@ -411,8 +411,8 @@ impl Block {
                         Ok(count) => (user_data, Ok(count)),
                         Err(error) => (
                             user_data,
-                            Err(IoErr::FileEngine(block_io::Error::Async(
-                                async_io::Error::IO(error),
+                            Err(IoErr::FileEngine(block_io::BlockIoError::Async(
+                                async_io::AsyncIoError::IO(error),
                             ))),
                         ),
                     };

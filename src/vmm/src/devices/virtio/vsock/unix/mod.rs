@@ -27,7 +27,7 @@ mod defs {
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub enum VsockUnixBackendError {
     /// Error registering a new epoll-listening FD.
     EpollAdd(std::io::Error),
     /// Error creating an epoll FD.

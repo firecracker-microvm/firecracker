@@ -22,7 +22,7 @@ use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
-pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
+pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
 
 mod defs {

@@ -29,7 +29,7 @@ use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};
 
-use super::super::super::Error as DeviceError;
+use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};

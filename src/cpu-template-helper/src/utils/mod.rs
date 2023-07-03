@@ -62,7 +62,7 @@ impl<V: Numeric> DiffString<V> for V {
 pub enum Error {
     /// Failed to create VmResources.
     #[error("Failed to create VmResources: {0}")]
-    CreateVmResources(vmm::resources::Error),
+    CreateVmResources(vmm::resources::ResourcesError),
     /// Failed to build microVM.
     #[error("Failed to build microVM: {0}")]
     BuildMicroVm(#[from] StartMicrovmError),

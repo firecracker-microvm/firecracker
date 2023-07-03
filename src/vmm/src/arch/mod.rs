@@ -13,7 +13,7 @@ pub mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, ConfigurationError, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
 
@@ -24,7 +24,7 @@ pub mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, ConfigurationError, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
 

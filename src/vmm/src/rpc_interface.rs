@@ -15,7 +15,7 @@ use tests::{
     MockVmm as Vmm,
 };
 
-use super::Error as VmmError;
+use super::VmmError;
 #[cfg(not(test))]
 use super::{
     builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
@@ -748,7 +748,7 @@ impl RuntimeApiController {
         METRICS
             .write()
             .map(|_| VmmData::Empty)
-            .map_err(super::Error::Metrics)
+            .map_err(super::VmmError::Metrics)
             .map_err(VmmActionError::InternalVmm)
     }
 
@@ -873,7 +873,7 @@ mod tests {
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
-    use crate::devices::virtio::rng::Error as EntropyError;
+    use crate::devices::virtio::rng::EntropyError;
     use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
@@ -1164,7 +1164,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::InvalidDeviceType,
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1190,7 +1190,7 @@ mod tests {
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::InvalidDeviceType,
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -2051,7 +2051,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::InvalidDeviceType,
+                crate::device_manager::mmio::MmioError::InvalidDeviceType,
             ))),
         );
     }
@@ -2076,7 +2076,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::InvalidDeviceType),
+                VmmError::DeviceManager(crate::device_manager::mmio::MmioError::InvalidDeviceType),
             )),
         );
     }

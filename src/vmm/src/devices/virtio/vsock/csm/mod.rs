@@ -24,7 +24,7 @@ pub mod defs {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum VsockCsmError {
     /// Attempted to push data to a full TX buffer.
     #[error("Attempted to push data to a full TX buffer")]
     TxBufFull,
@@ -127,17 +127,17 @@ mod tests {
     #[test]
     fn test_display_error() {
         assert_eq!(
-            format!("{}", Error::TxBufFull),
+            format!("{}", VsockCsmError::TxBufFull),
             "Attempted to push data to a full TX buffer"
         );
 
         assert_eq!(
-            Error::TxBufFlush(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
+            VsockCsmError::TxBufFlush(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
             "An I/O error occurred, when attempting to flush the connection TX buffer: other error"
         );
 
         assert_eq!(
-            Error::StreamWrite(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
+            VsockCsmError::StreamWrite(std::io::Error::from(std::io::ErrorKind::Other)).to_string(),
             "An I/O error occurred, when attempting to write data to the host-side stream: other \
              error"
         );

@@ -39,7 +39,7 @@ use crate::devices::virtio::net::{
 use crate::devices::virtio::{
     ActivateError, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
 };
-use crate::devices::{report_net_event_fail, Error as DeviceError};
+use crate::devices::{report_net_event_fail, DeviceError};
 
 #[derive(Debug)]
 enum FrontendError {
