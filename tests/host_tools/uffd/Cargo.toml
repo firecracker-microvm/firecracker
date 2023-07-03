@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2.147"
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { version = "1.0.165", features = ["derive"] }
 serde_json = "1.0.99"
 userfaultfd = "0.6.0"
 
