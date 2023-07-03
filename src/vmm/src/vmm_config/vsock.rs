@@ -32,8 +32,6 @@ impl fmt::Display for VsockConfigError {
     }
 }
 
-type Result<T> = std::result::Result<T, VsockConfigError>;
-
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -93,7 +91,7 @@ impl VsockBuilder {
 
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<()> {
+    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<(), VsockConfigError> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
             std::fs::remove_file(existing.uds_path).map_err(VsockUnixBackendError::UnixBind)?;
@@ -111,7 +109,9 @@ impl VsockBuilder {
     }
 
     /// Creates a Vsock device from a VsockDeviceConfig.
-    pub fn create_unixsock_vsock(cfg: VsockDeviceConfig) -> Result<Vsock<VsockUnixBackend>> {
+    pub fn create_unixsock_vsock(
+        cfg: VsockDeviceConfig,
+    ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)

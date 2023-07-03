@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Debug;
-use std::result::Result;
 
 use utils::vm_memory::ByteValued;
 

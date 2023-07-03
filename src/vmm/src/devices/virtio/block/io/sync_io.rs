@@ -3,7 +3,6 @@
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
-use std::result::Result;
 
 use utils::vm_memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile,

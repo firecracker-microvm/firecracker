@@ -31,8 +31,6 @@ const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 // Taken from linux/fs/io_uring.c
 const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 
-type Result<T> = std::result::Result<T, Error>;
-
 #[derive(Debug)]
 /// IoUring Error.
 pub enum Error {
@@ -110,7 +108,7 @@ impl IoUring {
         files: Vec<&File>,
         restrictions: Vec<Restriction>,
         eventfd: Option<RawFd>,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
             flags: bindings::IORING_SETUP_R_DISABLED,
@@ -165,10 +163,7 @@ impl IoUring {
     /// # Safety
     /// Unsafe because we pass a raw user_data pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub unsafe fn push<T: Debug>(
-        &mut self,
-        op: Operation<T>,
-    ) -> std::result::Result<(), (Error, T)> {
+    pub unsafe fn push<T: Debug>(&mut self, op: Operation<T>) -> Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
         match self.registered_fds_count {
@@ -201,7 +196,7 @@ impl IoUring {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>> {
+    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         self.cqueue
             .pop()
             .map(|maybe_cqe| {
@@ -215,22 +210,22 @@ impl IoUring {
             .map_err(Error::CQueue)
     }
 
-    fn do_submit(&mut self, min_complete: u32) -> Result<u32> {
+    fn do_submit(&mut self, min_complete: u32) -> Result<u32, Error> {
         self.squeue.submit(min_complete).map_err(Error::SQueue)
     }
 
     /// Submit all operations but don't wait for any completions.
-    pub fn submit(&mut self) -> Result<u32> {
+    pub fn submit(&mut self) -> Result<u32, Error> {
         self.do_submit(0)
     }
 
     /// Submit all operations and wait for their completion.
-    pub fn submit_and_wait_all(&mut self) -> Result<u32> {
+    pub fn submit_and_wait_all(&mut self) -> Result<u32, Error> {
         self.do_submit(self.num_ops)
     }
 
     /// Return the number of operations currently on the submission queue.
-    pub fn pending_sqes(&self) -> Result<u32> {
+    pub fn pending_sqes(&self) -> Result<u32, Error> {
         self.squeue.pending().map_err(Error::SQueue)
     }
 
@@ -240,7 +235,7 @@ impl IoUring {
         self.num_ops
     }
 
-    fn enable(&mut self) -> Result<()> {
+    fn enable(&mut self) -> Result<(), Error> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
@@ -255,7 +250,7 @@ impl IoUring {
         .map_err(Error::Enable)
     }
 
-    fn register_files(&mut self, files: Vec<&File>) -> Result<()> {
+    fn register_files(&mut self, files: Vec<&File>) -> Result<(), Error> {
         if files.is_empty() {
             // No-op.
             return Ok(());
@@ -289,7 +284,7 @@ impl IoUring {
         Ok(())
     }
 
-    fn register_eventfd(&self, fd: RawFd) -> Result<()> {
+    fn register_eventfd(&self, fd: RawFd) -> Result<(), Error> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
@@ -304,7 +299,7 @@ impl IoUring {
         .map_err(Error::RegisterEventfd)
     }
 
-    fn register_restrictions(&self, restrictions: Vec<Restriction>) -> Result<()> {
+    fn register_restrictions(&self, restrictions: Vec<Restriction>) -> Result<(), Error> {
         if restrictions.is_empty() {
             // No-op.
             return Ok(());
@@ -328,7 +323,7 @@ impl IoUring {
         .map_err(Error::RegisterRestrictions)
     }
 
-    fn check_features(params: io_uring_params) -> Result<()> {
+    fn check_features(params: io_uring_params) -> Result<(), Error> {
         // We require that the host kernel will never drop completed entries due to an (unlikely)
         // overflow in the completion queue.
         // This feature is supported for kernels greater than 5.7.
@@ -342,7 +337,7 @@ impl IoUring {
         Ok(())
     }
 
-    fn check_operations(&self) -> Result<()> {
+    fn check_operations(&self) -> Result<(), Error> {
         let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::Fam)?;
 
         // SAFETY: Safe because values are valid and we check the return value.

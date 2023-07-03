@@ -4,7 +4,6 @@
 //! Provides functionality for saving/restoring the MMIO device manager and its devices.
 
 use std::fmt::{self, Debug};
-use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};

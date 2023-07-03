@@ -7,9 +7,9 @@
 
 //! Implements a wrapper over an UART serial device.
 use std::fmt::Debug;
+use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
@@ -33,12 +33,12 @@ pub enum RawIOError {
 
 pub trait RawIOHandler {
     /// Send raw input to this emulated device.
-    fn raw_input(&mut self, _data: &[u8]) -> result::Result<(), RawIOError>;
+    fn raw_input(&mut self, _data: &[u8]) -> Result<(), RawIOError>;
 }
 
 impl<EV: SerialEvents + Debug, W: Write + Debug> RawIOHandler for Serial<EventFdTrigger, EV, W> {
     // This is not used for anything and is basically just a dummy implementation for `raw_input`.
-    fn raw_input(&mut self, data: &[u8]) -> result::Result<(), RawIOError> {
+    fn raw_input(&mut self, data: &[u8]) -> Result<(), RawIOError> {
         // Fail fast if the serial is serviced with more data than it can buffer.
         if data.len() > self.fifo_capacity() {
             return Err(RawIOError::Serial(SerialError::FullFifo));

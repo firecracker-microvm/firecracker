@@ -7,7 +7,6 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::fmt;
-use std::result;
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
@@ -108,8 +107,6 @@ pub enum RestoreStateError {
     GicError(crate::arch::aarch64::gic::Error),
 }
 
-pub type Result<T> = result::Result<T, Error>;
-
 /// A wrapper around creating and using a VM.
 #[derive(Debug)]
 pub struct Vm {
@@ -135,7 +132,7 @@ impl Vm {
         guest_mem: &GuestMemoryMmap,
         kvm_max_memslots: usize,
         track_dirty_pages: bool,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
@@ -152,7 +149,7 @@ impl Vm {
         &self,
         guest_mem: &GuestMemoryMmap,
         track_dirty_pages: bool,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let mut flags = 0u32;
         if track_dirty_pages {
             flags |= KVM_MEM_LOG_DIRTY_PAGES;
@@ -186,7 +183,7 @@ impl Vm {
 #[cfg(target_arch = "aarch64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self, Error> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
 
@@ -197,7 +194,7 @@ impl Vm {
     }
 
     /// Creates the GIC (Global Interrupt Controller).
-    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
+    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), Error> {
         self.irqchip_handle = Some(
             crate::arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
                 .map_err(Error::VmCreateGIC)?,
@@ -211,7 +208,7 @@ impl Vm {
     }
 
     /// Saves and returns the Kvm Vm state.
-    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
+    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState, Error> {
         Ok(VmState {
             gic: self
                 .get_irqchip()
@@ -225,11 +222,7 @@ impl Vm {
     /// # Errors
     ///
     /// When [`GICDevice::restore_device`] errors.
-    pub fn restore_state(
-        &self,
-        mpidrs: &[u64],
-        state: &VmState,
-    ) -> std::result::Result<(), RestoreStateError> {
+    pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<(), RestoreStateError> {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(RestoreStateError::GicError)
@@ -239,7 +232,7 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self, Error> {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
 
@@ -275,7 +268,7 @@ impl Vm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
+    pub fn restore_state(&self, state: &VmState) -> Result<(), RestoreStateError> {
         self.fd
             .set_pit2(&state.pitstate)
             .map_err(RestoreStateError::SetPit2)?;
@@ -295,7 +288,7 @@ impl Vm {
     }
 
     /// Creates the irq chip and an in-kernel device model for the PIT.
-    pub fn setup_irqchip(&self) -> Result<()> {
+    pub fn setup_irqchip(&self) -> Result<(), Error> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
         // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
@@ -307,7 +300,7 @@ impl Vm {
     }
 
     /// Saves and returns the Kvm Vm state.
-    pub fn save_state(&self) -> Result<VmState> {
+    pub fn save_state(&self) -> Result<VmState, Error> {
         let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
 
         let mut clock = self.fd.get_clock().map_err(Error::VmGetClock)?;

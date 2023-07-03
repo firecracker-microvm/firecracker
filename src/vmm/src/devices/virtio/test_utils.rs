@@ -492,10 +492,7 @@ pub(crate) mod test {
         /// # Arguments
         ///
         /// * `msec` - The amount pf time in milliseconds for which to Emulate
-        pub fn emulate_for_msec(
-            &mut self,
-            msec: i32,
-        ) -> std::result::Result<usize, event_manager::Error> {
+        pub fn emulate_for_msec(&mut self, msec: i32) -> Result<usize, event_manager::Error> {
             self.event_manager.run_with_timeout(msec)
         }
     }

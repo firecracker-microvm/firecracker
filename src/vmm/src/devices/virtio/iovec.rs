@@ -21,8 +21,6 @@ pub enum Error {
     GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
 // Describes a sub-region of a buffer described as a slice of `iovec` structs.
 #[derive(Debug)]
 struct IovVecSubregion<'a> {
@@ -125,7 +123,10 @@ pub(crate) struct IoVecBuffer {
 
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
-    pub fn from_descriptor_chain(mem: &GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
+    pub fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, Error> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
@@ -227,7 +228,10 @@ pub(crate) struct IoVecBufferMut {
 
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
-    pub fn from_descriptor_chain(mem: &GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
+    pub fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, Error> {
         let mut vecs = vec![];
         let mut len = 0usize;
 

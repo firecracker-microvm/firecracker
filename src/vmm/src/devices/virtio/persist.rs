@@ -71,10 +71,7 @@ impl Persist<'_> for Queue {
         }
     }
 
-    fn restore(
-        _: Self::ConstructorArgs,
-        state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         Ok(Queue {
             max_size: state.max_size,
             size: state.size,
@@ -122,7 +119,7 @@ impl VirtioDeviceState {
         expected_device_type: u32,
         expected_num_queues: usize,
         expected_queue_max_size: u16,
-    ) -> std::result::Result<Vec<Queue>, PersistError> {
+    ) -> Result<Vec<Queue>, PersistError> {
         // Sanity check:
         // - right device type,
         // - acked features is a subset of available ones,

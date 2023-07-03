@@ -93,5 +93,3 @@ pub enum RemoveRegionError {
     MmapFail(std::io::Error),
     RegionNotFound,
 }
-
-pub type BalloonResult<T> = std::result::Result<T, BalloonError>;

@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};

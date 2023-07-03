@@ -10,7 +10,7 @@ use kvm_ioctls::DeviceFd;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::arch::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::Error;
 
 #[derive(Debug)]
 pub struct GicRegState<T: Versionize> {
@@ -102,7 +102,7 @@ pub(crate) trait VgicRegEngine {
         fd: &DeviceFd,
         reg: &Self::Reg,
         mpidr: u64,
-    ) -> Result<GicRegState<Self::RegChunk>>
+    ) -> Result<GicRegState<Self::RegChunk>, Error>
     where
         Self: Sized,
     {
@@ -121,7 +121,7 @@ pub(crate) trait VgicRegEngine {
         fd: &DeviceFd,
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
         mpidr: u64,
-    ) -> Result<Vec<GicRegState<Self::RegChunk>>>
+    ) -> Result<Vec<GicRegState<Self::RegChunk>>, Error>
     where
         Self: Sized,
     {
@@ -139,7 +139,7 @@ pub(crate) trait VgicRegEngine {
         reg: &Self::Reg,
         data: &GicRegState<Self::RegChunk>,
         mpidr: u64,
-    ) -> Result<()>
+    ) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -156,7 +156,7 @@ pub(crate) trait VgicRegEngine {
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
         data: &[GicRegState<Self::RegChunk>],
         mpidr: u64,
-    ) -> Result<()>
+    ) -> Result<(), Error>
     where
         Self: Sized,
     {

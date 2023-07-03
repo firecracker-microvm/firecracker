@@ -3,7 +3,6 @@
 
 use std::convert::TryInto;
 use std::ops::Deref;
-use std::result;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -80,8 +79,6 @@ pub enum NetworkInterfaceError {
     OpenTap(#[from] TapError),
 }
 
-type Result<T> = result::Result<T, NetworkInterfaceError>;
-
 /// Builder for a list of network devices.
 #[derive(Debug, Default)]
 pub struct NetBuilder {
@@ -114,7 +111,10 @@ impl NetBuilder {
 
     /// Builds a network device based on a network interface config. Keeps a device reference
     /// in the builder's internal list.
-    pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {
+    pub fn build(
+        &mut self,
+        netif_config: NetworkInterfaceConfig,
+    ) -> Result<Arc<Mutex<Net>>, NetworkInterfaceError> {
         let mac_conflict = |net: &Arc<Mutex<Net>>| {
             let net = net.lock().expect("Poisoned lock");
             // Check if another net dev has same MAC.
@@ -148,7 +148,7 @@ impl NetBuilder {
     }
 
     /// Creates a Net device from a NetworkInterfaceConfig.
-    pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net> {
+    pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net, NetworkInterfaceError> {
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(super::RateLimiterConfig::try_into)

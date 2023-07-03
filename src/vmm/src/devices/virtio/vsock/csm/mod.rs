@@ -36,8 +36,6 @@ pub enum Error {
     StreamWrite(std::io::Error),
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
 /// A vsock connection state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnState {

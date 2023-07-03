@@ -5,7 +5,7 @@ use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
-use crate::arch::aarch64::gic::Result;
+use crate::arch::aarch64::gic::Error;
 
 // CPU interface registers as detailed at page 76 from
 // https://developer.arm.com/documentation/ihi0048/latest/.
@@ -54,7 +54,7 @@ impl VgicRegEngine for VgicSysRegEngine {
     }
 }
 
-pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
+pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState, Error> {
     let main_icc_regs =
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
 
@@ -64,7 +64,11 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
     })
 }
 
-pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) -> Result<()> {
+pub(crate) fn set_icc_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+    state: &VgicSysRegsState,
+) -> Result<(), Error> {
     VgicSysRegEngine::set_regs_data(
         fd,
         Box::new(MAIN_VGIC_ICC_REGS.iter()),

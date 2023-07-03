@@ -7,10 +7,10 @@ mod icc_regs;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
-use crate::arch::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::Error;
 
 /// Save the state of the GIC device.
-pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
+pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, Error> {
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
@@ -26,7 +26,7 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
 }
 
 /// Restore the state of the GIC device.
-pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<()> {
+pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<(), Error> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
 
     if mpidrs.len() != state.gic_vcpu_states.len() {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::{Path, PathBuf};
-use std::{fs, io, result};
+use std::{fs, io};
 
 use logger::warn;
 
@@ -21,14 +21,12 @@ pub(crate) enum Error {
     MissingOptionalAttr(String, CacheEntry),
 }
 
-type Result<T> = result::Result<T, Error>;
-
 struct CacheEngine {
     store: Box<dyn CacheStore>,
 }
 
 trait CacheStore: std::fmt::Debug {
-    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String>;
+    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, Error>;
 }
 
 #[derive(Debug)]
@@ -61,7 +59,7 @@ impl Default for CacheEngine {
 }
 
 impl CacheStore for HostCacheStore {
-    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String> {
+    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, Error> {
         readln_special(&PathBuf::from(format!(
             "{}/index{}/{}",
             self.cache_dir.as_path().display(),
@@ -72,7 +70,7 @@ impl CacheStore for HostCacheStore {
 }
 
 impl CacheEntry {
-    fn from_index(index: u8, store: &dyn CacheStore) -> Result<CacheEntry> {
+    fn from_index(index: u8, store: &dyn CacheStore) -> Result<CacheEntry, Error> {
         let mut err_str = String::new();
         let mut cache: CacheEntry = CacheEntry::default();
 
@@ -172,7 +170,7 @@ pub(crate) enum CacheType {
 }
 
 impl CacheType {
-    fn try_from(string: &str) -> Result<Self> {
+    fn try_from(string: &str) -> Result<Self, Error> {
         match string.trim() {
             "Instruction" => Ok(Self::Instruction),
             "Data" => Ok(Self::Data),
@@ -218,12 +216,12 @@ impl CacheType {
     }
 }
 
-fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String, Error> {
     let line = fs::read_to_string(file_path)?;
     Ok(line.trim_end().to_string())
 }
 
-fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
+fn to_bytes(cache_size_pretty: &mut String) -> Result<usize, Error> {
     match cache_size_pretty.pop() {
         Some('K') => Ok(cache_size_pretty
             .parse::<usize>()
@@ -253,7 +251,7 @@ fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
 // Expected input is a list of 32-bit comma separated hex values,
 // without the 0x prefix.
 //
-fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
+fn mask_str2bit_count(mask_str: &str) -> Result<u16, Error> {
     let split_mask_iter = mask_str.split(',');
     let mut bit_count: u16 = 0;
 
@@ -290,7 +288,7 @@ fn append_cache_level(
 pub(crate) fn read_cache_config(
     cache_l1: &mut Vec<CacheEntry>,
     cache_non_l1: &mut Vec<CacheEntry>,
-) -> Result<()> {
+) -> Result<(), Error> {
     // It is used to make sure we log warnings for missing files only for one level because
     // if an attribute is missing for a level for sure it will be missing for other levels too.
     // Also without this mechanism we would be logging the warnings for each level which pollutes
@@ -358,7 +356,7 @@ mod tests {
     }
 
     impl CacheStore for MockCacheStore {
-        fn get_by_key(&self, index: u8, file_name: &str) -> Result<String> {
+        fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, Error> {
             let key = format!("index{}/{}", index, file_name);
             if let Some(val) = self.dummy_fs.get(&key) {
                 Ok(val.to_string())

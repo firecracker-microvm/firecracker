@@ -75,7 +75,7 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
+pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Result<u64, Error> {
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
         .ok_or(Error::InitrdAddress)?;
@@ -105,7 +105,7 @@ pub fn configure_system(
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
     num_cpus: u8,
-) -> super::Result<()> {
+) -> Result<(), Error> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
@@ -179,7 +179,7 @@ fn add_e820_entry(
     addr: u64,
     size: u64,
     mem_type: u32,
-) -> super::Result<()> {
+) -> Result<(), Error> {
     if params.e820_entries >= params.e820_table.len() as u8 {
         return Err(Error::E820Configuration);
     }

@@ -7,7 +7,7 @@
 
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::{io, mem, result, slice};
+use std::{io, mem, slice};
 
 use libc::c_char;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -82,8 +82,6 @@ pub enum Error {
     WriteMpcTable,
 }
 
-pub type Result<T> = result::Result<T, Error>;
-
 // With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
 // one APIC ID, so only 254 CPUs at maximum may be supported. Actually it's
 // a large number for FC usecases.
@@ -137,7 +135,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 }
 
 /// Performs setup of the MP table for the given `num_cpus`.
-pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
+pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), Error> {
     if u32::from(num_cpus) > MAX_SUPPORTED_CPUS {
         return Err(Error::TooManyCpus);
     }

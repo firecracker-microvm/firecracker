@@ -33,8 +33,6 @@ pub enum Error {
     SetMsrsIncomplete,
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
 /// MSR range
 #[derive(Debug)]
 struct MsrRange {
@@ -270,7 +268,7 @@ pub fn msr_should_serialize(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
-pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList, Error> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetMsrIndexList)?;
@@ -439,7 +437,7 @@ pub fn msr_should_dump_amd(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
-pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, Error> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
         .map_err(Error::GetMsrIndexList)?;
@@ -492,7 +490,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
-pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
+pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<(), Error> {
     let msrs = Msrs::from_entries(msr_entries)?;
     vcpu.set_msrs(&msrs)
         .map_err(Error::SetMsrs)
