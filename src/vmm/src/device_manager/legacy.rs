@@ -29,8 +29,6 @@ pub enum Error {
     EventFd(std::io::Error),
 }
 
-type Result<T> = ::std::result::Result<T, Error>;
-
 /// The `PortIODeviceManager` is a wrapper that is used for registering legacy devices
 /// on an I/O Bus. It currently manages the uart and i8042 devices.
 /// The `LegacyDeviceManger` should be initialized only by using the constructor.
@@ -74,9 +72,8 @@ impl PortIODeviceManager {
     const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
 
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(serial: Arc<Mutex<BusDevice>>, i8042_reset_evfd: EventFd) -> Result<Self> {
+    pub fn new(serial: Arc<Mutex<BusDevice>>, i8042_reset_evfd: EventFd) -> Result<Self, Error> {
         debug_assert!(matches!(*serial.lock().unwrap(), BusDevice::Serial(_)));
-
         let io_bus = crate::devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
@@ -104,7 +101,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<()> {
+    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), Error> {
         let serial_2_4 = Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
@@ -125,7 +122,6 @@ impl PortIODeviceManager {
             ),
             input: None,
         })));
-
         self.io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],

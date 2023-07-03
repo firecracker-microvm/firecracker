@@ -63,8 +63,6 @@ pub enum Error {
     RegisterIrqFd(kvm_ioctls::Error),
 }
 
-type Result<T> = ::std::result::Result<T, Error>;
-
 /// This represents the size of the mmio device specified to the kernel as a cmdline option
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
@@ -98,7 +96,7 @@ impl MMIODeviceManager {
         mmio_base: u64,
         mmio_size: u64,
         (irq_start, irq_end): (u32, u32),
-    ) -> Result<MMIODeviceManager> {
+    ) -> Result<MMIODeviceManager, Error> {
         Ok(MMIODeviceManager {
             irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(Error::Allocator)?,
             address_allocator: AddressAllocator::new(mmio_base, mmio_size)
@@ -109,7 +107,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
+    fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, Error> {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
             .collect::<vm_allocator::Result<_>>()
@@ -132,7 +130,7 @@ impl MMIODeviceManager {
         identifier: (DeviceType, String),
         device_info: MMIODeviceInfo,
         device: Arc<Mutex<BusDevice>>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         self.bus
             .insert(device, device_info.addr, device_info.len)
             .map_err(Error::BusInsert)?;
@@ -147,7 +145,7 @@ impl MMIODeviceManager {
         device_id: String,
         mmio_device: MmioTransport,
         device_info: &MMIODeviceInfo,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // Our virtio devices are currently hardcoded to use a single IRQ.
         // Validate that requirement.
         if device_info.irqs.len() != 1 {
@@ -180,7 +178,7 @@ impl MMIODeviceManager {
     pub fn add_virtio_device_to_cmdline(
         cmdline: &mut kernel_cmdline::Cmdline,
         device_info: &MMIODeviceInfo,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
         // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
@@ -204,7 +202,7 @@ impl MMIODeviceManager {
         device_id: String,
         mmio_device: MmioTransport,
         _cmdline: &mut kernel_cmdline::Cmdline,
-    ) -> Result<MMIODeviceInfo> {
+    ) -> Result<MMIODeviceInfo, Error> {
         let device_info = self.allocate_mmio_resources(1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
         #[cfg(target_arch = "x86_64")]
@@ -220,7 +218,7 @@ impl MMIODeviceManager {
         vm: &VmFd,
         serial: Arc<Mutex<BusDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
@@ -248,7 +246,10 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Append the registered early console to the kernel cmdline.
-    pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut kernel_cmdline::Cmdline) -> Result<()> {
+    pub fn add_mmio_serial_to_cmdline(
+        &self,
+        cmdline: &mut kernel_cmdline::Cmdline,
+    ) -> Result<(), Error> {
         let device_info = self
             .id_to_dev_info
             .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
@@ -265,7 +266,7 @@ impl MMIODeviceManager {
         &mut self,
         rtc: RTCDevice,
         device_info_opt: Option<MMIODeviceInfo>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
@@ -285,7 +286,7 @@ impl MMIODeviceManager {
     }
 
     /// Register a boot timer device.
-    pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
+    pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<(), Error> {
         // Attach a new boot timer device.
         let device_info = self.allocate_mmio_resources(0)?;
 
@@ -330,14 +331,9 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered device.
-    pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
+    pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(
-            &DeviceType,
-            &String,
-            &MMIODeviceInfo,
-            &Mutex<BusDevice>,
-        ) -> std::result::Result<(), E>,
+        F: FnMut(&DeviceType, &String, &MMIODeviceInfo, &Mutex<BusDevice>) -> Result<(), E>,
     {
         for ((device_type, device_id), device_info) in self.get_device_info().iter() {
             let bus_device = self
@@ -350,14 +346,9 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered virtio device.
-    pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
+    pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(
-            u32,
-            &String,
-            &MMIODeviceInfo,
-            Arc<Mutex<dyn VirtioDevice>>,
-        ) -> std::result::Result<(), E>,
+        F: FnMut(u32, &String, &MMIODeviceInfo, Arc<Mutex<dyn VirtioDevice>>) -> Result<(), E>,
     {
         self.for_each_device(|device_type, device_id, device_info, bus_device| {
             if let Virtio(virtio_type) = device_type {
@@ -376,10 +367,15 @@ impl MMIODeviceManager {
     }
 
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
-    pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
+    pub fn with_virtio_device_with_id<T, F>(
+        &self,
+        virtio_type: u32,
+        id: &str,
+        f: F,
+    ) -> Result<(), Error>
     where
         T: VirtioDevice + 'static + Debug,
-        F: FnOnce(&mut T) -> std::result::Result<(), String>,
+        F: FnOnce(&mut T) -> Result<(), String>,
     {
         if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
             let virtio_device = busdev
@@ -404,7 +400,7 @@ impl MMIODeviceManager {
     pub fn kick_devices(&self) {
         info!("Artificially kick devices.");
         // We only kick virtio devices for now.
-        let _: Result<()> = self.for_each_virtio_device(|virtio_type, id, _info, dev| {
+        let _: Result<(), Error> = self.for_each_virtio_device(|virtio_type, id, _info, dev| {
             let mut virtio = dev.lock().expect("Poisoned lock");
             match virtio_type {
                 TYPE_BALLOON => {
@@ -482,7 +478,7 @@ mod tests {
 
     use super::*;
     use crate::builder;
-    use crate::devices::virtio::{ActivateResult, Queue, VirtioDevice};
+    use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -494,7 +490,7 @@ mod tests {
             device: Arc<Mutex<dyn crate::devices::virtio::VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
-        ) -> Result<u64> {
+        ) -> Result<u64, Error> {
             let mmio_device = MmioTransport::new(guest_mem, device);
             let device_info =
                 self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
@@ -572,7 +568,7 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             Ok(())
         }
 
@@ -725,7 +721,7 @@ mod tests {
             .unwrap();
 
         let mut count = 0;
-        let _: Result<()> = device_manager.for_each_device(|devtype, devid, _, _| {
+        let _: Result<(), Error> = device_manager.for_each_device(|devtype, devid, _, _| {
             assert_eq!(*devtype, DeviceType::Virtio(type_id));
             match devid.as_str() {
                 "foo" => count += 1,

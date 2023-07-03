@@ -108,7 +108,7 @@ impl Persist<'_> for Net {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)?;
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;

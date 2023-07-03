@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io, result};
+use std::io;
 
 pub const MAX_BUFFER_SIZE: usize = 65562;
 pub const NET_QUEUE_SIZE: u16 = 256;
@@ -53,5 +53,3 @@ pub enum NetError {
     #[error("The VNET header is missing from the frame")]
     VnetHeaderMissing,
 }
-
-pub type Result<T> = result::Result<T, NetError>;

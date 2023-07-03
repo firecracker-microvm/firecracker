@@ -19,7 +19,6 @@ pub enum Error {
     #[error("Failure in setting the LAPIC configuration: {0}")]
     SetLapic(kvm_ioctls::Error),
 }
-type Result<T> = std::result::Result<T, Error>;
 
 // Defines poached from apicdef.h kernel header.
 const APIC_LVT0: usize = 0x350;
@@ -47,7 +46,7 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
-pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
+pub fn set_lint(vcpu: &VcpuFd) -> Result<(), Error> {
     let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
 
     let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);

@@ -44,12 +44,10 @@ use utils::vm_memory::GuestMemoryMmap;
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
-use super::super::{
-    Result as VsockResult, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
-};
+use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
-use super::{defs, Error, MuxerConnection, Result};
+use super::{defs, Error, MuxerConnection};
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -118,7 +116,7 @@ impl VsockChannel for VsockMuxer {
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -191,7 +189,7 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
-    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         let conn_key = ConnMapKey {
             local_port: pkt.dst_port(),
             peer_port: pkt.src_port(),
@@ -243,7 +241,7 @@ impl VsockChannel for VsockMuxer {
         }
 
         // Alright, everything looks in order - forward this packet to its owning connection.
-        let mut res: VsockResult<()> = Ok(());
+        let mut res: Result<(), VsockError> = Ok(());
         self.apply_conn_mutation(conn_key, |conn| {
             res = conn.send_pkt(pkt, mem);
         });
@@ -306,7 +304,7 @@ impl VsockBackend for VsockMuxer {}
 
 impl VsockMuxer {
     /// Muxer constructor.
-    pub fn new(cid: u64, host_sock_path: String) -> Result<Self> {
+    pub fn new(cid: u64, host_sock_path: String) -> Result<Self, Error> {
         // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
         let host_sock = UnixListener::bind(&host_sock_path)
@@ -424,7 +422,7 @@ impl VsockMuxer {
     }
 
     /// Parse a host "connect" command, and extract the destination vsock port.
-    fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32> {
+    fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32, Error> {
         let mut buf = [0u8; 32];
 
         // This is the minimum number of bytes that we should be able to read, when parsing a
@@ -467,7 +465,7 @@ impl VsockMuxer {
     }
 
     /// Add a new connection to the active connection pool.
-    fn add_connection(&mut self, key: ConnMapKey, conn: MuxerConnection) -> Result<()> {
+    fn add_connection(&mut self, key: ConnMapKey, conn: MuxerConnection) -> Result<(), Error> {
         // We might need to make room for this new connection, so let's sweep the kill queue
         // first.  It's fine to do this here because:
         // - unless the kill queue is out of sync, this is a pretty inexpensive operation; and
@@ -532,7 +530,7 @@ impl VsockMuxer {
     }
 
     /// Register a new epoll listener under the muxer's nested epoll FD.
-    fn add_listener(&mut self, fd: RawFd, listener: EpollListener) -> Result<()> {
+    fn add_listener(&mut self, fd: RawFd, listener: EpollListener) -> Result<(), Error> {
         let evset = match listener {
             EpollListener::Connection { evset, .. } => evset,
             EpollListener::LocalStream(_) => EventSet::IN,

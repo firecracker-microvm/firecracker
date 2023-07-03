@@ -5,8 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::result;
-
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
@@ -34,8 +32,6 @@ pub enum Error {
     Initialization(KvmIoctlsError),
 }
 
-type Result<T> = result::Result<T, Error>;
-
 /// Describes a KVM context that gets attached to the microVM.
 /// It gives access to the functionality of the KVM wrapper as
 /// long as every required KVM capability is present on the host.
@@ -46,7 +42,7 @@ pub struct KvmContext {
 }
 
 impl KvmContext {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<Self, Error> {
         use kvm_ioctls::Cap::*;
         let kvm = Kvm::new()?;
 

@@ -7,7 +7,7 @@
 
 use std::fmt::{self, Debug};
 use std::fs::File;
-use std::io::{Error as IoError, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, Read, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
@@ -46,8 +46,6 @@ pub enum Error {
     SetSizeOfVnetHdr(IoError),
 }
 
-pub type Result<T> = ::std::result::Result<T, Error>;
-
 const TUNTAP: ::std::os::raw::c_uint = 84;
 ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
 ioctl_iow_nr!(TUNSETOFFLOAD, TUNTAP, 208, ::std::os::raw::c_uint);
@@ -69,7 +67,7 @@ pub struct Tap {
 
 // Returns a byte vector representing the contents of a null terminated C string which
 // contains if_name.
-fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
+fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], Error> {
     // Convert the string slice to bytes, and shadow the variable,
     // since we no longer need the &str version.
     let if_name = if_name.as_bytes();
@@ -131,7 +129,7 @@ impl Tap {
     /// # Arguments
     ///
     /// * `if_name` - the name of the interface.
-    pub fn open_named(if_name: &str) -> Result<Tap> {
+    pub fn open_named(if_name: &str) -> Result<Tap, Error> {
         // SAFETY: Open calls are safe because we give a constant null-terminated
         // string and verify the result.
         let fd = unsafe {
@@ -174,7 +172,7 @@ impl Tap {
     }
 
     /// Set the offload flags for the tap interface.
-    pub fn set_offload(&self, flags: c_uint) -> Result<()> {
+    pub fn set_offload(&self, flags: c_uint) -> Result<(), Error> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         if unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) } < 0 {
             return Err(Error::SetOffloadFlags(IoError::last_os_error()));
@@ -184,7 +182,7 @@ impl Tap {
     }
 
     /// Set the size of the vnet hdr.
-    pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
+    pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<(), Error> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         if unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) } < 0 {
             return Err(Error::SetSizeOfVnetHdr(IoError::last_os_error()));
@@ -194,7 +192,7 @@ impl Tap {
     }
 
     /// Write an `IoVecBuffer` to tap
-    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> IoResult<usize> {
+    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = buffer.iovec_count() as i32;
         let iov = buffer.as_iovec_ptr();
 
@@ -209,17 +207,17 @@ impl Tap {
 }
 
 impl Read for Tap {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
         self.tap_file.read(buf)
     }
 }
 
 impl Write for Tap {
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
         self.tap_file.write(buf)
     }
 
-    fn flush(&mut self) -> IoResult<()> {
+    fn flush(&mut self) -> Result<(), IoError> {
         Ok(())
     }
 }

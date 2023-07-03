@@ -16,7 +16,7 @@ use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE, RNG_QUEUE_SIZE};
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_RNG};
+use crate::devices::virtio::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_RNG};
 use crate::devices::Error as DeviceError;
 
 pub const ENTROPY_DEV_ID: &str = "rng";
@@ -30,8 +30,6 @@ pub enum Error {
     #[error("Could not get random bytes: {0}")]
     Random(#[from] aws_lc_rs::error::Unspecified),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub struct Entropy {
@@ -51,16 +49,16 @@ pub struct Entropy {
 }
 
 impl Entropy {
-    pub fn new(rate_limiter: RateLimiter) -> Result<Self> {
+    pub fn new(rate_limiter: RateLimiter) -> Result<Self, Error> {
         let queues = vec![Queue::new(RNG_QUEUE_SIZE); RNG_NUM_QUEUES];
         Self::new_with_queues(queues, rate_limiter)
     }
 
-    pub fn new_with_queues(queues: Vec<Queue>, rate_limiter: RateLimiter) -> Result<Self> {
+    pub fn new_with_queues(queues: Vec<Queue>, rate_limiter: RateLimiter) -> Result<Self, Error> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
         let queue_events = (0..RNG_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
-            .collect::<std::result::Result<Vec<EventFd>, io::Error>>()?;
+            .collect::<Result<Vec<EventFd>, io::Error>>()?;
         let irq_trigger = IrqTrigger::new()?;
 
         Ok(Self {
@@ -79,7 +77,7 @@ impl Entropy {
         ENTROPY_DEV_ID
     }
 
-    fn signal_used_queue(&self) -> std::result::Result<(), DeviceError> {
+    fn signal_used_queue(&self) -> Result<(), DeviceError> {
         debug!("entropy: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
@@ -104,7 +102,7 @@ impl Entropy {
         rate_limiter.manual_replenish(bytes, TokenType::Bytes);
     }
 
-    fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32> {
+    fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32, Error> {
         // If guest provided us with an empty buffer just return directly
         if iovec.len() == 0 {
             return Ok(0);
@@ -284,7 +282,7 @@ impl VirtioDevice for Entropy {
         self.device_state.is_activated()
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.activate_event.write(1).map_err(|err| {
             error!("entropy: Cannot write to activate_evt: {err}");
             METRICS.entropy.activate_fails.inc();

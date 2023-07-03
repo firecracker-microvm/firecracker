@@ -30,7 +30,7 @@ pub enum LoggerLevel {
 impl LoggerLevel {
     /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
     /// or returns an error if the parsing failed.
-    pub fn from_string(level: String) -> std::result::Result<Self, LoggerConfigError> {
+    pub fn from_string(level: String) -> Result<Self, LoggerConfigError> {
         match level.to_ascii_lowercase().as_str() {
             "error" => Ok(LoggerLevel::Error),
             "warning" => Ok(LoggerLevel::Warning),
@@ -116,7 +116,7 @@ pub enum LoggerConfigError {
 pub fn init_logger(
     logger_cfg: LoggerConfig,
     instance_info: &InstanceInfo,
-) -> std::result::Result<(), LoggerConfigError> {
+) -> Result<(), LoggerConfigError> {
     LOGGER
         .set_max_level(logger_cfg.level.into())
         .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)

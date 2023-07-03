@@ -51,7 +51,7 @@ impl Persist<'_> for Entropy {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
             &constructor_args.0,
             TYPE_RNG,

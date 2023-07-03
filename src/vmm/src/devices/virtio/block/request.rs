@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::result;
 
 use log::error;
 use logger::{IncMetric, METRICS};
@@ -212,7 +211,7 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
-    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> result::Result<Self, BlockError> {
+    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> Result<Self, BlockError> {
         let request_header: RequestHeader =
             memory.read_obj(addr).map_err(BlockError::GuestMemory)?;
         Ok(request_header)
@@ -233,7 +232,7 @@ impl Request {
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
         num_disk_sectors: u64,
-    ) -> result::Result<Request, BlockError> {
+    ) -> Result<Request, BlockError> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(BlockError::UnexpectedWriteOnlyDescriptor);

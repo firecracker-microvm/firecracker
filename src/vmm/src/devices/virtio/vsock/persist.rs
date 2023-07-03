@@ -74,7 +74,7 @@ impl Persist<'_> for VsockUnixBackend {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         match state {
             VsockBackendState::Uds(uds_state) => Ok(VsockUnixBackend::new(
                 constructor_args.cid,
@@ -102,7 +102,7 @@ where
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // Restore queues.
         let queues = state
             .virtio_state
@@ -149,10 +149,7 @@ pub(crate) mod tests {
             })
         }
 
-        fn restore(
-            _: Self::ConstructorArgs,
-            state: &Self::State,
-        ) -> std::result::Result<Self, Self::Error> {
+        fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
             match state {
                 VsockBackendState::Uds(_) => Ok(TestBackend::new()),
             }

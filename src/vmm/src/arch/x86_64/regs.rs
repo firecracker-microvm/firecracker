@@ -49,7 +49,6 @@ pub enum Error {
     #[error("WritePML4Address")]
     WritePML4Address,
 }
-type Result<T> = std::result::Result<T, Error>;
 
 /// Error type for [`setup_fpu`].
 #[derive(Debug, derive_more::From, PartialEq, Eq)]
@@ -70,7 +69,7 @@ impl fmt::Display for SetupFpuError {
 /// # Errors
 ///
 /// When [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_fpu`] errors.
-pub fn setup_fpu(vcpu: &VcpuFd) -> std::result::Result<(), SetupFpuError> {
+pub fn setup_fpu(vcpu: &VcpuFd) -> Result<(), SetupFpuError> {
     let fpu: kvm_fpu = kvm_fpu {
         fcw: 0x37f,
         mxcsr: 0x1f80,
@@ -100,7 +99,7 @@ impl fmt::Display for SetupRegistersError {
 /// # Errors
 ///
 /// When [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_regs`] errors.
-pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> std::result::Result<(), SetupRegistersError> {
+pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<(), SetupRegistersError> {
     let regs: kvm_regs = kvm_regs {
         rflags: 0x0000_0000_0000_0002u64,
         rip: boot_ip,
@@ -150,10 +149,7 @@ pub enum SetupSpecialRegistersError {
 /// - [`configure_segments_and_sregs`] errors.
 /// - [`setup_page_tables`] errors
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_sregs`] errors.
-pub fn setup_sregs(
-    mem: &GuestMemoryMmap,
-    vcpu: &VcpuFd,
-) -> std::result::Result<(), SetupSpecialRegistersError> {
+pub fn setup_sregs(mem: &GuestMemoryMmap, vcpu: &VcpuFd) -> Result<(), SetupSpecialRegistersError> {
     let mut sregs: kvm_sregs = vcpu
         .get_sregs()
         .map_err(SetupSpecialRegistersError::GetSpecialRegisters)?;
@@ -178,7 +174,7 @@ const X86_CR0_PE: u64 = 0x1;
 const X86_CR0_PG: u64 = 0x8000_0000;
 const X86_CR4_PAE: u64 = 0x20;
 
-fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
+fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<(), Error> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
@@ -191,14 +187,14 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<()> {
     Ok(())
 }
 
-fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<()> {
+fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<(), Error> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
         .write_obj(val, boot_idt_addr)
         .map_err(|_| Error::WriteIDT)
 }
 
-fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
+fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(), Error> {
     let gdt_table: [u64; BOOT_GDT_MAX] = [
         gdt_entry(0, 0, 0),            // NULL
         gdt_entry(0xa09b, 0, 0xfffff), // CODE
@@ -234,7 +230,7 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
     Ok(())
 }
 
-fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<()> {
+fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(), Error> {
     // Puts PML4 right after zero page but aligned to 4k.
     let boot_pml4_addr = GuestAddress(PML4_START);
     let boot_pdpte_addr = GuestAddress(PDPTE_START);

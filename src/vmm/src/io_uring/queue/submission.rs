@@ -6,7 +6,6 @@ use std::io::Error as IOError;
 use std::mem;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;

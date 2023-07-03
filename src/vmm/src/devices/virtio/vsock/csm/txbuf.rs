@@ -8,7 +8,7 @@ use std::num::Wrapping;
 
 use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
 
-use super::{defs, Error, Result};
+use super::{defs, Error};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
@@ -46,7 +46,7 @@ impl TxBuf {
     ///
     /// Either the entire source slice will be pushed to the ring-buffer, or none of it, if
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
-    pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<()> {
+    pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<(), Error> {
         // Error out if there's no room to push the entire slice.
         if self.len() + src.len() > Self::SIZE {
             return Err(Error::TxBufFull);
@@ -85,7 +85,7 @@ impl TxBuf {
     ///
     /// Return the number of bytes that have been transferred out of the ring-buffer and into
     /// the writable stream.
-    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize> {
+    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize, Error> {
         // Nothing to do, if this buffer holds no data.
         if self.is_empty() {
             return Ok(0);
@@ -139,7 +139,7 @@ impl WriteVolatile for TxBuf {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
-    ) -> std::result::Result<usize, VolatileMemoryError> {
+    ) -> Result<usize, VolatileMemoryError> {
         self.push(buf).map(|()| buf.len()).map_err(|err| {
             VolatileMemoryError::IOError(std::io::Error::new(std::io::ErrorKind::Other, err))
         })
@@ -148,7 +148,7 @@ impl WriteVolatile for TxBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Result as IoResult, Write};
+    use std::io::{Error as IoError, ErrorKind, Write};
 
     use super::*;
 
@@ -171,7 +171,7 @@ mod tests {
     }
 
     impl Write for TestSink {
-        fn write(&mut self, src: &[u8]) -> IoResult<usize> {
+        fn write(&mut self, src: &[u8]) -> Result<usize, IoError> {
             if self.err.is_some() {
                 return Err(self.err.take().unwrap());
             }
@@ -179,7 +179,7 @@ mod tests {
             self.data.extend_from_slice(&src[..len_to_push]);
             Ok(len_to_push)
         }
-        fn flush(&mut self) -> IoResult<()> {
+        fn flush(&mut self) -> Result<(), IoError> {
             Ok(())
         }
     }

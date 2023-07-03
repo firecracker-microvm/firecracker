@@ -17,7 +17,6 @@ mod common_types {
 
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::result::Result;
 
 pub use common_types::*;
 use serde::de::Error as SerdeError;

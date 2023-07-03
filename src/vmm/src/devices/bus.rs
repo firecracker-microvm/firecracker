@@ -9,7 +9,6 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::result;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
@@ -18,8 +17,6 @@ pub enum Error {
     #[error("New device overlaps with an old device.")]
     Overlap,
 }
-
-pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug, Copy, Clone)]
 struct BusRange(u64, u64);
@@ -244,7 +241,12 @@ impl Bus {
     }
 
     /// Puts the given device at the given address space.
-    pub fn insert(&mut self, device: Arc<Mutex<BusDevice>>, base: u64, len: u64) -> Result<()> {
+    pub fn insert(
+        &mut self,
+        device: Arc<Mutex<BusDevice>>,
+        base: u64,
+        len: u64,
+    ) -> Result<(), Error> {
         if len == 0 {
             return Err(Error::Overlap);
         }

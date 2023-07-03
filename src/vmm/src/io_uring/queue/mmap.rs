@@ -3,7 +3,6 @@
 
 use std::io::Error as IOError;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 
 use utils::vm_memory::{MmapRegion, MmapRegionError};
 

@@ -5,8 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::io;
 use std::num::Wrapping;
-use std::{io, result};
 
 use log::warn;
 use logger::{IncMetric, METRICS};
@@ -25,8 +25,6 @@ pub enum Error {
     #[error("Could not trigger keyboard interrupt: {0}.")]
     KbdInterruptFailure(io::Error),
 }
-
-type Result<T> = result::Result<T, Error>;
 
 /// Offset of the status port (port 0x64)
 const OFS_STATUS: u64 = 4;
@@ -104,7 +102,7 @@ impl I8042Device {
 
     /// Signal a ctrl-alt-del (reset) event.
     #[inline]
-    pub fn trigger_ctrl_alt_del(&mut self) -> Result<()> {
+    pub fn trigger_ctrl_alt_del(&mut self) -> Result<(), Error> {
         // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
         // Fail if we don't have room for the whole sequence.
         if BUF_SIZE - self.buf_len() < 4 {
@@ -116,7 +114,7 @@ impl I8042Device {
         Ok(())
     }
 
-    fn trigger_kbd_interrupt(&self) -> Result<()> {
+    fn trigger_kbd_interrupt(&self) -> Result<(), Error> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
             return Err(Error::KbdInterruptDisabled);
@@ -126,7 +124,7 @@ impl I8042Device {
             .map_err(Error::KbdInterruptFailure)
     }
 
-    fn trigger_key(&mut self, key: u16) -> Result<()> {
+    fn trigger_key(&mut self, key: u16) -> Result<(), Error> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
             if BUF_SIZE - self.buf_len() < 2 {
@@ -143,7 +141,7 @@ impl I8042Device {
     }
 
     #[inline]
-    fn push_byte(&mut self, byte: u8) -> Result<()> {
+    fn push_byte(&mut self, byte: u8) -> Result<(), Error> {
         self.status |= SB_OUT_DATA_AVAIL;
         if self.buf_len() == BUF_SIZE {
             return Err(Error::InternalBufferFull);

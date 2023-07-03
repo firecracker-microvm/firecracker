@@ -135,8 +135,6 @@ pub enum Error {
     VcpuTemplateError,
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
 #[derive(Debug, thiserror::Error, derive_more::From, Eq, PartialEq)]
 #[error("{0}")]
@@ -188,7 +186,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm) -> Result<Self> {
+    pub fn new(index: u8, vm: &Vm) -> Result<Self, Error> {
         let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::VcpuFd)?;
 
         Ok(KvmVcpu {
@@ -213,7 +211,7 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-    ) -> std::result::Result<(), KvmVcpuConfigureError> {
+    ) -> Result<(), KvmVcpuConfigureError> {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
 
         // Apply machine specific changes to CPUID.
@@ -289,7 +287,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// When [`kvm_ioctls::VcpuFd::get_tsc_khz`] errrors.
-    pub fn get_tsc_khz(&self) -> std::result::Result<u32, GetTscError> {
+    pub fn get_tsc_khz(&self) -> Result<u32, GetTscError> {
         let res = self.fd.get_tsc_khz()?;
         Ok(res)
     }
@@ -303,7 +301,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When [`kvm_ioctls::VcpuFd::get_cpuid2`] returns errors.
-    fn get_cpuid(&self) -> Result<kvm_bindings::CpuId> {
+    fn get_cpuid(&self) -> Result<kvm_bindings::CpuId, Error> {
         let mut cpuid = self
             .fd
             .get_cpuid2(KVM_MAX_CPUID_ENTRIES)
@@ -334,7 +332,7 @@ impl KvmVcpu {
     /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
     /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
     ///   could be gotten) is less than expected.
-    fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>> {
+    fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>, Error> {
         let mut msr_chunks: Vec<Msrs> = Vec::new();
 
         for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
@@ -366,7 +364,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
-    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>> {
+    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>, Error> {
         let mut msrs: HashMap<u32, u64> = HashMap::new();
         self.get_msr_chunks(msr_index_list)?
             .iter()
@@ -379,7 +377,7 @@ impl KvmVcpu {
     }
 
     /// Save the KVM internal state.
-    pub fn save_state(&self) -> Result<VcpuState> {
+    pub fn save_state(&self) -> Result<VcpuState, Error> {
         // Ordering requirements:
         //
         // KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
@@ -440,7 +438,7 @@ impl KvmVcpu {
     ///
     /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
     /// serializable ones.
-    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, Error> {
         let cpuid = cpuid::Cpuid::try_from(self.get_cpuid()?)?;
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msr_index_list = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm)?;
@@ -453,10 +451,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// When
-    pub fn is_tsc_scaling_required(
-        &self,
-        state_tsc_freq: u32,
-    ) -> std::result::Result<bool, GetTscError> {
+    pub fn is_tsc_scaling_required(&self, state_tsc_freq: u32) -> Result<bool, GetTscError> {
         // Compare the current TSC freq to the one found
         // in the state. If they are different, we need to
         // scale the TSC to the freq found in the state.
@@ -468,12 +463,12 @@ impl KvmVcpu {
     }
 
     // Scale the TSC frequency of this vCPU to the one provided as a parameter.
-    pub fn set_tsc_khz(&self, tsc_freq: u32) -> std::result::Result<(), SetTscError> {
+    pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<(), SetTscError> {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
+    pub fn restore_state(&self, state: &VcpuState) -> Result<(), Error> {
         // Ordering requirements:
         //
         // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
@@ -530,7 +525,7 @@ impl KvmVcpu {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
-    pub fn run_arch_emulation(&self, exit: VcpuExit) -> super::Result<VcpuEmulation> {
+    pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, super::Error> {
         match exit {
             VcpuExit::IoIn(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
@@ -696,7 +691,7 @@ mod tests {
         vm: &Vm,
         vcpu: &KvmVcpu,
         template: &CustomCpuTemplate,
-    ) -> std::result::Result<VcpuConfig, GuestConfigError> {
+    ) -> Result<VcpuConfig, GuestConfigError> {
         let cpuid = Cpuid::try_from(vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msrs = vcpu

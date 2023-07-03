@@ -46,7 +46,6 @@ pub enum Error {
     TooManyConnections,
 }
 
-type Result<T> = std::result::Result<T, Error>;
 type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
 
 impl VsockConnectionBackend for std::os::unix::net::UnixStream {}
