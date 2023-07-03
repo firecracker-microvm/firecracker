@@ -32,6 +32,8 @@
   thread due to a misconfiguration of the `api_event_fd`.
 - Fixed CPUID leaf 0x1 to disable perfmon and debug feature on x86 host.
 - Fixed passing through cache information from host in CPUID leaf 0x80000006.
+- Fixed the T2S CPU template to set the RRSBA bit of the IA32_ARCH_CAPABILITIES
+  MSR to 1 in accordance with an Intel microcode update.
 
 ## [1.3.0]
 
