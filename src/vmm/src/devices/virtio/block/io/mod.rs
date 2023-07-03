@@ -9,8 +9,8 @@ use std::fs::File;
 
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
-pub use self::async_io::AsyncFileEngine;
-pub use self::sync_io::SyncFileEngine;
+pub use self::async_io::{AsyncFileEngine, AsyncIoError};
+pub use self::sync_io::{SyncFileEngine, SyncIoError};
 use crate::devices::virtio::block::device::FileEngineType;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -26,17 +26,17 @@ pub enum FileEngineOk<T> {
 }
 
 #[derive(Debug)]
-pub enum Error {
-    Sync(sync_io::Error),
-    Async(async_io::Error),
+pub enum BlockIoError {
+    Sync(SyncIoError),
+    Async(AsyncIoError),
     UnsupportedEngine(FileEngineType),
     GetKernelVersion(utils::kernel_version::Error),
 }
 
-impl Error {
+impl BlockIoError {
     pub fn is_throttling_err(&self) -> bool {
         match self {
-            Error::Async(async_io::Error::IoUring(err)) => err.is_throttling_err(),
+            BlockIoError::Async(AsyncIoError::IoUring(err)) => err.is_throttling_err(),
             _ => false,
         }
     }
@@ -57,16 +57,19 @@ pub enum FileEngine<T> {
 }
 
 impl<T: Debug> FileEngine<T> {
-    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine<T>, Error> {
+    pub fn from_file(
+        file: File,
+        engine_type: FileEngineType,
+    ) -> Result<FileEngine<T>, BlockIoError> {
         if !engine_type
             .is_supported()
-            .map_err(Error::GetKernelVersion)?
+            .map_err(BlockIoError::GetKernelVersion)?
         {
-            return Err(Error::UnsupportedEngine(engine_type));
+            return Err(BlockIoError::UnsupportedEngine(engine_type));
         }
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
-                AsyncFileEngine::from_file(file).map_err(Error::Async)?,
+                AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
             )),
             FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
         }
@@ -87,14 +90,14 @@ impl<T: Debug> FileEngine<T> {
         addr: GuestAddress,
         count: u32,
         user_data: T,
-    ) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
+    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
         match self {
             FileEngine::Async(engine) => {
                 match engine.push_read(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
                     Err(err) => Err(UserDataError {
                         user_data: err.user_data,
-                        error: Error::Async(err.error),
+                        error: BlockIoError::Async(err.error),
                     }),
                 }
             }
@@ -102,7 +105,7 @@ impl<T: Debug> FileEngine<T> {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
                 Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(err),
+                    error: BlockIoError::Sync(err),
                 }),
             },
         }
@@ -115,14 +118,14 @@ impl<T: Debug> FileEngine<T> {
         addr: GuestAddress,
         count: u32,
         user_data: T,
-    ) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
+    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
         match self {
             FileEngine::Async(engine) => {
                 match engine.push_write(offset, mem, addr, count, user_data) {
                     Ok(_) => Ok(FileEngineOk::Submitted),
                     Err(err) => Err(UserDataError {
                         user_data: err.user_data,
-                        error: Error::Async(err.error),
+                        error: BlockIoError::Async(err.error),
                     }),
                 }
             }
@@ -130,19 +133,22 @@ impl<T: Debug> FileEngine<T> {
                 Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
                 Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(err),
+                    error: BlockIoError::Sync(err),
                 }),
             },
         }
     }
 
-    pub fn flush(&mut self, user_data: T) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
+    pub fn flush(
+        &mut self,
+        user_data: T,
+    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
         match self {
             FileEngine::Async(engine) => match engine.push_flush(user_data) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
                 Err(err) => Err(UserDataError {
                     user_data: err.user_data,
-                    error: Error::Async(err.error),
+                    error: BlockIoError::Async(err.error),
                 }),
             },
             FileEngine::Sync(engine) => match engine.flush() {
@@ -152,23 +158,25 @@ impl<T: Debug> FileEngine<T> {
                 })),
                 Err(err) => Err(UserDataError {
                     user_data,
-                    error: Error::Sync(err),
+                    error: BlockIoError::Sync(err),
                 }),
             },
         }
     }
 
-    pub fn drain(&mut self, discard: bool) -> Result<(), Error> {
+    pub fn drain(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
-            FileEngine::Async(engine) => engine.drain(discard).map_err(Error::Async),
+            FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
             FileEngine::Sync(_engine) => Ok(()),
         }
     }
 
-    pub fn drain_and_flush(&mut self, discard: bool) -> Result<(), Error> {
+    pub fn drain_and_flush(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
-            FileEngine::Async(engine) => engine.drain_and_flush(discard).map_err(Error::Async),
-            FileEngine::Sync(engine) => engine.flush().map_err(Error::Sync),
+            FileEngine::Async(engine) => {
+                engine.drain_and_flush(discard).map_err(BlockIoError::Async)
+            }
+            FileEngine::Sync(engine) => engine.flush().map_err(BlockIoError::Sync),
         }
     }
 }
@@ -263,7 +271,7 @@ pub mod tests {
                 TempFile::new().unwrap().into_file(),
                 FileEngineType::Async
             ),
-            Err(Error::UnsupportedEngine(FileEngineType::Async))
+            Err(BlockIoError::UnsupportedEngine(FileEngineType::Async))
         ));
     }
 
@@ -274,11 +282,11 @@ pub mod tests {
         let file = unsafe { File::from_raw_fd(-2) };
         let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
         let res = engine.read(0, &mem, GuestAddress(0), 0, ());
-        assert_err!(res, Error::Sync(sync_io::Error::Seek(_e)));
+        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::Seek(_e)));
         let res = engine.write(0, &mem, GuestAddress(0), 0, ());
-        assert_err!(res, Error::Sync(sync_io::Error::Seek(_e)));
+        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::Seek(_e)));
         let res = engine.flush(());
-        assert_err!(res, Error::Sync(sync_io::Error::SyncAll(_e)));
+        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::SyncAll(_e)));
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();

@@ -30,7 +30,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
-use crate::device_manager::persist::{DeviceStates, Error as DevicePersistError};
+use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::devices::virtio::TYPE_NET;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
@@ -45,7 +45,7 @@ use crate::vmm_config::snapshot::{
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{mem_size_mib, memory_snapshot, vstate, Error as VmmError, EventManager, Vmm};
+use crate::{mem_size_mib, memory_snapshot, vstate, EventManager, Vmm, VmmError};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
@@ -169,16 +169,16 @@ pub enum MicrovmStateError {
     RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
     #[error("Cannot restore Vcpu state: {0:?}")]
-    RestoreVcpuState(vstate::vcpu::Error),
+    RestoreVcpuState(vstate::vcpu::VcpuError),
     /// Failed to restore VM state.
     #[error("Cannot restore Vm state: {0:?}")]
-    RestoreVmState(vstate::vm::Error),
+    RestoreVmState(vstate::vm::VmError),
     /// Failed to save Vcpu state.
     #[error("Cannot save Vcpu state: {0:?}")]
-    SaveVcpuState(vstate::vcpu::Error),
+    SaveVcpuState(vstate::vcpu::VcpuError),
     /// Failed to save VM state.
     #[error("Cannot save Vm state: {0:?}")]
-    SaveVmState(vstate::vm::Error),
+    SaveVmState(vstate::vm::VmError),
     /// Failed to send event.
     #[error("Cannot signal Vcpu: {0:?}")]
     SignalVcpu(VcpuSendEventError),
@@ -207,7 +207,7 @@ pub enum CreateSnapshotError {
     UnsupportedVersion,
     /// Failed to write memory to snapshot.
     #[error("Cannot write memory file: {0}")]
-    Memory(memory_snapshot::Error),
+    Memory(memory_snapshot::SnapshotMemoryError),
     /// Failed to open memory backing file.
     #[error("Cannot perform {0} on the memory backing file: {1}")]
     MemoryBackingFile(&'static str, io::Error),
@@ -594,7 +594,7 @@ pub enum GuestMemoryFromFileError {
     File(#[from] std::io::Error),
     /// Failed to restore guest memory.
     #[error("Failed to restore guest memory: {0}")]
-    Restore(#[from] crate::memory_snapshot::Error),
+    Restore(#[from] crate::memory_snapshot::SnapshotMemoryError),
 }
 
 fn guest_memory_from_file(
@@ -612,7 +612,7 @@ fn guest_memory_from_file(
 pub enum GuestMemoryFromUffdError {
     /// Failed to restore guest memory.
     #[error("Failed to restore guest memory: {0}")]
-    Restore(#[from] crate::memory_snapshot::Error),
+    Restore(#[from] crate::memory_snapshot::SnapshotMemoryError),
     /// Failed to UFFD object.
     #[error("Failed to UFFD object: {0}")]
     Create(userfaultfd::Error),
@@ -912,7 +912,7 @@ mod tests {
         let err = UnsupportedVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = Memory(memory_snapshot::Error::WriteMemory(
+        let err = Memory(memory_snapshot::SnapshotMemoryError::WriteMemory(
             GuestMemoryError::HostAddressNotAvailable,
         ));
         let _ = format!("{}{:?}", err, err);
@@ -949,16 +949,16 @@ mod tests {
         let err = RestoreDevices(DevicePersistError::MmioTransport);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVcpuState(vstate::vcpu::Error::VcpuTlsInit);
+        let err = RestoreVcpuState(vstate::vcpu::VcpuError::VcpuTlsInit);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVmState(vstate::vm::Error::NotEnoughMemorySlots);
+        let err = RestoreVmState(vstate::vm::VmError::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVcpuState(vstate::vcpu::Error::VcpuTlsNotPresent);
+        let err = SaveVcpuState(vstate::vcpu::VcpuError::VcpuTlsNotPresent);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
+        let err = SaveVmState(vstate::vm::VmError::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
         let err = SignalVcpu(VcpuSendEventError(errno::Error::new(0)));

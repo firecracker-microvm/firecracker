@@ -20,7 +20,7 @@ const PDE_START: u64 = 0xb000;
 
 /// Errors thrown while setting up x86_64 registers.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
+pub enum RegsError {
     /// Failed to get SREGs for this CPU.
     #[error("Failed to get SREGs for this CPU: {0}")]
     GetStatusRegisters(kvm_ioctls::Error),
@@ -126,10 +126,10 @@ pub enum SetupSpecialRegistersError {
     GetSpecialRegisters(utils::errno::Error),
     /// Failed to configure segments and special registers
     #[error("Failed to configure segments and special registers: {0}")]
-    ConfigureSegmentsAndSpecialRegisters(Error),
+    ConfigureSegmentsAndSpecialRegisters(RegsError),
     /// Failed to setup page tables
     #[error("Failed to setup page tables: {0}")]
-    SetupPageTables(Error),
+    SetupPageTables(RegsError),
     /// Failed to set special registers
     #[error("Failed to set special registers: {0}")]
     SetSpecialRegisters(utils::errno::Error),
@@ -174,27 +174,30 @@ const X86_CR0_PE: u64 = 0x1;
 const X86_CR0_PG: u64 = 0x8000_0000;
 const X86_CR4_PAE: u64 = 0x20;
 
-fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<(), Error> {
+fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<(), RegsError> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
             .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
-            .ok_or(Error::WriteGDT)?;
+            .ok_or(RegsError::WriteGDT)?;
         guest_mem
             .write_obj(*entry, addr)
-            .map_err(|_| Error::WriteGDT)?;
+            .map_err(|_| RegsError::WriteGDT)?;
     }
     Ok(())
 }
 
-fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<(), Error> {
+fn write_idt_value(val: u64, guest_mem: &GuestMemoryMmap) -> Result<(), RegsError> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
         .write_obj(val, boot_idt_addr)
-        .map_err(|_| Error::WriteIDT)
+        .map_err(|_| RegsError::WriteIDT)
 }
 
-fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(), Error> {
+fn configure_segments_and_sregs(
+    mem: &GuestMemoryMmap,
+    sregs: &mut kvm_sregs,
+) -> Result<(), RegsError> {
     let gdt_table: [u64; BOOT_GDT_MAX] = [
         gdt_entry(0, 0, 0),            // NULL
         gdt_entry(0xa09b, 0, 0xfffff), // CODE
@@ -230,7 +233,7 @@ fn configure_segments_and_sregs(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) ->
     Ok(())
 }
 
-fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(), Error> {
+fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(), RegsError> {
     // Puts PML4 right after zero page but aligned to 4k.
     let boot_pml4_addr = GuestAddress(PML4_START);
     let boot_pdpte_addr = GuestAddress(PDPTE_START);
@@ -238,16 +241,16 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 
     // Entry covering VA [0..512GB)
     mem.write_obj(boot_pdpte_addr.raw_value() | 0x03, boot_pml4_addr)
-        .map_err(|_| Error::WritePML4Address)?;
+        .map_err(|_| RegsError::WritePML4Address)?;
 
     // Entry covering VA [0..1GB)
     mem.write_obj(boot_pde_addr.raw_value() | 0x03, boot_pdpte_addr)
-        .map_err(|_| Error::WritePDPTEAddress)?;
+        .map_err(|_| RegsError::WritePDPTEAddress)?;
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
     for i in 0..512 {
         mem.write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
-            .map_err(|_| Error::WritePDEAddress)?;
+            .map_err(|_| RegsError::WritePDEAddress)?;
     }
 
     sregs.cr3 = boot_pml4_addr.raw_value();

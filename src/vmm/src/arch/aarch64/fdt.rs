@@ -55,7 +55,7 @@ pub trait DeviceInfoForFDT {
 
 /// Errors thrown while configuring the Flattened Device Tree for aarch64.
 #[derive(Debug, derive_more::From)]
-pub enum Error {
+pub enum FdtError {
     CreateFdt(VmFdtError),
     ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
@@ -70,7 +70,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &GICDevice,
     initrd: &Option<InitrdConfig>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, FdtError> {
     // Allocate stuff necessary for storing the blob.
     let mut fdt_writer = FdtWriter::new()?;
 
@@ -110,7 +110,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
-fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), Error> {
+fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtError> {
     // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
     // cpu in the device tree, we process the L1 and non-L1 caches separately.
     // We use sysfs for extracting the cache information.
@@ -118,7 +118,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), Error
     let mut non_l1_caches: Vec<CacheEntry> = Vec::new();
     // We use sysfs for extracting the cache information.
     read_cache_config(&mut l1_caches, &mut non_l1_caches)
-        .map_err(|err| Error::ReadCacheInfo(err.to_string()))?;
+        .map_err(|err| FdtError::ReadCacheInfo(err.to_string()))?;
 
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     let cpus = fdt.begin_node("cpus")?;
@@ -214,7 +214,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), Error
     Ok(())
 }
 
-fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Result<(), Error> {
+fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Result<(), FdtError> {
     let mem_size = guest_mem.last_addr().raw_value() - super::layout::DRAM_MEM_START + 1;
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
     // for an explanation of this.
@@ -232,7 +232,7 @@ fn create_chosen_node(
     fdt: &mut FdtWriter,
     cmdline: CString,
     initrd: &Option<InitrdConfig>,
-) -> Result<(), Error> {
+) -> Result<(), FdtError> {
     let chosen = fdt.begin_node("chosen")?;
     // Workaround to be able to reuse an existing property_*() method; in property_string() method,
     // the cmdline is reconverted to a CString to be written in memory as a null terminated string.
@@ -254,7 +254,7 @@ fn create_chosen_node(
     Ok(())
 }
 
-fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Error> {
+fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), FdtError> {
     let interrupt = fdt.begin_node("intc")?;
     fdt.property_string("compatible", gic_device.fdt_compatibility())?;
     fdt.property_null("interrupt-controller")?;
@@ -280,7 +280,7 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Er
     Ok(())
 }
 
-fn create_clock_node(fdt: &mut FdtWriter) -> Result<(), Error> {
+fn create_clock_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     // The Advanced Peripheral Bus (APB) is part of the Advanced Microcontroller Bus Architecture
     // (AMBA) protocol family. It defines a low-cost interface that is optimized for minimal power
     // consumption and reduced interface complexity.
@@ -295,7 +295,7 @@ fn create_clock_node(fdt: &mut FdtWriter) -> Result<(), Error> {
     Ok(())
 }
 
-fn create_timer_node(fdt: &mut FdtWriter) -> Result<(), Error> {
+fn create_timer_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     // See
     // https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/interrupt-controller/arch_timer.txt
     // These are fixed interrupt numbers for the timer device.
@@ -317,7 +317,7 @@ fn create_timer_node(fdt: &mut FdtWriter) -> Result<(), Error> {
     Ok(())
 }
 
-fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), Error> {
+fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     let compatible = "arm,psci-0.2";
 
     let psci = fdt.begin_node("psci")?;
@@ -334,7 +334,7 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), Error> {
 fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
-) -> Result<(), Error> {
+) -> Result<(), FdtError> {
     let virtio_mmio = fdt.begin_node(&format!("virtio_mmio@{:x}", dev_info.addr()))?;
 
     fdt.property_string("compatible", "virtio,mmio")?;
@@ -352,7 +352,7 @@ fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
 fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
-) -> Result<(), Error> {
+) -> Result<(), FdtError> {
     let serial = fdt.begin_node(&format!("uart@{:x}", dev_info.addr()))?;
 
     fdt.property_string("compatible", "ns16550a")?;
@@ -371,7 +371,7 @@ fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
 fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
-) -> Result<(), Error> {
+) -> Result<(), FdtError> {
     // Driver requirements:
     // https://elixir.bootlin.com/linux/latest/source/Documentation/devicetree/bindings/rtc/arm,pl031.yaml
     // We do not offer the `interrupt` property because the device
@@ -391,7 +391,7 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut FdtWriter,
     dev_info: &HashMap<(DeviceType, String), T, S>,
-) -> Result<(), Error> {
+) -> Result<(), FdtError> {
     // Create one temp Vec to store all virtio devices
     let mut ordered_virtio_device: Vec<&T> = Vec::new();
 

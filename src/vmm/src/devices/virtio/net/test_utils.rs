@@ -24,7 +24,7 @@ use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::devices::virtio::{Net, Queue, QueueError};
-use crate::devices::Error as DeviceError;
+use crate::devices::DeviceError;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 

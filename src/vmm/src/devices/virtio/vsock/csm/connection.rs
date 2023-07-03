@@ -93,7 +93,7 @@ use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
-use super::{defs, ConnState, Error, PendingRx, PendingRxSet};
+use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -467,7 +467,9 @@ where
                         self.local_port, self.peer_port, err
                     );
                     match err {
-                        Error::TxBufFlush(inner) if inner.kind() == ErrorKind::WouldBlock => {
+                        VsockCsmError::TxBufFlush(inner)
+                            if inner.kind() == ErrorKind::WouldBlock =>
+                        {
                             // This should never happen (EWOULDBLOCK after EPOLLOUT), but
                             // it does, so let's absorb it.
                         }
@@ -589,8 +591,8 @@ where
     /// Warning: this will bypass the connection state machine and write directly to the
     /// underlying stream. No account of this write is kept, which includes bypassing
     /// vsock flow control.
-    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        self.stream.write(buf).map_err(Error::StreamWrite)
+    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize, VsockCsmError> {
+        self.stream.write(buf).map_err(VsockCsmError::StreamWrite)
     }
 
     /// Send some raw data (a byte-slice) to the host stream.

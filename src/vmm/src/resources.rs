@@ -30,7 +30,7 @@ use crate::vmm_config::vsock::*;
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, derive_more::From)]
-pub enum Error {
+pub enum ResourcesError {
     /// Balloon device configuration error.
     #[error("Balloon device error: {0}")]
     BalloonDevice(BalloonConfigError),
@@ -134,7 +134,7 @@ impl VmResources {
         instance_info: &InstanceInfo,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, ResourcesError> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
 
         if let Some(logger) = vmm_config.logger {
@@ -155,7 +155,8 @@ impl VmResources {
         }
 
         if let Some(cpu_config) = vmm_config.cpu_config {
-            let cpu_config_json = std::fs::read_to_string(cpu_config).map_err(Error::File)?;
+            let cpu_config_json =
+                std::fs::read_to_string(cpu_config).map_err(ResourcesError::File)?;
             let cpu_template: CustomCpuTemplate = serde_json::from_str(&cpu_config_json)?;
             resources.set_custom_cpu_template(cpu_template);
         }
@@ -612,14 +613,14 @@ mod tests {
 
         // Invalid JSON string must yield a `serde_json` error.
         match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
         match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
@@ -648,7 +649,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
+            Err(ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
 
@@ -677,7 +678,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
+            Err(ResourcesError::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
             _ => unreachable!(),
         }
 
@@ -711,7 +712,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
@@ -828,7 +829,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
+            Err(ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
 
@@ -861,7 +862,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -897,7 +898,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -937,7 +938,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+            Err(ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
                 crate::devices::virtio::net::NetError::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
@@ -1078,7 +1079,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::File(_)) => (),
+            Err(ResourcesError::File(_)) => (),
             _ => unreachable!(),
         }
     }

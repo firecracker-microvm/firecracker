@@ -11,7 +11,7 @@ pub mod legacy;
 pub mod pseudo;
 pub mod virtio;
 
-pub use bus::{Bus, BusDevice, Error as BusError};
+pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 use logger::{IncMetric, METRICS};
 
@@ -19,7 +19,7 @@ use crate::devices::virtio::{QueueError, VsockError};
 
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.
-pub(crate) fn report_net_event_fail(err: Error) {
+pub(crate) fn report_net_event_fail(err: DeviceError) {
     error!("{:?}", err);
     METRICS.net.event_fails.inc();
 }
@@ -30,7 +30,7 @@ pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub enum DeviceError {
     /// Failed to read from the TAP device.
     FailedReadTap,
     /// Failed to signal irq.

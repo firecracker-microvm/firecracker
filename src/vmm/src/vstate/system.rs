@@ -10,7 +10,7 @@ use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, derive_more::From, thiserror::Error)]
-pub enum Error {
+pub enum SystemError {
     /// The host kernel reports an invalid KVM API version.
     #[error("The host kernel reports an invalid KVM API version: {0}")]
     ApiVersion(i32),
@@ -42,13 +42,13 @@ pub struct KvmContext {
 }
 
 impl KvmContext {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new() -> Result<Self, SystemError> {
         use kvm_ioctls::Cap::*;
         let kvm = Kvm::new()?;
 
         // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
-            return Err(Error::ApiVersion(kvm.get_api_version()));
+            return Err(SystemError::ApiVersion(kvm.get_api_version()));
         }
 
         // A list of KVM capabilities we want to check.
@@ -85,7 +85,7 @@ impl KvmContext {
                 Ok(KvmContext { kvm, max_memslots })
             }
 
-            Some(c) => Err(Error::Capabilities(*c)),
+            Some(c) => Err(SystemError::Capabilities(*c)),
         }
     }
 

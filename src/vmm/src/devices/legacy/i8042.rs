@@ -14,7 +14,7 @@ use utils::eventfd::EventFd;
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum I8042Error {
     /// Internal i8042 buffer is full.
     #[error("i8042 internal buffer full.")]
     InternalBufferFull,
@@ -102,11 +102,11 @@ impl I8042Device {
 
     /// Signal a ctrl-alt-del (reset) event.
     #[inline]
-    pub fn trigger_ctrl_alt_del(&mut self) -> Result<(), Error> {
+    pub fn trigger_ctrl_alt_del(&mut self) -> Result<(), I8042Error> {
         // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
         // Fail if we don't have room for the whole sequence.
         if BUF_SIZE - self.buf_len() < 4 {
-            return Err(Error::InternalBufferFull);
+            return Err(I8042Error::InternalBufferFull);
         }
         self.trigger_key(KEY_CTRL)?;
         self.trigger_key(KEY_ALT)?;
@@ -114,37 +114,37 @@ impl I8042Device {
         Ok(())
     }
 
-    fn trigger_kbd_interrupt(&self) -> Result<(), Error> {
+    fn trigger_kbd_interrupt(&self) -> Result<(), I8042Error> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
-            return Err(Error::KbdInterruptDisabled);
+            return Err(I8042Error::KbdInterruptDisabled);
         }
         self.kbd_interrupt_evt
             .write(1)
-            .map_err(Error::KbdInterruptFailure)
+            .map_err(I8042Error::KbdInterruptFailure)
     }
 
-    fn trigger_key(&mut self, key: u16) -> Result<(), Error> {
+    fn trigger_key(&mut self, key: u16) -> Result<(), I8042Error> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
             if BUF_SIZE - self.buf_len() < 2 {
-                return Err(Error::InternalBufferFull);
+                return Err(I8042Error::InternalBufferFull);
             }
             self.push_byte((key >> 8) as u8)?;
         }
         self.push_byte((key & 0xff) as u8)?;
 
         match self.trigger_kbd_interrupt() {
-            Ok(_) | Err(Error::KbdInterruptDisabled) => Ok(()),
+            Ok(_) | Err(I8042Error::KbdInterruptDisabled) => Ok(()),
             Err(err) => Err(err),
         }
     }
 
     #[inline]
-    fn push_byte(&mut self, byte: u8) -> Result<(), Error> {
+    fn push_byte(&mut self, byte: u8) -> Result<(), I8042Error> {
         self.status |= SB_OUT_DATA_AVAIL;
         if self.buf_len() == BUF_SIZE {
-            return Err(Error::InternalBufferFull);
+            return Err(I8042Error::InternalBufferFull);
         }
         self.buf[self.btail.0 % BUF_SIZE] = byte;
         self.btail += Wrapping(1usize);
@@ -198,7 +198,8 @@ impl I8042Device {
                 // another interrupt, to let the guest know they need to issue another read from
                 // port 0x60.
                 if (self.status & SB_OUT_DATA_AVAIL) != 0 {
-                    if let Err(Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt() {
+                    if let Err(I8042Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt()
+                    {
                         warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
                     }
                 }
@@ -288,7 +289,7 @@ impl I8042Device {
                 self.flush_buf();
                 // Buffer is empty, push() will always succeed.
                 self.push_byte(0xFA).unwrap();
-                if let Err(Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt() {
+                if let Err(I8042Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt() {
                     warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
                 }
             }
@@ -309,8 +310,8 @@ impl I8042Device {
 mod tests {
     use super::*;
 
-    impl PartialEq for Error {
-        fn eq(&self, other: &Error) -> bool {
+    impl PartialEq for I8042Error {
+        fn eq(&self, other: &I8042Error) -> bool {
             self.to_string() == other.to_string()
         }
     }
@@ -416,7 +417,10 @@ mod tests {
             i8042.push_byte(i as u8).unwrap();
             assert_eq!(i8042.buf_len(), i + 1);
         }
-        assert_eq!(i8042.push_byte(0).unwrap_err(), Error::InternalBufferFull);
+        assert_eq!(
+            i8042.push_byte(0).unwrap_err(),
+            I8042Error::InternalBufferFull
+        );
     }
 
     #[test]
@@ -479,7 +483,7 @@ mod tests {
         assert_eq!(i8042.buf_len(), BUF_SIZE - 1);
         assert_eq!(
             i8042.trigger_key(KEY_DEL).unwrap_err(),
-            Error::InternalBufferFull
+            I8042Error::InternalBufferFull
         );
 
         // Test ctrl+alt+del trigger failure.
@@ -488,7 +492,7 @@ mod tests {
         assert_eq!(i8042.buf_len(), BUF_SIZE - 3);
         assert_eq!(
             i8042.trigger_ctrl_alt_del().unwrap_err(),
-            Error::InternalBufferFull
+            I8042Error::InternalBufferFull
         );
 
         // Test kbd interrupt disable.
@@ -500,7 +504,7 @@ mod tests {
         i8042.trigger_key(KEY_CTRL).unwrap();
         assert_eq!(
             i8042.trigger_kbd_interrupt().unwrap_err(),
-            Error::KbdInterruptDisabled
+            I8042Error::KbdInterruptDisabled
         )
     }
 }

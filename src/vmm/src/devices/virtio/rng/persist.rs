@@ -11,7 +11,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
-use crate::devices::virtio::rng::{Entropy, Error as EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
+use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
 use crate::devices::virtio::{VirtioDeviceState, TYPE_RNG};
 
 #[derive(Debug, Clone, Versionize)]
@@ -30,7 +30,7 @@ impl EntropyConstructorArgs {
 }
 
 #[derive(Debug, derive_more::From)]
-pub enum Error {
+pub enum EntropyPersistError {
     CreateEntropy(EntropyError),
     VirtioState(VirtioStateError),
     RestoreRateLimiter(std::io::Error),
@@ -39,7 +39,7 @@ pub enum Error {
 impl Persist<'_> for Entropy {
     type State = EntropyState;
     type ConstructorArgs = EntropyConstructorArgs;
-    type Error = Error;
+    type Error = EntropyPersistError;
 
     fn save(&self) -> Self::State {
         EntropyState {

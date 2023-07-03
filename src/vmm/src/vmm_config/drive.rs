@@ -15,7 +15,7 @@ pub use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::Block;
 pub use crate::devices::virtio::CacheType;
-use crate::Error as VmmError;
+use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error)]

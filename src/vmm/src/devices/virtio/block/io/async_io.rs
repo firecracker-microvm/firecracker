@@ -14,10 +14,10 @@ use crate::devices::virtio::block::io::UserDataError;
 use crate::devices::virtio::block::IO_URING_NUM_ENTRIES;
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
-use crate::io_uring::{Error as IoUringError, IoUring};
+use crate::io_uring::{IoUring, IoUringError};
 
 #[derive(Debug)]
-pub enum Error {
+pub enum AsyncIoError {
     IO(std::io::Error),
     IoUring(IoUringError),
     Submit(std::io::Error),
@@ -65,10 +65,10 @@ impl<T: Debug> WrappedUserData<T> {
 }
 
 impl<T: Debug> AsyncFileEngine<T> {
-    pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
+    pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, AsyncIoError> {
         log_dev_preview_warning("Async file IO", Option::None);
 
-        let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(AsyncIoError::EventFd)?;
         let ring = IoUring::new(
             u32::from(IO_URING_NUM_ENTRIES),
             vec![&file],
@@ -82,7 +82,7 @@ impl<T: Debug> AsyncFileEngine<T> {
             ],
             Some(completion_evt.as_raw_fd()),
         )
-        .map_err(Error::IoUring)?;
+        .map_err(AsyncIoError::IoUring)?;
 
         Ok(AsyncFileEngine {
             file,
@@ -108,13 +108,13 @@ impl<T: Debug> AsyncFileEngine<T> {
         addr: GuestAddress,
         count: u32,
         user_data: T,
-    ) -> Result<(), UserDataError<T, Error>> {
+    ) -> Result<(), UserDataError<T, AsyncIoError>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(err),
+                    error: AsyncIoError::GuestMemory(err),
                 });
             }
         };
@@ -134,7 +134,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         }
         .map_err(|err_tuple| UserDataError {
             user_data: err_tuple.1.user_data,
-            error: Error::IoUring(err_tuple.0),
+            error: AsyncIoError::IoUring(err_tuple.0),
         })
     }
 
@@ -145,13 +145,13 @@ impl<T: Debug> AsyncFileEngine<T> {
         addr: GuestAddress,
         count: u32,
         user_data: T,
-    ) -> Result<(), UserDataError<T, Error>> {
+    ) -> Result<(), UserDataError<T, AsyncIoError>> {
         let buf = match mem.get_slice(addr, count as usize) {
             Ok(slice) => slice.as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
                     user_data,
-                    error: Error::GuestMemory(err),
+                    error: AsyncIoError::GuestMemory(err),
                 });
             }
         };
@@ -171,11 +171,11 @@ impl<T: Debug> AsyncFileEngine<T> {
         }
         .map_err(|err_tuple| UserDataError {
             user_data: err_tuple.1.user_data,
-            error: Error::IoUring(err_tuple.0),
+            error: AsyncIoError::IoUring(err_tuple.0),
         })
     }
 
-    pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, Error>> {
+    pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, AsyncIoError>> {
         let wrapped_user_data = WrappedUserData::new(user_data);
 
         // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
@@ -183,20 +183,23 @@ impl<T: Debug> AsyncFileEngine<T> {
         unsafe { self.ring.push(Operation::fsync(0, wrapped_user_data)) }.map_err(|err_tuple| {
             UserDataError {
                 user_data: err_tuple.1.user_data,
-                error: Error::IoUring(err_tuple.0),
+                error: AsyncIoError::IoUring(err_tuple.0),
             }
         })
     }
 
-    pub fn kick_submission_queue(&mut self) -> Result<(), Error> {
-        self.ring.submit().map(|_| ()).map_err(Error::IoUring)
+    pub fn kick_submission_queue(&mut self) -> Result<(), AsyncIoError> {
+        self.ring
+            .submit()
+            .map(|_| ())
+            .map_err(AsyncIoError::IoUring)
     }
 
-    pub fn drain(&mut self, discard_cqes: bool) -> Result<(), Error> {
+    pub fn drain(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
         self.ring
             .submit_and_wait_all()
             .map(|_| ())
-            .map_err(Error::IoUring)?;
+            .map_err(AsyncIoError::IoUring)?;
 
         if discard_cqes {
             // Drain the completion queue so that we may deallocate the user_data fields.
@@ -206,26 +209,26 @@ impl<T: Debug> AsyncFileEngine<T> {
         Ok(())
     }
 
-    pub fn drain_and_flush(&mut self, discard_cqes: bool) -> Result<(), Error> {
+    pub fn drain_and_flush(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
         self.drain(discard_cqes)?;
 
         // Sync data out to physical media on host.
         // We don't need to call flush first since all the ops are performed through io_uring
         // and Rust shouldn't manage any data in its internal buffers.
-        self.file.sync_all().map_err(Error::SyncAll)?;
+        self.file.sync_all().map_err(AsyncIoError::SyncAll)?;
 
         Ok(())
     }
 
-    fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
+    fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, AsyncIoError> {
         // SAFETY: We trust that the host kernel did not touch the operation's `user_data` field.
         // The `T` type is the same one used for `push`ing and since the kernel made this entry
         // available in the completion queue, we now have full ownership of it.
 
-        unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(Error::IoUring)
+        unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(AsyncIoError::IoUring)
     }
 
-    pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, Error> {
+    pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, AsyncIoError> {
         let cqe = self.do_pop()?.map(|cqe| {
             let count = cqe.count();
             cqe.map_user_data(|wrapped_user_data| {

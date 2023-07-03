@@ -43,7 +43,7 @@ pub enum BlockError {
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
     // Error coming from the IO engine.
-    FileEngine(io::Error),
+    FileEngine(io::BlockIoError),
     // Error manipulating the backing file.
     BackingFile(std::io::Error, String),
     // Error opening eventfd.
