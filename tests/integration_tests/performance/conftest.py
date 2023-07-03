@@ -85,6 +85,7 @@ def send_metrics(metrics, stats: core.Core):
 def st_core(metrics, results_file_dumper, guest_kernel, rootfs, request):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
+    stats.check_baseline = request.config.getoption("--perf-fail")
     stats.iterations = 1
     stats.custom = {
         "instance": global_props.instance,

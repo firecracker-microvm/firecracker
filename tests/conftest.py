@@ -125,6 +125,15 @@ MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 METRICS = get_metrics_logger()
 
 
+def pytest_addoption(parser):
+    """Pytest hook. Add command line options."""
+    parser.addoption(
+        "--perf-fail",
+        action="store_true",
+        help="fail the test if the baseline does not match",
+    )
+
+
 @pytest.fixture(scope="function", autouse=True)
 def record_props(request, record_property):
     """Decorate test results with additional properties.
