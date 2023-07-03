@@ -161,12 +161,11 @@ def snapshot_create_producer(
     return value
 
 
-def snapshot_resume_producer(logger, vm_builder, snapshot, snapshot_type, use_ramdisk):
+def snapshot_resume_producer(logger, vm_builder, snapshot, use_ramdisk):
     """Produce results for snapshot resume tests."""
     microvm, metrics_fifo = vm_builder.build_from_snapshot(
         snapshot,
         resume=True,
-        diff_snapshots=snapshot_type == SnapshotType.DIFF,
         use_ramdisk=use_ramdisk,
     )
 
@@ -205,7 +204,6 @@ def test_older_snapshot_resume_latency(
     restore in current version.
     """
     logger = logging.getLogger("old_snapshot_load")
-    snapshot_type = SnapshotType.FULL
     jailer = firecracker_release.jailer()
     fc_version = firecracker_release.base_name()[1:]
     logger.info("Firecracker version: %s", fc_version)
@@ -229,18 +227,14 @@ def test_older_snapshot_resume_latency(
     disks = [vm.rootfs_file]
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
-    snapshot = snapshot_builder.create(
-        disks, rootfs.ssh_key(), snapshot_type, net_ifaces=[iface]
-    )
+    snapshot = snapshot_builder.create(disks, rootfs.ssh_key(), net_ifaces=[iface])
     vm.kill()
 
     st_core.name = "older_snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
     st_core.custom["guest_config"] = microvm_cfg.strip(".json")
     st_core.custom["io_engine"] = io_engine
-    st_core.custom["snapshot_type"] = (
-        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
-    )
+    st_core.custom["snapshot_type"] = "FULL"
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
@@ -248,7 +242,6 @@ def test_older_snapshot_resume_latency(
             "logger": logger,
             "vm_builder": MicrovmBuilder(bin_cloner_path),
             "snapshot": snapshot,
-            "snapshot_type": snapshot_type,
             "use_ramdisk": False,
         },
     )
@@ -363,13 +356,11 @@ def test_snapshot_create_latency(
 
 
 @pytest.mark.parametrize("guest_mem_mib", [256, 512])
-@pytest.mark.parametrize("snapshot_type", [SnapshotType.FULL, SnapshotType.DIFF])
 def test_snapshot_resume_latency(
     microvm_factory,
     guest_kernel,
     rootfs,
     guest_mem_mib,
-    snapshot_type,
     io_engine,
     st_core,
     bin_cloner_path,
@@ -384,7 +375,6 @@ def test_snapshot_resume_latency(
     TODO: Multiple microvm sizes must be tested in the async pipeline.
     """
     logger = logging.getLogger("snapshot_load")
-    diff_snapshots = snapshot_type == SnapshotType.DIFF
     vcpus = 2
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
@@ -393,7 +383,6 @@ def test_snapshot_resume_latency(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
         use_initrd=True,
-        track_dirty_pages=diff_snapshots,
         rootfs_io_engine=io_engine,
     )
     iface = NetIfaceConfig()
@@ -403,12 +392,11 @@ def test_snapshot_resume_latency(
     exit_code, _, _ = vm.ssh.execute_command("ls")
     assert exit_code == 0
 
-    logger.info("Create %s", snapshot_type)
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm)
     disks = [vm.rootfs_file]
     snapshot = snapshot_builder.create(
-        disks, rootfs.ssh_key(), snapshot_type, use_ramdisk=True, net_ifaces=[iface]
+        disks, rootfs.ssh_key(), use_ramdisk=True, net_ifaces=[iface]
     )
     vm.kill()
 
@@ -416,9 +404,7 @@ def test_snapshot_resume_latency(
     st_core.iterations = SAMPLE_COUNT
     st_core.custom["guest_config"] = microvm_cfg.strip(".json")
     st_core.custom["io_engine"] = io_engine
-    st_core.custom["snapshot_type"] = (
-        "FULL" if snapshot_type == SnapshotType.FULL else "DIFF"
-    )
+    st_core.custom["snapshot_type"] = "FULL"
 
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
@@ -426,7 +412,6 @@ def test_snapshot_resume_latency(
             "logger": logger,
             "vm_builder": MicrovmBuilder(bin_cloner_path),
             "snapshot": snapshot,
-            "snapshot_type": snapshot_type,
             "use_ramdisk": True,
         },
     )
