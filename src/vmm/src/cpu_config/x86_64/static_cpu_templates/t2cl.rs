@@ -243,6 +243,8 @@ pub fn t2cl() -> CustomCpuTemplate {
             // - Bit 00: RDCL_NO (Intel SDM) / Reserved (AMD APM)
             // - Bit 01: IBRS_ALL (Intel SDM) / Reserved (AMD APM)
             // - Bit 02: RSBA (Intel SDM) / Reserved (AMD APM)
+            //   This bit is passed-through intentionally.
+            //   See https://github.com/firecracker-microvm/firecracker/pull/3907
             // - Bit 03: SKIP_L1DFL_VMENTRY (Intel SDM) / Reserved (AMD APM)
             // - Bit 04: SSB_NO (Intel SDM) / Reserved (AMD APM)
             // - Bit 05: MDS_NO (Intel SDM) / Reserved (AMD APM)
@@ -260,6 +262,8 @@ pub fn t2cl() -> CustomCpuTemplate {
             // - Bit 17: FB_CLEAR (Intel SDM) / Reserved (AMD APM)
             // - Bit 18: FB_CLEAR_CTRL (Intel SDM) / Reserved (AMD APM)
             // - Bit 19: RRSBA (Intel SDM) / Reserved (AMD APM)
+            //   This is bit passed-through intentionally.
+            //   See https://github.com/firecracker-microvm/firecracker/pull/3907
             // - Bit 20: BHI_NO (Intel SDM) / Reserved (AMD APM)
             // - Bit 21: XAPIC_DISABLE_STATUS (Intel SDM) / Reserved (AMD APM)
             // - Bit 22: Reserved (Intel SDM) / Reserved (AMD APM)
@@ -269,7 +273,7 @@ pub fn t2cl() -> CustomCpuTemplate {
             RegisterModifier {
                 addr: 0x10a,
                 bitmap: RegisterValueFilter {
-                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111,
+                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0111_1111_1111_1111_1011,
                     value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_1110_1011,
                 },
             },
