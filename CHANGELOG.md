@@ -5,6 +5,8 @@
 ### Fixed
 
 - Fixed passing through cache information from host in CPUID leaf 0x80000006.
+- Fixed the T2S CPU template to set the RRSBA bit of the IA32_ARCH_CAPABILITIES
+  MSR to 1 in accordance with an Intel microcode update.
 
 ## [1.2.1]
 
