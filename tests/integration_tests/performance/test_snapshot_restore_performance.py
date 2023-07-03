@@ -93,7 +93,7 @@ def get_snap_restore_latency(
     nets=3,
     blocks=3,
     all_devices=False,
-    iterations=10,
+    iterations=30,
 ):
     """Restore snapshots with various configs to measure latency."""
     scratch_drives = get_scratch_drives()
