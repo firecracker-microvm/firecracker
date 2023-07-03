@@ -131,7 +131,7 @@ pub fn t2cl() -> CustomCpuTemplate {
         msr_modifiers: vec![RegisterModifier {
             addr: 0x10a,
             bitmap: RegisterValueFilter {
-                filter: 0b1111111111111111111111111111111111111111111111111111111111111111,
+                filter: 0b1111111111111111111111111111111111111111111101111111111111111011,
                 value: 0b0000000000000000000000000000000000000000000000000000000011101011,
             },
         }],
