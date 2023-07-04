@@ -20,6 +20,7 @@ import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.artifacts import NetIfaceConfig
 from framework.defs import SUPPORTED_HOST_KERNELS
+from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 PLATFORM = platform.machine()
@@ -262,10 +263,12 @@ def test_cpu_rdmsr(
 
     This test boots a uVM and tries to read a set of MSRs from the guest.
     The guest MSR list is compared against a list of MSRs that are expected
-    when running on a particular combination of host kernel, guest kernel and
-    CPU template.
+    when running on a particular combination of host CPU model, host kernel,
+    guest kernel and CPU template.
 
     The list is dependent on:
+    * host CPU model, since some MSRs are passed through from the host in some
+      CPU templates
     * host kernel version, since firecracker relies on MSR emulation provided
       by KVM
     * guest kernel version, since some MSRs are writable from guest uVMs and
@@ -303,18 +306,14 @@ def test_cpu_rdmsr(
     microvm_df = pd.read_csv(stdout)
 
     # Load baseline
-    # Baselines are taken by running `msr_reader.sh` on:
-    # * host running kernel 4.14 and guest 4.14 with the `bionic-msrtools` rootfs
-    # * host running kernel 4.14 and guest 5.10 with the `bionic-msrtools` rootfs
-    # * host running kernel 5.10 and guest 4.14 with the `bionic-msrtools` rootfs
-    # * host running kernel 5.10 and guest 5.10 with the `bionic-msrtools` rootfs
-    host_kv = utils.get_kernel_version(level=1)
+    host_cpu = global_props.cpu_codename
+    host_kv = global_props.host_linux_version
     guest_kv = re.search("vmlinux-(.*).bin", guest_kernel.name()).group(1)
     baseline_file_name = (
-        f"msr_list_{msr_cpu_template}_{host_kv}host_{guest_kv}guest.csv"
+        f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
     baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
-    # When gathering baselines, uncomment the following line.
+    # We can use the following line when regathering baselines.
     # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
     baseline_df = pd.read_csv(baseline_file_path)
 
