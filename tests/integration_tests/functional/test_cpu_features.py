@@ -538,12 +538,8 @@ def test_cpu_wrmsr_restore(
     dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
 
     # Compare the two lists of MSR values and assert they are equal
-    before_df = pd.read_csv(
-        Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
-    )
-    after_df = pd.read_csv(
-        Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"]
-    )
+    before_df = pd.read_csv(snapshot_artifacts_dir / shared_names["msrs_before_fname"])
+    after_df = pd.read_csv(snapshot_artifacts_dir / shared_names["msrs_after_fname"])
     check_msrs_are_equal(before_df, after_df)
 
 
@@ -603,9 +599,7 @@ def test_cpu_cpuid_snapshot(
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
-    cpuid_before_fname = (
-        Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"]
-    )
+    cpuid_before_fname = snapshot_artifacts_dir / shared_names["cpuid_before_fname"]
 
     dump_cpuid_to_file(cpuid_before_fname, vm.ssh)
 
@@ -702,13 +696,13 @@ def test_cpu_cpuid_restore(
     )
 
     # Dump CPUID to a file for further comparison
-    cpuid_after_fname = Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"]
+    cpuid_after_fname = snapshot_artifacts_dir / shared_names["cpuid_after_fname"]
     dump_cpuid_to_file(cpuid_after_fname, vm.ssh)
 
     # Compare the two lists of MSR values and assert they are equal
     check_cpuid_is_equal(
-        Path(snapshot_artifacts_dir) / shared_names["cpuid_before_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["cpuid_after_fname"],
+        snapshot_artifacts_dir / shared_names["cpuid_before_fname"],
+        snapshot_artifacts_dir / shared_names["cpuid_after_fname"],
         guest_kernel.base_name(),  # this is to annotate the assertion output
     )
 
