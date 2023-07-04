@@ -30,7 +30,7 @@ def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
         ],
         "label": label,
         "timeout": 30,
-        "agents": [f"instance={dst_instance}", f"kv={dst_kv}", f"os={dst_os}"],
+        "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
     }
 
 

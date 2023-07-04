@@ -4,7 +4,7 @@
 
 """Generate Buildkite performance pipelines dynamically"""
 
-from common import COMMON_PARSER, group, pipeline_to_json
+from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
 
 perf_test = {
     "block": {
@@ -48,7 +48,6 @@ def build_group(test):
     return group(
         label=test.pop("label"),
         command=f"./tools/devtool -y test {devtool_opts} -- -m nonci --reruns {retries} {test_path}",
-        agent_tags=["ag=1"],
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
         platforms=test.pop("platforms"),
@@ -72,10 +71,10 @@ tests = [perf_test[test] for test in args.test]
 for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
-    test_data["env"] = dict(args.step_env)
+    test_data.setdefault("agents", {"ag": 1})
     test_data["retries"] = args.retries
     test_data["timeout_in_minutes"] *= args.retries + 1
-    test_data.update(args.step_param)
+    test_data = overlay_dict(test_data, args.step_param)
     test_data["retry"] = {
         "automatic": [
             # Agent was lost, retry one time

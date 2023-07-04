@@ -23,6 +23,17 @@ DEFAULT_PLATFORMS = [
 ]
 
 
+def overlay_dict(base: dict, update: dict):
+    """Overlay a dict over a base one"""
+    base = base.copy()
+    for key, val in update.items():
+        if key in base and isinstance(val, dict):
+            base[key] = overlay_dict(base.get(key, {}), val)
+        else:
+            base[key] = val
+    return base
+
+
 def field_fmt(field, args):
     """If `field` is a string, interpolate variables in `args`"""
     if not isinstance(field, str):
@@ -30,15 +41,24 @@ def field_fmt(field, args):
     return field.format(**args)
 
 
-def group(label, command, instances, platforms, agent_tags=None, **kwargs):
+def dict_fmt(dict_tmpl, args):
+    """Apply field_fmt over a hole dict"""
+    res = {}
+    for key, val in dict_tmpl.items():
+        if isinstance(val, dict):
+            res[key] = dict_fmt(val, args)
+        else:
+            res[key] = field_fmt(val, args)
+    return res
+
+
+def group(label, command, instances, platforms, **kwargs):
     """
     Generate a group step with specified parameters, for each instance+kernel
     combination
 
     https://buildkite.com/docs/pipelines/group-step
     """
-    if agent_tags is None:
-        agent_tags = []
     # Use the 1st character of the group name (should be an emoji)
     label1 = label[0]
     steps = []
@@ -48,16 +68,14 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
     for instance in instances:
         for os, kv in platforms:
             # fill any templated variables
-            args = {"os": os, "kv": kv, "instance": instance}
-            step_commands = [cmd.format(**args) for cmd in commands]
-            step_kwargs = {key: field_fmt(val, args) for key, val in kwargs.items()}
-            agents = [f"instance={instance}", f"kv={kv}", f"os={os}"] + agent_tags
+            args = {"instance": instance, "os": os, "kv": kv}
             step = {
-                "command": step_commands,
+                "command": [cmd.format(**args) for cmd in commands],
                 "label": f"{label1} {instance} {os} {kv}",
-                "agents": agents,
-                **step_kwargs,
+                "agents": args,
             }
+            step_kwargs = dict_fmt(kwargs, args)
+            step = overlay_dict(step_kwargs, step)
             steps.append(step)
 
     return {"group": label, "steps": steps}
@@ -66,6 +84,31 @@ def group(label, command, instances, platforms, agent_tags=None, **kwargs):
 def pipeline_to_json(pipeline):
     """Serialize a pipeline dictionary to JSON"""
     return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
+
+
+class DictAction(argparse.Action):
+    """An argparse action that can receive a nested dictionary
+
+    Examples:
+
+        --step-param a/b/c=3
+        {"a": {"b": {"c": 3}}}
+    """
+
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs not allowed")
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, value, option_string=None):
+        res = getattr(namespace, self.dest, {})
+        key_str, val = value.split("=", maxsplit=1)
+        keys = key_str.split("/")
+        update = {keys[-1]: val}
+        for key in list(reversed(keys))[1:]:
+            update = {key: update}
+        res = overlay_dict(res, update)
+        setattr(namespace, self.dest, res)
 
 
 COMMON_PARSER = argparse.ArgumentParser()
@@ -88,16 +131,7 @@ COMMON_PARSER.add_argument(
     metavar="PARAM=VALUE",
     help="parameters to add to each step",
     required=False,
-    action="append",
-    default=[],
-    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
-)
-COMMON_PARSER.add_argument(
-    "--step-env",
-    metavar="KEY=VALUE",
-    help="environment to use in each step",
-    required=False,
-    action="append",
-    default=[],
-    type=lambda arg: tuple(arg.split("=", maxsplit=1)),
+    action=DictAction,
+    default={},
+    type=str,
 )
