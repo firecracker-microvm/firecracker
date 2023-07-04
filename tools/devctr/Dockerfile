@@ -76,6 +76,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && rustup target add $ARCH-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit cargo-deny grcov cargo-sort \
+    && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) # Kani only work on x86_64 \
     && rm -rf "$CARGO_HOME/registry" \
     && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
     && rm -rf "$CARGO_HOME/git" \
