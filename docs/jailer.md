@@ -108,7 +108,8 @@ After starting, the Jailer goes through the following operations:
   for `/usr/bin/firecracker`). Nothing is done if the path already
   exists (it should not, since `id` is supposed to be unique).
 - Copy `exec_file` to
-  `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`.
+  `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`. This ensures the
+  new process will not share memory with any other Firecracker process.
 - Set resource bounds for current process and its children through
   `--resource-limit` argument, by calling `setrlimit()` system call with the
   specific resource argument. If no limits are provided, the jailer bounds
