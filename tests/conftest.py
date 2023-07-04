@@ -526,3 +526,23 @@ def io_engine(request):
     if request.param == "Async" and not is_io_uring_supported():
         pytest.skip("io_uring not supported in this kernel")
     return request.param
+
+
+@pytest.fixture
+def results_dir(request):
+    """
+    Fixture yielding the path to a directory into which the test can dump its results
+
+    Directories are unique per test, and named after the test name. Everything the tests puts
+    into its directory will to be uploaded to S3. Directory will be placed inside defs.TEST_RESULTS_DIR.
+
+    For example
+    ```py
+    def test_my_file(results_dir):
+        (results_dir / "output.txt").write_text("Hello World")
+    ```
+    will result in `defs.TEST_RESULTS_DIR`/test_my_file/output.txt.
+    """
+    results_dir = defs.TEST_RESULTS_DIR / request.node.originalname
+    results_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir

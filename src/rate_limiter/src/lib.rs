@@ -560,6 +560,266 @@ impl Default for RateLimiter {
     }
 }
 
+#[cfg(kani)]
+#[allow(dead_code)] // Avoid warning when using stubs.
+mod verification {
+    use std::time::Instant;
+
+    use super::*;
+
+    mod stubs {
+        use std::time::Instant;
+
+        use crate::TokenBucket;
+
+        // On Unix, the Rust Standard Library defines Instants as
+        //
+        // struct Instance(struct inner::Instant {
+        //     t: struct Timespec {
+        //         tv_sec: i64,
+        //         tv_nsec: struct Nanoseconds(u32),
+        //     }
+        // }
+        //
+        // This is not really repr-compatible with the below, as the structs (apart from
+        // `Nanoseconds`) are repr(Rust), but currently this seems to work.
+        #[repr(C)]
+        struct InstantStub {
+            tv_sec: i64,
+            tv_nsec: u32,
+        }
+
+        // The last value returned by this stub, in nano seconds. We keep these variables separately
+        // for Kani performance reasons (just counting nanos and then doing division/modulo
+        // to get seconds/nanos is slow as those operations are very difficult for Kani's
+        // underlying SAT solvers).
+        static mut LAST_SECONDS: i64 = 0;
+        static mut LAST_NANOS: u32 = 0;
+
+        /// Stubs out `std::time::Instant::now` to return non-deterministic instances that are
+        /// non-decreasing. The first value produced by this stub will always be 0. This is
+        /// because generally harnesses only care about the delta between instants i1 and i2, which
+        /// is arbitrary as long as at least one of i1, i2 is non-deterministic. Therefore,
+        /// hardcoding one of the instances to be 0 brings a performance improvement. Should
+        /// a harness loose generality due to the first Instant::now() call returning 0, add a
+        /// dummy call to Instant::now() to the top of the harness to consume the 0 value. All
+        /// subsequent calls will then result in non-deterministic values.
+        fn instant_now() -> Instant {
+            // Instants are non-decreasing.
+            // See https://doc.rust-lang.org/std/time/struct.Instant.html.
+            // upper bound on seconds to prevent scenarios involving clock overflow.
+            let next_seconds = kani::any_where(|n| *n >= unsafe { LAST_SECONDS });
+            let next_nanos = kani::any_where(|n| *n < 1_000_000_000); // rustc intrinsic bound
+
+            if next_seconds == unsafe { LAST_SECONDS } {
+                kani::assume(next_nanos >= unsafe { LAST_NANOS });
+            }
+
+            let to_return = next_instant_now();
+
+            unsafe {
+                LAST_SECONDS = next_seconds;
+                LAST_NANOS = next_nanos;
+            }
+
+            to_return
+        }
+
+        pub(super) fn next_instant_now() -> Instant {
+            let stub = InstantStub {
+                tv_sec: unsafe { LAST_SECONDS },
+                tv_nsec: unsafe { LAST_NANOS },
+            };
+
+            // In normal rust code, this would not be safe, as the compiler can re-order the fields
+            // However, kani will never run any transformations on the code, so this is safe. This
+            // is because kani doesn't use rustc/llvm to compile down to bytecode, but instead
+            // transpiles unoptimized rust MIR to goto-programs, which are then fed to CMBC.
+            unsafe { std::mem::transmute(stub) }
+        }
+
+        /// Stubs out the GCD computation by over-approximating the return value as "any number that
+        /// divides both inputs".
+        fn gcd(x: u64, y: u64) -> u64 {
+            if x == 0 && y == 0 {
+                0
+            } else {
+                kani::any_where(|&z| z != 0 && x % z == 0 && y % z == 0)
+            }
+
+            // NOTE: if we can figure out how to express "for all w. (...) => (...)", then we can
+            // use a logical definition of GCD as a stub that neither over- nor
+            // underapproximates.
+        }
+
+        /// Stubs out `TokenBucket::auto_replenish` by simply filling up the bucket by a
+        /// non-deterministic amount.
+        fn token_bucket_auto_replenish(this: &mut TokenBucket) {
+            this.budget += kani::any_where::<u64, _>(|&n| n <= this.size - this.budget);
+        }
+    }
+
+    impl TokenBucket {
+        /// Functions checking that the general invariants of a TokenBucket are upheld
+        fn is_valid(&self) -> bool {
+            self.size != 0
+                && self.refill_time != 0
+                // The token budget can never exceed the bucket's size
+                && self.budget <= self.size
+                // The burst budget never exceeds its initial value
+                && self.one_time_burst <= self.initial_one_time_burst
+                // While burst budget is available, no tokens from the normal budget are consumed.
+                && (self.one_time_burst == 0 || self.budget == self.size)
+        }
+    }
+
+    impl kani::Arbitrary for TokenBucket {
+        fn any() -> TokenBucket {
+            let bucket = TokenBucket::new(kani::any(), kani::any(), kani::any());
+            kani::assume(bucket.is_some());
+            let mut bucket = bucket.unwrap();
+
+            // Adjust the budgets non-deterministically to simulate that the bucket has been "in
+            // use" already
+            bucket.budget = kani::any();
+            bucket.one_time_burst = kani::any();
+
+            kani::assume(bucket.is_valid());
+
+            bucket
+        }
+    }
+
+    #[kani::proof]
+    #[kani::stub(std::time::Instant::now, stubs::instant_now)]
+    fn verify_instant_stub_non_decreasing() {
+        let early = Instant::now();
+        let late = Instant::now();
+        assert!(early <= late);
+    }
+
+    // Euclid algorithm has runtime O(log(min(x,y))) -> kani::unwind(log(MAX)) should be enough.
+    #[kani::proof]
+    #[kani::unwind(64)]
+    #[kani::solver(cadical)]
+    fn verify_gcd() {
+        const MAX: u64 = 64;
+
+        let x = kani::any_where(|&x| x < MAX);
+        let y = kani::any_where(|&y| y < MAX);
+        let gcd = super::gcd(x, y);
+
+        if gcd == 0 {
+            assert!(x == 0 && y == 0);
+        } else {
+            assert!(x % gcd == 0);
+            assert!(y % gcd == 0);
+
+            // Definition of gcd: gcd(x,y) = z iff z|x and z|y and for all w. w|x and w|y => w|z
+            // final condition can be rephrased as w <= z in the special case of u64 \ {0}.
+            let w = kani::any_where(|&w| w > 0 && x % w == 0 && y % w == 0);
+            assert!(gcd >= w);
+        }
+    }
+
+    #[kani::proof]
+    #[kani::stub(std::time::Instant::now, stubs::instant_now)]
+    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::solver(cadical)]
+    fn verify_token_bucket_new() {
+        let size = kani::any();
+        let one_time_burst = kani::any();
+        let complete_refill_time_ms = kani::any();
+
+        // Checks if the `TokenBucket` is created with invalid inputs, the result is always `None`.
+        match TokenBucket::new(size, one_time_burst, complete_refill_time_ms) {
+            None => assert!(
+                size == 0
+                    || complete_refill_time_ms == 0
+                    || complete_refill_time_ms > u64::MAX / NANOSEC_IN_ONE_MILLISEC
+            ),
+            Some(bucket) => assert!(bucket.is_valid()),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)] // enough to unwind the recursion at `Timespec::sub_timespec`
+    #[kani::stub(std::time::Instant::now, stubs::instant_now)]
+    #[kani::stub(gcd, stubs::gcd)]
+    fn verify_token_bucket_auto_replenish() {
+        const MAX_BUCKET_SIZE: u64 = 15;
+        const MAX_REFILL_TIME: u64 = 15;
+
+        // Create a non-deterministic `TokenBucket`. This internally calls `Instant::now()`, which
+        // is stubbed to always return 0 on its first call. We can make this simplification
+        // here, as `auto_replenish` only cares about the time delta between two consecutive
+        // calls. This speeds up the verification significantly.
+        let size = kani::any_where(|n| *n < MAX_BUCKET_SIZE && *n != 0);
+        let complete_refill_time_ms = kani::any_where(|n| *n < MAX_REFILL_TIME && *n != 0);
+        // `auto_replenish` doesn't use `one_time_burst`
+        let mut bucket: TokenBucket = TokenBucket::new(size, 0, complete_refill_time_ms).unwrap();
+
+        bucket.auto_replenish();
+
+        assert!(bucket.is_valid());
+    }
+
+    #[kani::proof]
+    #[kani::stub(std::time::Instant::now, stubs::instant_now)]
+    #[kani::stub(TokenBucket::auto_replenish, stubs::token_bucket_auto_replenish)]
+    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::solver(cadical)]
+    fn verify_token_bucket_reduce() {
+        let mut token_bucket: TokenBucket = kani::any();
+
+        let old_token_bucket = token_bucket.clone();
+
+        let tokens = kani::any();
+        let result = token_bucket.reduce(tokens);
+
+        assert!(token_bucket.is_valid());
+        assert!(token_bucket.one_time_burst <= old_token_bucket.one_time_burst);
+
+        // Initial burst always gets used up before budget. Read assertion as implication, i.e.,
+        // `token_bucket.budget != old_token_bucket.budget => token_bucket.one_time_burst == 0`.
+        assert!(token_bucket.budget == old_token_bucket.budget || token_bucket.one_time_burst == 0);
+
+        // If reduction failed, bucket state should not change.
+        if result == BucketReduction::Failure {
+            // In case of a failure, no budget should have been consumed. However, since `reduce`
+            // attempts to call `auto_replenish`, the budget could actually have
+            // increased.
+            assert!(token_bucket.budget >= old_token_bucket.budget);
+            assert!(token_bucket.one_time_burst == old_token_bucket.one_time_burst);
+
+            // Ensure that it is possible to trigger the BucketReduction::Failure case at all.
+            // kani::cover makes verification fail if no possible execution path reaches
+            // this line.
+            kani::cover!();
+        }
+    }
+
+    #[kani::proof]
+    #[kani::stub(std::time::Instant::now, stubs::instant_now)]
+    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::stub(TokenBucket::auto_replenish, stubs::token_bucket_auto_replenish)]
+    fn verify_token_bucket_force_replenish() {
+        let mut token_bucket: TokenBucket = kani::any();
+
+        token_bucket.reduce(kani::any());
+        let reduced_budget = token_bucket.budget;
+        let reduced_burst = token_bucket.one_time_burst;
+
+        let to_replenish = kani::any();
+
+        token_bucket.force_replenish(to_replenish);
+
+        assert!(token_bucket.is_valid());
+        assert!(token_bucket.budget >= reduced_budget);
+        assert!(token_bucket.one_time_burst >= reduced_burst);
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::thread;

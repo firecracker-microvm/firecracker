@@ -16,23 +16,7 @@ from framework.stats import core
 
 
 # pylint: disable=too-few-public-methods
-class ResultsDumperInterface:
-    """Interface for dumping results to file."""
-
-    def dump(self, result):
-        """Dump the results in JSON format."""
-
-
-# pylint: disable=too-few-public-methods
-class NopResultsDumper(ResultsDumperInterface):
-    """Interface for dummy dumping results to file."""
-
-    def dump(self, result):
-        """Do not do anything."""
-
-
-# pylint: disable=too-few-public-methods
-class JsonFileDumper(ResultsDumperInterface):
+class JsonFileDumper:
     """Class responsible with outputting test results to files."""
 
     def __init__(self, test_name):
