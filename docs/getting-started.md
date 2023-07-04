@@ -6,10 +6,10 @@ You can check if your system meets the requirements by running
 `firecracker/tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
-[EC2](https://aws.amazon.com/ec2/) `i3.metal` instance with Ubuntu 18.04.
+[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 22.04.
 
-Nested virtualization is not supported on non-metal EC2 instances. This is why
-`.metal` instances are used.
+EC2 only supports nested virtualization on metal instances, which is why we use
+`.metal` instances exclusively.
 
 ### Architecture & OS
 

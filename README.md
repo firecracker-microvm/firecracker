@@ -126,30 +126,17 @@ The **API endpoint** can be used to:
   scenarios; applies a cgroup/namespace isolation barrier and then
   drops privileges.
 
-## Supported platforms
+## Tested platforms
 
-We continuously test Firecracker on machines with the following CPUs
-micro-architectures: Intel Skylake, Intel Cascade Lake, Intel Ice Lake, AMD
-Zen 3, ARM64 Neoverse N1 and ARM64 Neoverse V1.
+We test all combinations of:
 
-Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
-AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
-virtualization support, and that are released starting with 2015.
-All production use cases should follow [these production host setup instructions](docs/prod-host-setup.md).
-
-Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware
-virtualization, but any such platform is currently not supported and not fit
-for production. If you want to run Firecracker on such platforms, please
-[open a feature request](https://github.com/firecracker-microvm/firecracker/issues/new?assignees=&labels=&template=feature_request.md&title=%5BFeature+Request%5D+Title).
-
-Firecracker currently only supports little-endian platforms. Firecracker will
-not compile for big-endian architectures, and will not work correctly with
-big-endian configured guests.
-
-## Supported kernels
-
-For a list of supported host/guest kernels and future kernel related
-plans, check out our [kernel support policy](docs/kernel-policy.md).
+| Instance   | Host OS & Kernel   | Guest Rootfs   | Guest Kernel   |
+| :--------- | :----------------- | :------------- | :------------- |
+| m5d.metal  | al2    linux_4.1   | ubuntu 18.04   | linux_4.14     |
+| m6i.metal  | al2    linux_5.10  |                | linux_5.10     |
+| m6a.metal  |                    |                |                |
+| m6g.metal  |                    |                |                |
+| c7g.metal  |                    |                |                |
 
 ## Known issues and Limitations
 
