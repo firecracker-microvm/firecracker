@@ -73,7 +73,9 @@ class Core:
                     raws = pipe.consumer.ingest(iteration, data)
                     if raws is not None:
                         dimensions = self.custom.copy()
-                        dimensions["test"] = self.metrics_test
+                        test = tag.split("/")[-1]
+                        dimensions["test"] = test
+                        dimensions["performance_test"] = self.name
                         self.metrics.set_dimensions(dimensions)
                         for name, val, unit in raws:
                             self.metrics.put_metric(name, val, unit)
