@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::ffi::OsString;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -33,7 +33,7 @@ pub trait DiffString<V> {
     fn to_diff_string(template: V, config: V) -> String;
 }
 
-impl<V: Numeric> DiffString<V> for V {
+impl<V: Numeric + Debug> DiffString<V> for V {
     // Generate a string to display difference of filtered values between CPU template and guest
     // CPU config.
     #[rustfmt::skip]
