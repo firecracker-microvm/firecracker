@@ -314,6 +314,8 @@ def test_cpu_rdmsr(
         f"msr_list_{msr_cpu_template}_{host_kv}host_{guest_kv}guest.csv"
     )
     baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
+    # When gathering baselines, uncomment the following line.
+    # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
     baseline_df = pd.read_csv(baseline_file_path)
 
     # We first want to see if the same set of MSRs are exposed in the microvm.
