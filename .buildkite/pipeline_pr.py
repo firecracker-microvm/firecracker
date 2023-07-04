@@ -37,6 +37,7 @@ defaults = {
     "priority": DEFAULT_PRIORITY,
     "timeout_in_minutes": 45,
     "env": dict(args.step_env),
+    "artifacts": ["./test_results/**/*"],
 }
 defaults.update(args.step_param)
 
