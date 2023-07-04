@@ -317,31 +317,7 @@ def test_cpu_rdmsr(
     # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
     baseline_df = pd.read_csv(baseline_file_path)
 
-    # We first want to see if the same set of MSRs are exposed in the microvm.
-    # Drop the VALUE columns and compare the 2 dataframes.
-    impl_diff = pd.concat(
-        [microvm_df.drop(columns="VALUE"), baseline_df.drop(columns="VALUE")],
-        keys=["microvm", "baseline"],
-    ).drop_duplicates(keep=False)
-    assert impl_diff.empty, f"\n {impl_diff}"
-
-    # Now drop the STATUS column to compare values for each MSR
-    microvm_val_df = microvm_df.drop(columns="STATUS")
-    baseline_val_df = baseline_df.drop(columns="STATUS")
-
-    # pylint: disable=C0121
-    microvm_val_df = microvm_val_df[
-        ~microvm_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
-    ]
-    baseline_val_df = baseline_val_df[
-        ~baseline_val_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)
-    ]
-
-    # Compare values
-    val_diff = pd.concat(
-        [microvm_val_df, baseline_val_df], keys=["microvm", "baseline"]
-    ).drop_duplicates(keep=False)
-    assert val_diff.empty, f"\n {val_diff}"
+    check_msrs_are_equal(baseline_df, microvm_df)
 
 
 # These names need to be consistent across the two parts of the snapshot-restore test
@@ -475,52 +451,28 @@ def test_cpu_wrmsr_snapshot(
     )
 
 
-def diff_msrs(before, after, column_to_drop):
+def check_msrs_are_equal(before_df, after_df):
     """
-    Calculates and formats a diff between two MSR tables.
+    Checks that reported MSRs and their values in the files are equal.
     """
-    # Drop irrelevant column
-    before_stripped = before.drop(column_to_drop, axis=1)
-    after_stripped = after.drop(column_to_drop, axis=1)
 
-    # Check that values in remaining columns are the same
-    all_equal = (before_stripped == after_stripped).all(axis=None)
+    # We first want to see if the same set of MSRs are exposed in the microvm.
+    # Drop the VALUE columns and compare the 2 dataframes.
+    impl_diff = pd.concat(
+        [before_df.drop(columns="VALUE"), after_df.drop(columns="VALUE")],
+        keys=["before", "after"],
+    ).drop_duplicates(keep=False)
+    assert impl_diff.empty, f"\n {impl_diff.to_string()}"
 
-    # Arrange the diff as a side by side comparison of statuses
-    not_equal = (before_stripped != after_stripped).any(axis=1)
-    before_stripped.columns = ["MSR_ADDR", "Before"]
-    after_stripped.columns = ["MSR_ADDR", "After"]
-    diff = pd.merge(
-        before_stripped[not_equal],
-        after_stripped[not_equal],
-        on=["MSR_ADDR", "MSR_ADDR"],
-    ).to_string()
+    # Remove MSR that can change at runtime.
+    before_df = before_df[~before_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
+    after_df = after_df[~after_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
 
-    # Return the diff or an empty string
-    return diff if not all_equal else ""
-
-
-def check_msr_values_are_equal(before_msrs_fname, after_msrs_fname):
-    """
-    Checks that MSR statuses and values in the files are equal.
-    """
-    before = pd.read_csv(before_msrs_fname)
-    after = pd.read_csv(after_msrs_fname)
-
-    flt_before = before[~before["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
-    flt_after = after[~after["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
-
-    # Consider only values of MSRs which are present both before and after
-    flt = (flt_before["STATUS"] == "implemented") & (
-        flt_after["STATUS"] == "implemented"
-    )
-    impl_before = flt_before.loc[flt]
-    impl_after = flt_after.loc[flt]
-
-    status_diff = diff_msrs(before, after, column_to_drop="VALUE")
-    value_diff = diff_msrs(impl_before, impl_after, column_to_drop="STATUS")
-    assert not status_diff
-    assert not value_diff
+    # Compare values
+    val_diff = pd.concat(
+        [before_df, after_df], keys=["before", "after"]
+    ).drop_duplicates(keep=False)
+    assert val_diff.empty, f"\n {val_diff.to_string()}"
 
 
 @pytest.mark.skipif(
@@ -586,10 +538,13 @@ def test_cpu_wrmsr_restore(
     dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
 
     # Compare the two lists of MSR values and assert they are equal
-    check_msr_values_are_equal(
-        Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"],
-        Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"],
+    before_df = pd.read_csv(
+        Path(snapshot_artifacts_dir) / shared_names["msrs_before_fname"]
     )
+    after_df = pd.read_csv(
+        Path(snapshot_artifacts_dir) / shared_names["msrs_after_fname"]
+    )
+    check_msrs_are_equal(before_df, after_df)
 
 
 def dump_cpuid_to_file(dump_fname, ssh_conn):
