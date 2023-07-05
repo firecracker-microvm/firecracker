@@ -427,11 +427,12 @@ dependencies = [
 
 [[package]]
 name = "vm-memory"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d6ea57fe00f9086c59eeeb68e102dd611686bc3c28520fa465996d4d4bdce07"
+checksum = "a77c7a0891cbac53618f5f6eec650ed1dc4f7e506bbe14877aff49d94b8408b0"
 dependencies = [
  "libc",
+ "thiserror",
  "winapi",
 ]
 
