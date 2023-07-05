@@ -74,6 +74,24 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
     }
 }
 
+impl<'a> TryFrom<&'a [u8]> for CustomCpuTemplate {
+    type Error = serde_json::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let template: CustomCpuTemplate = serde_json::from_slice(value)?;
+        template.validate()?;
+        Ok(template)
+    }
+}
+
+impl TryFrom<&str> for CustomCpuTemplate {
+    type Error = serde_json::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        CustomCpuTemplate::try_from(value.as_bytes())
+    }
+}
+
 /// Bit-mapped value to adjust targeted bits of a register.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RegisterValueFilter<V>
