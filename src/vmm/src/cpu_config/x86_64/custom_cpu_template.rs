@@ -138,6 +138,11 @@ impl CustomCpuTemplate {
             .map(|modifier| modifier.addr)
             .collect()
     }
+
+    /// Validate the correctness of the template.
+    pub fn validate(&self) -> Result<(), serde_json::Error> {
+        Ok(())
+    }
 }
 
 /// Wrapper of a mask defined as a bitmap to apply

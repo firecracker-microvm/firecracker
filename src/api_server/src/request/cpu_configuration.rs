@@ -13,7 +13,7 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 
     // Convert the API request into a a deserialized/binary format
     Ok(ParsedRequest::new_sync(VmmAction::PutCpuConfiguration(
-        serde_json::from_slice::<CustomCpuTemplate>(body.raw()).map_err(|err| {
+        CustomCpuTemplate::try_from(body.raw()).map_err(|err| {
             METRICS.put_api_requests.cpu_cfg_fails.inc();
             Error::SerdeJson(err)
         })?,
