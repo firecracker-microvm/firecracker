@@ -331,6 +331,36 @@ pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
     Ok(msr_list)
 }
 
+/// Error type for [`get_msrs`].
+#[derive(Debug, thiserror::Error)]
+pub enum GetMsrError {
+    /// Failed to create `Msrs`.
+    #[error("Could not create `Msrs`")]
+    Fam(utils::fam::Error),
+    /// Getting a MSR resulted in an error.
+    #[error("Getting a MSR resulted in an error: {0}")]
+    Get(#[from] kvm_ioctls::Error),
+}
+
+/// Get a value for the given MSR index.
+///
+/// # Arguments
+///
+/// * `vcpu_fd` - Structure for the vCPU that holds the vCPU's fd.
+/// * `index` - MSR index to query
+pub fn get_msr(vcpu_fd: &VcpuFd, index: u32) -> std::result::Result<u64, GetMsrError> {
+    let mut msrs = Msrs::from_entries(&[kvm_msr_entry {
+        index,
+        ..Default::default()
+    }])
+    .map_err(GetMsrError::Fam)?;
+
+    vcpu_fd.get_msrs(&mut msrs).map_err(GetMsrError::Get)?;
+
+    // The access to the 0-th item is safe, since the size of `msrs` is 1.
+    Ok(msrs.as_slice()[0].data)
+}
+
 #[cfg(test)]
 mod tests {
     use kvm_ioctls::Kvm;

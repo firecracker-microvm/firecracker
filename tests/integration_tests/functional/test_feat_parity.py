@@ -281,6 +281,8 @@ def test_feat_parity_msr_arch_cap(vm):
             (1 << 6) | # IF_PSCHANGE_MC_NO
             (1 << 7) # TSX_CTRL
         )
+        if global_props.cpu_model == "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz":
+            expected |= (1 << 19) # RRSBA
         # fmt: on
         assert actual == expected, f"{actual=:#x} != {expected=:#x}"
     elif cpu_template == "T2A":
