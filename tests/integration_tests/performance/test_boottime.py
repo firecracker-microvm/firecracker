@@ -46,11 +46,14 @@ def test_boottime_no_network(test_microvm_with_api, record_property, metrics):
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
     _ = _configure_and_run_vm(vm)
-    boottime_us = _test_microvm_boottime(vm)
+    boottime_us = _get_microvm_boottime(vm)
     print(f"Boot time with no network is: {boottime_us} us")
     record_property("boottime_no_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
+    assert (
+        boottime_us < MAX_BOOT_TIME_US
+    ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
 # temporarily disable this test in 6.1
@@ -66,14 +69,17 @@ def test_boottime_with_network(
     """
     vm = test_microvm_with_api
     vm.jailer.extra_args.update({"boot-timer": None})
-    _tap = _configure_and_run_vm(vm, {"config": network_config, "iface_id": "1"})
-    boottime_us = _test_microvm_boottime(vm)
+    _configure_and_run_vm(vm, {"config": network_config, "iface_id": "1"})
+    boottime_us = _get_microvm_boottime(vm)
     print(f"Boot time with network configured is: {boottime_us} us")
     record_property(
         "boottime_with_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us"
     )
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time_with_net", boottime_us, unit="Microseconds")
+    assert (
+        boottime_us < MAX_BOOT_TIME_US
+    ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
 def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
@@ -82,15 +88,15 @@ def test_initrd_boottime(test_microvm_with_initrd, record_property, metrics):
     """
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update({"boot-timer": None})
-    _tap = _configure_and_run_vm(vm, initrd=True)
-    boottime_us = _test_microvm_boottime(vm, max_time_us=None)
+    _configure_and_run_vm(vm, initrd=True)
+    boottime_us = _get_microvm_boottime(vm)
     print(f"Boot time with initrd is: {boottime_us} us")
     record_property("boottime_initrd", f"{boottime_us} us")
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time_with_initrd", boottime_us, unit="Microseconds")
 
 
-def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
+def _get_microvm_boottime(vm):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
     timestamps = []
@@ -103,11 +109,6 @@ def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
         boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-
-    if max_time_us is not None:
-        assert (
-            boot_time_us < max_time_us
-        ), f"boot time {boot_time_us} cannot be greater than: {max_time_us} us"
     return boot_time_us
 
 
