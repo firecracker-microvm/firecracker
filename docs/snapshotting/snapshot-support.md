@@ -637,3 +637,58 @@ section 5.10.6.6 Device Events.
 Firecracker handles sending the `reset` event to the vsock driver,
 thus the customers are no longer responsible for closing
 active connections.
+
+## Snapshot compatibility across kernel versions
+
+We have a mechanism in place to experiment with snapshot compatibility across
+supported host kernel versions by generating snapshot artifacts through
+[this tool](../../tools/create_snapshot_artifact) and checking devices' functionality
+using [this test](../../tests/integration_tests/functional/test_snapshot_restore_cross_kernel.py).
+The microVM snapshotted is built from [this configuration file](../../tools/create_snapshot_artifact/complex_vm_config.json).
+The test restores the snapshot and ensures that all the devices set-up
+in the configuration file (network devices, disk, vsock, balloon and MMDS)
+are operational post-load.
+
+The tables below reflect the snapshot compatibility observed on Intel and AMD.
+On ARM, snapshot restore between kernel versions is not possible due to
+registers incompatibility.
+
+### Intel
+
+<table>
+  <tr>
+    <th></th>
+    <th>Snapshot taken on host 4.14</th>
+    <th>Snapshot taken on host 5.10</th>
+  </tr>
+  <tr>
+    <th>Load snapshot on host 4.14</th>
+    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:darkred">unsuccessful due to unresponsive net devices</td>
+  </tr>
+  <tr>
+    <th>Load snapshot on host 5.10</th>
+    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">successful</td>
+  </tr>
+</table>
+
+### AMD
+
+<table>
+  <tr>
+    <th></th>
+    <th>Snapshot taken on host 4.14</th>
+    <th>Snapshot taken on host 5.10</th>
+  </tr>
+  <tr>
+    <th>Load snapshot on host 4.14</th>
+    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">unsuccessful due to mismatch in MSRs</td>
+  </tr>
+  <tr>
+    <th>Load snapshot on host 5.10</th>
+    <td style="background-color:mediumseagreen">successful</td>
+    <td style="background-color:mediumseagreen">successful</td>
+  </tr>
+</table>
