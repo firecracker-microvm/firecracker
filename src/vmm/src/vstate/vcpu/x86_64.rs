@@ -10,7 +10,7 @@ use std::fmt::{Display, Formatter};
 use std::{fmt, result};
 
 use arch::x86_64::interrupts;
-use arch::x86_64::msr::SetMSRsError;
+use arch::x86_64::msr::{GetMsrError, SetMSRsError, MSR_IA32_ARCH_CAPABILITIES};
 use arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use cpuid::{c3, filter_cpuid, msrs_to_save_by_cpuid, t2, t2a, t2cl, t2s, VmSpec};
 use kvm_bindings::{
@@ -191,6 +191,8 @@ pub enum KvmVcpuConfigureError {
     VmSpec(cpuid::Error),
     #[error("Failed to filter CPUID: {0}")]
     FilterCpuid(cpuid::Error),
+    #[error("Failed to get a MSR: {0}")]
+    GetMsr(#[from] GetMsrError),
     #[error("Failed to set CPUID entries: {0}")]
     SetCpuidEntries(cpuid::Error),
     #[error("Failed to set CPUID: {0}")]
@@ -317,7 +319,9 @@ impl KvmVcpu {
             }
             CpuFeaturesTemplate::T2CL => {
                 self.msr_list.extend(t2cl::msr_entries_to_save());
-                t2cl::update_msr_entries(&mut msr_boot_entries);
+                let default_arch_cap =
+                    arch::x86_64::msr::get_msr(&self.fd, MSR_IA32_ARCH_CAPABILITIES)?;
+                t2cl::update_msr_entries(&mut msr_boot_entries, default_arch_cap);
             }
             _ => (),
         }

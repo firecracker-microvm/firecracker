@@ -6,6 +6,9 @@
 
 - Fixed the T2S CPU template to set the RRSBA bit of the IA32_ARCH_CAPABILITIES
   MSR to 1 in accordance with an Intel microcode update.
+- Fixed the T2CL CPU template to pass through the RSBA and RRSBA bits of the
+  IA32_ARCH_CAPABILITIES MSR from the host in accordance with an Intel microcode
+  update.
 
 ## [1.3.3]
 

@@ -73,16 +73,20 @@ pub fn set_cpuid_entries(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), 
 }
 
 /// Add the MSR entries speciffic to this T2CL template.
-pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
-    let capabilities = ArchCapaMSRFlags::RDCL_NO
+pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>, default_arch_cap: u64) {
+    let arch_cap = ArchCapaMSRFlags::RDCL_NO
         | ArchCapaMSRFlags::IBRS_ALL
         | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
         | ArchCapaMSRFlags::MDS_NO
         | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
         | ArchCapaMSRFlags::TSX_CTRL;
+
+    // Pass through RSBA and RRSBA bits if they are set.
+    let rsba_rrbsa = default_arch_cap & (ArchCapaMSRFlags::RSBA | ArchCapaMSRFlags::RRSBA).bits();
+
     msr_entries.push(kvm_msr_entry {
         index: MSR_IA32_ARCH_CAPABILITIES,
-        data: capabilities.bits(),
+        data: arch_cap.bits() | rsba_rrbsa,
         ..Default::default()
     });
 }
@@ -220,8 +224,10 @@ mod tests {
 
     #[test]
     fn test_update_msr_entries() {
+        // Case 1: The default IA32_ARCH_CAPABILITIES MSR does not enumerate RSBA and RRSBA.
         let mut msrs = Vec::<kvm_msr_entry>::new();
-        update_msr_entries(&mut msrs);
+        let default_arch_cap = 0;
+        update_msr_entries(&mut msrs, default_arch_cap);
         let arch_cap = msrs[0];
 
         assert_eq!(arch_cap.index, MSR_IA32_ARCH_CAPABILITIES);
@@ -233,6 +239,26 @@ mod tests {
                 | ArchCapaMSRFlags::MDS_NO
                 | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
                 | ArchCapaMSRFlags::TSX_CTRL)
+                .bits()
+        );
+
+        // Case 2: The default IA32_ARCH_CAPABILITIES MSR enumerates both RSBA and RRSBA.
+        let mut msrs = Vec::<kvm_msr_entry>::new();
+        let default_arch_cap = (ArchCapaMSRFlags::RSBA | ArchCapaMSRFlags::RRSBA).bits();
+        update_msr_entries(&mut msrs, default_arch_cap);
+        let arch_cap = msrs[0];
+
+        assert_eq!(arch_cap.index, MSR_IA32_ARCH_CAPABILITIES);
+        assert_eq!(
+            arch_cap.data,
+            (ArchCapaMSRFlags::RDCL_NO
+                | ArchCapaMSRFlags::IBRS_ALL
+                | ArchCapaMSRFlags::RSBA
+                | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
+                | ArchCapaMSRFlags::MDS_NO
+                | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
+                | ArchCapaMSRFlags::TSX_CTRL
+                | ArchCapaMSRFlags::RRSBA)
                 .bits()
         );
     }
