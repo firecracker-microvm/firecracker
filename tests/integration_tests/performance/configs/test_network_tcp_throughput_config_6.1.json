@@ -1650,8 +1650,8 @@
                                                     "target": 100
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 23,
-                                                    "target": 86
+                                                    "delta_percentage": 17,
+                                                    "target": 76
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
                                                     "delta_percentage": 4,
@@ -1662,28 +1662,28 @@
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 180
+                                                    "delta_percentage": 7,
+                                                    "target": 172
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 122
+                                                    "delta_percentage": 7,
+                                                    "target": 117
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "delta_percentage": 6,
-                                                    "target": 194
+                                                    "target": 190
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 185
+                                                    "delta_percentage": 6,
+                                                    "target": 174
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 18,
+                                                    "delta_percentage": 11,
                                                     "target": 101
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 5,
-                                                    "target": 198
+                                                    "delta_percentage": 6,
+                                                    "target": 196
                                                 }
                                             }
                                         }
@@ -1715,23 +1715,23 @@
                                             "Avg": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
                                                     "delta_percentage": 7,
-                                                    "target": 130
+                                                    "target": 129
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 123
+                                                    "delta_percentage": 7,
+                                                    "target": 120
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "delta_percentage": 6,
-                                                    "target": 191
+                                                    "target": 193
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
-                                                    "delta_percentage": 7,
+                                                    "delta_percentage": 6,
                                                     "target": 123
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 110
+                                                    "delta_percentage": 8,
+                                                    "target": 104
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
                                                     "delta_percentage": 5,
@@ -1752,15 +1752,15 @@
                                                     "target": 93
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 87
+                                                    "delta_percentage": 9,
+                                                    "target": 88
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 90
+                                                    "delta_percentage": 6,
+                                                    "target": 89
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 6,
+                                                    "delta_percentage": 7,
                                                     "target": 94
                                                 }
                                             }
@@ -1768,7 +1768,7 @@
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
-                                                    "delta_percentage": 7,
+                                                    "delta_percentage": 6,
                                                     "target": 90
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
@@ -1776,19 +1776,19 @@
                                                     "target": 90
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
+                                                    "delta_percentage": 8,
                                                     "target": 90
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
-                                                    "delta_percentage": 6,
-                                                    "target": 90
+                                                    "delta_percentage": 7,
+                                                    "target": 89
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
                                                     "delta_percentage": 7,
                                                     "target": 89
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
+                                                    "delta_percentage": 6,
                                                     "target": 95
                                                 }
                                             }
@@ -1801,15 +1801,15 @@
                                             "Avg": {
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
                                                     "delta_percentage": 8,
-                                                    "target": 84
+                                                    "target": 85
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
                                                     "delta_percentage": 8,
                                                     "target": 88
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 91
+                                                    "delta_percentage": 6,
+                                                    "target": 90
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
                                                     "delta_percentage": 7,
@@ -1820,23 +1820,23 @@
                                         "2vcpu_1024mb.json": {
                                             "Avg": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
-                                                    "delta_percentage": 6,
+                                                    "delta_percentage": 7,
                                                     "target": 94
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
                                                     "delta_percentage": 6,
-                                                    "target": 92
+                                                    "target": 91
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 94
+                                                    "delta_percentage": 8,
+                                                    "target": 95
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
                                                     "delta_percentage": 6,
                                                     "target": 95
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 6,
+                                                    "delta_percentage": 7,
                                                     "target": 91
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
@@ -1854,48 +1854,48 @@
                                         "1vcpu_1024mb.json": {
                                             "total": {
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 8,
-                                                    "target": 56352
+                                                    "delta_percentage": 7,
+                                                    "target": 49444
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 50730
+                                                    "delta_percentage": 9,
+                                                    "target": 44790
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 7,
-                                                    "target": 45642
+                                                    "delta_percentage": 6,
+                                                    "target": 40055
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 50192
+                                                    "delta_percentage": 5,
+                                                    "target": 43853
                                                 }
                                             }
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 48120
+                                                    "delta_percentage": 5,
+                                                    "target": 42380
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 13,
-                                                    "target": 44335
+                                                    "delta_percentage": 5,
+                                                    "target": 39642
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 49934
+                                                    "delta_percentage": 5,
+                                                    "target": 43717
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
-                                                    "delta_percentage": 7,
-                                                    "target": 43968
+                                                    "delta_percentage": 4,
+                                                    "target": 38567
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 10,
-                                                    "target": 38460
+                                                    "delta_percentage": 5,
+                                                    "target": 34244
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 48813
+                                                    "delta_percentage": 4,
+                                                    "target": 42693
                                                 }
                                             }
                                         }
@@ -1906,48 +1906,48 @@
                                         "1vcpu_1024mb.json": {
                                             "total": {
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 6,
-                                                    "target": 50018
+                                                    "delta_percentage": 5,
+                                                    "target": 44918
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 7,
-                                                    "target": 50458
+                                                    "delta_percentage": 8,
+                                                    "target": 44200
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 13,
-                                                    "target": 50106
+                                                    "delta_percentage": 9,
+                                                    "target": 43252
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 6,
-                                                    "target": 50615
+                                                    "delta_percentage": 5,
+                                                    "target": 44224
                                                 }
                                             }
                                         },
                                         "2vcpu_1024mb.json": {
                                             "total": {
                                                 "tcp-p1024K-wsDEFAULT-bd": {
-                                                    "delta_percentage": 8,
-                                                    "target": 51255
+                                                    "delta_percentage": 5,
+                                                    "target": 45043
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 46339
+                                                    "delta_percentage": 6,
+                                                    "target": 40824
                                                 },
                                                 "tcp-p1024K-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 9,
-                                                    "target": 51954
+                                                    "delta_percentage": 5,
+                                                    "target": 45856
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-bd": {
-                                                    "delta_percentage": 8,
-                                                    "target": 47523
+                                                    "delta_percentage": 5,
+                                                    "target": 41867
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-g2h": {
-                                                    "delta_percentage": 9,
-                                                    "target": 39809
+                                                    "delta_percentage": 5,
+                                                    "target": 35223
                                                 },
                                                 "tcp-pDEFAULT-wsDEFAULT-h2g": {
-                                                    "delta_percentage": 8,
-                                                    "target": 50728
+                                                    "delta_percentage": 4,
+                                                    "target": 44226
                                                 }
                                             }
                                         }
