@@ -79,7 +79,6 @@ def default_lambda_consumer(env_id, workload):
             SnapRestoreBaselinesProvider(env_id, workload, raw_baselines),
         ),
         func=consume_output,
-        func_kwargs={},
     )
 
 
@@ -174,13 +173,12 @@ def get_snap_restore_latency(
 
     full_snapshot.cleanup()
     vm.jailer.cleanup()
-    return {RESTORE_LATENCY: values}
+    return values
 
 
-def consume_output(cons, result):
+def consume_output(cons, latencies):
     """Consumer function."""
-    restore_latency = result[RESTORE_LATENCY]
-    for value in restore_latency:
+    for value in latencies:
         yield RESTORE_LATENCY, value, "Milliseconds"
         cons.consume_data(RESTORE_LATENCY, value)
 
