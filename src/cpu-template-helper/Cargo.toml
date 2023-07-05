@@ -12,9 +12,9 @@ name = "cpu-template-helper"
 bench = false
 
 [dependencies]
-clap = { version = "4.3.8", features = ["derive", "string"] }
+clap = { version = "4.3.10", features = ["derive", "string"] }
 libc = "0.2.147"
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { version = "1.0.165", features = ["derive"] }
 serde_json = "1.0.99"
 thiserror = "1.0.32"
 
