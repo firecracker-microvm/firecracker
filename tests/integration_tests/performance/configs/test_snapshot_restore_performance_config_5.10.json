@@ -4149,14 +4149,7 @@
         "latency": {
             "statistics": [
                 {
-                    "criteria": "EqualWith",
-                    "function": "Percentile50",
-                    "name": "P50"
-                },
-                {
-                    "criteria": "EqualWith",
-                    "function": "Percentile90",
-                    "name": "P90"
+                    "function": "Avg"
                 }
             ],
             "unit": "ms"

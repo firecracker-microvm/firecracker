@@ -26,22 +26,15 @@ class SnapshotRestoreDataParser(DataParser):
         super().__init__(
             data_provider,
             [
-                "latency/P50",
-                "latency/P90",
+                "latency/Avg",
             ],
         )
 
     def calculate_baseline(self, data: List[float]) -> dict:
         """Return the target and delta values, given a list of data points."""
         avg = statistics.mean(data)
-        min_ = min(data)
-        max_ = max(data)
-
-        min_delta = 100 * abs(avg - min_) / avg
-        max_delta = 100 * abs(avg - max_) / avg
-        delta = max(max_delta, min_delta)
-
+        stddev = statistics.stdev(data)
         return {
-            "target": round(avg, 3),
-            "delta_percentage": math.ceil(delta) + DELTA_EXTRA_MARGIN,
+            "target": math.ceil(round(avg, 2)),
+            "delta_percentage": math.ceil(3 * stddev / avg * 100) + DELTA_EXTRA_MARGIN,
         }

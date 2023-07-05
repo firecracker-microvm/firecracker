@@ -4149,12 +4149,7 @@
         "latency": {
             "statistics": [
                 {
-                    "function": "Percentile50",
-                    "name": "P50"
-                },
-                {
-                    "function": "Percentile90",
-                    "name": "P90"
+                    "function": "Avg"
                 }
             ],
             "unit": "ms"
