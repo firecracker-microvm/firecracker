@@ -5,8 +5,10 @@
 /// config templates.
 use std::borrow::Cow;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::arch::aarch64::regs::{reg_size, RegSize};
 use crate::cpu_config::aarch64::static_cpu_templates::v1n1;
 use crate::cpu_config::templates::{
     CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
@@ -54,13 +56,30 @@ impl CustomCpuTemplate {
 pub struct RegisterModifier {
     /// Pointer of the location to be bit mapped.
     #[serde(
-        deserialize_with = "deserialize_from_str_u64",
+        deserialize_with = "deserialize_reg_addr",
         serialize_with = "serialize_to_hex_str"
     )]
     pub addr: u64,
     /// Bit mapping to be applied as a modifier to the
     /// register's value at the address provided.
     pub bitmap: RegisterValueFilter<u128>,
+}
+
+/// Deserialization for aarch64 register address
+pub fn deserialize_reg_addr<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let addr = deserialize_from_str_u64(deserializer)?;
+    let reg_size = reg_size(addr);
+
+    if !(RegSize::U32_SIZE..=RegSize::U128_SIZE).contains(&reg_size) {
+        return Err(D::Error::custom(format!(
+            "Failed to validate aarch64 register address: {addr:#x} - Only 32, 64 and 128 bit \
+             wide registers are supported"
+        )));
+    }
+    Ok(addr)
 }
 
 #[cfg(test)]
@@ -181,12 +200,46 @@ mod tests {
             .to_string()
             .contains("Failed to parse string [0bK] as a number for CPU template"));
 
+        // Unsupported register size 16 bit
+        let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
+            r#"{
+                    "reg_modifiers":  [
+                        {
+                            "addr": "0x0010000000000000",
+                            "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
+                        },
+                    ]
+                }"#,
+        );
+        assert!(cpu_config_result.is_err());
+        assert!(cpu_config_result.unwrap_err().to_string().contains(
+            "Failed to validate aarch64 register address: 0x10000000000000 - Only 32, 64 and 128 \
+             bit wide registers are supported"
+        ));
+
+        // Unsupported register size 256 bit
+        let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
+            r#"{
+                    "reg_modifiers":  [
+                        {
+                            "addr": "0x0050000000000000",
+                            "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
+                        },
+                    ]
+                }"#,
+        );
+        assert!(cpu_config_result.is_err());
+        assert!(cpu_config_result.unwrap_err().to_string().contains(
+            "Failed to validate aarch64 register address: 0x50000000000000 - Only 32, 64 and 128 \
+             bit wide registers are supported"
+        ));
+
         // Malformed 64-bit bitmap - filter failed
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "0x200",
+                            "addr": "0x0030000000000000",
                             "bitmap": "0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1"
                         },
                     ]
@@ -202,7 +255,7 @@ mod tests {
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "0x200",
+                            "addr": "0x0030000000000000",
                             "bitmap": "0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1"
                         },
                     ]
