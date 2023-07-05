@@ -196,6 +196,13 @@ where
         let (mut filter, mut value) = (V::zero(), V::zero());
         let mut i = 0;
         for s in stripped_str.as_bytes().iter().rev() {
+            if V::BITS == i {
+                return Err(D::Error::custom(format!(
+                    "Failed to parse string [{}] as a bitmap - string is too long",
+                    original_str
+                )));
+            }
+
             match s {
                 b'_' => continue,
                 b'x' => {}
@@ -246,6 +253,10 @@ mod tests {
         assert_eq!(deserialized, expected_rvf);
 
         let serialized = "\"0b0_xϽ1_xx_xx\"";
+        let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
+        assert!(deserialized.is_err());
+
+        let serialized = "\"0b0000_0000_0\"";
         let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
         assert!(deserialized.is_err());
     }
