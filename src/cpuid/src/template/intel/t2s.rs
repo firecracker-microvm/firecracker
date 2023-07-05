@@ -35,7 +35,8 @@ pub fn update_msr_entries(msr_entries: &mut Vec<kvm_msr_entry>) {
         | ArchCapaMSRFlags::SKIP_L1DFL_VMENTRY
         | ArchCapaMSRFlags::IF_PSCHANGE_MC_NO
         | ArchCapaMSRFlags::MISC_PACKAGE_CTRLS
-        | ArchCapaMSRFlags::ENERGY_FILTERING_CTL;
+        | ArchCapaMSRFlags::ENERGY_FILTERING_CTL
+        | ArchCapaMSRFlags::RRSBA;
     msr_entries.push(kvm_msr_entry {
         index: MSR_IA32_ARCH_CAPABILITIES,
         data: capabilities.bits(),
