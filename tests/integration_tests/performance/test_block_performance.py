@@ -66,8 +66,6 @@ def run_fio(env_id, basevm, mode, bs):
     """Run a fio test in the specified mode with block size bs."""
     logs_path = f"{basevm.jailer.chroot_base_with_id()}/{env_id}/{mode}{bs}"
 
-    num_jobs = CONFIG["load_factor"] * basevm.vcpus_count
-
     # Compute the fio command. Pin it to the first guest CPU.
     cmd = (
         CmdBuilder(FIO)
@@ -81,9 +79,11 @@ def run_fio(env_id, basevm, mode, bs):
         .with_arg("--ioengine=libaio")
         .with_arg("--iodepth=32")
         .with_arg(f"--ramp_time={CONFIG['omit']}")
-        .with_arg(f"--numjobs={num_jobs}")
+        .with_arg(f"--numjobs={basevm.vcpus_count}")
         # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
-        .with_arg(f"--cpus_allowed={','.join(str(i) for i in range(num_jobs))}")
+        .with_arg(
+            f"--cpus_allowed={','.join(str(i) for i in range(basevm.vcpus_count))}"
+        )
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
         .with_arg("--randrepeat=0")
