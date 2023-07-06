@@ -27,8 +27,7 @@ from integration_tests.performance.configs import defs
 TEST_ID = "block_performance"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
-CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
+CONFIG_NAME_ABS = defs.CFG_LOCATION / CONFIG_NAME_REL
 
 FIO = "fio"
 
@@ -298,9 +297,13 @@ def test_block_performance(
             "bs": fio_block_size,
         },
     )
+
+    raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
+
     st_cons = st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG["measurements"], BlockBaselinesProvider(env_id, fio_id)
+            raw_baselines["measurements"],
+            BlockBaselinesProvider(env_id, fio_id, raw_baselines),
         ),
         func=consume_fio_output,
         func_kwargs={
