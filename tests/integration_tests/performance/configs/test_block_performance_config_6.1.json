@@ -2413,7 +2413,6 @@
             }
         }
     },
-    "load_factor": 1,
     "measurements": {
         "bw_read": {
             "statistics": [
