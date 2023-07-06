@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "api_server",
  "cargo_toml",
@@ -566,7 +566,7 @@ checksum = "4217ad341ebadf8d8e724e264f13e593e0648f5b3e94b3896a5df283be015ecc"
 
 [[package]]
 name = "jailer"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "libc",
  "regex",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "rebase-snap"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "libc",
  "utils",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "seccompiler"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "bincode",
  "libc",
