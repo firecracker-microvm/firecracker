@@ -96,7 +96,7 @@ sudo systemctl start docker
 #
 sudo ./firecracker/tools/devtool build
 
-API_SOCKET="./firecracker.socket"
+API_SOCKET="/tmp/firecracker.socket"
 
 # Remove API unix socket
 rm -f $API_SOCKET
@@ -131,7 +131,7 @@ sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -I FORWARD 1 -i tap0 -o eth0 -j ACCEPT
 
-API_SOCKET="./firecracker.socket"
+API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
 
 # Create log file
