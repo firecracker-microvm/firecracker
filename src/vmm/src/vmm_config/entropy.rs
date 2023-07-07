@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-use crate::devices::virtio::rng::{Entropy, Error as EntropyError};
+use crate::devices::virtio::rng::{Entropy, EntropyError};
 
 /// This struct represents the strongly typed equivalent of the json body from entropy device
 /// related requests.
@@ -39,8 +39,6 @@ pub enum EntropyDeviceError {
     CreateRateLimiter(#[from] std::io::Error),
 }
 
-type Result<T> = std::result::Result<T, EntropyDeviceError>;
-
 /// A builder type used to construct an Entropy device
 #[derive(Debug, Default)]
 pub struct EntropyDeviceBuilder(Option<Arc<Mutex<Entropy>>>);
@@ -52,7 +50,10 @@ impl EntropyDeviceBuilder {
     }
 
     /// Build an entropy device and return a (counted) reference to it protected by a mutex
-    pub fn build(&mut self, config: EntropyDeviceConfig) -> Result<Arc<Mutex<Entropy>>> {
+    pub fn build(
+        &mut self,
+        config: EntropyDeviceConfig,
+    ) -> Result<Arc<Mutex<Entropy>>, EntropyDeviceError> {
         let rate_limiter = config
             .rate_limiter
             .map(RateLimiterConfig::try_into)
@@ -64,7 +65,7 @@ impl EntropyDeviceBuilder {
     }
 
     /// Insert a new entropy device from a configuration object
-    pub fn insert(&mut self, config: EntropyDeviceConfig) -> Result<()> {
+    pub fn insert(&mut self, config: EntropyDeviceConfig) -> Result<(), EntropyDeviceError> {
         let _ = self.build(config)?;
         Ok(())
     }

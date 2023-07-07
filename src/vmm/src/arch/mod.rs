@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt, result};
+use std::fmt;
 
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -13,7 +13,7 @@ pub mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, ConfigurationError, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
 
@@ -24,12 +24,9 @@ pub mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_SIZE,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, ConfigurationError, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
-
-/// Type for returning public functions outcome.
-pub type Result<T> = result::Result<T, Error>;
 
 /// Types of devices that can get attached to this platform.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, Versionize)]

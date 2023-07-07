@@ -8,7 +8,7 @@ use std::num::Wrapping;
 
 use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
 
-use super::{defs, Error, Result};
+use super::{defs, VsockCsmError};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
@@ -46,10 +46,10 @@ impl TxBuf {
     ///
     /// Either the entire source slice will be pushed to the ring-buffer, or none of it, if
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
-    pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<()> {
+    pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<(), VsockCsmError> {
         // Error out if there's no room to push the entire slice.
         if self.len() + src.len() > Self::SIZE {
-            return Err(Error::TxBufFull);
+            return Err(VsockCsmError::TxBufFull);
         }
 
         let data = self
@@ -85,7 +85,7 @@ impl TxBuf {
     ///
     /// Return the number of bytes that have been transferred out of the ring-buffer and into
     /// the writable stream.
-    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize> {
+    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize, VsockCsmError> {
         // Nothing to do, if this buffer holds no data.
         if self.is_empty() {
             return Ok(0);
@@ -108,7 +108,7 @@ impl TxBuf {
         // later).
         let written = sink
             .write(&data[tail_ofs..(tail_ofs + len_to_write)])
-            .map_err(Error::TxBufFlush)?;
+            .map_err(VsockCsmError::TxBufFlush)?;
 
         // Move the buffer tail ahead by the amount (of bytes) we were able to flush out.
         self.tail += Wrapping(written as u32);
@@ -139,7 +139,7 @@ impl WriteVolatile for TxBuf {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
-    ) -> std::result::Result<usize, VolatileMemoryError> {
+    ) -> Result<usize, VolatileMemoryError> {
         self.push(buf).map(|()| buf.len()).map_err(|err| {
             VolatileMemoryError::IOError(std::io::Error::new(std::io::ErrorKind::Other, err))
         })
@@ -148,7 +148,7 @@ impl WriteVolatile for TxBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Result as IoResult, Write};
+    use std::io::{Error as IoError, ErrorKind, Write};
 
     use super::*;
 
@@ -171,7 +171,7 @@ mod tests {
     }
 
     impl Write for TestSink {
-        fn write(&mut self, src: &[u8]) -> IoResult<usize> {
+        fn write(&mut self, src: &[u8]) -> Result<usize, IoError> {
             if self.err.is_some() {
                 return Err(self.err.take().unwrap());
             }
@@ -179,7 +179,7 @@ mod tests {
             self.data.extend_from_slice(&src[..len_to_push]);
             Ok(len_to_push)
         }
-        fn flush(&mut self) -> IoResult<()> {
+        fn flush(&mut self) -> Result<(), IoError> {
             Ok(())
         }
     }
@@ -268,7 +268,7 @@ mod tests {
             .push(&VolatileSlice::from(tmp.as_mut_slice()))
             .unwrap();
         match txbuf.push(&VolatileSlice::from([1, 2].as_mut_slice())) {
-            Err(Error::TxBufFull) => (),
+            Err(VsockCsmError::TxBufFull) => (),
             other => panic!("Unexpected result: {:?}", other),
         }
         match txbuf.write_volatile(&VolatileSlice::from([1, 2].as_mut_slice())) {
@@ -314,7 +314,8 @@ mod tests {
         let io_err = IoError::from_raw_os_error(EACCESS);
         sink.set_err(io_err);
         match txbuf.flush_to(&mut sink) {
-            Err(Error::TxBufFlush(ref err)) if err.kind() == ErrorKind::PermissionDenied => (),
+            Err(VsockCsmError::TxBufFlush(ref err))
+                if err.kind() == ErrorKind::PermissionDenied => {}
             other => panic!("Unexpected result: {:?}", other),
         }
     }

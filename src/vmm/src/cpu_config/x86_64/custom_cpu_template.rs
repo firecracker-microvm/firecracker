@@ -4,7 +4,6 @@
 /// Guest config sub-module specifically useful for
 /// config templates.
 use std::borrow::Cow;
-use std::result::Result;
 
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

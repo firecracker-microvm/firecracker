@@ -5,7 +5,7 @@ use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
-use crate::arch::aarch64::gic::Result;
+use crate::arch::aarch64::gic::GicError;
 
 // CPU interface registers as detailed at page 76 from
 // https://developer.arm.com/documentation/ihi0048/latest/.
@@ -54,7 +54,7 @@ impl VgicRegEngine for VgicSysRegEngine {
     }
 }
 
-pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
+pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState, GicError> {
     let main_icc_regs =
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
 
@@ -64,7 +64,11 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
     })
 }
 
-pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) -> Result<()> {
+pub(crate) fn set_icc_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+    state: &VgicSysRegsState,
+) -> Result<(), GicError> {
     VgicSysRegEngine::set_regs_data(
         fd,
         Box::new(MAIN_VGIC_ICC_REGS.iter()),
@@ -83,7 +87,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, Error, GICVersion};
+    use crate::arch::aarch64::gic::{create_gic, GICVersion, GicError};
 
     #[test]
     fn test_access_icc_regs() {
@@ -92,7 +96,7 @@ mod tests {
         let _ = vm.create_vcpu(0).unwrap();
         let gic_fd = match create_gic(&vm, 1, Some(GICVersion::GICV2)) {
             Ok(gic_fd) => gic_fd,
-            Err(Error::CreateGIC(_)) => return,
+            Err(GicError::CreateGIC(_)) => return,
             _ => panic!("Failed to open setup GICv2"),
         };
 

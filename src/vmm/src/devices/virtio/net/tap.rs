@@ -7,7 +7,7 @@
 
 use std::fmt::{self, Debug};
 use std::fs::File;
-use std::io::{Error as IoError, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, Read, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
@@ -25,7 +25,7 @@ const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum TapError {
     /// Couldn't open /dev/net/tun
     #[error("Couldn't open /dev/net/tun: {0}")]
     OpenTun(IoError),
@@ -45,8 +45,6 @@ pub enum Error {
     #[error("Error while setting size of the vnet header: {0}")]
     SetSizeOfVnetHdr(IoError),
 }
-
-pub type Result<T> = ::std::result::Result<T, Error>;
 
 const TUNTAP: ::std::os::raw::c_uint = 84;
 ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
@@ -69,13 +67,13 @@ pub struct Tap {
 
 // Returns a byte vector representing the contents of a null terminated C string which
 // contains if_name.
-fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
+fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], TapError> {
     // Convert the string slice to bytes, and shadow the variable,
     // since we no longer need the &str version.
     let if_name = if_name.as_bytes();
 
     if if_name.len() >= IFACE_NAME_MAX_LEN {
-        return Err(Error::InvalidIfname);
+        return Err(TapError::InvalidIfname);
     }
 
     let mut terminated_if_name = [b'\0'; IFACE_NAME_MAX_LEN];
@@ -131,7 +129,7 @@ impl Tap {
     /// # Arguments
     ///
     /// * `if_name` - the name of the interface.
-    pub fn open_named(if_name: &str) -> Result<Tap> {
+    pub fn open_named(if_name: &str) -> Result<Tap, TapError> {
         // SAFETY: Open calls are safe because we give a constant null-terminated
         // string and verify the result.
         let fd = unsafe {
@@ -141,7 +139,7 @@ impl Tap {
             )
         };
         if fd < 0 {
-            return Err(Error::OpenTun(IoError::last_os_error()));
+            return Err(TapError::OpenTun(IoError::last_os_error()));
         }
 
         // SAFETY: We just checked that the fd is valid.
@@ -152,7 +150,7 @@ impl Tap {
             .if_name(&terminated_if_name)
             .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
             .execute(&tuntap, TUNSETIFF())
-            .map_err(|io_error| Error::IfreqExecuteError(io_error, if_name.to_owned()))?;
+            .map_err(|io_error| TapError::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
         Ok(Tap {
             tap_file: tuntap,
@@ -174,27 +172,27 @@ impl Tap {
     }
 
     /// Set the offload flags for the tap interface.
-    pub fn set_offload(&self, flags: c_uint) -> Result<()> {
+    pub fn set_offload(&self, flags: c_uint) -> Result<(), TapError> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         if unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) } < 0 {
-            return Err(Error::SetOffloadFlags(IoError::last_os_error()));
+            return Err(TapError::SetOffloadFlags(IoError::last_os_error()));
         }
 
         Ok(())
     }
 
     /// Set the size of the vnet hdr.
-    pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
+    pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<(), TapError> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         if unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) } < 0 {
-            return Err(Error::SetSizeOfVnetHdr(IoError::last_os_error()));
+            return Err(TapError::SetSizeOfVnetHdr(IoError::last_os_error()));
         }
 
         Ok(())
     }
 
     /// Write an `IoVecBuffer` to tap
-    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> IoResult<usize> {
+    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = buffer.iovec_count() as i32;
         let iov = buffer.as_iovec_ptr();
 
@@ -209,17 +207,17 @@ impl Tap {
 }
 
 impl Read for Tap {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
         self.tap_file.read(buf)
     }
 }
 
 impl Write for Tap {
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
         self.tap_file.write(buf)
     }
 
-    fn flush(&mut self) -> IoResult<()> {
+    fn flush(&mut self) -> Result<(), IoError> {
         Ok(())
     }
 }
@@ -269,7 +267,7 @@ pub mod tests {
         // 16 characters - too long.
         let name = "a123456789abcdef";
         match Tap::open_named(name) {
-            Err(Error::InvalidIfname) => (),
+            Err(TapError::InvalidIfname) => (),
             _ => panic!("Expected Error::InvalidIfname"),
         };
 
@@ -301,11 +299,11 @@ pub mod tests {
         };
         assert_eq!(
             faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),
-            Error::SetSizeOfVnetHdr(IoError::from_raw_os_error(9)).to_string()
+            TapError::SetSizeOfVnetHdr(IoError::from_raw_os_error(9)).to_string()
         );
         assert_eq!(
             faulty_tap.set_offload(0).unwrap_err().to_string(),
-            Error::SetOffloadFlags(IoError::from_raw_os_error(9)).to_string()
+            TapError::SetOffloadFlags(IoError::from_raw_os_error(9)).to_string()
         );
     }
 

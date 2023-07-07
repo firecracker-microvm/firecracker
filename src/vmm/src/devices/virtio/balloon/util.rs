@@ -68,7 +68,7 @@ pub(crate) fn remove_range(
     guest_memory: &GuestMemoryMmap,
     range: (GuestAddress, u64),
     restored: bool,
-) -> std::result::Result<(), RemoveRegionError> {
+) -> Result<(), RemoveRegionError> {
     let (guest_address, range_len) = range;
 
     if let Some(region) = guest_memory.find_region(guest_address) {

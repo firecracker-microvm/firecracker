@@ -10,7 +10,7 @@ use kvm_ioctls::DeviceFd;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::arch::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::GicError;
 
 #[derive(Debug)]
 pub struct GicRegState<T: Versionize> {
@@ -102,7 +102,7 @@ pub(crate) trait VgicRegEngine {
         fd: &DeviceFd,
         reg: &Self::Reg,
         mpidr: u64,
-    ) -> Result<GicRegState<Self::RegChunk>>
+    ) -> Result<GicRegState<Self::RegChunk>, GicError>
     where
         Self: Sized,
     {
@@ -110,7 +110,7 @@ pub(crate) trait VgicRegEngine {
         for offset in reg.iter::<Self::RegChunk>() {
             let mut val = Self::RegChunk::default();
             fd.get_device_attr(&mut Self::kvm_device_attr(offset, &mut val, mpidr))
-                .map_err(|err| Error::DeviceAttribute(err, false, Self::group()))?;
+                .map_err(|err| GicError::DeviceAttribute(err, false, Self::group()))?;
             data.push(val);
         }
 
@@ -121,7 +121,7 @@ pub(crate) trait VgicRegEngine {
         fd: &DeviceFd,
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
         mpidr: u64,
-    ) -> Result<Vec<GicRegState<Self::RegChunk>>>
+    ) -> Result<Vec<GicRegState<Self::RegChunk>>, GicError>
     where
         Self: Sized,
     {
@@ -139,13 +139,13 @@ pub(crate) trait VgicRegEngine {
         reg: &Self::Reg,
         data: &GicRegState<Self::RegChunk>,
         mpidr: u64,
-    ) -> Result<()>
+    ) -> Result<(), GicError>
     where
         Self: Sized,
     {
         for (offset, val) in reg.iter::<Self::RegChunk>().zip(&data.chunks) {
             fd.set_device_attr(&Self::kvm_device_attr(offset, &mut val.clone(), mpidr))
-                .map_err(|err| Error::DeviceAttribute(err, true, Self::group()))?;
+                .map_err(|err| GicError::DeviceAttribute(err, true, Self::group()))?;
         }
 
         Ok(())
@@ -156,7 +156,7 @@ pub(crate) trait VgicRegEngine {
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
         data: &[GicRegState<Self::RegChunk>],
         mpidr: u64,
-    ) -> Result<()>
+    ) -> Result<(), GicError>
     where
         Self: Sized,
     {

@@ -3,10 +3,10 @@
 
 use std::collections::VecDeque;
 use std::convert::TryInto;
+use std::io;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::{io, result};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::Block;
 pub use crate::devices::virtio::CacheType;
-use crate::Error as VmmError;
+use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error)]
@@ -36,8 +36,6 @@ pub enum DriveError {
     #[error("A root block device already exists!")]
     RootBlockDeviceAlreadyAdded,
 }
-
-type Result<T> = result::Result<T, DriveError>;
 
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -146,7 +144,7 @@ impl BlockBuilder {
     /// Inserts a `Block` in the block devices list using the specified configuration.
     /// If a block with the same id already exists, it will overwrite it.
     /// Inserting a secondary root block device will fail.
-    pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<()> {
+    pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<(), DriveError> {
         let is_root_device = config.is_root_device;
         let position = self.get_index_of_drive_id(&config.drive_id);
         let has_root_block = self.has_root_device();
@@ -183,7 +181,7 @@ impl BlockBuilder {
     }
 
     /// Creates a Block device from a BlockDeviceConfig.
-    fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
+    fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block, DriveError> {
         // check if the path exists
         let path_on_host = PathBuf::from(&block_device_config.path_on_host);
         if !path_on_host.exists() {

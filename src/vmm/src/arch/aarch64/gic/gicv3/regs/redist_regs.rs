@@ -5,7 +5,7 @@ use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
-use crate::arch::aarch64::gic::Result;
+use crate::arch::aarch64::gic::GicError;
 
 // Relevant PPI redistributor registers that we want to save/restore.
 const GICR_CTLR: SimpleReg = SimpleReg::new(0x0000, 4);
@@ -70,11 +70,18 @@ fn redist_regs() -> Box<dyn Iterator<Item = &'static SimpleReg>> {
     Box::new(VGIC_RDIST_REGS.iter().chain(VGIC_SGI_REGS))
 }
 
-pub(crate) fn get_redist_regs(fd: &DeviceFd, mpidr: u64) -> Result<Vec<GicRegState<u32>>> {
+pub(crate) fn get_redist_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+) -> Result<Vec<GicRegState<u32>>, GicError> {
     RedistRegEngine::get_regs_data(fd, redist_regs(), mpidr)
 }
 
-pub(crate) fn set_redist_regs(fd: &DeviceFd, mpidr: u64, data: &[GicRegState<u32>]) -> Result<()> {
+pub(crate) fn set_redist_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+    data: &[GicRegState<u32>],
+) -> Result<(), GicError> {
     RedistRegEngine::set_regs_data(fd, redist_regs(), data, mpidr)
 }
 

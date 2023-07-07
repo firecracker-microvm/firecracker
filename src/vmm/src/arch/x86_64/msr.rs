@@ -15,7 +15,7 @@ use crate::cpu_config::x86_64::cpuid::VENDOR_ID_AMD;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 /// MSR related errors.
-pub enum Error {
+pub enum MsrError {
     /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
     #[error("Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
     Fam(#[from] utils::fam::Error),
@@ -32,8 +32,6 @@ pub enum Error {
     #[error("Not all given MSRs were set.")]
     SetMsrsIncomplete,
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 /// MSR range
 #[derive(Debug)]
@@ -270,10 +268,10 @@ pub fn msr_should_serialize(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
-pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
-        .map_err(Error::GetMsrIndexList)?;
+        .map_err(MsrError::GetMsrIndexList)?;
     msr_index_list.retain(|msr_index| msr_should_serialize(*msr_index));
     Ok(msr_index_list)
 }
@@ -439,10 +437,10 @@ pub fn msr_should_dump_amd(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
-pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList> {
+pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
-        .map_err(Error::GetMsrIndexList)?;
+        .map_err(MsrError::GetMsrIndexList)?;
 
     msr_index_list.retain(|msr_index| msr_should_dump(*msr_index));
     if &get_vendor_id_from_host()? == VENDOR_ID_AMD {
@@ -492,15 +490,15 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
-pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<()> {
+pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<(), MsrError> {
     let msrs = Msrs::from_entries(msr_entries)?;
     vcpu.set_msrs(&msrs)
-        .map_err(Error::SetMsrs)
+        .map_err(MsrError::SetMsrs)
         .and_then(|msrs_written| {
             if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
                 Ok(())
             } else {
-                Err(Error::SetMsrsIncomplete)
+                Err(MsrError::SetMsrsIncomplete)
             }
         })
 }
@@ -598,7 +596,7 @@ mod tests {
         }];
         assert_eq!(
             set_msrs(&vcpu, &msr_entries).unwrap_err(),
-            Error::SetMsrsIncomplete
+            MsrError::SetMsrsIncomplete
         );
     }
 }

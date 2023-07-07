@@ -3,14 +3,13 @@
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
-use std::result::Result;
 
 use utils::vm_memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile,
 };
 
 #[derive(Debug)]
-pub enum Error {
+pub enum SyncIoError {
     Flush(std::io::Error),
     Seek(std::io::Error),
     SyncAll(std::io::Error),
@@ -41,13 +40,13 @@ impl SyncFileEngine {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-    ) -> Result<u32, Error> {
+    ) -> Result<u32, SyncIoError> {
         self.file
             .seek(SeekFrom::Start(offset))
-            .map_err(Error::Seek)?;
+            .map_err(SyncIoError::Seek)?;
         mem.get_slice(addr, count as usize)
             .and_then(|mut slice| Ok(self.file.read_exact_volatile(&mut slice)?))
-            .map_err(Error::Transfer)?;
+            .map_err(SyncIoError::Transfer)?;
         Ok(count)
     }
 
@@ -57,20 +56,20 @@ impl SyncFileEngine {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-    ) -> Result<u32, Error> {
+    ) -> Result<u32, SyncIoError> {
         self.file
             .seek(SeekFrom::Start(offset))
-            .map_err(Error::Seek)?;
+            .map_err(SyncIoError::Seek)?;
         mem.get_slice(addr, count as usize)
             .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
-            .map_err(Error::Transfer)?;
+            .map_err(SyncIoError::Transfer)?;
         Ok(count)
     }
 
-    pub fn flush(&mut self) -> Result<(), Error> {
+    pub fn flush(&mut self) -> Result<(), SyncIoError> {
         // flush() first to force any cached data out of rust buffers.
-        self.file.flush().map_err(Error::Flush)?;
+        self.file.flush().map_err(SyncIoError::Flush)?;
         // Sync data out to physical media on host.
-        self.file.sync_all().map_err(Error::SyncAll)
+        self.file.sync_all().map_err(SyncIoError::SyncAll)
     }
 }

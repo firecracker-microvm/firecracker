@@ -54,8 +54,6 @@ impl fmt::Display for BalloonConfigError {
     }
 }
 
-type Result<T> = std::result::Result<T, BalloonConfigError>;
-
 /// This struct represents the strongly typed equivalent of the json body
 /// from balloon related requests.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -115,7 +113,7 @@ impl BalloonBuilder {
 
     /// Inserts a Balloon device in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<()> {
+    pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<(), BalloonConfigError> {
         self.inner = Some(Arc::new(Mutex::new(Balloon::new(
             cfg.amount_mib,
             cfg.deflate_on_oom,
@@ -139,7 +137,7 @@ impl BalloonBuilder {
     }
 
     /// Returns the same structure that was used to configure the device.
-    pub fn get_config(&self) -> Result<BalloonDeviceConfig> {
+    pub fn get_config(&self) -> Result<BalloonDeviceConfig, BalloonConfigError> {
         self.get()
             .ok_or(BalloonConfigError::DeviceNotFound)
             .map(|balloon_mutex| balloon_mutex.lock().expect("Poisoned lock").config())

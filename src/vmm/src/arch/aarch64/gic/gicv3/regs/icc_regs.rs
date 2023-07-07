@@ -5,7 +5,7 @@ use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
-use crate::arch::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::GicError;
 
 const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
@@ -89,7 +89,7 @@ impl VgicRegEngine for VgicSysRegEngine {
     }
 }
 
-fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64> {
+fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64, GicError> {
     let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?.chunks[0];
 
     Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
@@ -118,7 +118,7 @@ fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {
     true
 }
 
-pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
+pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState, GicError> {
     let main_icc_regs =
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
     let num_priority_bits = num_priority_bits(fd, mpidr)?;
@@ -138,7 +138,11 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
     })
 }
 
-pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) -> Result<()> {
+pub(crate) fn set_icc_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+    state: &VgicSysRegsState,
+) -> Result<(), GicError> {
     VgicSysRegEngine::set_regs_data(
         fd,
         Box::new(MAIN_VGIC_ICC_REGS.iter()),
@@ -149,7 +153,7 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 
     for (reg, maybe_reg_data) in AP_VGIC_ICC_REGS.iter().zip(&state.ap_icc_regs) {
         if is_ap_reg_available(reg, num_priority_bits) != maybe_reg_data.is_some() {
-            return Err(Error::InvalidVgicSysRegState);
+            return Err(GicError::InvalidVgicSysRegState);
         }
 
         if let Some(reg_data) = maybe_reg_data {

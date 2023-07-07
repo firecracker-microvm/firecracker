@@ -28,11 +28,9 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 
-type Result<E> = std::result::Result<(), E>;
-
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, derive_more::From)]
-pub enum Error {
+pub enum ResourcesError {
     /// Balloon device configuration error.
     #[error("Balloon device error: {0}")]
     BalloonDevice(BalloonConfigError),
@@ -136,7 +134,7 @@ impl VmResources {
         instance_info: &InstanceInfo,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> std::result::Result<Self, Error> {
+    ) -> Result<Self, ResourcesError> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
 
         if let Some(logger) = vmm_config.logger {
@@ -157,7 +155,8 @@ impl VmResources {
         }
 
         if let Some(cpu_config) = vmm_config.cpu_config {
-            let cpu_config_json = std::fs::read_to_string(cpu_config).map_err(Error::File)?;
+            let cpu_config_json =
+                std::fs::read_to_string(cpu_config).map_err(ResourcesError::File)?;
             let cpu_template: CustomCpuTemplate = serde_json::from_str(&cpu_config_json)?;
             resources.set_custom_cpu_template(cpu_template);
         }
@@ -255,10 +254,7 @@ impl VmResources {
     }
 
     /// Updates the configuration of the microVM.
-    pub fn update_vm_config(
-        &mut self,
-        update: &MachineConfigUpdate,
-    ) -> std::result::Result<(), VmConfigError> {
+    pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
         self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
@@ -329,7 +325,7 @@ impl VmResources {
     pub fn set_balloon_device(
         &mut self,
         config: BalloonDeviceConfig,
-    ) -> Result<BalloonConfigError> {
+    ) -> Result<(), BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
         if config.amount_mib as usize > self.vm_config.mem_size_mib {
@@ -343,7 +339,7 @@ impl VmResources {
     pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
-    ) -> Result<BootSourceConfigError> {
+    ) -> Result<(), BootSourceConfigError> {
         self.set_boot_source_config(boot_source_cfg);
         self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
@@ -360,7 +356,7 @@ impl VmResources {
     pub fn set_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
-    ) -> Result<DriveError> {
+    ) -> Result<(), DriveError> {
         self.block.insert(block_device_config)
     }
 
@@ -368,13 +364,13 @@ impl VmResources {
     pub fn build_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
-    ) -> Result<NetworkInterfaceError> {
+    ) -> Result<(), NetworkInterfaceError> {
         let _ = self.net_builder.build(body)?;
         Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
+    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
         self.vsock.insert(config)
     }
 
@@ -382,7 +378,7 @@ impl VmResources {
     pub fn build_entropy_device(
         &mut self,
         body: EntropyDeviceConfig,
-    ) -> Result<EntropyDeviceError> {
+    ) -> Result<(), EntropyDeviceError> {
         self.entropy.insert(body)
     }
 
@@ -391,7 +387,7 @@ impl VmResources {
         &mut self,
         config: MmdsConfig,
         instance_id: &str,
-    ) -> Result<MmdsConfigError> {
+    ) -> Result<(), MmdsConfigError> {
         self.set_mmds_network_stack_config(&config)?;
         self.set_mmds_version(config.version, instance_id)?;
 
@@ -403,7 +399,7 @@ impl VmResources {
         &mut self,
         version: MmdsVersion,
         instance_id: &str,
-    ) -> Result<MmdsConfigError> {
+    ) -> Result<(), MmdsConfigError> {
         let mut mmds_guard = self.locked_mmds_or_default();
         mmds_guard
             .set_version(version)
@@ -415,7 +411,10 @@ impl VmResources {
 
     // Updates MMDS Network Stack for network interfaces to allow forwarding
     // requests to MMDS (or not).
-    fn set_mmds_network_stack_config(&mut self, config: &MmdsConfig) -> Result<MmdsConfigError> {
+    fn set_mmds_network_stack_config(
+        &mut self,
+        config: &MmdsConfig,
+    ) -> Result<(), MmdsConfigError> {
         // Check IPv4 address validity.
         let ipv4_addr = match config.ipv4_addr() {
             Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
@@ -614,14 +613,14 @@ mod tests {
 
         // Invalid JSON string must yield a `serde_json` error.
         match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
         match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
@@ -650,7 +649,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
+            Err(ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
 
@@ -679,7 +678,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
+            Err(ResourcesError::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
             _ => unreachable!(),
         }
 
@@ -713,7 +712,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::InvalidJson(_)) => (),
+            Err(ResourcesError::InvalidJson(_)) => (),
             _ => unreachable!(),
         }
 
@@ -830,7 +829,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
+            Err(ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
 
@@ -863,7 +862,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -899,7 +898,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -939,7 +938,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+            Err(ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
                 crate::devices::virtio::net::NetError::TapOpen { .. },
             ))) => (),
             _ => unreachable!(),
@@ -1080,7 +1079,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(Error::File(_)) => (),
+            Err(ResourcesError::File(_)) => (),
             _ => unreachable!(),
         }
     }

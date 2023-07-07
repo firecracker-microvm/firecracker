@@ -7,7 +7,6 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::fmt;
-use std::result;
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
@@ -28,11 +27,11 @@ use crate::arch::aarch64::gic::GicState;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum VmError {
     #[cfg(target_arch = "x86_64")]
     /// Failed to get MSR index list to save into snapshots.
     #[error("Failed to get MSR index list to save into snapshots: {0}")]
-    GetMsrsToSave(#[from] crate::arch::x86_64::msr::Error),
+    GetMsrsToSave(#[from] crate::arch::x86_64::msr::MsrError),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     #[error("The number of configured slots is bigger than the maximum reported by KVM")]
     NotEnoughMemorySlots,
@@ -42,7 +41,7 @@ pub enum Error {
     #[cfg(target_arch = "aarch64")]
     /// Cannot create the global interrupt controller.
     #[error("Error creating the global interrupt controller: {0:?}")]
-    VmCreateGIC(crate::arch::aarch64::gic::Error),
+    VmCreateGIC(crate::arch::aarch64::gic::GicError),
     /// Cannot open the VM file descriptor.
     #[error("Cannot open the VM file descriptor: {0}")]
     VmFd(kvm_ioctls::Error),
@@ -76,11 +75,11 @@ pub enum Error {
     #[cfg(target_arch = "aarch64")]
     /// Failed to save the VM's GIC state.
     #[error("Failed to save the VM's GIC state: {0:?}")]
-    SaveGic(crate::arch::aarch64::gic::Error),
+    SaveGic(crate::arch::aarch64::gic::GicError),
     #[cfg(target_arch = "aarch64")]
     /// Failed to restore the VM's GIC state.
     #[error("Failed to restore the VM's GIC state: {0:?}")]
-    RestoreGic(crate::arch::aarch64::gic::Error),
+    RestoreGic(crate::arch::aarch64::gic::GicError),
 }
 
 /// Error type for [`Vm::restore_state`]
@@ -105,10 +104,8 @@ pub enum RestoreStateError {
 pub enum RestoreStateError {
     /// GIC Error
     #[error("{0}")]
-    GicError(crate::arch::aarch64::gic::Error),
+    GicError(crate::arch::aarch64::gic::GicError),
 }
-
-pub type Result<T> = result::Result<T, Error>;
 
 /// A wrapper around creating and using a VM.
 #[derive(Debug)]
@@ -135,15 +132,15 @@ impl Vm {
         guest_mem: &GuestMemoryMmap,
         kvm_max_memslots: usize,
         track_dirty_pages: bool,
-    ) -> Result<()> {
+    ) -> Result<(), VmError> {
         if guest_mem.num_regions() > kvm_max_memslots {
-            return Err(Error::NotEnoughMemorySlots);
+            return Err(VmError::NotEnoughMemorySlots);
         }
         self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
             .set_tss_address(crate::arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
-            .map_err(Error::VmSetup)?;
+            .map_err(VmError::VmSetup)?;
 
         Ok(())
     }
@@ -152,7 +149,7 @@ impl Vm {
         &self,
         guest_mem: &GuestMemoryMmap,
         track_dirty_pages: bool,
-    ) -> Result<()> {
+    ) -> Result<(), VmError> {
         let mut flags = 0u32;
         if track_dirty_pages {
             flags |= KVM_MEM_LOG_DIRTY_PAGES;
@@ -173,7 +170,7 @@ impl Vm {
                 // SAFETY: Safe because the fd is a valid KVM file descriptor.
                 unsafe { self.fd.set_user_memory_region(memory_region) }
             })
-            .map_err(Error::SetUserMemoryRegion)?;
+            .map_err(VmError::SetUserMemoryRegion)?;
         Ok(())
     }
 
@@ -186,9 +183,9 @@ impl Vm {
 #[cfg(target_arch = "aarch64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self, VmError> {
         // Create fd for interacting with kvm-vm specific functions.
-        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+        let vm_fd = kvm.create_vm().map_err(VmError::VmFd)?;
 
         Ok(Vm {
             fd: vm_fd,
@@ -197,10 +194,10 @@ impl Vm {
     }
 
     /// Creates the GIC (Global Interrupt Controller).
-    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
+    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), VmError> {
         self.irqchip_handle = Some(
             crate::arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
-                .map_err(Error::VmCreateGIC)?,
+                .map_err(VmError::VmCreateGIC)?,
         );
         Ok(())
     }
@@ -211,12 +208,12 @@ impl Vm {
     }
 
     /// Saves and returns the Kvm Vm state.
-    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
+    pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState, VmError> {
         Ok(VmState {
             gic: self
                 .get_irqchip()
                 .save_device(mpidrs)
-                .map_err(Error::SaveGic)?,
+                .map_err(VmError::SaveGic)?,
         })
     }
 
@@ -225,11 +222,7 @@ impl Vm {
     /// # Errors
     ///
     /// When [`GICDevice::restore_device`] errors.
-    pub fn restore_state(
-        &self,
-        mpidrs: &[u64],
-        state: &VmState,
-    ) -> std::result::Result<(), RestoreStateError> {
+    pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<(), RestoreStateError> {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(RestoreStateError::GicError)
@@ -239,13 +232,13 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self, VmError> {
         // Create fd for interacting with kvm-vm specific functions.
-        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+        let vm_fd = kvm.create_vm().map_err(VmError::VmFd)?;
 
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-            .map_err(Error::VmFd)?;
+            .map_err(VmError::VmFd)?;
         let msrs_to_save = crate::arch::x86_64::msr::get_msrs_to_save(kvm)?;
 
         Ok(Vm {
@@ -275,7 +268,7 @@ impl Vm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(&self, state: &VmState) -> std::result::Result<(), RestoreStateError> {
+    pub fn restore_state(&self, state: &VmState) -> Result<(), RestoreStateError> {
         self.fd
             .set_pit2(&state.pitstate)
             .map_err(RestoreStateError::SetPit2)?;
@@ -295,22 +288,22 @@ impl Vm {
     }
 
     /// Creates the irq chip and an in-kernel device model for the PIT.
-    pub fn setup_irqchip(&self) -> Result<()> {
-        self.fd.create_irq_chip().map_err(Error::VmSetup)?;
+    pub fn setup_irqchip(&self) -> Result<(), VmError> {
+        self.fd.create_irq_chip().map_err(VmError::VmSetup)?;
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
         // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
         let pit_config = kvm_pit_config {
             flags: KVM_PIT_SPEAKER_DUMMY,
             ..Default::default()
         };
-        self.fd.create_pit2(pit_config).map_err(Error::VmSetup)
+        self.fd.create_pit2(pit_config).map_err(VmError::VmSetup)
     }
 
     /// Saves and returns the Kvm Vm state.
-    pub fn save_state(&self) -> Result<VmState> {
-        let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
+    pub fn save_state(&self) -> Result<VmState, VmError> {
+        let pitstate = self.fd.get_pit2().map_err(VmError::VmGetPit2)?;
 
-        let mut clock = self.fd.get_clock().map_err(Error::VmGetClock)?;
+        let mut clock = self.fd.get_clock().map_err(VmError::VmGetClock)?;
         // This bit is not accepted in SET_CLOCK, clear it.
         clock.flags &= !KVM_CLOCK_TSC_STABLE;
 
@@ -320,7 +313,7 @@ impl Vm {
         };
         self.fd
             .get_irqchip(&mut pic_master)
-            .map_err(Error::VmGetIrqChip)?;
+            .map_err(VmError::VmGetIrqChip)?;
 
         let mut pic_slave = kvm_irqchip {
             chip_id: KVM_IRQCHIP_PIC_SLAVE,
@@ -328,7 +321,7 @@ impl Vm {
         };
         self.fd
             .get_irqchip(&mut pic_slave)
-            .map_err(Error::VmGetIrqChip)?;
+            .map_err(VmError::VmGetIrqChip)?;
 
         let mut ioapic = kvm_irqchip {
             chip_id: KVM_IRQCHIP_IOAPIC,
@@ -336,7 +329,7 @@ impl Vm {
         };
         self.fd
             .get_irqchip(&mut ioapic)
-            .map_err(Error::VmGetIrqChip)?;
+            .map_err(VmError::VmGetIrqChip)?;
 
         Ok(VmState {
             pitstate,

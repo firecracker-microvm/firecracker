@@ -415,7 +415,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             self.device_activated = true;
             Ok(())
         }

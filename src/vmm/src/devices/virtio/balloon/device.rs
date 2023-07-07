@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::Write;
-use std::result::Result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +15,7 @@ use utils::eventfd::EventFd;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -369,7 +368,7 @@ impl Balloon {
         }
     }
 
-    pub(crate) fn process_stats_queue(&mut self) -> std::result::Result<(), BalloonError> {
+    pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.balloon.stats_updates_count.inc();
@@ -591,13 +590,13 @@ impl VirtioDevice for Balloon {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
             METRICS.balloon.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
-            return Err(super::super::ActivateError::BadActivate);
+            return Err(ActivateError::BadActivate);
         }
 
         if self.stats_enabled() {

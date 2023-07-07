@@ -155,7 +155,7 @@ impl Persist<'_> for Block {
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
-            BlockError::FileEngine(io::Error::UnsupportedEngine(FileEngineType::Async)) => {
+            BlockError::FileEngine(io::BlockIoError::UnsupportedEngine(FileEngineType::Async)) => {
                 // If the kernel does not support `Async`, fallback to `Sync`.
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \

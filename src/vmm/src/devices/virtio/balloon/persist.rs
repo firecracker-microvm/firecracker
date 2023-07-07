@@ -112,7 +112,7 @@ impl Persist<'_> for Balloon {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
         let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s, true)?;

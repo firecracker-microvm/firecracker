@@ -25,9 +25,9 @@ use crate::arch::DeviceType;
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, derive_more::From)]
-pub enum Error {
+pub enum ConfigurationError {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM.
-    SetupFDT(fdt::Error),
+    SetupFDT(fdt::FdtError),
     /// Failed to compute the initrd address.
     InitrdAddress,
 }
@@ -62,7 +62,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &GICDevice,
     initrd: &Option<super::InitrdConfig>,
-) -> super::Result<()> {
+) -> Result<(), ConfigurationError> {
     fdt::create_fdt(
         guest_mem,
         vcpu_mpidr,
@@ -80,17 +80,20 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
+pub fn initrd_load_addr(
+    guest_mem: &GuestMemoryMmap,
+    initrd_size: usize,
+) -> Result<u64, ConfigurationError> {
     let round_to_pagesize = |size| (size + (super::PAGE_SIZE - 1)) & !(super::PAGE_SIZE - 1);
     match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64) {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
                 Ok(offset.raw_value())
             } else {
-                Err(Error::InitrdAddress)
+                Err(ConfigurationError::InitrdAddress)
             }
         }
-        None => Err(Error::InitrdAddress),
+        None => Err(ConfigurationError::InitrdAddress),
     }
 }
 

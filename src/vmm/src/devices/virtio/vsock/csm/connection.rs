@@ -91,9 +91,9 @@ use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVol
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
-use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, VsockError};
+use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
-use super::{defs, ConnState, Error, PendingRx, PendingRxSet, Result};
+use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -158,7 +158,7 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -287,7 +287,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
@@ -467,7 +467,9 @@ where
                         self.local_port, self.peer_port, err
                     );
                     match err {
-                        Error::TxBufFlush(inner) if inner.kind() == ErrorKind::WouldBlock => {
+                        VsockCsmError::TxBufFlush(inner)
+                            if inner.kind() == ErrorKind::WouldBlock =>
+                        {
                             // This should never happen (EWOULDBLOCK after EPOLLOUT), but
                             // it does, so let's absorb it.
                         }
@@ -589,19 +591,15 @@ where
     /// Warning: this will bypass the connection state machine and write directly to the
     /// underlying stream. No account of this write is kept, which includes bypassing
     /// vsock flow control.
-    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize> {
-        self.stream.write(buf).map_err(Error::StreamWrite)
+    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize, VsockCsmError> {
+        self.stream.write(buf).map_err(VsockCsmError::StreamWrite)
     }
 
     /// Send some raw data (a byte-slice) to the host stream.
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(
-        &mut self,
-        mem: &GuestMemoryMmap,
-        pkt: &VsockPacket,
-    ) -> std::result::Result<(), VsockError> {
+    fn send_bytes(&mut self, mem: &GuestMemoryMmap, pkt: &VsockPacket) -> Result<(), VsockError> {
         let len = pkt.len() as usize;
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
@@ -676,7 +674,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
+    use std::io::{Error as IoError, ErrorKind, Read, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
 
@@ -736,7 +734,7 @@ mod tests {
     }
 
     impl Read for TestStream {
-        fn read(&mut self, data: &mut [u8]) -> IoResult<usize> {
+        fn read(&mut self, data: &mut [u8]) -> Result<usize, IoError> {
             match self.read_state {
                 StreamState::Closed => Ok(0),
                 StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
@@ -759,14 +757,14 @@ mod tests {
         fn read_volatile<B: BitmapSlice>(
             &mut self,
             buf: &mut VolatileSlice<B>,
-        ) -> std::result::Result<usize, utils::vm_memory::VolatileMemoryError> {
+        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
             // Test code, the additional copy incurred by read_from is fine
             buf.read_from(0, self, buf.len())
         }
     }
 
     impl Write for TestStream {
-        fn write(&mut self, data: &[u8]) -> IoResult<usize> {
+        fn write(&mut self, data: &[u8]) -> Result<usize, IoError> {
             match self.write_state {
                 StreamState::Closed => Err(IoError::new(ErrorKind::BrokenPipe, "EPIPE")),
                 StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
@@ -777,7 +775,7 @@ mod tests {
                 StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
             }
         }
-        fn flush(&mut self) -> IoResult<()> {
+        fn flush(&mut self) -> Result<(), IoError> {
             Ok(())
         }
     }
@@ -786,7 +784,7 @@ mod tests {
         fn write_volatile<B: BitmapSlice>(
             &mut self,
             buf: &VolatileSlice<B>,
-        ) -> std::result::Result<usize, utils::vm_memory::VolatileMemoryError> {
+        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
             // Test code, the additional copy incurred by write_to is fine
             buf.write_to(0, self, buf.len())
         }

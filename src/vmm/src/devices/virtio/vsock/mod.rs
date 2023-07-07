@@ -22,7 +22,7 @@ use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
-pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
+pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
 
 mod defs {
@@ -124,8 +124,6 @@ pub enum VsockError {
     VsockUdsBackend(VsockUnixBackendError),
 }
 
-type Result<T> = std::result::Result<T, VsockError>;
-
 /// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
 /// An event-polling control loop will use `as_raw_fd()` and `get_polled_evset()` to query
 /// the listener for the file descriptor and the set of events it's interested in. When such an
@@ -149,10 +147,10 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError>;
 
     /// Write/send a packet through the channel.
-    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError>;
 
     /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
     /// call to `recv_pkt()` won't fail.

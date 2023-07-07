@@ -5,14 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::result;
-
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Error as KvmIoctlsError, Kvm};
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, derive_more::From, thiserror::Error)]
-pub enum Error {
+pub enum SystemError {
     /// The host kernel reports an invalid KVM API version.
     #[error("The host kernel reports an invalid KVM API version: {0}")]
     ApiVersion(i32),
@@ -34,8 +32,6 @@ pub enum Error {
     Initialization(KvmIoctlsError),
 }
 
-type Result<T> = result::Result<T, Error>;
-
 /// Describes a KVM context that gets attached to the microVM.
 /// It gives access to the functionality of the KVM wrapper as
 /// long as every required KVM capability is present on the host.
@@ -46,13 +42,13 @@ pub struct KvmContext {
 }
 
 impl KvmContext {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<Self, SystemError> {
         use kvm_ioctls::Cap::*;
         let kvm = Kvm::new()?;
 
         // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
-            return Err(Error::ApiVersion(kvm.get_api_version()));
+            return Err(SystemError::ApiVersion(kvm.get_api_version()));
         }
 
         // A list of KVM capabilities we want to check.
@@ -89,7 +85,7 @@ impl KvmContext {
                 Ok(KvmContext { kvm, max_memslots })
             }
 
-            Some(c) => Err(Error::Capabilities(*c)),
+            Some(c) => Err(SystemError::Capabilities(*c)),
         }
     }
 

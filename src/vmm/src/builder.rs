@@ -45,6 +45,7 @@ use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper}
 use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
+use crate::devices::BusDevice;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -53,7 +54,7 @@ use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigE
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, BusDevice, Error, EventManager, RestoreVcpusError, Vmm};
+use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +64,7 @@ pub enum StartMicrovmError {
     AttachBlockDevice(io::Error),
     /// This error is thrown by the minimal boot loader implementation.
     #[error("System configuration error: {0:?}")]
-    ConfigureSystem(crate::arch::Error),
+    ConfigureSystem(crate::arch::ConfigurationError),
     /// Error using CPU template to configure vCPUs
     #[error("Failed to create guest config: {0:?}")]
     CreateGuestConfig(#[from] GuestConfigError),
@@ -77,7 +78,7 @@ pub enum StartMicrovmError {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     #[error("Error creating legacy device: {0}")]
-    CreateLegacyDevice(device_manager::legacy::Error),
+    CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
     GuestMemoryMmap(utils::vm_memory::Error),
@@ -89,7 +90,7 @@ pub enum StartMicrovmError {
     InitrdRead(io::Error),
     /// Internal error encountered while starting a microVM.
     #[error("Internal error while starting microVM: {0}")]
-    Internal(Error),
+    Internal(VmmError),
     /// Failed to get CPU template.
     #[error("Failed to get CPU template: {0}")]
     GetCpuTemplate(#[from] GetCpuTemplateError),
@@ -125,7 +126,7 @@ pub enum StartMicrovmError {
         "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline: {}",
         format!("{}", .0).replace('\"', "")
     )]
-    RegisterMmioDevice(device_manager::mmio::Error),
+    RegisterMmioDevice(device_manager::mmio::MmioError),
     /// Cannot restore microvm state.
     #[error("Cannot restore microvm state: {0}")]
     RestoreMicrovmState(MicrovmStateError),
@@ -134,7 +135,7 @@ pub enum StartMicrovmError {
     SetVmResources(VmConfigError),
     /// Failed to create an Entropy device
     #[error("Cannot create the entropy device: {0}")]
-    CreateEntropyDevice(crate::devices::virtio::rng::Error),
+    CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -153,7 +154,7 @@ fn create_vmm_and_vcpus(
     uffd: Option<Uffd>,
     track_dirty_pages: bool,
     vcpu_count: u8,
-) -> std::result::Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Set up Kvm Vm and register memory regions.
@@ -161,7 +162,7 @@ fn create_vmm_and_vcpus(
     let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
 
     let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(Error::EventFd)
+        .map_err(VmmError::EventFd)
         .map_err(Internal)?;
 
     // Instantiate the MMIO device manager.
@@ -191,7 +192,7 @@ fn create_vmm_and_vcpus(
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
             .try_clone()
-            .map_err(Error::EventFd)
+            .map_err(VmmError::EventFd)
             .map_err(Internal)?;
 
         // create pio dev manager with legacy devices
@@ -243,7 +244,7 @@ pub fn build_microvm_for_boot(
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Timestamp for measuring microVM boot duration.
@@ -322,7 +323,7 @@ pub fn build_microvm_for_boot(
             .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
             .clone(),
     )
-    .map_err(Error::VcpuStart)
+    .map_err(VmmError::VcpuStart)
     .map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
@@ -334,7 +335,7 @@ pub fn build_microvm_for_boot(
             .get("vmm")
             .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
     )
-    .map_err(Error::SeccompFilters)
+    .map_err(VmmError::SeccompFilters)
     .map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
@@ -355,7 +356,7 @@ pub fn build_and_boot_microvm(
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     let vmm = build_microvm_for_boot(instance_info, vm_resources, event_manager, seccomp_filters)?;
 
     // The vcpus start off in the `Paused` state, let them run.
@@ -433,7 +434,7 @@ pub fn build_microvm_from_snapshot(
     track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
-) -> std::result::Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
+) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len()).map_err(|_| {
         BuildMicrovmFromSnapshotError::TooManyVCPUs(microvm_state.vcpu_states.len())
     })?;
@@ -529,7 +530,7 @@ pub fn build_microvm_from_snapshot(
 pub fn create_guest_memory(
     mem_size_mib: usize,
     track_dirty_pages: bool,
-) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
+) -> Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
 
@@ -546,11 +547,11 @@ pub fn create_guest_memory(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<GuestAddress, StartMicrovmError> {
+) -> Result<GuestAddress, StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
-        .map_err(|err| StartMicrovmError::Internal(Error::KernelFile(err)))?;
+        .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
 
     #[cfg(target_arch = "x86_64")]
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
@@ -576,7 +577,7 @@ fn load_kernel(
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
     vm_memory: &GuestMemoryMmap,
-) -> std::result::Result<Option<InitrdConfig>, StartMicrovmError> {
+) -> Result<Option<InitrdConfig>, StartMicrovmError> {
     use self::StartMicrovmError::InitrdRead;
 
     Ok(match &boot_cfg.initrd_file {
@@ -597,7 +598,7 @@ fn load_initrd_from_config(
 fn load_initrd<F: Debug>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
-) -> std::result::Result<InitrdConfig, StartMicrovmError>
+) -> Result<InitrdConfig, StartMicrovmError>
 where
     F: ReadVolatile + Seek,
 {
@@ -639,34 +640,31 @@ where
 pub(crate) fn setup_kvm_vm(
     guest_memory: &GuestMemoryMmap,
     track_dirty_pages: bool,
-) -> std::result::Result<Vm, StartMicrovmError> {
+) -> Result<Vm, StartMicrovmError> {
     use self::StartMicrovmError::Internal;
     let kvm = KvmContext::new()
-        .map_err(Error::KvmContext)
+        .map_err(VmmError::KvmContext)
         .map_err(Internal)?;
-    let mut vm = Vm::new(kvm.fd()).map_err(Error::Vm).map_err(Internal)?;
+    let mut vm = Vm::new(kvm.fd()).map_err(VmmError::Vm).map_err(Internal)?;
     vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
-        .map_err(Error::Vm)
+        .map_err(VmmError::Vm)
         .map_err(Internal)?;
     Ok(vm)
 }
 
 /// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
-pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartMicrovmError> {
+pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
     vm.setup_irqchip()
-        .map_err(Error::Vm)
+        .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)
 }
 
 /// Sets up the irqchip for a aarch64 microVM.
 #[cfg(target_arch = "aarch64")]
-pub fn setup_interrupt_controller(
-    vm: &mut Vm,
-    vcpu_count: u8,
-) -> std::result::Result<(), StartMicrovmError> {
+pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
     vm.setup_irqchip(vcpu_count)
-        .map_err(Error::Vm)
+        .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)
 }
 
@@ -675,10 +673,10 @@ pub fn setup_serial_device(
     event_manager: &mut EventManager,
     input: std::io::Stdin,
     out: std::io::Stdout,
-) -> super::Result<Arc<Mutex<BusDevice>>> {
-    let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
+) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
+    let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let kick_stdin_read_evt =
-        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
         serial: Serial::with_events(
             interrupt_evt,
@@ -698,13 +696,13 @@ fn attach_legacy_devices_aarch64(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
-) -> super::Result<()> {
+) -> Result<(), VmmError> {
     // Serial device setup.
     let cmdline_contains_console = cmdline
         .as_cstring()
-        .map_err(|_| Error::Cmdline)?
+        .map_err(|_| VmmError::Cmdline)?
         .into_string()
-        .map_err(|_| Error::Cmdline)?
+        .map_err(|_| VmmError::Cmdline)?
         .contains("console=");
 
     if cmdline_contains_console {
@@ -713,26 +711,26 @@ fn attach_legacy_devices_aarch64(
         let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
         vmm.mmio_device_manager
             .register_mmio_serial(vmm.vm.fd(), serial, None)
-            .map_err(Error::RegisterMMIODevice)?;
+            .map_err(VmmError::RegisterMMIODevice)?;
         vmm.mmio_device_manager
             .add_mmio_serial_to_cmdline(cmdline)
-            .map_err(Error::RegisterMMIODevice)?;
+            .map_err(VmmError::RegisterMMIODevice)?;
     }
 
     let rtc = RTCDevice(Rtc::with_events(&logger::METRICS.rtc));
     vmm.mmio_device_manager
         .register_mmio_rtc(rtc, None)
-        .map_err(Error::RegisterMMIODevice)
+        .map_err(VmmError::RegisterMMIODevice)
 }
 
-fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Vec<Vcpu>> {
+fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>, VmmError> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
-        let exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+        let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
 
-        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(Error::VcpuCreate)?;
+        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
         #[cfg(target_arch = "aarch64")]
-        vcpu.kvm_vcpu.init(vm.fd()).map_err(Error::VcpuInit)?;
+        vcpu.kvm_vcpu.init(vm.fd()).map_err(VmmError::VcpuInit)?;
 
         vcpus.push(vcpu);
     }
@@ -748,7 +746,7 @@ pub fn configure_system_for_boot(
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     boot_cmdline: LoaderKernelCmdline,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     let cpu_template = vm_config.cpu_template.get_cpu_template()?;
@@ -790,7 +788,7 @@ pub fn configure_system_for_boot(
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
             .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
-            .map_err(Error::VcpuConfigure)
+            .map_err(VmmError::VcpuConfigure)
             .map_err(Internal)?;
     }
 
@@ -844,7 +842,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     id: String,
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     event_manager.add_subscriber(device.clone());
@@ -860,7 +858,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
 pub(crate) fn attach_boot_timer_device(
     vmm: &mut Vmm,
     request_ts: TimestampUs,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
@@ -877,7 +875,7 @@ fn attach_entropy_device(
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     let id = entropy_device
         .lock()
         .expect("Poisoned lock")
@@ -892,7 +890,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let id = {
             let locked = block.lock().expect("Poisoned lock");
@@ -920,7 +918,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
@@ -934,7 +932,7 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
@@ -945,7 +943,7 @@ fn attach_balloon_device(
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
+) -> Result<(), StartMicrovmError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
@@ -1055,7 +1053,7 @@ pub mod tests {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-            .map_err(Error::EventFd)
+            .map_err(VmmError::EventFd)
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
@@ -1619,7 +1617,7 @@ pub mod tests {
         let err = CreateRateLimiter(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = Internal(Error::Serial(io::Error::from_raw_os_error(0)));
+        let err = Internal(VmmError::Serial(io::Error::from_raw_os_error(0)));
         let _ = format!("{}{:?}", err, err);
 
         let err = KernelCmdline(String::from("dummy --cmdline"));
@@ -1642,7 +1640,7 @@ pub mod tests {
         let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CreateEntropyDevice(crate::devices::virtio::rng::Error::EventFd(
+        let err = CreateEntropyDevice(crate::devices::virtio::rng::EntropyError::EventFd(
             io::Error::from_raw_os_error(0),
         ));
         let _ = format!("{err}{err:?}");

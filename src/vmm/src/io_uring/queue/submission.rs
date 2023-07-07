@@ -6,19 +6,18 @@ use std::io::Error as IOError;
 use std::mem;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
 use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
-use super::mmap::{mmap, Error as MmapError};
+use super::mmap::{mmap, MmapError};
 use crate::io_uring::bindings;
 use crate::io_uring::operation::Sqe;
 
 #[derive(Debug, derive_more::From)]
 /// SQueue Error.
-pub enum Error {
+pub enum SQueueError {
     /// The queue is full.
     FullQueue,
     /// Error mapping the ring.
@@ -55,7 +54,7 @@ impl SubmissionQueue {
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SQueueError> {
         let (ring, sqes) = Self::mmap(io_uring_fd, params)?;
         let ring_slice = ring.as_volatile_slice();
 
@@ -85,7 +84,7 @@ impl SubmissionQueue {
     /// # Safety
     /// Unsafe because we pass a raw `user_data` pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub(crate) unsafe fn push<T: Debug>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
+    pub(crate) unsafe fn push<T: Debug>(&mut self, sqe: Sqe) -> Result<(), (SQueueError, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail
@@ -98,7 +97,7 @@ impl SubmissionQueue {
         };
 
         if pending >= self.count {
-            return Err((Error::FullQueue, sqe.user_data()));
+            return Err((SQueueError::FullQueue, sqe.user_data()));
         }
 
         // retrieve and populate the sqe
@@ -106,14 +105,14 @@ impl SubmissionQueue {
             sqe.0,
             (tail as usize) * mem::size_of::<bindings::io_uring_sqe>(),
         ) {
-            return Err((Error::VolatileMemory(err), sqe.user_data()));
+            return Err((SQueueError::VolatileMemory(err), sqe.user_data()));
         }
 
         // increment the sqe tail
         self.unmasked_tail += Wrapping(1u32);
 
         if let Err(err) = ring_slice.store(self.unmasked_tail.0, self.tail_off, Ordering::Release) {
-            return Err((Error::VolatileMemory(err), sqe.user_data()));
+            return Err((SQueueError::VolatileMemory(err), sqe.user_data()));
         }
 
         // This is safe since we already checked if there is enough space in the queue;
@@ -122,7 +121,7 @@ impl SubmissionQueue {
         Ok(())
     }
 
-    pub(crate) fn submit(&mut self, min_complete: u32) -> Result<u32, Error> {
+    pub(crate) fn submit(&mut self, min_complete: u32) -> Result<u32, SQueueError> {
         if self.to_submit == 0 && min_complete == 0 {
             // Nothing to submit and nothing to wait for.
             return Ok(0);
@@ -158,7 +157,7 @@ impl SubmissionQueue {
     fn mmap(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
-    ) -> Result<(MmapRegion, MmapRegion), Error> {
+    ) -> Result<(MmapRegion, MmapRegion), SQueueError> {
         // map the SQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
         let sqe_ring_size =
@@ -183,7 +182,7 @@ impl SubmissionQueue {
         Ok((sqe_ring, sqes))
     }
 
-    pub(crate) fn pending(&self) -> Result<u32, Error> {
+    pub(crate) fn pending(&self) -> Result<u32, SQueueError> {
         let ring_slice = self.ring.as_volatile_slice();
         // get the sqe head
         let unmasked_head = ring_slice.load::<u32>(self.head_off, Ordering::Acquire)?;

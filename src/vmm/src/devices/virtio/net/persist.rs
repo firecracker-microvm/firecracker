@@ -78,7 +78,7 @@ pub struct NetConstructorArgs {
 }
 
 #[derive(Debug, derive_more::From)]
-pub enum Error {
+pub enum NetPersistError {
     CreateNet(super::NetError),
     CreateRateLimiter(io::Error),
     VirtioState(VirtioStateError),
@@ -88,7 +88,7 @@ pub enum Error {
 impl Persist<'_> for Net {
     type State = NetState;
     type ConstructorArgs = NetConstructorArgs;
-    type Error = Error;
+    type Error = NetPersistError;
 
     fn save(&self) -> Self::State {
         NetState {
@@ -108,7 +108,7 @@ impl Persist<'_> for Net {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)?;
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
@@ -130,7 +130,7 @@ impl Persist<'_> for Net {
                 MmdsNetworkStack::restore(
                     constructor_args
                         .mmds
-                        .map_or_else(|| Err(Error::NoMmdsDataStore), Ok)?,
+                        .map_or_else(|| Err(NetPersistError::NoMmdsDataStore), Ok)?,
                     mmds_ns,
                 )
                 .unwrap(),
@@ -220,7 +220,9 @@ mod tests {
                     assert_eq!(restored_net.rx_rate_limiter, RateLimiter::default());
                     assert_eq!(restored_net.tx_rate_limiter, RateLimiter::default());
                 }
-                Err(Error::NoMmdsDataStore) => assert!(has_mmds_ns && !allow_mmds_requests),
+                Err(NetPersistError::NoMmdsDataStore) => {
+                    assert!(has_mmds_ns && !allow_mmds_requests)
+                }
                 _ => unreachable!(),
             }
         }

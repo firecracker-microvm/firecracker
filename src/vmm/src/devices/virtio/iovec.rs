@@ -9,7 +9,7 @@ use utils::vm_memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 use crate::devices::virtio::DescriptorChain;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum IoVecError {
     /// We found a write-only descriptor where read-only was expected
     #[error("Tried to create an `IoVec` from a write-only descriptor chain")]
     WriteOnlyDescriptor,
@@ -20,8 +20,6 @@ pub enum Error {
     #[error("Guest memory error: {0}")]
     GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 // Describes a sub-region of a buffer described as a slice of `iovec` structs.
 #[derive(Debug)]
@@ -125,14 +123,17 @@ pub(crate) struct IoVecBuffer {
 
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
-    pub fn from_descriptor_chain(mem: &GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
+    pub fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, IoVecError> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
         let mut next_descriptor = Some(head);
         while let Some(desc) = next_descriptor {
             if desc.is_write_only() {
-                return Err(Error::WriteOnlyDescriptor);
+                return Err(IoVecError::WriteOnlyDescriptor);
             }
 
             // We use get_slice instead of `get_host_address` here in order to have the whole
@@ -227,13 +228,16 @@ pub(crate) struct IoVecBufferMut {
 
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
-    pub fn from_descriptor_chain(mem: &GuestMemoryMmap, head: DescriptorChain) -> Result<Self> {
+    pub fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, IoVecError> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
         for desc in head {
             if !desc.is_write_only() {
-                return Err(Error::ReadOnlyDescriptor);
+                return Err(IoVecError::ReadOnlyDescriptor);
             }
 
             // We use get_slice instead of `get_host_address` here in order to have the whole

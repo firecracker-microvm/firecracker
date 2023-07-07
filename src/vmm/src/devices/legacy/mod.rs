@@ -17,7 +17,7 @@ use std::ops::Deref;
 use utils::eventfd::EventFd;
 use vm_superio::Trigger;
 
-pub use self::i8042::{Error as I8042DeviceError, I8042Device};
+pub use self::i8042::{I8042Device, I8042Error as I8042DeviceError};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{

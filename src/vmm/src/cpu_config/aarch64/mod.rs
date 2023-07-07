@@ -10,12 +10,12 @@ pub mod test_utils;
 
 use super::templates::CustomCpuTemplate;
 use crate::arch::aarch64::regs::{Aarch64RegisterVec, RegSize};
-use crate::arch::aarch64::vcpu::Error as ArchError;
+use crate::arch::aarch64::vcpu::VcpuError as ArchError;
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Failed to create a guest cpu configuration: {0}")]
-pub struct Error(#[from] pub ArchError);
+pub struct CpuConfigurationError(#[from] pub ArchError);
 
 /// CPU configuration for aarch64
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -26,7 +26,10 @@ pub struct CpuConfiguration {
 
 impl CpuConfiguration {
     /// Creates new guest CPU config based on the provided template
-    pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Result<Self, Error> {
+    pub fn apply_template(
+        mut self,
+        template: &CustomCpuTemplate,
+    ) -> Result<Self, CpuConfigurationError> {
         for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
             match reg.size() {
                 RegSize::U32 => {

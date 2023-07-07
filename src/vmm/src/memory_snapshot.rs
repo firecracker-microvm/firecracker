@@ -46,25 +46,25 @@ where
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
     fn describe(&self) -> GuestMemoryState;
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> std::result::Result<(), Error>;
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), SnapshotMemoryError>;
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
-    ) -> std::result::Result<(), Error>;
+    ) -> Result<(), SnapshotMemoryError>;
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
     fn restore(
         file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
-    ) -> std::result::Result<Self, Error>;
+    ) -> Result<Self, SnapshotMemoryError>;
 }
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum SnapshotMemoryError {
     /// Cannot access file.
     #[error("Cannot access file: {0:?}")]
     FileHandle(#[from] std::io::Error),
@@ -100,10 +100,10 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> std::result::Result<(), Error> {
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), SnapshotMemoryError> {
         self.iter()
             .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
-            .map_err(Error::WriteMemory)
+            .map_err(SnapshotMemoryError::WriteMemory)
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -111,7 +111,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
-    ) -> std::result::Result<(), Error> {
+    ) -> Result<(), SnapshotMemoryError> {
         let mut writer_offset = 0;
         let page_size = get_page_size()?;
 
@@ -164,7 +164,7 @@ impl SnapshotMemory for GuestMemoryMmap {
 
                 Ok(())
             })
-            .map_err(Error::WriteMemory)
+            .map_err(SnapshotMemoryError::WriteMemory)
     }
 
     /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
@@ -173,7 +173,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
-    ) -> std::result::Result<Self, Error> {
+    ) -> Result<Self, SnapshotMemoryError> {
         let mut regions = vec![];
         for region in state.regions.iter() {
             let f = match file {
@@ -185,7 +185,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         }
 
         utils::vm_memory::create_guest_memory(&regions, track_dirty_pages)
-            .map_err(Error::CreateMemory)
+            .map_err(SnapshotMemoryError::CreateMemory)
     }
 }
 
@@ -266,7 +266,7 @@ mod tests {
         ];
         let guest_memory = utils::vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
         // Check that Firecracker bitmap is clean.
-        let _res: std::result::Result<(), Error> = guest_memory.iter().try_for_each(|r| {
+        let _res: Result<(), SnapshotMemoryError> = guest_memory.iter().try_for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));
             assert!(!r.bitmap().dirty_at(1));
             Ok(())

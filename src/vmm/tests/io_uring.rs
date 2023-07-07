@@ -18,7 +18,7 @@ use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory};
 mod test_utils {
     use utils::vm_memory::{MmapRegion, VolatileMemory};
     use vmm::io_uring::operation::{OpCode, Operation};
-    use vmm::io_uring::{Error, IoUring, SQueueError};
+    use vmm::io_uring::{IoUring, IoUringError, SQueueError};
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<usize>().unwrap() } {
@@ -62,7 +62,7 @@ mod test_utils {
 
                 match unsafe { ring.push(operation) } {
                     Ok(()) => break,
-                    Err((Error::SQueue(SQueueError::FullQueue), _)) => {
+                    Err((IoUringError::SQueue(SQueueError::FullQueue), _)) => {
                         // Stop and wait.
                         ring.submit_and_wait_all().unwrap();
                         drain_cqueue(ring);
@@ -81,7 +81,7 @@ mod test_utils {
 }
 use vmm::io_uring::operation::{OpCode, Operation};
 use vmm::io_uring::restriction::Restriction;
-use vmm::io_uring::{Error, IoUring, SQueueError};
+use vmm::io_uring::{IoUring, IoUringError, SQueueError};
 
 use crate::test_utils::drive_submission_and_completion;
 
@@ -94,13 +94,13 @@ fn test_ring_new() {
     // Invalid entries count: 0.
     assert!(matches!(
         IoUring::new(0, vec![], vec![], None),
-        Err(Error::Setup(err)) if err.kind() == std::io::ErrorKind::InvalidInput
+        Err(IoUringError::Setup(err)) if err.kind() == std::io::ErrorKind::InvalidInput
     ));
     // Try to register too many files.
     let dummy_file = TempFile::new().unwrap().into_file();
     assert!(matches!(
         IoUring::new(10, vec![&dummy_file; 40000usize], vec![], None), // Max is 32768.
-        Err(Error::RegisterFileLimitExceeded)
+        Err(IoUringError::RegisterFileLimitExceeded)
     ));
 }
 
@@ -184,7 +184,7 @@ fn test_ring_push() {
 
         assert!(matches!(
             unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71)) },
-            Err((Error::NoRegisteredFds, 71))
+            Err((IoUringError::NoRegisteredFds, 71))
         ));
         assert_eq!(ring.pending_sqes().unwrap(), 0);
     }
@@ -199,7 +199,7 @@ fn test_ring_push() {
         // Invalid fd.
         assert!(matches!(
             unsafe { ring.push(Operation::read(1, buf.as_ptr() as usize, 4, 0, user_data)) },
-            Err((Error::InvalidFixedFd(1), 71))
+            Err((IoUringError::InvalidFixedFd(1), 71))
         ));
         assert_eq!(ring.pending_sqes().unwrap(), 0);
         assert_eq!(ring.num_ops(), 0);
@@ -226,7 +226,7 @@ fn test_ring_push() {
 
         assert!(matches!(
             unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) },
-            Err((Error::SQueue(SQueueError::FullQueue), 71))
+            Err((IoUringError::SQueue(SQueueError::FullQueue), 71))
         ));
 
         assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
@@ -253,7 +253,7 @@ fn test_ring_push() {
         // The CQ should be full now
         assert!(matches!(
             unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) },
-            Err((Error::FullCQueue, 71))
+            Err((IoUringError::FullCQueue, 71))
         ));
 
         // Check if there are NUM_ENTRIES * 2 cqes

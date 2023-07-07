@@ -30,11 +30,11 @@ const E820_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq, Eq, derive_more::From)]
-pub enum Error {
+pub enum ConfigurationError {
     /// Invalid e820 setup params.
     E820Configuration,
     /// Error writing MP table to memory.
-    MpTableSetup(mptable::Error),
+    MpTableSetup(mptable::MptableError),
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
     /// Failed to compute initrd address.
@@ -75,15 +75,18 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
+pub fn initrd_load_addr(
+    guest_mem: &GuestMemoryMmap,
+    initrd_size: usize,
+) -> Result<u64, ConfigurationError> {
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
-        .ok_or(Error::InitrdAddress)?;
+        .ok_or(ConfigurationError::InitrdAddress)?;
     // It's safe to cast to usize because the size of a region can't be greater than usize.
     let lowmem_size = first_region.len() as usize;
 
     if lowmem_size < initrd_size {
-        return Err(Error::InitrdAddress);
+        return Err(ConfigurationError::InitrdAddress);
     }
 
     let align_to_pagesize = |address| address & !(super::PAGE_SIZE - 1);
@@ -105,7 +108,7 @@ pub fn configure_system(
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
     num_cpus: u8,
-) -> super::Result<()> {
+) -> Result<(), ConfigurationError> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
@@ -169,7 +172,7 @@ pub fn configure_system(
         &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),
         guest_mem,
     )
-    .map_err(|_| Error::ZeroPageSetup)
+    .map_err(|_| ConfigurationError::ZeroPageSetup)
 }
 
 /// Add an e820 region to the e820 map.
@@ -179,9 +182,9 @@ fn add_e820_entry(
     addr: u64,
     size: u64,
     mem_type: u32,
-) -> super::Result<()> {
+) -> Result<(), ConfigurationError> {
     if params.e820_entries >= params.e820_table.len() as u8 {
-        return Err(Error::E820Configuration);
+        return Err(ConfigurationError::E820Configuration);
     }
 
     params.e820_table[params.e820_entries as usize].addr = addr;
@@ -226,7 +229,7 @@ mod tests {
         assert!(config_err.is_err());
         assert_eq!(
             config_err.unwrap_err(),
-            super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
+            super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)
         );
 
         // Now assigning some memory that falls before the 32bit memory hole.

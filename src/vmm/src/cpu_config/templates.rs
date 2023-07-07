@@ -5,19 +5,22 @@
 mod common_types {
     pub use crate::cpu_config::x86_64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::x86_64::static_cpu_templates::StaticCpuTemplate;
-    pub use crate::cpu_config::x86_64::{test_utils, CpuConfiguration, Error as GuestConfigError};
+    pub use crate::cpu_config::x86_64::{
+        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+    };
 }
 
 #[cfg(target_arch = "aarch64")]
 mod common_types {
     pub use crate::cpu_config::aarch64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::aarch64::static_cpu_templates::StaticCpuTemplate;
-    pub use crate::cpu_config::aarch64::{test_utils, CpuConfiguration, Error as GuestConfigError};
+    pub use crate::cpu_config::aarch64::{
+        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+    };
 }
 
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::result::Result;
 
 pub use common_types::*;
 use serde::de::Error as SerdeError;

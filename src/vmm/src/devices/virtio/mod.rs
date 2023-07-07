@@ -65,8 +65,6 @@ pub enum ActivateError {
     BadActivate,
 }
 
-pub type ActivateResult = std::result::Result<(), ActivateError>;
-
 /// Trait that helps in upcasting an object to Any
 pub trait AsAny {
     fn as_any(&self) -> &dyn Any;

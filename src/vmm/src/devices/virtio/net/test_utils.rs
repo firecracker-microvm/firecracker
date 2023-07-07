@@ -4,6 +4,7 @@
 #![doc(hidden)]
 
 use std::fs::File;
+use std::mem;
 use std::os::raw::c_ulong;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
@@ -11,7 +12,6 @@ use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::{mem, result};
 
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
@@ -21,12 +21,10 @@ use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
-use crate::devices::virtio::net::tap::{Error, IfReqBuilder, Tap};
+use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::devices::virtio::{Net, Queue, QueueError};
-use crate::devices::Error as DeviceError;
-
-pub type Result<T> = ::std::result::Result<T, Error>;
+use crate::devices::DeviceError;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
@@ -296,7 +294,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
-pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result<(), DeviceError> {
+pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> Result<(), DeviceError> {
     if idx > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
             idx as u16,
@@ -306,7 +304,7 @@ pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result
     Ok(())
 }
 
-pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, DeviceError> {
+pub fn get_element_from_queue(net: &Net, idx: usize) -> Result<u64, DeviceError> {
     if idx > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
             idx as u16,

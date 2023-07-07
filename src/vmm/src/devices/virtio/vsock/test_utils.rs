@@ -18,8 +18,6 @@ use crate::devices::virtio::{
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
 
-type Result<T> = std::result::Result<T, VsockError>;
-
 #[derive(Debug)]
 pub struct TestBackend {
     pub evfd: EventFd,
@@ -62,7 +60,7 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
@@ -81,7 +79,7 @@ impl VsockChannel for TestBackend {
         }
     }
 
-    fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<()> {
+    fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         match self.tx_err.take() {
             None => {
                 self.tx_ok_cnt += 1;

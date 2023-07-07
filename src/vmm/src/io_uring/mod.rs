@@ -19,9 +19,9 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use bindings::io_uring_params;
 use operation::{Cqe, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
+pub use queue::completion::CQueueError;
 use queue::completion::CompletionQueue;
-pub use queue::completion::Error as CQueueError;
-pub use queue::submission::Error as SQueueError;
+pub use queue::submission::SQueueError;
 use queue::submission::SubmissionQueue;
 use restriction::Restriction;
 use utils::syscall::SyscallReturnCode;
@@ -31,11 +31,9 @@ const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 // Taken from linux/fs/io_uring.c
 const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 
-type Result<T> = std::result::Result<T, Error>;
-
 #[derive(Debug)]
 /// IoUring Error.
-pub enum Error {
+pub enum IoUringError {
     /// Error originating in the completion queue.
     CQueue(CQueueError),
     /// Could not enable the ring.
@@ -68,12 +66,12 @@ pub enum Error {
     UnsupportedOperation(&'static str),
 }
 
-impl Error {
+impl IoUringError {
     /// Return true if this error is caused by a full submission or completion queue.
     pub fn is_throttling_err(&self) -> bool {
         matches!(
             self,
-            Error::FullCQueue | Error::SQueue(SQueueError::FullQueue)
+            Self::FullCQueue | Self::SQueue(SQueueError::FullQueue)
         )
     }
 }
@@ -110,7 +108,7 @@ impl IoUring {
         files: Vec<&File>,
         restrictions: Vec<Restriction>,
         eventfd: Option<RawFd>,
-    ) -> Result<Self> {
+    ) -> Result<Self, IoUringError> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
             flags: bindings::IORING_SETUP_R_DISABLED,
@@ -127,15 +125,15 @@ impl IoUring {
             ) as libc::c_int
         })
         .into_result()
-        .map_err(Error::Setup)?;
+        .map_err(IoUringError::Setup)?;
 
         // SAFETY: Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
 
         Self::check_features(params)?;
 
-        let squeue = SubmissionQueue::new(fd, &params).map_err(Error::SQueue)?;
-        let cqueue = CompletionQueue::new(fd, &params).map_err(Error::CQueue)?;
+        let squeue = SubmissionQueue::new(fd, &params).map_err(IoUringError::SQueue)?;
+        let cqueue = CompletionQueue::new(fd, &params).map_err(IoUringError::CQueue)?;
 
         let mut instance = Self {
             squeue,
@@ -165,20 +163,17 @@ impl IoUring {
     /// # Safety
     /// Unsafe because we pass a raw user_data pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub unsafe fn push<T: Debug>(
-        &mut self,
-        op: Operation<T>,
-    ) -> std::result::Result<(), (Error, T)> {
+    pub unsafe fn push<T: Debug>(&mut self, op: Operation<T>) -> Result<(), (IoUringError, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
         match self.registered_fds_count {
-            0 => Err((Error::NoRegisteredFds, op.user_data())),
+            0 => Err((IoUringError::NoRegisteredFds, op.user_data())),
             len if fd < 0 || (len as i32 - 1) < fd => {
-                Err((Error::InvalidFixedFd(fd), op.user_data()))
+                Err((IoUringError::InvalidFixedFd(fd), op.user_data()))
             }
             _ => {
                 if self.num_ops >= self.cqueue.count() {
-                    return Err((Error::FullCQueue, op.user_data()));
+                    return Err((IoUringError::FullCQueue, op.user_data()));
                 }
                 self.squeue
                     .push(op.into_sqe())
@@ -187,8 +182,8 @@ impl IoUring {
                         self.num_ops += 1;
                         res
                     })
-                    .map_err(|err_tuple: (SQueueError, T)| -> (Error, T) {
-                        (Error::SQueue(err_tuple.0), err_tuple.1)
+                    .map_err(|err_tuple: (SQueueError, T)| -> (IoUringError, T) {
+                        (IoUringError::SQueue(err_tuple.0), err_tuple.1)
                     })
             }
         }
@@ -201,7 +196,7 @@ impl IoUring {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>> {
+    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, IoUringError> {
         self.cqueue
             .pop()
             .map(|maybe_cqe| {
@@ -212,26 +207,28 @@ impl IoUring {
                     cqe
                 })
             })
-            .map_err(Error::CQueue)
+            .map_err(IoUringError::CQueue)
     }
 
-    fn do_submit(&mut self, min_complete: u32) -> Result<u32> {
-        self.squeue.submit(min_complete).map_err(Error::SQueue)
+    fn do_submit(&mut self, min_complete: u32) -> Result<u32, IoUringError> {
+        self.squeue
+            .submit(min_complete)
+            .map_err(IoUringError::SQueue)
     }
 
     /// Submit all operations but don't wait for any completions.
-    pub fn submit(&mut self) -> Result<u32> {
+    pub fn submit(&mut self) -> Result<u32, IoUringError> {
         self.do_submit(0)
     }
 
     /// Submit all operations and wait for their completion.
-    pub fn submit_and_wait_all(&mut self) -> Result<u32> {
+    pub fn submit_and_wait_all(&mut self) -> Result<u32, IoUringError> {
         self.do_submit(self.num_ops)
     }
 
     /// Return the number of operations currently on the submission queue.
-    pub fn pending_sqes(&self) -> Result<u32> {
-        self.squeue.pending().map_err(Error::SQueue)
+    pub fn pending_sqes(&self) -> Result<u32, IoUringError> {
+        self.squeue.pending().map_err(IoUringError::SQueue)
     }
 
     /// A total of the number of ops in the submission and completion queues, as well as the
@@ -240,7 +237,7 @@ impl IoUring {
         self.num_ops
     }
 
-    fn enable(&mut self) -> Result<()> {
+    fn enable(&mut self) -> Result<(), IoUringError> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
@@ -252,10 +249,10 @@ impl IoUring {
             )
         } as libc::c_int)
         .into_empty_result()
-        .map_err(Error::Enable)
+        .map_err(IoUringError::Enable)
     }
 
-    fn register_files(&mut self, files: Vec<&File>) -> Result<()> {
+    fn register_files(&mut self, files: Vec<&File>) -> Result<(), IoUringError> {
         if files.is_empty() {
             // No-op.
             return Ok(());
@@ -263,7 +260,7 @@ impl IoUring {
 
         if (self.registered_fds_count as usize).saturating_add(files.len()) > IORING_MAX_FIXED_FILES
         {
-            return Err(Error::RegisterFileLimitExceeded);
+            return Err(IoUringError::RegisterFileLimitExceeded);
         }
 
         // SAFETY: Safe because values are valid and we check the return value.
@@ -282,14 +279,14 @@ impl IoUring {
             ) as libc::c_int
         })
         .into_empty_result()
-        .map_err(Error::RegisterFile)?;
+        .map_err(IoUringError::RegisterFile)?;
 
         // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
         self.registered_fds_count += files.len() as u32;
         Ok(())
     }
 
-    fn register_eventfd(&self, fd: RawFd) -> Result<()> {
+    fn register_eventfd(&self, fd: RawFd) -> Result<(), IoUringError> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
@@ -301,10 +298,10 @@ impl IoUring {
             ) as libc::c_int
         })
         .into_empty_result()
-        .map_err(Error::RegisterEventfd)
+        .map_err(IoUringError::RegisterEventfd)
     }
 
-    fn register_restrictions(&self, restrictions: Vec<Restriction>) -> Result<()> {
+    fn register_restrictions(&self, restrictions: Vec<Restriction>) -> Result<(), IoUringError> {
         if restrictions.is_empty() {
             // No-op.
             return Ok(());
@@ -325,10 +322,10 @@ impl IoUring {
             )
         } as libc::c_int)
         .into_empty_result()
-        .map_err(Error::RegisterRestrictions)
+        .map_err(IoUringError::RegisterRestrictions)
     }
 
-    fn check_features(params: io_uring_params) -> Result<()> {
+    fn check_features(params: io_uring_params) -> Result<(), IoUringError> {
         // We require that the host kernel will never drop completed entries due to an (unlikely)
         // overflow in the completion queue.
         // This feature is supported for kernels greater than 5.7.
@@ -336,14 +333,14 @@ impl IoUring {
         // submitted entries that haven't been completed and makes sure it doesn't exceed
         // (2 * num_entries).
         if (params.features & bindings::IORING_FEAT_NODROP) == 0 {
-            return Err(Error::UnsupportedFeature("IORING_FEAT_NODROP"));
+            return Err(IoUringError::UnsupportedFeature("IORING_FEAT_NODROP"));
         }
 
         Ok(())
     }
 
-    fn check_operations(&self) -> Result<()> {
-        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::Fam)?;
+    fn check_operations(&self) -> Result<(), IoUringError> {
+        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(IoUringError::Fam)?;
 
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
@@ -356,7 +353,7 @@ impl IoUring {
             )
         } as libc::c_int)
         .into_empty_result()
-        .map_err(Error::Probe)?;
+        .map_err(IoUringError::Probe)?;
 
         let supported_opcodes: HashSet<u8> = probes
             .as_slice()
@@ -367,7 +364,7 @@ impl IoUring {
 
         for opcode in REQUIRED_OPS.iter() {
             if !supported_opcodes.contains(&(*opcode as u8)) {
-                return Err(Error::UnsupportedOperation((*opcode).into()));
+                return Err(IoUringError::UnsupportedOperation((*opcode).into()));
             }
         }
 

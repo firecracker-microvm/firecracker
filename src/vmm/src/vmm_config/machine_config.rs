@@ -234,7 +234,7 @@ impl From<&VmConfig> for MachineConfig {
 /// This is called only when `vcpu_num` is present in the JSON configuration.
 /// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
 /// present in the JSON.
-fn deserialize_vcpu_num<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
+fn deserialize_vcpu_num<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
     T: Deserialize<'de> + PartialOrd + From<u8> + Debug,
@@ -259,7 +259,7 @@ where
 
 /// Deserialization function for the `smt` field in `MachineConfig` and `MachineConfigUpdate`.
 /// This is called only when `smt` is present in the JSON configuration.
-fn deserialize_smt<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
+fn deserialize_smt<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
     T: Deserialize<'de> + PartialEq + From<bool> + Debug,

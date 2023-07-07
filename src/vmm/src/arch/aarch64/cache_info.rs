@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::{Path, PathBuf};
-use std::{fs, io, result};
+use std::{fs, io};
 
 use logger::warn;
 
@@ -10,7 +10,7 @@ use logger::warn;
 const MAX_CACHE_LEVEL: u8 = 7;
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub(crate) enum CacheInfoError {
     #[error("Failed to read cache information: {0}")]
     FailedToReadCacheInfo(#[from] io::Error),
     #[error("Invalid cache configuration found for {0}: {1}")]
@@ -21,14 +21,12 @@ pub(crate) enum Error {
     MissingOptionalAttr(String, CacheEntry),
 }
 
-type Result<T> = result::Result<T, Error>;
-
 struct CacheEngine {
     store: Box<dyn CacheStore>,
 }
 
 trait CacheStore: std::fmt::Debug {
-    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String>;
+    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, CacheInfoError>;
 }
 
 #[derive(Debug)]
@@ -61,7 +59,7 @@ impl Default for CacheEngine {
 }
 
 impl CacheStore for HostCacheStore {
-    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String> {
+    fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, CacheInfoError> {
         readln_special(&PathBuf::from(format!(
             "{}/index{}/{}",
             self.cache_dir.as_path().display(),
@@ -72,7 +70,7 @@ impl CacheStore for HostCacheStore {
 }
 
 impl CacheEntry {
-    fn from_index(index: u8, store: &dyn CacheStore) -> Result<CacheEntry> {
+    fn from_index(index: u8, store: &dyn CacheStore) -> Result<CacheEntry, CacheInfoError> {
         let mut err_str = String::new();
         let mut cache: CacheEntry = CacheEntry::default();
 
@@ -80,15 +78,15 @@ impl CacheEntry {
         // of populating the cache levels.
         match store.get_by_key(index, "level") {
             Ok(level) => {
-                cache.level = level
-                    .parse::<u8>()
-                    .map_err(|err| Error::InvalidCacheAttr("level".to_string(), err.to_string()))?;
+                cache.level = level.parse::<u8>().map_err(|err| {
+                    CacheInfoError::InvalidCacheAttr("level".to_string(), err.to_string())
+                })?;
             }
             Err(err) => {
                 // If we cannot read the cache level even for the first level of cache, we will
                 // stop processing anymore cache info and log an error.
                 warn!("Could not read cache level for index {}: {}", index, err);
-                return Err(Error::MissingCacheConfig);
+                return Err(CacheInfoError::MissingCacheConfig);
             }
         }
         match store.get_by_key(index, "type") {
@@ -98,7 +96,7 @@ impl CacheEntry {
                     "Could not read type for cache level {}: {}",
                     cache.level, err
                 );
-                return Err(Error::MissingCacheConfig);
+                return Err(CacheInfoError::MissingCacheConfig);
             }
         }
 
@@ -111,7 +109,7 @@ impl CacheEntry {
 
         if let Ok(coherency_line_size) = store.get_by_key(index, "coherency_line_size") {
             cache.line_size = Some(coherency_line_size.parse::<u16>().map_err(|err| {
-                Error::InvalidCacheAttr("coherency_line_size".to_string(), err.to_string())
+                CacheInfoError::InvalidCacheAttr("coherency_line_size".to_string(), err.to_string())
             })?);
         } else {
             err_str += "coherency line size";
@@ -127,7 +125,7 @@ impl CacheEntry {
 
         if let Ok(number_of_sets) = store.get_by_key(index, "number_of_sets") {
             cache.number_of_sets = Some(number_of_sets.parse::<u16>().map_err(|err| {
-                Error::InvalidCacheAttr("number_of_sets".to_string(), err.to_string())
+                CacheInfoError::InvalidCacheAttr("number_of_sets".to_string(), err.to_string())
             })?);
         } else {
             err_str += "number of sets";
@@ -143,7 +141,7 @@ impl CacheEntry {
         }
 
         if !err_str.is_empty() {
-            return Err(Error::MissingOptionalAttr(err_str, cache));
+            return Err(CacheInfoError::MissingOptionalAttr(err_str, cache));
         }
 
         Ok(cache)
@@ -172,12 +170,12 @@ pub(crate) enum CacheType {
 }
 
 impl CacheType {
-    fn try_from(string: &str) -> Result<Self> {
+    fn try_from(string: &str) -> Result<Self, CacheInfoError> {
         match string.trim() {
             "Instruction" => Ok(Self::Instruction),
             "Data" => Ok(Self::Data),
             "Unified" => Ok(Self::Unified),
-            cache_type => Err(Error::InvalidCacheAttr(
+            cache_type => Err(CacheInfoError::InvalidCacheAttr(
                 "type".to_string(),
                 cache_type.to_string(),
             )),
@@ -218,30 +216,28 @@ impl CacheType {
     }
 }
 
-fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String, CacheInfoError> {
     let line = fs::read_to_string(file_path)?;
     Ok(line.trim_end().to_string())
 }
 
-fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
+fn to_bytes(cache_size_pretty: &mut String) -> Result<usize, CacheInfoError> {
     match cache_size_pretty.pop() {
-        Some('K') => Ok(cache_size_pretty
-            .parse::<usize>()
-            .map_err(|err| Error::InvalidCacheAttr("size".to_string(), err.to_string()))?
-            * 1024),
-        Some('M') => Ok(cache_size_pretty
-            .parse::<usize>()
-            .map_err(|err| Error::InvalidCacheAttr("size".to_string(), err.to_string()))?
-            * 1024
+        Some('K') => Ok(cache_size_pretty.parse::<usize>().map_err(|err| {
+            CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
+        })? * 1024),
+        Some('M') => Ok(cache_size_pretty.parse::<usize>().map_err(|err| {
+            CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
+        })? * 1024
             * 1024),
         Some(letter) => {
             cache_size_pretty.push(letter);
-            Err(Error::InvalidCacheAttr(
+            Err(CacheInfoError::InvalidCacheAttr(
                 "size".to_string(),
                 (*cache_size_pretty).to_string(),
             ))
         }
-        _ => Err(Error::InvalidCacheAttr(
+        _ => Err(CacheInfoError::InvalidCacheAttr(
             "size".to_string(),
             "Empty string was provided".to_string(),
         )),
@@ -253,7 +249,7 @@ fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
 // Expected input is a list of 32-bit comma separated hex values,
 // without the 0x prefix.
 //
-fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
+fn mask_str2bit_count(mask_str: &str) -> Result<u16, CacheInfoError> {
     let split_mask_iter = mask_str.split(',');
     let mut bit_count: u16 = 0;
 
@@ -263,11 +259,13 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
             s_zero_free = "0";
         }
         bit_count += u32::from_str_radix(s_zero_free, 16)
-            .map_err(|err| Error::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string()))?
+            .map_err(|err| {
+                CacheInfoError::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string())
+            })?
             .count_ones() as u16;
     }
     if bit_count == 0 {
-        return Err(Error::InvalidCacheAttr(
+        return Err(CacheInfoError::InvalidCacheAttr(
             "shared_cpu_map".to_string(),
             mask_str.to_string(),
         ));
@@ -290,7 +288,7 @@ fn append_cache_level(
 pub(crate) fn read_cache_config(
     cache_l1: &mut Vec<CacheEntry>,
     cache_non_l1: &mut Vec<CacheEntry>,
-) -> Result<()> {
+) -> Result<(), CacheInfoError> {
     // It is used to make sure we log warnings for missing files only for one level because
     // if an attribute is missing for a level for sure it will be missing for other levels too.
     // Also without this mechanism we would be logging the warnings for each level which pollutes
@@ -305,8 +303,8 @@ pub(crate) fn read_cache_config(
             }
             // Missing cache files is not necessary an error so we
             // do not propagate it upwards. We were prudent enough to log a warning.
-            Err(Error::MissingCacheConfig) => return Ok(()),
-            Err(Error::MissingOptionalAttr(msg, cache)) => {
+            Err(CacheInfoError::MissingCacheConfig) => return Ok(()),
+            Err(CacheInfoError::MissingOptionalAttr(msg, cache)) => {
                 let level = cache.level;
                 append_cache_level(cache_l1, cache_non_l1, cache);
                 if !msg.is_empty() && !logged_missing_attr {
@@ -358,14 +356,14 @@ mod tests {
     }
 
     impl CacheStore for MockCacheStore {
-        fn get_by_key(&self, index: u8, file_name: &str) -> Result<String> {
+        fn get_by_key(&self, index: u8, file_name: &str) -> Result<String, CacheInfoError> {
             let key = format!("index{}/{}", index, file_name);
             if let Some(val) = self.dummy_fs.get(&key) {
                 Ok(val.to_string())
             } else {
-                Err(Error::FailedToReadCacheInfo(io::Error::from_raw_os_error(
-                    0,
-                )))
+                Err(CacheInfoError::FailedToReadCacheInfo(
+                    io::Error::from_raw_os_error(0),
+                ))
             }
         }
     }

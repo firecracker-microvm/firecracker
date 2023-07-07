@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -12,7 +13,6 @@ use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::{cmp, result};
 
 use block_io::FileEngine;
 use log::{error, warn};
@@ -27,7 +27,7 @@ use virtio_gen::virtio_blk::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
+use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
 use super::{
@@ -64,7 +64,7 @@ impl Default for FileEngineType {
 }
 
 impl FileEngineType {
-    pub fn is_supported(&self) -> result::Result<bool, utils::kernel_version::Error> {
+    pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
             _ => Ok(true),
@@ -88,7 +88,7 @@ impl DiskProperties {
         is_disk_read_only: bool,
         cache_type: CacheType,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Self, BlockError> {
+    ) -> Result<Self, BlockError> {
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
@@ -139,7 +139,7 @@ impl DiskProperties {
         &self.image_id
     }
 
-    fn build_device_id(disk_file: &File) -> result::Result<String, BlockError> {
+    fn build_device_id(disk_file: &File) -> Result<String, BlockError> {
         let blk_metadata = disk_file.metadata().map_err(BlockError::GetFileMetadata)?;
         // This is how kvmtool does it.
         let device_id = format!(
@@ -242,7 +242,7 @@ impl Block {
         is_disk_root: bool,
         rate_limiter: RateLimiter,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Block, BlockError> {
+    ) -> Result<Block, BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             is_disk_read_only,
@@ -411,8 +411,8 @@ impl Block {
                         Ok(count) => (user_data, Ok(count)),
                         Err(error) => (
                             user_data,
-                            Err(IoErr::FileEngine(block_io::Error::Async(
-                                async_io::Error::IO(error),
+                            Err(IoErr::FileEngine(block_io::BlockIoError::Async(
+                                async_io::AsyncIoError::IO(error),
                             ))),
                         ),
                     };
@@ -446,7 +446,7 @@ impl Block {
     }
 
     /// Update the backing file and the config space of the block device.
-    pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), BlockError> {
+    pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             self.is_read_only(),
@@ -595,7 +595,7 @@ impl VirtioDevice for Block {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
             for queue in &mut self.queues {

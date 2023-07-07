@@ -9,17 +9,14 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::result;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
     #[error("New device overlaps with an old device.")]
     Overlap,
 }
-
-pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug, Copy, Clone)]
 struct BusRange(u64, u64);
@@ -244,14 +241,19 @@ impl Bus {
     }
 
     /// Puts the given device at the given address space.
-    pub fn insert(&mut self, device: Arc<Mutex<BusDevice>>, base: u64, len: u64) -> Result<()> {
+    pub fn insert(
+        &mut self,
+        device: Arc<Mutex<BusDevice>>,
+        base: u64,
+        len: u64,
+    ) -> Result<(), BusError> {
         if len == 0 {
-            return Err(Error::Overlap);
+            return Err(BusError::Overlap);
         }
 
         // Reject all cases where the new device's base is within an old device's range.
         if self.get_device(base).is_some() {
-            return Err(Error::Overlap);
+            return Err(BusError::Overlap);
         }
 
         // The above check will miss an overlap in which the new device's base address is before the
@@ -262,12 +264,12 @@ impl Bus {
             // Such a device only conflicts with the new device if it also starts after the new
             // device because of our initial `get_device` check above.
             if start >= base {
-                return Err(Error::Overlap);
+                return Err(BusError::Overlap);
             }
         }
 
         if self.devices.insert(BusRange(base, len), device).is_some() {
-            return Err(Error::Overlap);
+            return Err(BusError::Overlap);
         }
 
         Ok(())
@@ -396,7 +398,7 @@ mod tests {
     #[test]
     fn test_display_error() {
         assert_eq!(
-            format!("{}", Error::Overlap),
+            format!("{}", BusError::Overlap),
             "New device overlaps with an old device."
         );
     }

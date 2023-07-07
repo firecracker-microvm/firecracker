@@ -13,7 +13,7 @@ use log::warn;
 use utils::eventfd::EventFd;
 use utils::vm_memory::GuestMemoryMmap;
 
-use super::{ActivateResult, Queue};
+use super::{ActivateError, Queue};
 use crate::devices::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
@@ -63,7 +63,7 @@ impl IrqTrigger {
         })
     }
 
-    pub fn trigger_irq(&self, irq_type: IrqType) -> std::result::Result<(), std::io::Error> {
+    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
         let irq = match irq_type {
             IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
             IrqType::Vring => VIRTIO_MMIO_INT_VRING,
@@ -163,7 +163,7 @@ pub trait VirtioDevice: AsAny + Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult;
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
@@ -276,7 +276,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
             todo!()
         }
 
