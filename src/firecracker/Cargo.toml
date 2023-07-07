@@ -32,7 +32,7 @@ cargo_toml = "0.15.3"
 regex = { version = "1.8.4", default-features = false, features = ["std"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.165", features = ["derive"] }
+serde = { version = "1.0.167", features = ["derive"] }
 userfaultfd = "0.6.0"
 
 [[example]]
