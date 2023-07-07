@@ -8,19 +8,7 @@ updates:
     allow:
       - dependency-type: "all"
     open-pull-requests-limit: 100
-  - package-ecosystem: "cargo"
-    directory: "/tests/host_tools/uffd/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    allow:
-      - dependency-type: "all"
-    open-pull-requests-limit: 100
-  - package-ecosystem: "cargo"
-    directory: "/tests/integration_tests/security/demo_seccomp/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    allow:
-      - dependency-type: "all"
-    open-pull-requests-limit: 100
+    groups:
+      firecracker:
+        patterns:
+          - "*"
