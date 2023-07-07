@@ -39,7 +39,7 @@ def cross_steps():
     snap_instances = ["m5d.metal", "m6i.metal", "m6a.metal"]
     groups = []
     commands = [
-        "./tools/devtool -y create_snapshot_artifacts",
+        "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
         "mkdir -pv snapshots/{instance}_{kv}",
         "sudo chown -Rc $USER: snapshot_artifacts",
         "mv -v snapshot_artifacts/* snapshots/{instance}_{kv}",

@@ -7,15 +7,14 @@
 
 print_msr() {
     local msr_hex=$(printf "%#x" $1)
+    # Record only when the given MSR index is implemented.
     if output=$(rdmsr $msr_hex 2>> /dev/null); then
-        echo "$msr_hex,implemented,0x$output"
-    else
-        echo "$msr_hex,unimplemented,0x0"
+        echo "$msr_hex,0x$output"
     fi
 }
 
 # Header
-echo "MSR_ADDR,STATUS,VALUE"
+echo "MSR_ADDR,VALUE"
 
 # 0x0..0xFFF
 for((msr=16#0;msr<=16#FFF;msr++))

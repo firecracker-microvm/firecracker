@@ -5,7 +5,6 @@ mod gicv2;
 mod gicv3;
 mod regs;
 
-use std::boxed::Box;
 use std::result;
 
 use gicv2::GICv2;
@@ -14,6 +13,35 @@ use kvm_ioctls::{DeviceFd, VmFd};
 pub use regs::GicState;
 
 use super::layout;
+
+/// Represent a V2 or V3 GIC device
+#[derive(Debug)]
+pub struct GIC {
+    /// The file descriptor for the KVM device
+    fd: DeviceFd,
+
+    /// GIC device properties, to be used for setting up the fdt entry
+    properties: [u64; 4],
+
+    /// Number of CPUs handled by the device
+    vcpu_count: u64,
+}
+impl GIC {
+    /// Returns the file descriptor of the GIC device
+    pub fn device_fd(&self) -> &DeviceFd {
+        &self.fd
+    }
+
+    /// Returns an array with GIC device properties
+    pub fn device_properties(&self) -> &[u64] {
+        &self.properties
+    }
+
+    /// Returns the number of vCPUs this GIC handles
+    pub fn vcpu_count(&self) -> u64 {
+        self.vcpu_count
+    }
+}
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +64,7 @@ pub enum Error {
 type Result<T> = result::Result<T, Error>;
 
 /// List of implemented GICs.
+#[derive(Debug)]
 pub enum GICVersion {
     /// Legacy version.
     GICV2,
@@ -44,144 +73,99 @@ pub enum GICVersion {
 }
 
 /// Trait for GIC devices.
-pub trait GICDevice {
+#[derive(Debug)]
+pub enum GICDevice {
+    /// Legacy version.
+    V2(GICv2),
+    /// GICV3 without ITS.
+    V3(GICv3),
+}
+impl GICDevice {
     /// Returns the file descriptor of the GIC device
-    fn device_fd(&self) -> &DeviceFd;
+    pub fn device_fd(&self) -> &DeviceFd {
+        match self {
+            Self::V2(x) => x.device_fd(),
+            Self::V3(x) => x.device_fd(),
+        }
+    }
 
     /// Returns an array with GIC device properties
-    fn device_properties(&self) -> &[u64];
+    pub fn device_properties(&self) -> &[u64] {
+        match self {
+            Self::V2(x) => x.device_properties(),
+            Self::V3(x) => x.device_properties(),
+        }
+    }
 
     /// Returns the number of vCPUs this GIC handles
-    fn vcpu_count(&self) -> u64;
+    pub fn vcpu_count(&self) -> u64 {
+        match self {
+            Self::V2(x) => x.vcpu_count(),
+            Self::V3(x) => x.vcpu_count(),
+        }
+    }
 
     /// Returns the fdt compatibility property of the device
-    fn fdt_compatibility(&self) -> &str;
+    pub fn fdt_compatibility(&self) -> &str {
+        match self {
+            Self::V2(x) => x.fdt_compatibility(),
+            Self::V3(x) => x.fdt_compatibility(),
+        }
+    }
 
     /// Returns the maint_irq fdt property of the device
-    fn fdt_maint_irq(&self) -> u32;
+    pub fn fdt_maint_irq(&self) -> u32 {
+        match self {
+            Self::V2(x) => x.fdt_maint_irq(),
+            Self::V3(x) => x.fdt_maint_irq(),
+        }
+    }
 
     /// Returns the GIC version of the device
-    fn version() -> u32
-    where
-        Self: Sized;
-
-    /// Create the GIC device object
-    fn create_device(fd: DeviceFd, vcpu_count: u64) -> Box<dyn GICDevice>
-    where
-        Self: Sized;
+    pub fn version(&self) -> u32 {
+        match self {
+            Self::V2(_) => GICv2::VERSION,
+            Self::V3(_) => GICv3::VERSION,
+        }
+    }
 
     /// Setup the device-specific attributes
-    fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()>
-    where
-        Self: Sized;
-
-    /// Initialize a GIC device
-    fn init_device(vm: &VmFd) -> Result<DeviceFd>
-    where
-        Self: Sized,
-    {
-        let mut gic_device = kvm_bindings::kvm_create_device {
-            type_: Self::version(),
-            fd: 0,
-            flags: 0,
-        };
-
-        vm.create_device(&mut gic_device).map_err(Error::CreateGIC)
-    }
-
-    /// Set a GIC device attribute
-    fn set_device_attribute(
-        fd: &DeviceFd,
-        group: u32,
-        attr: u64,
-        addr: u64,
-        flags: u32,
-    ) -> Result<()>
-    where
-        Self: Sized,
-    {
-        let attr = kvm_bindings::kvm_device_attr {
-            flags,
-            group,
-            attr,
-            addr,
-        };
-        fd.set_device_attr(&attr)
-            .map_err(|err| Error::DeviceAttribute(err, true, group))?;
-
-        Ok(())
-    }
-
-    /// Finalize the setup of a GIC device
-    fn finalize_device(gic_device: &dyn GICDevice) -> Result<()>
-    where
-        Self: Sized,
-    {
-        // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
-        // SPIs are used to signal interrupts from various peripherals accessible across
-        // the whole system so these are the ones that we increment when adding a new virtio device.
-        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a
-        // total of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
-        let nr_irqs: u32 = super::layout::IRQ_MAX;
-        let nr_irqs_ptr = &nr_irqs as *const u32;
-        Self::set_device_attribute(
-            gic_device.device_fd(),
-            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
-            0,
-            nr_irqs_ptr as u64,
-            0,
-        )?;
-
-        // Finalize the GIC.
-        // See https://code.woboq.org/linux/linux/virt/kvm/arm/vgic/vgic-kvm-device.c.html#211.
-        Self::set_device_attribute(
-            gic_device.device_fd(),
-            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
-            u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_CTRL_INIT),
-            0,
-            0,
-        )?;
-
-        Ok(())
+    pub fn init_device_attributes(gic_device: &Self) -> Result<()> {
+        match gic_device {
+            Self::V2(x) => GICv2::init_device_attributes(x),
+            Self::V3(x) => GICv3::init_device_attributes(x),
+        }
     }
 
     /// Method to save the state of the GIC device.
-    fn save_device(&self, mpidrs: &[u64]) -> Result<GicState>;
+    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
+        match self {
+            Self::V2(x) => x.save_device(mpidrs),
+            Self::V3(x) => x.save_device(mpidrs),
+        }
+    }
 
     /// Method to restore the state of the GIC device.
-    fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()>;
-
-    /// Method to initialize the GIC device
-    fn create(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>>
-    where
-        Self: Sized,
-    {
-        let vgic_fd = Self::init_device(vm)?;
-
-        let device = Self::create_device(vgic_fd, vcpu_count);
-
-        Self::init_device_attributes(device.as_ref())?;
-
-        Self::finalize_device(device.as_ref())?;
-
-        Ok(device)
+    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
+        match self {
+            Self::V2(x) => x.restore_device(mpidrs, state),
+            Self::V3(x) => x.restore_device(mpidrs, state),
+        }
     }
 }
 
 /// Create a GIC device.
-
+///
 /// If "version" parameter is "None" the function will try to create by default a GICv3 device.
 /// If that fails it will try to fall-back to a GICv2 device.
 /// If version is Some the function will try to create a device of exactly the specified version.
-pub fn create_gic(
-    vm: &VmFd,
-    vcpu_count: u64,
-    version: Option<GICVersion>,
-) -> Result<Box<dyn GICDevice>> {
+pub fn create_gic(vm: &VmFd, vcpu_count: u64, version: Option<GICVersion>) -> Result<GICDevice> {
     match version {
-        Some(GICVersion::GICV2) => GICv2::create(vm, vcpu_count),
-        Some(GICVersion::GICV3) => GICv3::create(vm, vcpu_count),
-        None => GICv3::create(vm, vcpu_count).or_else(|_| GICv2::create(vm, vcpu_count)),
+        Some(GICVersion::GICV2) => GICv2::create(vm, vcpu_count).map(GICDevice::V2),
+        Some(GICVersion::GICV3) => GICv3::create(vm, vcpu_count).map(GICDevice::V3),
+        None => GICv3::create(vm, vcpu_count)
+            .map(GICDevice::V3)
+            .or_else(|_| GICv2::create(vm, vcpu_count).map(GICDevice::V2)),
     }
 }
 

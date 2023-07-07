@@ -71,7 +71,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
     device_info: &HashMap<(DeviceType, String), T, S>,
-    gic_device: &dyn GICDevice,
+    gic_device: &GICDevice,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>> {
     // Allocate stuff necessary for storing the blob.
@@ -257,7 +257,7 @@ fn create_chosen_node(
     Ok(())
 }
 
-fn create_gic_node(fdt: &mut FdtWriter, gic_device: &dyn GICDevice) -> Result<()> {
+fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<()> {
     let interrupt = fdt.begin_node("intc")?;
     fdt.property_string("compatible", gic_device.fdt_compatibility())?;
     fdt.property_null("interrupt-controller")?;
@@ -490,7 +490,7 @@ mod tests {
             vec![0],
             CString::new("console=tty0").unwrap(),
             &dev_info,
-            gic.as_ref(),
+            &gic,
             &None,
         )
         .is_ok())
@@ -516,7 +516,7 @@ mod tests {
             vec![0],
             CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            gic.as_ref(),
+            &gic,
             &None,
         )
         .unwrap();
@@ -579,7 +579,7 @@ mod tests {
             vec![0],
             CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            gic.as_ref(),
+            &gic,
             &Some(initrd),
         )
         .unwrap();

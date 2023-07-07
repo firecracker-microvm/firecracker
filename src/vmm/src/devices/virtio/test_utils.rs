@@ -3,6 +3,7 @@
 
 #![doc(hidden)]
 
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -33,6 +34,7 @@ pub fn default_mem() -> GuestMemoryMmap {
     single_region_mem(0x10000)
 }
 
+#[derive(Debug)]
 pub struct InputData {
     pub data: Vec<u8>,
     pub read_pos: AtomicUsize,
@@ -46,6 +48,7 @@ impl InputData {
 }
 
 // Represents a location in GuestMemoryMmap which holds a given type.
+#[derive(Debug)]
 pub struct SomeplaceInMemory<'a, T> {
     pub location: GuestAddress,
     mem: &'a GuestMemoryMmap,
@@ -55,7 +58,7 @@ pub struct SomeplaceInMemory<'a, T> {
 // The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
 impl<'a, T> SomeplaceInMemory<'a, T>
 where
-    T: utils::vm_memory::ByteValued,
+    T: Debug + utils::vm_memory::ByteValued,
 {
     fn new(location: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
         SomeplaceInMemory {
@@ -77,7 +80,7 @@ where
 
     // This function returns a place in memory which holds a value of type U, and starts
     // offset bytes after the current location.
-    fn map_offset<U>(&self, offset: usize) -> SomeplaceInMemory<'a, U> {
+    fn map_offset<U: Debug>(&self, offset: usize) -> SomeplaceInMemory<'a, U> {
         SomeplaceInMemory {
             location: self.location.checked_add(offset as u64).unwrap(),
             mem: self.mem,
@@ -87,7 +90,7 @@ where
 
     // This function returns a place in memory which holds a value of type U, and starts
     // immediately after the end of self (which is location + sizeof(T)).
-    fn next_place<U>(&self) -> SomeplaceInMemory<'a, U> {
+    fn next_place<U: Debug>(&self) -> SomeplaceInMemory<'a, U> {
         self.map_offset::<U>(mem::size_of::<T>())
     }
 
@@ -99,6 +102,7 @@ where
 }
 
 // Represents a virtio descriptor in guest memory.
+#[derive(Debug)]
 pub struct VirtqDesc<'a> {
     pub addr: SomeplaceInMemory<'a, u64>,
     pub len: SomeplaceInMemory<'a, u32>,
@@ -165,6 +169,7 @@ impl<'a> VirtqDesc<'a> {
 
 // Represents a virtio queue ring. The only difference between the used and available rings,
 // is the ring element type.
+#[derive(Debug)]
 pub struct VirtqRing<'a, T> {
     pub flags: SomeplaceInMemory<'a, u16>,
     pub idx: SomeplaceInMemory<'a, u16>,
@@ -174,7 +179,7 @@ pub struct VirtqRing<'a, T> {
 
 impl<'a, T> VirtqRing<'a, T>
 where
-    T: utils::vm_memory::ByteValued,
+    T: Debug + utils::vm_memory::ByteValued,
 {
     fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16, alignment: usize) -> Self {
         assert_eq!(start.0 & (alignment as u64 - 1), 0);
@@ -211,7 +216,7 @@ where
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct VirtqUsedElem {
     pub id: u32,
     pub len: u32,
@@ -223,6 +228,7 @@ unsafe impl utils::vm_memory::ByteValued for VirtqUsedElem {}
 pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
 pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
 
+#[derive(Debug)]
 pub struct VirtQueue<'a> {
     pub dtable: Vec<VirtqDesc<'a>>,
     pub avail: VirtqAvail<'a>,
@@ -314,6 +320,7 @@ impl<'a> VirtQueue<'a> {
 #[cfg(test)]
 pub(crate) mod test {
 
+    use std::fmt::{self, Debug};
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use event_manager::{EventManager, MutEventSubscriber, SubscriberId, SubscriberOps};
@@ -358,9 +365,20 @@ pub(crate) mod test {
         virtqueues: Vec<VirtQueue<'a>>,
     }
 
+    impl<T: VirtioTestDevice + MutEventSubscriber + Debug> fmt::Debug for VirtioTestHelper<'_, T> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("VirtioTestHelper")
+                .field("event_manager", &"?")
+                .field("_subscriber_id", &self._subscriber_id)
+                .field("device", &self.device)
+                .field("virtqueues", &self.virtqueues)
+                .finish()
+        }
+    }
+
     impl<'a, T> VirtioTestHelper<'a, T>
     where
-        T: VirtioTestDevice + MutEventSubscriber,
+        T: VirtioTestDevice + MutEventSubscriber + Debug,
     {
         const QUEUE_SIZE: u16 = 16;
 

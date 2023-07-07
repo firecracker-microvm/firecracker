@@ -1,3 +1,6 @@
+[general]
+regex-style-search=True
+
 [title-max-length]
 line-length=72
 
@@ -12,7 +15,7 @@ regex=(^\[.+\]: http.+)|(^Co-Authored-By)|(^Signed-off-by)
 [ignore-by-author-name]
 # Ignore certain rules for commits of which the author name matches a regex
 # E.g. Match commits made by dependabot
-regex=(.*)dependabot(.*)
+regex=dependabot
 
 # Ignore certain rules, you can reference them by their id or by their full name
 # Use 'all' to ignore all rules. Dependabot constructs commit bodies from

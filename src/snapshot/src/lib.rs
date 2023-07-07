@@ -26,6 +26,7 @@
 //! implementation does not have any logic dependent on it.
 //!  - **the data version** which refers to the state.
 mod persist;
+use std::fmt::Debug;
 use std::io::{Read, Write};
 
 use versionize::crc::{CRC64Reader, CRC64Writer};
@@ -110,7 +111,7 @@ impl Snapshot {
     /// Fetches snapshot data version.
     pub fn get_data_version<T>(mut reader: &mut T, version_map: &VersionMap) -> Result<u16, Error>
     where
-        T: Read,
+        T: Read + Debug,
     {
         let format_version_map = Self::format_version_map();
         let magic_id =
@@ -133,25 +134,20 @@ impl Snapshot {
     }
 
     /// Attempts to load an existing snapshot without CRC validation.
-    pub fn unchecked_load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
-    where
-        T: Read,
-        O: Versionize,
-    {
+    pub fn unchecked_load<T: Read + Debug, O: Versionize + Debug>(
+        mut reader: &mut T,
+        version_map: VersionMap,
+    ) -> Result<O, Error> {
         let data_version = Self::get_data_version(&mut reader, &version_map)?;
         O::deserialize(&mut reader, &version_map, data_version).map_err(Error::Versionize)
     }
 
     /// Attempts to load an existing snapshot and validate CRC.
-    pub fn load<T, O>(
+    pub fn load<T: Read + Debug, O: Versionize + Debug>(
         reader: &mut T,
         snapshot_len: usize,
         version_map: VersionMap,
-    ) -> Result<O, Error>
-    where
-        T: Read,
-        O: Versionize,
-    {
+    ) -> Result<O, Error> {
         let mut crc_reader = CRC64Reader::new(reader);
 
         // Extract snapshot data without stored checksum, which is 8 bytes in size
@@ -183,8 +179,8 @@ impl Snapshot {
     /// Saves a snapshot and include a CRC64 checksum.
     pub fn save<T, O>(&mut self, writer: &mut T, object: &O) -> Result<(), Error>
     where
-        T: Write,
-        O: Versionize,
+        T: Write + Debug,
+        O: Versionize + Debug,
     {
         let mut crc_writer = CRC64Writer::new(writer);
         self.save_without_crc(&mut crc_writer, object)?;
@@ -196,11 +192,13 @@ impl Snapshot {
         Ok(())
     }
 
+    // TODO Remove `skip(crc_writer)` when https://github.com/firecracker-microvm/versionize/pull/59
+    // is merged and included.
     /// Save a snapshot with no CRC64 checksum included.
     pub fn save_without_crc<T, O>(&mut self, mut writer: &mut T, object: &O) -> Result<(), Error>
     where
         T: Write,
-        O: Versionize,
+        O: Versionize + Debug,
     {
         self.hdr = SnapshotHdr {
             data_version: self.target_version,

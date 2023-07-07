@@ -6,10 +6,10 @@ You can check if your system meets the requirements by running
 `firecracker/tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
-[EC2](https://aws.amazon.com/ec2/) `i3.metal` instance with Ubuntu 18.04.
+[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 22.04.
 
-Nested virtualization is not supported on non-metal EC2 instances. This is why
-`.metal` instances are used.
+EC2 only supports nested virtualization on metal instances, which is why we use
+`.metal` instances exclusively.
 
 ### Architecture & OS
 
@@ -272,6 +272,20 @@ not run on an EC2 .metal instance. You can skip performance tests with:
 ```bash
 ./tools/devtool test -- --ignore integration_tests/performance
 ```
+
+If you run the integration tests on an EC2 .metal instance, and encounter
+failures such as the following
+
+`
+FAILED integration_tests/style/test_markdown.py::test_markdown_style -
+ requests.exceptions.ReadTimeout: HTTPConnectionPool(host='169.254.169.254',
+port=80): Read timed out. (read timeout=2)
+`
+
+try running `aws ec2 modify-instance-metadata-options --instance-id i-<your
+ instance id> --http-put-response-hop-limit 2`. The integration tests framework
+uses IMDSv2 to determine information such as instance type. The additional hop
+is needed because the IMDS requests will pass through docker.
 
 ## Errors while using `curl` to access the API
 

@@ -32,7 +32,7 @@ pub enum Error {
 }
 
 /// Keep information about the argument parser.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ArgParser<'a> {
     arguments: Arguments<'a>,
 }
@@ -260,7 +260,7 @@ impl fmt::Display for Value {
 }
 
 /// Stores the arguments of the parser.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Arguments<'a> {
     // A BTreeMap in which the key is an argument and the value is its associated `Argument`.
     args: BTreeMap<&'a str, Argument<'a>>,

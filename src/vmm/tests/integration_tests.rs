@@ -2,16 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::{Seek, SeekFrom};
+use std::thread;
 use std::time::Duration;
-use std::{io, thread};
 
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
-use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot, setup_serial_device};
+use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot};
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::get_empty_filters;
-use vmm::utilities::mock_devices::MockSerialInput;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
@@ -20,20 +19,6 @@ use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
-
-#[test]
-fn test_setup_serial_device() {
-    let read_tempfile = TempFile::new().unwrap();
-    let read_handle = MockSerialInput(read_tempfile.into_file());
-    let mut event_manager = EventManager::new().unwrap();
-
-    assert!(setup_serial_device(
-        &mut event_manager,
-        Box::new(read_handle),
-        Box::new(io::stdout()),
-    )
-    .is_ok());
-}
 
 #[test]
 fn test_build_and_boot_microvm() {

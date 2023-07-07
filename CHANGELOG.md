@@ -19,6 +19,7 @@
   of '_' as a separator.
 - Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX[6]) and ZERO_FCS_FDS bit
   (CPUID.7h.0:EBX[13]) in Intel's CPUID normalization process.
+- Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
 
 ### Fixed
 
@@ -31,6 +32,11 @@
   thread due to a misconfiguration of the `api_event_fd`.
 - Fixed CPUID leaf 0x1 to disable perfmon and debug feature on x86 host.
 - Fixed passing through cache information from host in CPUID leaf 0x80000006.
+- Fixed the T2S CPU template to set the RRSBA bit of the IA32_ARCH_CAPABILITIES
+  MSR to 1 in accordance with an Intel microcode update.
+- Fixed the T2CL CPU template to pass through the RSBA and RRSBA bits of the
+  IA32_ARCH_CAPABILITIES MSR from the host in accordance with an Intel microcode
+  update.
 
 ## [1.3.0]
 

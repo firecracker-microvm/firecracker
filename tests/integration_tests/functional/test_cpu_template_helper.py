@@ -28,30 +28,15 @@ class CpuTemplateHelper:
 
     # Class constants
     BINARY_NAME = "cpu-template-helper"
-    BINARY_PATH = Path(
-        f"{defs.FC_WORKSPACE_TARGET_DIR}/"
-        f"{cargo_build.DEFAULT_BUILD_TARGET}/"
-        f"release/{BINARY_NAME}"
-    )
 
     def __init__(self):
         """Build CPU template helper tool binary"""
-        if not self.BINARY_PATH.exists():
-            utils.run_cmd(
-                f"RUSTFLAGS='{cargo_build.get_rustflags()}' "
-                f"cargo build -p {self.BINARY_NAME} --release "
-                f"--target {cargo_build.DEFAULT_BUILD_TARGET}",
-                cwd=defs.FC_WORKSPACE_DIR,
-            )
-            utils.run_cmd(
-                f"strip --strip-debug {self.BINARY_PATH}",
-                cwd=defs.FC_WORKSPACE_DIR,
-            )
+        self.binary = cargo_build.get_binary(self.BINARY_NAME)
 
     def template_dump(self, vm_config_path, output_path):
         """Dump guest CPU config in the JSON custom CPU template format"""
         cmd = (
-            f"{self.BINARY_PATH} template dump"
+            f"{self.binary} template dump"
             f" --config {vm_config_path} --output {output_path}"
         )
         utils.run_cmd(cmd)
@@ -59,18 +44,18 @@ class CpuTemplateHelper:
     def template_strip(self, paths, suffix=""):
         """Strip entries shared between multiple CPU template files"""
         paths = " ".join([str(path) for path in paths])
-        cmd = f"{self.BINARY_PATH} template strip --paths {paths} --suffix '{suffix}'"
+        cmd = f"{self.binary} template strip --paths {paths} --suffix '{suffix}'"
         utils.run_cmd(cmd)
 
     def template_verify(self, vm_config_path):
         """Verify the specified CPU template"""
-        cmd = f"{self.BINARY_PATH} template verify --config {vm_config_path}"
+        cmd = f"{self.binary} template verify --config {vm_config_path}"
         utils.run_cmd(cmd)
 
     def fingerprint_dump(self, vm_config_path, output_path):
         """Dump a fingerprint"""
         cmd = (
-            f"{self.BINARY_PATH} fingerprint dump"
+            f"{self.binary} fingerprint dump"
             f" --config {vm_config_path} --output {output_path}"
         )
         utils.run_cmd(cmd)
@@ -83,7 +68,7 @@ class CpuTemplateHelper:
     ):
         """Compare two fingerprint files"""
         cmd = (
-            f"{self.BINARY_PATH} fingerprint compare"
+            f"{self.binary} fingerprint compare"
             f" --prev {prev_path} --curr {curr_path}"
             f" --filters {' '.join(filters)}"
         )

@@ -2,48 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
-import concurrent.futures
 import json
 import os
-import time
 
 import pytest
 
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import (
-    CmdBuilder,
-    CpuMap,
-    DictQuery,
-    get_cpu_percent,
-    get_kernel_version,
-    run_cmd,
-)
+from framework.utils import CpuMap, get_kernel_version
+from framework.utils_iperf import IPerf3Test, consume_iperf3_output
 from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
 from integration_tests.performance.configs import defs
 
 TEST_ID = "vsock_throughput"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
-CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
+CONFIG_NAME_ABS = defs.CFG_LOCATION / CONFIG_NAME_REL
 
-# Number of seconds to wait for the iperf3 server to start
-SERVER_STARTUP_TIME_SEC = 2
-IPERF3 = "iperf3-vsock"
-THROUGHPUT = "throughput"
-DURATION = "duration"
 BASE_PORT = 5201
-CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
-CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
-IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG = "cpu_utilization_percent"
-IPERF3_END_RESULTS_TAG = "end"
-TARGET_TAG = "target"
-DELTA_PERCENTAGE_TAG = "delta_percentage"
-THROUGHPUT_UNIT = "Mbps"
-DURATION_UNIT = "seconds"
-CPU_UTILIZATION_UNIT = "percentage"
 
 # How many clients/servers should be spawned per vcpu
 LOAD_FACTOR = 1
@@ -54,9 +31,6 @@ WARMUP_SEC = 3
 # Time (in seconds) for which iperf runs after warmup is done
 RUNTIME_SEC = 20
 
-# Dictionary mapping modes (guest-to-host, host-to-guest, bidirectional) to arguments passed to the iperf3 clients spawned
-MODE_MAP = {"bd": ["", "-R"], "g2h": [""], "h2g": ["-R"]}
-
 
 # pylint: disable=R0903
 class VsockThroughputBaselineProvider(BaselineProvider):
@@ -65,15 +39,15 @@ class VsockThroughputBaselineProvider(BaselineProvider):
     ...performance test.
     """
 
-    def __init__(self, env_id, iperf_id):
+    def __init__(self, env_id, iperf_id, raw_baselines):
         """Vsock throughput baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG_DICT)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baselines)
+
         self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
-    def get(self, ms_name: str, st_name: str) -> dict:
+    def get(self, metric_name: str, statistic_name: str) -> dict:
         """Return the baseline corresponding to the key."""
-        key = self._tag.format(ms_name, st_name)
+        key = self._tag.format(metric_name, statistic_name)
         baseline = self._baselines.get(key)
         if baseline:
             target = baseline.get("target")
@@ -85,173 +59,65 @@ class VsockThroughputBaselineProvider(BaselineProvider):
         return None
 
 
-def produce_iperf_output(
-    basevm, guest_cmd_builder, current_avail_cpu, runtime, omit, load_factor, modes
-):
-    """Produce iperf raw output from server-client connection."""
-    # Check if we have enough CPUs to pin the servers on the host.
-    # The available CPUs are the total minus vcpus, vmm and API threads.
-    assert load_factor * basevm.vcpus_count < CpuMap.len() - basevm.vcpus_count - 2
+class VsockIPerf3Test(IPerf3Test):
+    """IPerf3 runner for the vsock throughput performance test"""
 
-    host_uds_path = os.path.join(basevm.path, VSOCK_UDS_PATH)
+    def __init__(self, microvm, mode, payload_length):
+        super().__init__(
+            microvm,
+            BASE_PORT,
+            RUNTIME_SEC,
+            WARMUP_SEC,
+            mode,
+            LOAD_FACTOR * microvm.vcpus_count,
+            2,
+            iperf="iperf3-vsock",
+            payload_length=payload_length,
+        )
 
-    # Start the servers.
-    for server_idx in range(load_factor * basevm.vcpus_count):
-        assigned_cpu = CpuMap(current_avail_cpu)
-        iperf_server = (
-            CmdBuilder(f"taskset --cpu-list {assigned_cpu}")
-            .with_arg(IPERF3)
-            .with_arg("-sD")
+    def host_command(self, port_offset):
+        return (
+            super()
+            .host_command(port_offset)
             .with_arg("--vsock")
-            .with_arg("-B", host_uds_path)
-            .with_arg("-p", f"{BASE_PORT + server_idx}")
-            .with_arg("-1")
-            .build()
+            .with_arg("-B", os.path.join(self._microvm.path, VSOCK_UDS_PATH))
         )
 
-        run_cmd(iperf_server)
-        current_avail_cpu += 1
-
-    # Wait for iperf3 servers to start.
-    time.sleep(SERVER_STARTUP_TIME_SEC)
-
-    # Start `vcpus` iperf3 clients. We can not use iperf3 parallel streams
-    # due to non deterministic results and lack of scaling.
-    def spawn_iperf_client(conn, client_idx, mode):
-        # Add the port where the iperf3 client is going to send/receive.
-        cmd = (
-            guest_cmd_builder.with_arg("-p", BASE_PORT + client_idx)
-            .with_arg(mode)
-            .build()
-        )
-
+    def spawn_iperf3_client(self, client_idx):
         # Bind the UDS in the jailer's root.
-        basevm.create_jailed_resource(
+        self._microvm.create_jailed_resource(
             os.path.join(
-                basevm.path, make_host_port_path(VSOCK_UDS_PATH, BASE_PORT + client_idx)
+                self._microvm.path,
+                make_host_port_path(VSOCK_UDS_PATH, self._base_port + client_idx),
             )
         )
 
-        pinned_cmd = f"taskset --cpu-list {client_idx % basevm.vcpus_count}" f" {cmd}"
-        rc, stdout, stderr = conn.execute_command(pinned_cmd)
+        return super().spawn_iperf3_client(client_idx)
 
-        assert rc == 0, stderr.read()
-
-        return stdout.read()
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = []
-        cpu_load_future = executor.submit(
-            get_cpu_percent,
-            basevm.jailer_clone_pid,
-            runtime - SERVER_STARTUP_TIME_SEC,
-            omit,
-        )
-
-        modes_len = len(modes)
-        for client_idx in range(load_factor * basevm.vcpus_count):
-            futures.append(
-                executor.submit(
-                    spawn_iperf_client,
-                    basevm.ssh,
-                    client_idx,
-                    # Distribute the modes evenly.
-                    modes[client_idx % modes_len],
-                )
-            )
-
-        cpu_load = cpu_load_future.result()
-        for future in futures[:-1]:
-            res = json.loads(future.result())
-            res[IPERF3_END_RESULTS_TAG][IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = None
-            yield res
-
-        # Attach the real CPU utilization vmm/vcpus to
-        # the last iperf3 server-client pair measurements.
-        res = json.loads(futures[-1].result())
-
-        # We expect a single emulation thread tagged with `firecracker` name.
-        tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) > 0
-        thread_id = list(cpu_load[tag])[0]
-        data = cpu_load[tag][thread_id]
-        vmm_util = sum(data) / len(data)
-        cpu_util_perc = res[IPERF3_END_RESULTS_TAG][
-            IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG
-        ] = {}
-        cpu_util_perc[CPU_UTILIZATION_VMM] = vmm_util
-
-        vcpus_util = 0
-        for vcpu in range(basevm.vcpus_count):
-            # We expect a single fc_vcpu thread tagged with
-            # f`fc_vcpu {vcpu}`.
-            tag = f"fc_vcpu {vcpu}"
-            assert tag in cpu_load and len(cpu_load[tag]) == 1
-            thread_id = list(cpu_load[tag])[0]
-            data = cpu_load[tag][thread_id]
-            vcpus_util += sum(data) / len(data)
-
-        cpu_util_perc[CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
-
-        yield res
-
-
-def consume_iperf_output(cons, result):
-    """Consume iperf3 output result for TCP workload."""
-    total_received = result[IPERF3_END_RESULTS_TAG]["sum_received"]
-    duration = float(total_received["seconds"])
-    cons.consume_data(DURATION, duration)
-
-    # Computed at the receiving end.
-    total_recv_bytes = int(total_received["bytes"])
-    tput = round((total_recv_bytes * 8) / (1024 * 1024 * duration), 2)
-    cons.consume_data(THROUGHPUT, tput)
-
-    cpu_util = result[IPERF3_END_RESULTS_TAG][IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG]
-    if cpu_util:
-        cpu_util_host = cpu_util[CPU_UTILIZATION_VMM]
-        cpu_util_guest = cpu_util[CPU_UTILIZATION_VCPUS_TOTAL]
-
-        cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_util_host)
-        cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
+    def guest_command(self, port_offset):
+        return super().guest_command(port_offset).with_arg("--vsock")
 
 
 def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
     """Producer/Consumer pipes generator."""
-    iperf_guest_cmd_builder = (
-        CmdBuilder(IPERF3)
-        .with_arg("--vsock")
-        .with_arg("-c", 2)
-        .with_arg("--json")
-        .with_arg("--omit", WARMUP_SEC)
-        .with_arg("--time", RUNTIME_SEC)
-    )
 
-    if payload_length != "DEFAULT":
-        iperf_guest_cmd_builder = iperf_guest_cmd_builder.with_arg(
-            "--len", f"{payload_length}"
-        )
+    test = VsockIPerf3Test(basevm, mode, payload_length)
 
     iperf3_id = f"vsock-p{payload_length}-{mode}"
 
+    raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
+
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG_DICT["measurements"],
-            VsockThroughputBaselineProvider(env_id, iperf3_id),
+            raw_baselines["measurements"],
+            VsockThroughputBaselineProvider(env_id, iperf3_id, raw_baselines),
         ),
-        func=consume_iperf_output,
+        func=consume_iperf3_output,
     )
 
-    prod_kwargs = {
-        "guest_cmd_builder": iperf_guest_cmd_builder,
-        "basevm": basevm,
-        "current_avail_cpu": current_avail_cpu,
-        "runtime": RUNTIME_SEC,
-        "omit": WARMUP_SEC,
-        "load_factor": LOAD_FACTOR,
-        "modes": MODE_MAP[mode],
-    }
-    prod = producer.LambdaProducer(produce_iperf_output, prod_kwargs)
+    prod = producer.LambdaProducer(
+        test.run_test, func_kwargs={"first_free_cpu": current_avail_cpu}
+    )
     return cons, prod, f"{env_id}/{iperf3_id}"
 
 

@@ -16,6 +16,7 @@ mod common_types {
 }
 
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::result::Result;
 
 pub use common_types::*;
@@ -84,7 +85,7 @@ where
 
 impl<V> RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Applies filter to the value
     #[inline]
@@ -98,11 +99,13 @@ pub trait Numeric:
     Sized
     + Copy
     + PartialEq<Self>
+    + std::fmt::Binary
     + std::ops::Not<Output = Self>
     + std::ops::BitAnd<Output = Self>
     + std::ops::BitOr<Output = Self>
     + std::ops::BitOrAssign<Self>
-    + std::ops::Shl<Output = Self>
+    + std::ops::BitXor<Output = Self>
+    + std::ops::Shl<u32, Output = Self>
     + std::ops::AddAssign<Self>
 {
     /// Number of bits for type
@@ -120,7 +123,7 @@ macro_rules! impl_numeric {
         impl Numeric for $type {
             const BITS: u32 = $type::BITS;
             fn bit(&self, pos: u32) -> bool {
-                (self & (1 << pos)) != 0
+                (self & (Self::one() << pos)) != 0
             }
             fn zero() -> Self {
                 0
@@ -140,7 +143,7 @@ impl_numeric!(u128);
 
 impl<V> Serialize for RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Serialize combination of value and filter into a single tri state string
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -171,7 +174,7 @@ where
 
 impl<'de, V> Deserialize<'de> for RegisterValueFilter<V>
 where
-    V: Numeric,
+    V: Numeric + Debug,
 {
     /// Deserialize a composite bitmap string into a value pair
     /// input string: "010x"
@@ -188,7 +191,7 @@ where
         let stripped_str = original_str.strip_prefix("0b").unwrap_or(&original_str);
 
         let (mut filter, mut value) = (V::zero(), V::zero());
-        let mut i = V::zero();
+        let mut i = 0;
         for s in stripped_str.as_bytes().iter().rev() {
             match s {
                 b'_' => continue,
@@ -207,7 +210,7 @@ where
                     )))
                 }
             }
-            i += V::one();
+            i += 1;
         }
         Ok(RegisterValueFilter { filter, value })
     }

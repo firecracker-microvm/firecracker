@@ -13,28 +13,28 @@ from framework.utils import DictQuery
 class Provider(ABC):
     """Baselines provider abstract class."""
 
-    def __init__(self, baselines: DictQuery):
+    def __init__(self, raw_baselines: dict):
         """Block baseline provider initialization."""
-        self._baselines = baselines
+        self._baselines = DictQuery(read_baseline(raw_baselines))
 
     @abstractmethod
-    def get(self, ms_name: str, st_name: str) -> dict:
-        """Return the baselines corresponding to the `ms_name` and `st_name`...
-
-        ...combination.
+    def get(self, metric_name: str, statistic_name: str) -> dict:
+        """
+        Return the baselines corresponding to given metric (e.g. 'vmm_cpu_utilization') and statistic (e.g. 'Avg') combination.
         """
 
-    def read_baseline(self, data: dict):
-        """
-        Read baseline data from a dictionary
-        """
-        baselines = defaultdict(dict)
-        for instance, cpus in data["hosts"]["instances"].items():
-            for cpu in cpus["cpus"]:
-                cpu_model = cpu["model"]
-                for baseline, val in cpu["baselines"].items():
-                    baselines[instance, cpu_model][baseline] = val
-        return {
-            "baselines": baselines.get((global_props.instance, global_props.cpu_model)),
-            "model": global_props.cpu_model,
-        }
+
+def read_baseline(data: dict):
+    """
+    Read baseline data from a dictionary
+    """
+    baselines = defaultdict(dict)
+    for instance, cpus in data["hosts"]["instances"].items():
+        for cpu in cpus["cpus"]:
+            cpu_model = cpu["model"]
+            for baseline, val in cpu["baselines"].items():
+                baselines[instance, cpu_model][baseline] = val
+    return {
+        "baselines": baselines.get((global_props.instance, global_props.cpu_model)),
+        "model": global_props.cpu_model,
+    }

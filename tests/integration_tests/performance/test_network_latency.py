@@ -3,7 +3,6 @@
 """Tests the network latency of a Firecracker guest."""
 
 import json
-import os
 import re
 
 import pytest
@@ -12,14 +11,13 @@ from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import CpuMap, DictQuery, get_kernel_version
+from framework.utils import CpuMap, get_kernel_version
 from integration_tests.performance.configs import defs
 
 TEST_ID = "network_latency"
 kernel_version = get_kernel_version(level=1)
 CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
-CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
-CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
+CONFIG_NAME_ABS = defs.CFG_LOCATION / CONFIG_NAME_REL
 
 PING = "ping -c {} -i {} {}"
 LATENCY = "latency"
@@ -32,15 +30,15 @@ class NetLatencyBaselineProvider(BaselineProvider):
     ...performance test.
     """
 
-    def __init__(self, env_id):
+    def __init__(self, env_id, raw_baseline):
         """Network latency baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG_DICT)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baseline)
+
         self._tag = "baselines/{}/" + env_id + "/{}/ping"
 
-    def get(self, ms_name: str, st_name: str) -> dict:
+    def get(self, metric_name: str, statistic_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
-        key = self._tag.format(ms_name, st_name)
+        key = self._tag.format(metric_name, statistic_name)
         baseline = self._baselines.get(key)
         if baseline:
             target = baseline.get("target")
@@ -66,8 +64,6 @@ def consume_ping_output(cons, raw_data, requests):
     4 packets transmitted, 4 received, 0% packet loss, time 3005ms
     rtt min/avg/max/mdev = 17.478/17.705/17.808/0.210 ms
     """
-    st_keys = ["Min", "Avg", "Max", "Stddev"]
-
     output = raw_data.strip().split("\n")
     assert len(output) > 2
 
@@ -77,30 +73,18 @@ def consume_ping_output(cons, raw_data, requests):
     stat_values = re.findall(pattern_stats, stat_values)[0]
     assert len(stat_values) == 4
 
-    for index, stat_value in enumerate(stat_values[:4]):
-        cons.consume_stat(
-            st_name=st_keys[index], ms_name=LATENCY, value=float(stat_value)
-        )
+    cons.consume_stat(st_name="Avg", ms_name=LATENCY, value=float(stat_values[1]))
 
     # Compute percentiles.
     seqs = output[1 : requests + 1]
     times = []
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
-    for index, seq in enumerate(seqs):
+    for seq in seqs:
         time = re.findall(pattern_time, seq)
         assert len(time) == 1
         times.append(time[0])
 
-    times.sort()
-    cons.consume_stat(
-        st_name="Percentile50", ms_name=LATENCY, value=times[int(requests * 0.5)]
-    )
-    cons.consume_stat(
-        st_name="Percentile90", ms_name=LATENCY, value=times[int(requests * 0.9)]
-    )
-    cons.consume_stat(
-        st_name="Percentile99", ms_name=LATENCY, value=times[int(requests * 0.99)]
-    )
+    return [("ping_latency", float(x), "Milliseconds") for x in times]
 
 
 @pytest.mark.nonci
@@ -113,7 +97,10 @@ def test_network_latency(
 
     Send a ping from the guest to the host.
     """
-    requests = 1000
+
+    # each iteration is 6 seconds
+    # * 30 iterations = 5 minutes
+    requests = 30
     interval = 0.2  # Seconds
 
     # Create a microvm from artifacts
@@ -141,13 +128,16 @@ def test_network_latency(
     # is this actually needed, beyond baselines?
     guest_config = f"{guest_vcpus}vcpu_{guest_mem_mib}mb.json"
     st_core.name = TEST_ID
+    st_core.iterations = 30
     st_core.custom["guest_config"] = guest_config.removesuffix(".json")
+
+    raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
 
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            measurements=CONFIG_DICT["measurements"],
-            baseline_provider=NetLatencyBaselineProvider(env_id),
+            measurements=raw_baselines["measurements"],
+            baseline_provider=NetLatencyBaselineProvider(env_id, raw_baselines),
         ),
         func=consume_ping_output,
         func_kwargs={"requests": requests},

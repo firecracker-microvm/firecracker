@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;
 
@@ -12,6 +13,7 @@ use super::{defs, Error, Result};
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
 /// the host can't read fast enough.
+#[derive(Debug)]
 pub struct TxBuf {
     /// The actual u8 buffer - only allocated after the first push.
     data: Option<Box<[u8]>>,
@@ -83,10 +85,7 @@ impl TxBuf {
     ///
     /// Return the number of bytes that have been transferred out of the ring-buffer and into
     /// the writable stream.
-    pub fn flush_to<W>(&mut self, sink: &mut W) -> Result<usize>
-    where
-        W: Write,
-    {
+    pub fn flush_to<W: Write + Debug>(&mut self, sink: &mut W) -> Result<usize> {
         // Nothing to do, if this buffer holds no data.
         if self.is_empty() {
             return Ok(0);
@@ -153,6 +152,7 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug)]
     struct TestSink {
         data: Vec<u8>,
         err: Option<IoError>,

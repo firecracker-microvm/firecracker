@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use crate::utils::x86_64::{
         cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier, CpuidModifierMapKey,
-        CpuidModifierMapValue, MsrModifierMapKey, MsrModifierMapValue,
+        MsrModifierMapKey,
     };
 
     macro_rules! cpuid_modifier_map {
@@ -44,10 +44,10 @@ mod tests {
                     flags: $flags,
                     register: $register,
                 },
-                CpuidModifierMapValue(RegisterValueFilter {
+                RegisterValueFilter {
                     filter: u32::MAX.into(),
                     value: $value,
-                }),
+                },
             )
         };
     }
@@ -56,10 +56,10 @@ mod tests {
         ($addr:expr, $value:expr) => {
             (
                 MsrModifierMapKey($addr),
-                MsrModifierMapValue(RegisterValueFilter {
+                RegisterValueFilter {
                     filter: u64::MAX.into(),
                     value: $value,
-                }),
+                },
             )
         };
     }

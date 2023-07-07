@@ -7,7 +7,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use logger::warn;
+use log::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
@@ -59,7 +59,7 @@ impl NetConfigSpaceState {
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetState {
     id: String,
@@ -71,6 +71,7 @@ pub struct NetState {
     virtio_state: VirtioDeviceState,
 }
 
+#[derive(Debug)]
 pub struct NetConstructorArgs {
     pub mem: GuestMemoryMmap,
     pub mmds: Option<Arc<Mutex<Mmds>>>,

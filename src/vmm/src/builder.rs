@@ -5,8 +5,8 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::io::{self, Seek, SeekFrom};
-use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
@@ -17,12 +17,11 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use logger::{error, warn, METRICS};
+use log::error;
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
-use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
@@ -39,11 +38,10 @@ use crate::cpu_config::templates::{
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-use crate::devices::legacy::{
-    EventFdTrigger, ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper,
-};
+use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
@@ -55,7 +53,7 @@ use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigE
 use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, Error, EventManager, RestoreVcpusError, Vmm, VmmEventsObserver};
+use crate::{device_manager, BusDevice, Error, EventManager, RestoreVcpusError, Vmm};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error)]
@@ -75,6 +73,11 @@ pub enum StartMicrovmError {
     /// Failed to create a `RateLimiter` object.
     #[error("Cannot create RateLimiter: {0}")]
     CreateRateLimiter(io::Error),
+    /// Legacy devices work with Event file descriptors and the creation can fail because
+    /// of resource exhaustion.
+    #[cfg(target_arch = "x86_64")]
+    #[error("Error creating legacy device: {0}")]
+    CreateLegacyDevice(device_manager::legacy::Error),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
     GuestMemoryMmap(utils::vm_memory::Error),
@@ -142,51 +145,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-// Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
-pub(crate) struct SerialStdin(io::Stdin);
-impl SerialStdin {
-    /// Returns a `SerialStdin` wrapper over `io::stdin`.
-    pub fn get() -> Self {
-        SerialStdin(io::stdin())
-    }
-}
-
-impl io::Read for SerialStdin {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl AsRawFd for SerialStdin {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-}
-
-impl ReadableFd for SerialStdin {}
-
-impl VmmEventsObserver for SerialStdin {
-    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        // Set raw mode for stdin.
-        self.0.lock().set_raw_mode().map_err(|err| {
-            warn!("Cannot set raw mode for the terminal. {:?}", err);
-            err
-        })?;
-
-        // Set non blocking stdin.
-        self.0.lock().set_non_block(true).map_err(|err| {
-            warn!("Cannot set non block for the terminal. {:?}", err);
-            err
-        })
-    }
-    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        self.0.lock().set_canon_mode().map_err(|err| {
-            warn!("Cannot set canonical mode for the terminal. {:?}", err);
-            err
-        })
-    }
-}
-
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
@@ -227,21 +185,22 @@ fn create_vmm_and_vcpus(
         set_stdout_nonblocking();
 
         // Serial device setup.
-        let serial_device = setup_serial_device(
-            event_manager,
-            Box::new(SerialStdin::get()),
-            Box::new(io::stdout()),
-        )
-        .map_err(Internal)?;
+        let serial_device =
+            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
             .try_clone()
             .map_err(Error::EventFd)
             .map_err(Internal)?;
 
-        let pio_device_manager =
-            create_pio_dev_manager_with_legacy_devices(&vm, serial_device, reset_evt)
-                .map_err(Internal)?;
+        // create pio dev manager with legacy devices
+        let pio_device_manager = {
+            // TODO Remove these unwraps.
+            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
+            pio_dev_mgr.register_devices(vm.fd()).unwrap();
+            pio_dev_mgr
+        };
 
         (vcpus, pio_device_manager)
     };
@@ -258,7 +217,7 @@ fn create_vmm_and_vcpus(
     };
 
     let vmm = Vmm {
-        events_observer: Some(Box::new(SerialStdin::get())),
+        events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         vm,
@@ -635,7 +594,7 @@ fn load_initrd_from_config(
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
-fn load_initrd<F>(
+fn load_initrd<F: Debug>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
 ) -> std::result::Result<InitrdConfig, StartMicrovmError>
@@ -714,46 +673,24 @@ pub fn setup_interrupt_controller(
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
-    input: Box<dyn ReadableFd + Send>,
-    out: Box<dyn io::Write + Send>,
-) -> super::Result<Arc<Mutex<SerialDevice>>> {
+    input: std::io::Stdin,
+    out: std::io::Stdout,
+) -> super::Result<Arc<Mutex<BusDevice>>> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
-    let serial = Arc::new(Mutex::new(SerialWrapper {
+    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
         serial: Serial::with_events(
             interrupt_evt,
             SerialEventsWrapper {
-                metrics: METRICS.uart.clone(),
                 buffer_ready_event_fd: Some(kick_stdin_read_evt),
             },
-            out,
+            SerialOut::Stdout(out),
         ),
         input: Some(input),
-    }));
+    })));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
-}
-
-#[cfg(target_arch = "aarch64")]
-/// Sets up the RTC device.
-pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
-    let rtc = Rtc::with_events(METRICS.rtc.clone());
-    Arc::new(Mutex::new(rtc))
-}
-
-#[cfg(target_arch = "x86_64")]
-fn create_pio_dev_manager_with_legacy_devices(
-    vm: &Vm,
-    serial: Arc<Mutex<SerialDevice>>,
-    i8042_reset_evfd: EventFd,
-) -> std::result::Result<PortIODeviceManager, super::Error> {
-    let mut pio_dev_mgr =
-        PortIODeviceManager::new(serial, i8042_reset_evfd).map_err(Error::CreateLegacyDevice)?;
-    pio_dev_mgr
-        .register_devices(vm.fd())
-        .map_err(Error::LegacyIOBus)?;
-    Ok(pio_dev_mgr)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -773,11 +710,7 @@ fn attach_legacy_devices_aarch64(
     if cmdline_contains_console {
         // Make stdout non-blocking.
         set_stdout_nonblocking();
-        let serial = setup_serial_device(
-            event_manager,
-            Box::new(SerialStdin::get()),
-            Box::new(io::stdout()),
-        )?;
+        let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
         vmm.mmio_device_manager
             .register_mmio_serial(vmm.vm.fd(), serial, None)
             .map_err(Error::RegisterMMIODevice)?;
@@ -786,7 +719,7 @@ fn attach_legacy_devices_aarch64(
             .map_err(Error::RegisterMMIODevice)?;
     }
 
-    let rtc = setup_rtc_device();
+    let rtc = RTCDevice(Rtc::with_events(&logger::METRICS.rtc));
     vmm.mmio_device_manager
         .register_mmio_rtc(rtc, None)
         .map_err(Error::RegisterMMIODevice)
@@ -905,7 +838,7 @@ pub fn configure_system_for_boot(
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
-fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
+fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
     id: String,
@@ -954,10 +887,10 @@ fn attach_entropy_device(
     attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
-fn attach_block_devices<'a>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
-    blocks: impl Iterator<Item = &'a Arc<Mutex<Block>>>,
+    blocks: I,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     for block in blocks {
@@ -982,10 +915,10 @@ fn attach_block_devices<'a>(
     Ok(())
 }
 
-fn attach_net_devices<'a>(
+fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
-    net_devices: impl Iterator<Item = &'a Arc<Mutex<Net>>>,
+    net_devices: I,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     for net_device in net_devices {
@@ -1055,6 +988,7 @@ pub mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
+    #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
@@ -1086,25 +1020,6 @@ pub mod tests {
             crate::arch::MMIO_MEM_START,
             crate::arch::MMIO_MEM_SIZE,
             (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .unwrap()
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn default_portio_device_manager() -> PortIODeviceManager {
-        PortIODeviceManager::new(
-            Arc::new(Mutex::new(SerialWrapper {
-                serial: Serial::with_events(
-                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
-                    SerialEventsWrapper {
-                        metrics: METRICS.uart.clone(),
-                        buffer_ready_event_fd: None,
-                    },
-                    Box::new(std::io::sink()),
-                ),
-                input: None,
-            })),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap()
     }
@@ -1147,7 +1062,20 @@ pub mod tests {
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
-        let pio_device_manager = default_portio_device_manager();
+        let pio_device_manager = PortIODeviceManager::new(
+            Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+                serial: Serial::with_events(
+                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+                    SerialEventsWrapper {
+                        buffer_ready_event_fd: None,
+                    },
+                    SerialOut::Sink(std::io::sink()),
+                ),
+                input: None,
+            }))),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        )
+        .unwrap();
 
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
@@ -1160,7 +1088,7 @@ pub mod tests {
         }
 
         Vmm {
-            events_observer: Some(Box::new(SerialStdin::get())),
+            events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
             shutdown_exit_code: None,
             vm,
@@ -1368,12 +1296,6 @@ pub mod tests {
             StartMicrovmError::InitrdLoad.to_string(),
             res.err().unwrap().to_string()
         );
-    }
-
-    #[test]
-    fn test_stdin_wrapper() {
-        let wrapper = SerialStdin::get();
-        assert_eq!(wrapper.as_raw_fd(), io::stdin().as_raw_fd())
     }
 
     #[test]

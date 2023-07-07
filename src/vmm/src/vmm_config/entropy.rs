@@ -42,7 +42,7 @@ pub enum EntropyDeviceError {
 type Result<T> = std::result::Result<T, EntropyDeviceError>;
 
 /// A builder type used to construct an Entropy device
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct EntropyDeviceBuilder(Option<Arc<Mutex<Entropy>>>);
 
 impl EntropyDeviceBuilder {

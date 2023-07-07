@@ -36,6 +36,7 @@ macro_rules! generate_from {
     };
 }
 
+#[derive(Debug)]
 pub struct MockBootSourceConfig(BootSourceConfig);
 
 impl MockBootSourceConfig {
@@ -65,7 +66,7 @@ impl Default for MockBootSourceConfig {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MockVmResources(VmResources);
 
 impl MockVmResources {
@@ -89,7 +90,7 @@ impl MockVmResources {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MockVmConfig(MachineConfig);
 
 impl MockVmConfig {

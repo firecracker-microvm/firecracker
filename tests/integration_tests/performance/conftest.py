@@ -16,23 +16,7 @@ from framework.stats import core
 
 
 # pylint: disable=too-few-public-methods
-class ResultsDumperInterface:
-    """Interface for dumping results to file."""
-
-    def dump(self, result):
-        """Dump the results in JSON format."""
-
-
-# pylint: disable=too-few-public-methods
-class NopResultsDumper(ResultsDumperInterface):
-    """Interface for dummy dumping results to file."""
-
-    def dump(self, result):
-        """Do not do anything."""
-
-
-# pylint: disable=too-few-public-methods
-class JsonFileDumper(ResultsDumperInterface):
+class JsonFileDumper:
     """Class responsible with outputting test results to files."""
 
     def __init__(self, test_name):
@@ -98,7 +82,7 @@ def send_metrics(metrics, stats: core.Core):
 
 
 @pytest.fixture
-def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
+def st_core(metrics, results_file_dumper, guest_kernel, rootfs, request):
     """Helper fixture to dump results and publish metrics"""
     stats = core.Core()
     stats.iterations = 1
@@ -109,6 +93,8 @@ def st_core(metrics, results_file_dumper, guest_kernel, rootfs):
         "guest_kernel": guest_kernel.prop,
         "rootfs": rootfs.name(),
     }
+    stats.metrics = metrics
+    stats.metrics_test = request.function.__name__
     yield stats
     # If the test is skipped, there will be no results, so only dump if there
     # is some.

@@ -1,7 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
-import asyncio
+
 import functools
 import glob
 import json
@@ -452,73 +452,6 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
-async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
-    """
-    Create a coroutine that executes a given command.
-
-    :param cmd: command to execute
-    :param ignore_return_code: whether a non-zero return code should be ignored
-    :param noshell: don't run the command in a sub-shell
-    :return: return code, stdout, stderr
-    """
-    if isinstance(cmd, list) or no_shell:
-        # Create the async process
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-    else:
-        proc = await asyncio.create_subprocess_shell(
-            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-
-    # Capture stdout/stderr
-    stdout, stderr = await proc.communicate()
-
-    output_message = f"\n[{proc.pid}] Command:\n{cmd}"
-    # Append stdout/stderr to the output message
-    if stdout.decode() != "":
-        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
-    if stderr.decode() != "":
-        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
-
-    # If a non-zero return code was thrown, raise an exception
-    if not ignore_return_code and proc.returncode != 0:
-        output_message += f"\nReturned error code: {proc.returncode}"
-
-        if stderr.decode() != "":
-            output_message += f"\nstderr:\n{stderr.decode()}"
-        raise ChildProcessError(output_message)
-
-    # Log the message with one call so that multiple statuses
-    # don't get mixed up
-    CMDLOG.debug(output_message)
-
-    return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
-
-
-def run_cmd_list_async(cmd_list):
-    """
-    Run a list of commands asynchronously and wait for them to finish.
-
-    :param cmd_list: list of commands to execute
-    :return: None
-    """
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # Create event loop when one is not available
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    cmds = []
-    # Create a list of partial functions to run
-    for cmd in cmd_list:
-        cmds.append(run_cmd_async(cmd))
-
-    # Wait until all are complete
-    loop.run_until_complete(asyncio.gather(*cmds))
-
-
 def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     """
     Run a command using the sync function that logs the output.
@@ -575,6 +508,33 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
                 cpu_percentages[thread_name][task_id].append(task_ids[task_id])
         time.sleep(1)  # 1 second granularity.
     return cpu_percentages
+
+
+def summarize_cpu_percent(cpu_percentages: dict):
+    """
+    Aggregates the results of `get_cpu_percent` into average utilization for the vmm thread, and total average
+    utilization of all vcpu threads
+
+    :param cpu_percentages: mapping {thread_name: { thread_id -> [cpu samples])}}.
+    :return: A tuple (vmm utilization, total vcpu utilization)
+    """
+
+    def avg(thread_name):
+        assert thread_name in cpu_percentages and cpu_percentages[thread_name]
+
+        # Generally, we expect there to be just one thread with any given name, but sometimes there's two 'firecracker'
+        # threads
+        data = list(cpu_percentages[thread_name].values())[0]
+        return sum(data) / len(data)
+
+    vcpu_util_total = 0
+
+    vcpu = 0
+    while f"fc_vcpu {vcpu}" in cpu_percentages:
+        vcpu_util_total += avg(f"fc_vcpu {vcpu}")
+        vcpu += 1
+
+    return avg("firecracker"), vcpu_util_total
 
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):

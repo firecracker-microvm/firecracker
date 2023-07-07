@@ -37,14 +37,14 @@ enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(version = format!("v{}", crate::utils::CPU_TEMPLATE_HELPER_VERSION))]
 struct Cli {
     #[command(subcommand)]
     command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Command {
     /// Template-related operations
     #[command(subcommand)]
@@ -54,7 +54,7 @@ enum Command {
     Fingerprint(FingerprintOperation),
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum TemplateOperation {
     /// Dump guest CPU configuration in the custom CPU template format.
     Dump {
@@ -82,7 +82,7 @@ enum TemplateOperation {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum FingerprintOperation {
     /// Dump fingerprint consisting of host-related information and guest CPU config.
     Dump {

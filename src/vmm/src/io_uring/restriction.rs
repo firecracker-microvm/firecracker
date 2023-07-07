@@ -16,6 +16,7 @@ use crate::io_uring::bindings;
 use crate::io_uring::operation::OpCode;
 
 /// Adds support for restricting the operations allowed by io_uring.
+#[derive(Debug)]
 pub enum Restriction {
     /// Allow an operation.
     AllowOpCode(OpCode),

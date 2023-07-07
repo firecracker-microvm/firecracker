@@ -12,7 +12,8 @@ use kvm_bindings::{
     kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, warn, IncMetric, METRICS};
+use log::{error, warn};
+use logger::{IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -169,6 +170,7 @@ pub enum KvmVcpuConfigureError {
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
+#[derive(Debug)]
 pub struct KvmVcpu {
     pub index: u8,
     pub fd: VcpuFd,
@@ -558,7 +560,7 @@ impl KvmVcpu {
     }
 }
 
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 /// Structure holding VCPU kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {

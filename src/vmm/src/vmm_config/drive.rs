@@ -99,7 +99,7 @@ pub struct BlockDeviceUpdateConfig {
 }
 
 /// Wrapper for the collection that holds all the Block Devices
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BlockBuilder {
     /// The list of block devices.
     /// There can be at most one root block device and it would be the first in the list.

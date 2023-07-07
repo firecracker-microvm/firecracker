@@ -67,13 +67,15 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
+use log::{error, info, warn};
+use logger::{MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
+use utils::terminal::Terminal;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
@@ -85,8 +87,8 @@ use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
-    TYPE_BLOCK, TYPE_NET,
+    Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, TYPE_BALLOON, TYPE_BLOCK,
+    TYPE_NET,
 };
 use crate::devices::BusDevice;
 use crate::memory_snapshot::SnapshotMemory;
@@ -151,11 +153,6 @@ pub enum Error {
     #[error("Invalid cmdline")]
     /// Invalid command line error.
     Cmdline,
-    /// Legacy devices work with Event file descriptors and the creation can fail because
-    /// of resource exhaustion.
-    #[cfg(target_arch = "x86_64")]
-    #[error("Error creating legacy device: {0}")]
-    CreateLegacyDevice(device_manager::legacy::Error),
     /// Device manager error.
     #[error("{0}")]
     DeviceManager(device_manager::mmio::Error),
@@ -179,9 +176,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     #[error("Cannot add devices to the legacy I/O Bus. {0}")]
     LegacyIOBus(device_manager::legacy::Error),
-    /// Internal logger error.
-    #[error("Logger error: {0}")]
-    Logger(LoggerError),
     /// Internal metrics system error.
     #[error("Metrics error: {0}")]
     Metrics(MetricsError),
@@ -240,18 +234,6 @@ pub enum Error {
     /// Error thrown by observer object on Vmm teardown.
     #[error("Error thrown by observer object on Vmm teardown: {0}")]
     VmmObserverTeardown(utils::errno::Error),
-}
-
-/// Trait for objects that need custom initialization and teardown during the Vmm lifetime.
-pub trait VmmEventsObserver {
-    /// This function will be called during microVm boot.
-    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        Ok(())
-    }
-    /// This function will be called on microVm teardown.
-    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
-        Ok(())
-    }
 }
 
 /// Shorthand result type for internal VMM commands.
@@ -324,8 +306,9 @@ pub enum DumpCpuConfigError {
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
+#[derive(Debug)]
 pub struct Vmm {
-    events_observer: Option<Box<dyn VmmEventsObserver>>,
+    events_observer: Option<std::io::Stdin>,
     instance_info: InstanceInfo,
     shutdown_exit_code: Option<FcExitCode>,
 
@@ -367,7 +350,7 @@ impl Vmm {
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<dyn BusDevice>> {
+    ) -> Option<&Mutex<devices::bus::BusDevice>> {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
@@ -386,8 +369,18 @@ impl Vmm {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));
 
-        if let Some(observer) = self.events_observer.as_mut() {
-            observer.on_vmm_boot()?;
+        if let Some(stdin) = self.events_observer.as_mut() {
+            // Set raw mode for stdin.
+            stdin.lock().set_raw_mode().map_err(|err| {
+                warn!("Cannot set raw mode for the terminal. {:?}", err);
+                err
+            })?;
+
+            // Set non blocking stdin.
+            stdin.lock().set_non_block(true).map_err(|err| {
+                warn!("Cannot set non block for the terminal. {:?}", err);
+                err
+            })?;
         }
 
         Vcpu::register_kick_signal_handler();
@@ -463,40 +456,47 @@ impl Vmm {
 
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
-        #[cfg(target_arch = "aarch64")]
-        use crate::devices::legacy::SerialDevice;
-        #[cfg(target_arch = "x86_64")]
-        let mut serial = self
-            .pio_device_manager
-            .stdio_serial
-            .lock()
-            .expect("Poisoned lock");
-
-        #[cfg(target_arch = "aarch64")]
-        let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
-        #[cfg(target_arch = "aarch64")]
-        if serial_bus_device.is_none() {
-            return Ok(());
-        }
-        #[cfg(target_arch = "aarch64")]
-        let mut serial_device_locked = serial_bus_device.unwrap().lock().expect("Poisoned lock");
-        #[cfg(target_arch = "aarch64")]
-        let serial = serial_device_locked
-            .as_mut_any()
-            .downcast_mut::<SerialDevice>()
-            .expect("Unexpected BusDeviceType");
-
         // When restoring from a previously saved state, there is no serial
         // driver initialization, therefore the RDA (Received Data Available)
         // interrupt is not enabled. Because of that, the driver won't get
         // notified of any bytes that we send to the guest. The clean solution
         // would be to save the whole serial device state when we do the vm
         // serialization. For now we set that bit manually
-        serial
-            .serial
-            .write(IER_RDA_OFFSET, IER_RDA_BIT)
-            .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
-        Ok(())
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
+            if serial_bus_device.is_none() {
+                return Ok(());
+            }
+            let mut serial_device_locked =
+                serial_bus_device.unwrap().lock().expect("Poisoned lock");
+            let serial = serial_device_locked
+                .serial_mut()
+                .expect("Unexpected BusDeviceType");
+
+            serial
+                .serial
+                .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            Ok(())
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut guard = self
+                .pio_device_manager
+                .stdio_serial
+                .lock()
+                .expect("Poisoned lock");
+            let serial = guard.serial_mut().unwrap();
+
+            serial
+                .serial
+                .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            Ok(())
+        }
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
@@ -506,6 +506,8 @@ impl Vmm {
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
+            .i8042_device_mut()
+            .unwrap()
             .trigger_ctrl_alt_del()
             .map_err(Error::I8042Error)
     }
@@ -713,10 +715,8 @@ impl Vmm {
             let virtio_device = busdev
                 .lock()
                 .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                // Only MmioTransport implements BusDevice at this point.
-                .expect("Unexpected BusDevice type")
+                .mmio_transport_ref()
+                .expect("Unexpected device type")
                 .device();
 
             let config = virtio_device
@@ -740,10 +740,8 @@ impl Vmm {
             let virtio_device = busdev
                 .lock()
                 .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                // Only MmioTransport implements BusDevice at this point.
-                .expect("Unexpected BusDevice type")
+                .mmio_transport_ref()
+                .expect("Unexpected device type")
                 .device();
 
             let latest_stats = virtio_device
@@ -779,10 +777,8 @@ impl Vmm {
                 let virtio_device = busdev
                     .lock()
                     .expect("Poisoned lock")
-                    .as_any()
-                    .downcast_ref::<MmioTransport>()
-                    // Only MmioTransport implements BusDevice at this point.
-                    .expect("Unexpected BusDevice type")
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type")
                     .device();
 
                 virtio_device
@@ -811,10 +807,8 @@ impl Vmm {
                 let virtio_device = busdev
                     .lock()
                     .expect("Poisoned lock")
-                    .as_any()
-                    .downcast_ref::<MmioTransport>()
-                    // Only MmioTransport implements BusDevice at this point.
-                    .expect("Unexpected BusDevice type")
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type")
                     .device();
 
                 virtio_device
@@ -922,7 +916,11 @@ impl Drop for Vmm {
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            if let Err(err) = observer.on_vmm_stop() {
+            let res = observer.lock().set_canon_mode().map_err(|err| {
+                warn!("Cannot set canonical mode for the terminal. {:?}", err);
+                err
+            });
+            if let Err(err) = res {
                 warn!("{}", Error::VmmObserverTeardown(err));
             }
         }

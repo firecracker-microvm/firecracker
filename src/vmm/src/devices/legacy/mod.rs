@@ -9,7 +9,7 @@
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 mod rtc_pl031;
-mod serial;
+pub mod serial;
 
 use std::io;
 use std::ops::Deref;
@@ -21,12 +21,13 @@ pub use self::i8042::{Error as I8042DeviceError, I8042Device};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{
-    ReadableFd, SerialDevice, SerialEventsWrapper, SerialWrapper, IER_RDA_BIT, IER_RDA_OFFSET,
+    SerialDevice, SerialEventsWrapper, SerialWrapper, IER_RDA_BIT, IER_RDA_OFFSET,
 };
 
 /// Wrapper for implementing the trigger functionality for `EventFd`.
 ///
 /// The trigger is used for handling events in the legacy devices.
+#[derive(Debug)]
 pub struct EventFdTrigger(EventFd);
 
 impl Trigger for EventFdTrigger {

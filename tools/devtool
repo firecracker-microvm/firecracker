@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v60}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v61}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -379,10 +379,6 @@ cmd_help() {
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
     echo ""
-    echo "    create_snapshot_artifacts"
-    echo "        Runs a tool that generates snapshot artifacts for supported kernel versions."
-    echo "        Snapshot mem and state files are saved under \`snapshot_artifacts/\` directory"
-    echo ""
     echo "    distclean"
     echo "        Clean up the build tree and remove the docker container."
     echo ""
@@ -605,6 +601,19 @@ cmd_test() {
     # We need to run a privileged container to get that kind of access.
     env |grep -P "^(AWS_EMF_|BUILDKITE_)" > env.list
 
+    if [[ "$BUILDKITE" = "true" ]]; then
+      # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
+      # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
+      sudo sh -c "echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo" &> /dev/null
+
+      # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
+      # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
+      # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
+      sudo sh -c "echo "performance" | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor" &> /dev/null
+
+      say "Detected CI, tuning CPU frequency scaling for reduced variability"
+    fi
+
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
@@ -618,7 +627,7 @@ cmd_test() {
         -v /boot:/boot \
         ${ramdisk_args} \
         -- \
-        pytest -W error::pytest.PytestUnraisableExceptionWarning -W error::pytest.PytestUnhandledThreadExceptionWarning "$@"
+        pytest "$@"
 
     ret=$?
 
@@ -727,6 +736,7 @@ cmd_shell() {
 }
 
 cmd_sh() {
+    ensure_build_dir
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \
@@ -735,33 +745,6 @@ cmd_sh() {
         -- \
         bash --norc -c "$*"
 }
-
-cmd_create_snapshot_artifacts() {
-    privileged=true
-
-    # Make sure we have what we need to continue.
-    ensure_devctr
-    ensure_build_dir
-
-    say "Creating snapshot artifacts ..."
-    run_devctr \
-        --privileged \
-        --ulimit nofile=4096:4096 \
-        --ulimit memlock=-1:-1 \
-        --security-opt seccomp=unconfined \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        ${ramdisk_args} \
-        -- \
-        python3 tools/create_snapshot_artifact/main.py
-    ret=$?
-
-    # Running as root may have created some root-owned files under the build
-    # dir. Let's fix that.
-    cmd_fix_perms
-
-    return $ret
-}
-
 
 # Auto-format all source code, to match the Firecracker requirements. For the
 # moment, this is just a wrapper over `cargo fmt --all`

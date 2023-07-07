@@ -17,6 +17,7 @@ pub enum Error {
     Transfer(GuestMemoryError),
 }
 
+#[derive(Debug)]
 pub struct SyncFileEngine {
     file: File,
 }

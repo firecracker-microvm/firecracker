@@ -39,11 +39,9 @@ mod tests {
     use crate::utils::aarch64::reg_modifier;
 
     // Summary of reg modifiers:
-    // * As addr 0x0 modifier exists in all the templates but its values are different, it should be
-    //   preserved.
-    // * As addr 0x1 modifier exists in all the templates and its values are same, it should be
-    //   removed.
-    // * As addr 0x2 modifier only exist in the third template, it should be preserved.
+    // * An addr 0x0 modifier exists in all the templates but its value is different.
+    // * An addr 0x1 modifier exists in all the templates and its value is same.
+    // * An addr 0x2 modifier only exist in the third template.
     #[rustfmt::skip]
     fn build_input_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -74,17 +72,17 @@ mod tests {
         vec![
             CustomCpuTemplate {
                 reg_modifiers: vec![
-                    reg_modifier!(0x0, 0x0),
+                    reg_modifier!(0x0, 0x0, 0b11),
                 ],
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
-                    reg_modifier!(0x0, 0x1),
+                    reg_modifier!(0x0, 0x1, 0b11),
                 ],
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
-                    reg_modifier!(0x0, 0x2),
+                    reg_modifier!(0x0, 0x2, 0b11),
                     reg_modifier!(0x2, 0x1),
                 ],
             },

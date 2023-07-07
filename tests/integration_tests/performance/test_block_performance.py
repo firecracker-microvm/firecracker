@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 from enum import Enum
+from pathlib import Path
 
 import pytest
 
@@ -16,10 +17,10 @@ from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
     CmdBuilder,
-    DictQuery,
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
+    summarize_cpu_percent,
 )
 from integration_tests.performance.configs import defs
 
@@ -29,7 +30,6 @@ CONFIG_NAME_REL = "test_{}_config_{}.json".format(TEST_ID, kernel_version)
 CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
 CONFIG = json.load(open(CONFIG_NAME_ABS, encoding="utf-8"))
 
-DEBUG = False
 FIO = "fio"
 
 # Measurements tags.
@@ -42,15 +42,15 @@ CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
 class BlockBaselinesProvider(BaselineProvider):
     """Implementation of a baseline provider for the block performance test."""
 
-    def __init__(self, env_id, fio_id):
+    def __init__(self, env_id, fio_id, raw_baselines):
         """Block baseline provider initialization."""
-        baseline = self.read_baseline(CONFIG)
-        super().__init__(DictQuery(baseline))
+        super().__init__(raw_baselines)
+
         self._tag = "baselines/{}/" + env_id + "/{}/" + fio_id
 
-    def get(self, ms_name: str, st_name: str) -> dict:
+    def get(self, metric_name: str, statistic_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
-        key = self._tag.format(ms_name, st_name)
+        key = self._tag.format(metric_name, statistic_name)
         baseline = self._baselines.get(key)
         if baseline:
             target = baseline.get("target")
@@ -129,36 +129,7 @@ def run_fio(env_id, basevm, mode, bs):
         rc, _, stderr = basevm.ssh.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
-        result = {}
-        cpu_load = cpu_load_future.result()
-        tag = "firecracker"
-        assert tag in cpu_load and len(cpu_load[tag]) > 0
-
-        data = list(cpu_load[tag].values())[0]
-        data_len = len(data)
-        assert data_len == CONFIG["time"]
-
-        result[CPU_UTILIZATION_VMM] = sum(data) / data_len
-        if DEBUG:
-            result[CPU_UTILIZATION_VMM_SAMPLES_TAG] = data
-
-        vcpus_util = 0
-        for vcpu in range(basevm.vcpus_count):
-            # We expect a single fc_vcpu thread tagged with
-            # f`fc_vcpu {vcpu}`.
-            tag = f"fc_vcpu {vcpu}"
-            assert tag in cpu_load and len(cpu_load[tag]) == 1
-            data = list(cpu_load[tag].values())[0]
-            data_len = len(data)
-
-            assert data_len == CONFIG["time"]
-            if DEBUG:
-                samples_tag = f"cpu_utilization_fc_vcpu_{vcpu}_samples"
-                result[samples_tag] = data
-            vcpus_util += sum(data) / data_len
-
-        result[CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
-        return result
+        return cpu_load_future.result()
 
 
 class DataDirection(Enum):
@@ -193,11 +164,12 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
 
     for job_id in range(numjobs):
         file_path = (
-            f"{logs_path}/{env_id}/{mode}{bs}/{mode}"
-            f"{bs}_{measurement}.{job_id + 1}.log"
+            Path(logs_path)
+            / env_id
+            / f"{mode}{bs}"
+            / f"{mode}{bs}_{measurement}.{job_id + 1}.log"
         )
-        file = open(file_path, encoding="utf-8")
-        lines = file.readlines()
+        lines = file_path.read_text(encoding="utf-8").splitlines()
 
         direction_count = 1
         if mode.endswith("rw"):
@@ -217,27 +189,35 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
                     values[measurement_id][value_idx] = []
                 values[measurement_id][value_idx].append(int(data[1].strip()))
 
-    for measurement_id, value_indexes in values.items():
-        for idx in value_indexes:
+    for measurement_id, data in values.items():
+        for time in data:
             # Discard data points which were not measured by all jobs.
-            if len(value_indexes[idx]) != numjobs:
+            if len(data[time]) != numjobs:
                 continue
 
-            value = sum(value_indexes[idx])
-            if DEBUG:
-                cons.consume_custom(measurement_id, value)
+            yield from [
+                (f"{measurement_id}_{vcpu}", throughput, "Megabits/Second")
+                for vcpu, throughput in enumerate(data[time])
+            ]
+
+            value = sum(data[time])
             cons.consume_data(measurement_id, value)
 
 
-def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
+def consume_fio_output(cons, cpu_load, numjobs, mode, bs, env_id, logs_path):
     """Consumer function."""
-    cpu_utilization_vmm = result[CPU_UTILIZATION_VMM]
-    cpu_utilization_vcpus = result[CPU_UTILIZATION_VCPUS_TOTAL]
+    vmm_util, vcpu_util = summarize_cpu_percent(cpu_load)
 
-    cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_utilization_vmm)
-    cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_utilization_vcpus)
+    cons.consume_stat("Avg", CPU_UTILIZATION_VMM, vmm_util)
+    cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, vcpu_util)
 
-    read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
+    for thread_name, data in cpu_load.items():
+        yield from [
+            (f"cpu_utilization_{thread_name}", x, "Percent")
+            for x in list(data.values())[0]
+        ]
+
+    yield from read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
 @pytest.mark.nonci
@@ -302,7 +282,8 @@ def test_block_performance(
             )
             st_cons = st.consumer.LambdaConsumer(
                 metadata_provider=DictMetadataProvider(
-                    CONFIG["measurements"], BlockBaselinesProvider(env_id, fio_id)
+                    CONFIG["measurements"],
+                    BlockBaselinesProvider(env_id, fio_id, CONFIG),
                 ),
                 func=consume_fio_output,
                 func_kwargs={

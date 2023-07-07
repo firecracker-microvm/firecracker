@@ -1,6 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Debug;
 use std::result::Result;
 
 use utils::vm_memory::ByteValued;
@@ -11,12 +12,13 @@ use crate::io_uring::bindings::io_uring_cqe;
 unsafe impl ByteValued for io_uring_cqe {}
 
 /// Wrapper over a completed operation.
+#[derive(Debug)]
 pub struct Cqe<T> {
     res: i32,
     user_data: Box<T>,
 }
 
-impl<T> Cqe<T> {
+impl<T: Debug> Cqe<T> {
     /// Construct a Cqe object from a raw `io_uring_cqe`.
     ///
     /// # Safety
@@ -47,7 +49,7 @@ impl<T> Cqe<T> {
     }
 
     /// Create a new Cqe, applying the passed function to the user_data.
-    pub fn map_user_data<U, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
+    pub fn map_user_data<U: Debug, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
             res: self.res,
             user_data: Box::new(op(self.user_data())),

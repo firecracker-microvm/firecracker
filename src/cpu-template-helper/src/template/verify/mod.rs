@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
-use crate::utils::{ModifierMapKey, ModifierMapValue};
+use vmm::cpu_config::templates::{Numeric, RegisterValueFilter};
+
+use crate::utils::{DiffString, ModifierMapKey};
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
@@ -27,20 +30,22 @@ pub enum Error {
 ///
 /// This function is an arch-agnostic part of CPU template verification. As template formats differ
 /// between x86_64 and aarch64, the arch-specific part converts the structure to an arch-agnostic
-/// `HashMap` implementing `ModifierMapKey` and `ModifierMapValue` for its key and value
-/// respectively before calling this arch-agnostic function.
-pub fn verify_common<K, V>(template: HashMap<K, V>, config: HashMap<K, V>) -> Result<(), Error>
+/// `HashMap` implementing `ModifierMapKey` before calling this arch-agnostic function.
+pub fn verify_common<K, V>(
+    template: HashMap<K, RegisterValueFilter<V>>,
+    config: HashMap<K, RegisterValueFilter<V>>,
+) -> Result<(), Error>
 where
-    K: ModifierMapKey,
-    V: ModifierMapValue,
+    K: ModifierMapKey + Debug,
+    V: Numeric + Debug,
 {
     for (key, template_value_filter) in template {
         let config_value_filter = config
             .get(&key)
             .ok_or(Error::KeyNotFound(key.to_string()))?;
 
-        let template_value = template_value_filter.value() & template_value_filter.filter();
-        let config_value = config_value_filter.value() & template_value_filter.filter();
+        let template_value = template_value_filter.value & template_value_filter.filter;
+        let config_value = config_value_filter.value & template_value_filter.filter;
 
         if template_value != config_value {
             return Err(Error::ValueMismatched(
@@ -56,13 +61,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::tests::{mock_modifier, MockModifierMapKey, MockModifierMapValue};
+    use crate::utils::tests::{mock_modifier, MockModifierMapKey};
 
     #[test]
     fn test_verify_modifier_map_with_non_existing_key() {
-        // Test with a sample whose key exists in CPU template but not in CPU config.
-        let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_0000, 0b0000_0000))]);
+        // Test with a sample where a key in CPU template is not found in CPU config.
+        let cpu_template_map = HashMap::from([mock_modifier!(0x0, 0b0000_0000)]);
         let cpu_config_map = HashMap::new();
 
         assert_eq!(
@@ -78,9 +82,9 @@ mod tests {
     fn test_verify_modifier_map_with_mismatched_value() {
         // Test with a sample whose filtered value mismatches between CPU config and CPU template.
         let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_1111, 0b0000_0101))]);
+            HashMap::from([mock_modifier!(0x0, 0b0000_0101, 0b0000_1111)]);
         let cpu_config_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (u8::MAX, 0b0000_0000))]);
+            HashMap::from([mock_modifier!(0x0, 0b0000_0000, 0b1111_1111)]);
 
         assert_eq!(
             verify_common(cpu_template_map, cpu_config_map)
@@ -96,9 +100,8 @@ mod tests {
     #[test]
     fn test_verify_modifier_map_with_valid_value() {
         // Test with valid CPU template and CPU config.
-        let cpu_template_map =
-            HashMap::from([mock_modifier!(0b0000_0000, (0b0000_1111, 0b0000_1010))]);
-        let cpu_config_map = HashMap::from([mock_modifier!(0b0000_0000, (u8::MAX, 0b1010_1010))]);
+        let cpu_template_map = HashMap::from([mock_modifier!(0x0, 0b0000_1010, 0b0000_1111)]);
+        let cpu_config_map = HashMap::from([mock_modifier!(0x0, 0b1010_1010, 0b1111_1111)]);
 
         verify_common(cpu_template_map, cpu_config_map).unwrap();
     }

@@ -7,7 +7,7 @@ use std::fmt::Display;
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::RegisterValueFilter;
 
-use super::{ModifierMapKey, ModifierMapValue};
+use super::ModifierMapKey;
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct RegModifierMapKey(pub u64);
@@ -19,32 +19,14 @@ impl Display for RegModifierMapKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct RegModifierMapValue(pub RegisterValueFilter<u128>);
-
-impl ModifierMapValue for RegModifierMapValue {
-    type Type = u128;
-
-    fn filter(&self) -> Self::Type {
-        self.0.filter
-    }
-
-    fn value(&self) -> Self::Type {
-        self.0.value
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
-pub struct RegModifierMap(pub HashMap<RegModifierMapKey, RegModifierMapValue>);
+pub struct RegModifierMap(pub HashMap<RegModifierMapKey, RegisterValueFilter<u128>>);
 
 impl From<Vec<RegisterModifier>> for RegModifierMap {
     fn from(modifiers: Vec<RegisterModifier>) -> Self {
         let mut map = HashMap::new();
         for modifier in modifiers {
-            map.insert(
-                RegModifierMapKey(modifier.addr),
-                RegModifierMapValue(modifier.bitmap),
-            );
+            map.insert(RegModifierMapKey(modifier.addr), modifier.bitmap);
         }
         RegModifierMap(map)
     }
@@ -57,7 +39,7 @@ impl From<RegModifierMap> for Vec<RegisterModifier> {
             .into_iter()
             .map(|(modifier_key, modifier_value)| RegisterModifier {
                 addr: modifier_key.0,
-                bitmap: modifier_value.0,
+                bitmap: modifier_value,
             })
             .collect::<Vec<_>>();
         modifier_vec.sort_by_key(|modifier| modifier.addr);
@@ -96,10 +78,10 @@ mod tests {
         ($id:expr, $value:expr) => {
             (
                 RegModifierMapKey($id),
-                RegModifierMapValue(RegisterValueFilter {
+                RegisterValueFilter {
                     filter: u128::MAX,
                     value: $value,
-                }),
+                },
             )
         };
     }

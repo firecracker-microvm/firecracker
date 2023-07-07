@@ -12,6 +12,7 @@
 
 use std::fmt;
 use std::result::Result;
+use std::str::FromStr;
 
 use serde::de::{Deserialize, Deserializer, Error};
 use serde::ser::{Serialize, Serializer};
@@ -51,7 +52,8 @@ impl From<MacAddr> for [u8; 6] {
     }
 }
 
-impl MacAddr {
+impl FromStr for MacAddr {
+    type Err = String;
     /// Try to turn a `&str` into a `MacAddr` object. The method will return the `str` that failed
     /// to be parsed.
     /// # Arguments
@@ -60,30 +62,31 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
+    /// use std::str::FromStr;
+    ///
     /// use self::utils::net::mac::MacAddr;
-    /// MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
+    /// MacAddr::from_str("12:34:56:78:9a:BC").unwrap();
     /// ```
-    pub fn parse_str<S>(s: &S) -> Result<MacAddr, &str>
-    where
-        S: AsRef<str> + ?Sized,
-    {
-        let v: Vec<&str> = s.as_ref().split(':').collect();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v: Vec<&str> = s.split(':').collect();
         let mut bytes = [0u8; MAC_ADDR_LEN];
 
         if v.len() != MAC_ADDR_LEN {
-            return Err(s.as_ref());
+            return Err(String::from(s));
         }
 
         for i in 0..MAC_ADDR_LEN {
             if v[i].len() != 2 {
-                return Err(s.as_ref());
+                return Err(String::from(s));
             }
-            bytes[i] = u8::from_str_radix(v[i], 16).map_err(|_| s.as_ref())?;
+            bytes[i] = u8::from_str_radix(v[i], 16).map_err(|_| String::from(s))?;
         }
 
         Ok(MacAddr { bytes })
     }
+}
 
+impl MacAddr {
     /// Create a `MacAddr` from a slice.
     /// Does not check whether `src.len()` == `MAC_ADDR_LEN`.
     /// # Arguments
@@ -135,7 +138,7 @@ impl<'de> Deserialize<'de> for MacAddr {
         D: Deserializer<'de>,
     {
         let s = <std::string::String as Deserialize>::deserialize(deserializer)?;
-        MacAddr::parse_str(&s).map_err(|_| D::Error::custom("The provided MAC address is invalid."))
+        MacAddr::from_str(&s).map_err(|_| D::Error::custom("The provided MAC address is invalid."))
     }
 }
 
@@ -146,18 +149,18 @@ mod tests {
     #[test]
     fn test_mac_addr() {
         // too long
-        assert!(MacAddr::parse_str("aa:aa:aa:aa:aa:aa:aa").is_err());
+        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:aa:aa").is_err());
 
         // invalid hex
-        assert!(MacAddr::parse_str("aa:aa:aa:aa:aa:ax").is_err());
+        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:ax").is_err());
 
         // single digit mac address component should be invalid
-        assert!(MacAddr::parse_str("aa:aa:aa:aa:aa:b").is_err());
+        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:b").is_err());
 
         // components with more than two digits should also be invalid
-        assert!(MacAddr::parse_str("aa:aa:aa:aa:aa:bbb").is_err());
+        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:bbb").is_err());
 
-        let mac = MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
+        let mac = MacAddr::from_str("12:34:56:78:9a:BC").unwrap();
 
         println!("parsed MAC address: {}", mac);
 

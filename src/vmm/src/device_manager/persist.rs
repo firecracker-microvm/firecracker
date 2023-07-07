@@ -3,12 +3,13 @@
 
 //! Provides functionality for saving/restoring the MMIO device manager and its devices.
 
+use std::fmt::{self, Debug};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use logger::{error, warn};
+use log::{error, warn};
 use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
@@ -59,7 +60,7 @@ pub enum Error {
 
 /// Holds the state of a balloon device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedBalloonState {
     /// Device identifier.
     pub device_id: String,
@@ -73,7 +74,7 @@ pub struct ConnectedBalloonState {
 
 /// Holds the state of a block device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedBlockState {
     /// Device identifier.
     pub device_id: String,
@@ -87,7 +88,7 @@ pub struct ConnectedBlockState {
 
 /// Holds the state of a net device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedNetState {
     /// Device identifier.
     pub device_id: String,
@@ -101,7 +102,7 @@ pub struct ConnectedNetState {
 
 /// Holds the state of a vsock device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedVsockState {
     /// Device identifier.
     pub device_id: String,
@@ -113,9 +114,9 @@ pub struct ConnectedVsockState {
     pub device_info: MMIODeviceInfo,
 }
 
-#[derive(Clone, Versionize)]
 /// Holds the state of an entropy device connected to the MMIO space.
 // NOTICE: Any chages to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedEntropyState {
     /// Device identifier.
     pub device_id: String,
@@ -129,7 +130,7 @@ pub struct ConnectedEntropyState {
 
 /// Holds the state of a legacy device connected to the MMIO space.
 #[cfg(target_arch = "aarch64")]
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct ConnectedLegacyState {
     /// Device identifier.
     pub type_: DeviceType,
@@ -165,7 +166,7 @@ impl From<MmdsVersion> for MmdsVersionState {
 
 /// Holds the device states.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Versionize)]
+#[derive(Debug, Clone, Versionize)]
 pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
@@ -189,6 +190,7 @@ pub struct DeviceStates {
 
 /// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
 /// from a snapshot.
+#[derive(Debug)]
 pub enum SharedDeviceType {
     Block(Arc<Mutex<Block>>),
     Network(Arc<Mutex<Net>>),
@@ -238,6 +240,18 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
 }
+impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MMIODevManagerConstructorArgs")
+            .field("mem", &self.mem)
+            .field("vm", &self.vm)
+            .field("event_manager", &"?")
+            .field("for_each_restored_device", &"?")
+            .field("vm_resources", &self.vm_resources)
+            .field("instance_id", &self.instance_id)
+            .finish()
+    }
+}
 
 impl<'a> Persist<'a> for MMIODeviceManager {
     type State = DeviceStates;
@@ -273,11 +287,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             }
 
             let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
+
             let mmio_transport = locked_bus_dev
-                .as_any()
-                // Only MmioTransport implements BusDevice on x86_64 at this point.
-                .downcast_ref::<MmioTransport>()
-                .expect("Unexpected BusDevice type");
+                .mmio_transport_ref()
+                .expect("Unexpected device type");
 
             let transport_state = mmio_transport.save();
 
@@ -389,8 +402,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if state.type_ == DeviceType::Serial {
                     let serial = crate::builder::setup_serial_device(
                         constructor_args.event_manager,
-                        Box::new(crate::builder::SerialStdin::get()),
-                        Box::new(std::io::stdout()),
+                        std::io::stdin(),
+                        std::io::stdout(),
                     )?;
 
                     dev_manager
@@ -409,7 +422,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {
-                    let rtc = crate::builder::setup_rtc_device();
+                    let rtc = crate::devices::legacy::RTCDevice(vm_superio::Rtc::with_events(
+                        &logger::METRICS.rtc,
+                    ));
                     dev_manager
                         .address_allocator
                         .allocate(
@@ -625,30 +640,10 @@ mod tests {
         }
     }
 
-    impl std::fmt::Debug for ConnectedBalloonState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedBalloonDevice {{ transport_state: {:?}, device_info: {:?} }}",
-                self.transport_state, self.device_info
-            )
-        }
-    }
-
     impl PartialEq for ConnectedBlockState {
         fn eq(&self, other: &ConnectedBlockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
-        }
-    }
-
-    impl std::fmt::Debug for ConnectedBlockState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedBlockDevice {{ transport_state: {:?}, device_info: {:?} }}",
-                self.transport_state, self.device_info
-            )
         }
     }
 
@@ -659,30 +654,10 @@ mod tests {
         }
     }
 
-    impl std::fmt::Debug for ConnectedNetState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedNetDevice {{ transport_state: {:?}, device_info: {:?} }}",
-                self.transport_state, self.device_info
-            )
-        }
-    }
-
     impl PartialEq for ConnectedVsockState {
         fn eq(&self, other: &ConnectedVsockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
-        }
-    }
-
-    impl std::fmt::Debug for ConnectedVsockState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedVsockDevice {{ transport_state: {:?}, device_info: {:?} }}",
-                self.transport_state, self.device_info
-            )
         }
     }
 
@@ -692,16 +667,6 @@ mod tests {
                 && self.block_devices == other.block_devices
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
-        }
-    }
-
-    impl std::fmt::Debug for DeviceStates {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "DevicesStates {{ block_devices: {:?}, net_devices: {:?}, vsock_device: {:?} }}",
-                self.block_devices, self.net_devices, self.vsock_device
-            )
         }
     }
 
@@ -736,12 +701,6 @@ mod tests {
                 };
             }
             true
-        }
-    }
-
-    impl std::fmt::Debug for MMIODeviceManager {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(f, "{:?}", self.id_to_dev_info)
         }
     }
 
