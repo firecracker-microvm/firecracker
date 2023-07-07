@@ -30,3 +30,31 @@ vmm = { path = "../vmm" }
 [dev-dependencies]
 cargo_toml = "0.15.3"
 regex = { version = "1.8.4", default-features = false, features = ["std"] }
+
+# Dev-Dependencies for uffd examples
+serde = { version = "1.0.165", features = ["derive"] }
+userfaultfd = "0.6.0"
+
+[[example]]
+name = "uffd_malicious_handler"
+path = "examples/uffd/malicious_handler.rs"
+
+[[example]]
+name = "uffd_valid_handler"
+path = "examples/uffd/valid_handler.rs"
+
+[[example]]
+name = "seccomp_harmless"
+path = "examples/seccomp/harmless.rs"
+
+[[example]]
+name = "seccomp_jailer"
+path = "examples/seccomp/jailer.rs"
+
+[[example]]
+name = "seccomp_malicious"
+path = "examples/seccomp/malicious.rs"
+
+[[example]]
+name = "seccomp_panic"
+path = "examples/seccomp/panic.rs"
