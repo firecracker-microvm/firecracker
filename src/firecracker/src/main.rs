@@ -437,18 +437,16 @@ fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
 fn print_supported_snapshot_versions() {
-    let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
-    let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
+    let mut versions: Vec<_> = FC_VERSION_TO_SNAP_VERSION
         .iter()
         .map(|(key, _)| key.clone())
         .collect();
-    snapshot_versions.sort();
+    versions.sort();
 
-    snapshot_versions
-        .iter()
-        .for_each(|v| snapshot_versions_str.push_str(format!(" v{},", v).as_str()));
-    snapshot_versions_str.pop();
-    println!("{}\n", snapshot_versions_str);
+    println!("Supported snapshot data format versions:");
+    for v in versions.iter() {
+        println!("{v}");
+    }
 }
 
 // Print data format of provided snapshot state file.
