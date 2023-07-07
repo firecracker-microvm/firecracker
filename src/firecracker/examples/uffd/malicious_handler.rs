@@ -4,9 +4,11 @@
 //! Provides functionality for a malicious page fault handler
 //! which panics when a page fault occurs.
 
+mod uffd_utils;
+
 use std::os::unix::io::AsRawFd;
 
-use uffd::uffd_utils::create_pf_handler;
+use uffd_utils::create_pf_handler;
 
 fn main() {
     let uffd_handler = create_pf_handler();

@@ -57,8 +57,7 @@ COVERAGE_MAX_DELTA = 0.05
 
 @pytest.mark.timeout(600)
 def test_coverage(monkeypatch, record_property, metrics):
-    """Test code coverage
-    """
+    """Test code coverage"""
     # Get coverage target.
     processor_model = [item for item in COVERAGE_DICT if item in PROC_MODEL]
     assert len(processor_model) == 1, "Could not get processor model!"
@@ -88,6 +87,7 @@ def test_coverage(monkeypatch, record_property, metrics):
             --ignore "**/tests/*" \
             --ignore "**/test_utils*" \
             --ignore "**/mock_*" \
+            --ignore "src/firecracker/examples/*" \
             -t html \
             --ignore-not-existing \
             -o ./build/cargo_target/{TARGET}/debug/coverage"""
