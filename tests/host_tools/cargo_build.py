@@ -50,7 +50,7 @@ def get_rustflags():
 
 
 @with_filelock
-def cargo_build(path, extra_args="", src_dir=""):
+def cargo_build(path, extra_args="", src_dir=None):
     """Trigger build depending on flags provided."""
     cargo("build", extra_args, env={"CARGO_TARGET_DIR": path}, cwd=src_dir)
 

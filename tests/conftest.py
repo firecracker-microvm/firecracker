@@ -272,72 +272,49 @@ def bin_seccomp_paths(test_fc_session_root_path):
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
-    seccomp_build_path = os.path.join(
-        test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
+    seccomp_build_path = (
+        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
     )
+    release_binaries_path = seccomp_build_path / build_tools.RELEASE_BINARIES_REL_PATH
 
-    extra_args = "--release --target {}-unknown-linux-musl"
-    extra_args = extra_args.format(platform.machine())
-    build_tools.cargo_build(
-        seccomp_build_path,
-        extra_args=extra_args,
-        src_dir="integration_tests/security/demo_seccomp",
-    )
+    seccomp_examples = ["jailer", "harmless", "malicious", "panic"]
 
-    release_binaries_path = os.path.join(
-        test_fc_session_root_path,
-        build_tools.CARGO_RELEASE_REL_PATH,
-        build_tools.RELEASE_BINARIES_REL_PATH,
-    )
+    demos = {}
 
-    demo_jailer = os.path.normpath(os.path.join(release_binaries_path, "demo_jailer"))
-    demo_harmless = os.path.normpath(
-        os.path.join(release_binaries_path, "demo_harmless")
-    )
-    demo_malicious = os.path.normpath(
-        os.path.join(release_binaries_path, "demo_malicious")
-    )
-    demo_panic = os.path.normpath(os.path.join(release_binaries_path, "demo_panic"))
+    for example in seccomp_examples:
+        build_tools.cargo_build(
+            seccomp_build_path,
+            f"--release --target {platform.machine()}-unknown-linux-musl --example seccomp_{example}",
+        )
 
-    yield {
-        "demo_jailer": demo_jailer,
-        "demo_harmless": demo_harmless,
-        "demo_malicious": demo_malicious,
-        "demo_panic": demo_panic,
-    }
+        demos[f"demo_{example}"] = release_binaries_path / f"examples/seccomp_{example}"
+
+    yield demos
 
 
 @pytest.fixture(scope="session")
 def uffd_handler_paths(test_fc_session_root_path):
     """Build UFFD handler binaries."""
-    uffd_build_path = os.path.join(
-        test_fc_session_root_path, build_tools.CARGO_RELEASE_REL_PATH
+    uffd_build_path = (
+        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
     )
+    release_binaries_path = uffd_build_path / build_tools.RELEASE_BINARIES_REL_PATH
 
-    extra_args = "--release --target {}-unknown-linux-musl"
-    extra_args = extra_args.format(platform.machine())
-    build_tools.cargo_build(
-        uffd_build_path, extra_args=extra_args, src_dir="host_tools/uffd"
-    )
+    uffd_handlers = ["malicious", "valid"]
 
-    release_binaries_path = os.path.join(
-        test_fc_session_root_path,
-        build_tools.CARGO_RELEASE_REL_PATH,
-        build_tools.RELEASE_BINARIES_REL_PATH,
-    )
+    handlers = {}
 
-    valid_handler = os.path.normpath(
-        os.path.join(release_binaries_path, "valid_handler")
-    )
+    for handler in uffd_handlers:
+        build_tools.cargo_build(
+            uffd_build_path,
+            f"--release --target {platform.machine()}-unknown-linux-musl --example uffd_{handler}_handler",
+        )
 
-    malicious_handler = os.path.normpath(
-        os.path.join(release_binaries_path, "malicious_handler")
-    )
+        handlers[f"{handler}_handler"] = (
+            release_binaries_path / f"examples/uffd_{handler}_handler"
+        )
 
-    yield {
-        "valid_handler": valid_handler,
-        "malicious_handler": malicious_handler,
-    }
+    yield handlers
 
 
 @pytest.fixture()

@@ -5,9 +5,11 @@
 //! which loads the whole region from the backing memory file
 //! when a page fault occurs.
 
+mod uffd_utils;
+
 use std::os::unix::io::AsRawFd;
 
-use uffd::uffd_utils::{create_pf_handler, MemPageState};
+use uffd_utils::{create_pf_handler, MemPageState};
 
 fn main() {
     let mut uffd_handler = create_pf_handler();
