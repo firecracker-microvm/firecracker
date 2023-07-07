@@ -33,6 +33,7 @@ from framework import utils
 from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
+from framework.properties import global_props
 from framework.resources import (
     MMDS,
     Actions,
@@ -151,7 +152,7 @@ class Microvm:
         self._screen_pid = None
         self._screen_log = None
 
-        self.time_api_requests = True
+        self.time_api_requests = global_props.host_linux_version != "6.1"
 
         # Initalize memory monitor
         self.memory_monitor = None
@@ -509,8 +510,9 @@ class Microvm:
 
         jailer_param_list = self.jailer.construct_param_list()
 
-        # Checking the timings requires DEBUG level log messages
-        self.time_api_requests = log_level == "Debug"
+        if log_level != "Debug":
+            # Checking the timings requires DEBUG level log messages
+            self.time_api_requests = False
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going

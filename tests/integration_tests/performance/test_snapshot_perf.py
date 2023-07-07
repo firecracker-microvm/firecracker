@@ -208,7 +208,7 @@ def test_snapshot_create_latency(
             idx_vcpu, current_cpu_id + idx_vcpu
         ), f"Failed to pin fc_vcpu {idx_vcpu} thread."
 
-    st_core.name = f"snapshot_create_SnapshotType.FULL_latency"
+    st_core.name = "snapshot_create_SnapshotType.FULL_latency"
     st_core.iterations = SAMPLE_COUNT
     st_core.custom["guest_config"] = microvm_cfg.strip(".json")
     st_core.custom["snapshot_type"] = "FULL"
