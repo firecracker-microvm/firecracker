@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use log::{error, info, warn};
 use seccompiler::BpfThreadMap;
+use semver::Version;
 use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
@@ -316,7 +317,7 @@ fn snapshot_memory_to_file(
 
 /// Validate the microVM version and translate it to its corresponding snapshot data format.
 pub fn get_snapshot_data_version(
-    maybe_fc_version: &Option<String>,
+    maybe_fc_version: &Option<Version>,
     version_map: &VersionMap,
     vmm: &Vmm,
 ) -> Result<u16, CreateSnapshotError> {
@@ -324,7 +325,6 @@ pub fn get_snapshot_data_version(
         None => return Ok(version_map.latest_version()),
         Some(version) => version,
     };
-    validate_fc_version_format(fc_version)?;
     let data_version = *FC_VERSION_TO_SNAP_VERSION
         .get(fc_version)
         .ok_or(CreateSnapshotError::UnsupportedVersion)?;
@@ -692,21 +692,6 @@ fn validate_devices_number(device_number: usize) -> Result<(), CreateSnapshotErr
     Ok(())
 }
 
-fn validate_fc_version_format(version: &str) -> Result<(), CreateSnapshotError> {
-    let v: Vec<_> = version.match_indices('.').collect();
-    if v.len() != 2
-        || version[v[0].0..]
-            .trim_start_matches('.')
-            .parse::<f32>()
-            .is_err()
-        || version[..v[1].0].parse::<f32>().is_err()
-    {
-        Err(CreateSnapshotError::InvalidVersionFormat)
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use snapshot::Persist;
@@ -727,9 +712,6 @@ mod tests {
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
-
-    #[cfg(target_arch = "aarch64")]
-    const FC_VERSION_0_23_0: &str = "0.23.0";
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -842,36 +824,22 @@ mod tests {
             VERSION_MAP.latest_version(),
             get_snapshot_data_version(&None, &VERSION_MAP, &vmm).unwrap()
         );
-        // Validate sanity checks fail because of invalid target version.
-        assert!(get_snapshot_data_version(&Some(String::from("foo")), &VERSION_MAP, &vmm).is_err());
 
         for version in FC_VERSION_TO_SNAP_VERSION.keys() {
-            let res = get_snapshot_data_version(&Some(version.to_owned()), &VERSION_MAP, &vmm);
+            let res = get_snapshot_data_version(&Some(version.clone()), &VERSION_MAP, &vmm);
 
             #[cfg(target_arch = "x86_64")]
             assert!(res.is_ok());
 
             #[cfg(target_arch = "aarch64")]
-            match version.as_str() {
-                // Validate sanity checks fail because aarch64 does not support "0.23.0"
-                // snapshot target version.
-                FC_VERSION_0_23_0 => assert!(res.is_err()),
-                _ => assert!(res.is_ok()),
+            // Validate sanity checks fail because aarch64 does not support "0.23.0"
+            // snapshot target version.
+            if version == &Version::new(0, 23, 0) {
+                assert!(res.is_err())
+            } else {
+                assert!(res.is_ok())
             }
         }
-
-        assert!(
-            get_snapshot_data_version(&Some("a.bb.c".to_string()), &VERSION_MAP, &vmm).is_err()
-        );
-        assert!(get_snapshot_data_version(&Some("0.24".to_string()), &VERSION_MAP, &vmm).is_err());
-        assert!(
-            get_snapshot_data_version(&Some("0.24.0.1".to_string()), &VERSION_MAP, &vmm).is_err()
-        );
-        assert!(
-            get_snapshot_data_version(&Some("0.24.x".to_string()), &VERSION_MAP, &vmm).is_err()
-        );
-
-        assert!(get_snapshot_data_version(&Some("0.24.0".to_string()), &VERSION_MAP, &vmm).is_ok());
     }
 
     #[test]
