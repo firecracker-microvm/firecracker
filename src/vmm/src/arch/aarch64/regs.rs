@@ -134,15 +134,24 @@ pub enum RegSize {
 }
 
 impl RegSize {
-    const U8_SIZE: u64 = 1;
-    const U16_SIZE: u64 = 2;
-    const U32_SIZE: u64 = 4;
-    const U64_SIZE: u64 = 8;
-    const U128_SIZE: u64 = 16;
-    const U256_SIZE: u64 = 32;
-    const U512_SIZE: u64 = 64;
-    const U1024_SIZE: u64 = 128;
-    const U2048_SIZE: u64 = 256;
+    /// Size of u8 register in bytes
+    pub const U8_SIZE: u64 = 1;
+    /// Size of u16 register in bytes
+    pub const U16_SIZE: u64 = 2;
+    /// Size of u32 register in bytes
+    pub const U32_SIZE: u64 = 4;
+    /// Size of u64 register in bytes
+    pub const U64_SIZE: u64 = 8;
+    /// Size of u128 register in bytes
+    pub const U128_SIZE: u64 = 16;
+    /// Size of u256 register in bytes
+    pub const U256_SIZE: u64 = 32;
+    /// Size of u512 register in bytes
+    pub const U512_SIZE: u64 = 64;
+    /// Size of u1024 register in bytes
+    pub const U1024_SIZE: u64 = 128;
+    /// Size of u2048 register in bytes
+    pub const U2048_SIZE: u64 = 256;
 }
 
 impl From<u64> for RegSize {
