@@ -78,9 +78,9 @@
                         "examples": ["0x603000000013c020"]
                     },
                     "bitmap": {
-                        "description": "ARM register value bitmap. Must be in format `0b[01x]{128}`. Corresponding bits will be cleared (`0`), set (`1`) or left intact (`x`). (`_`) can be used as a separator.",
+                        "description": "ARM register value bitmap. Must be in format `0b[01x]{1,128}`. The actual length of the bitmap should be less or equal to the size of the register in bits. Corresponding bits will be cleared (`0`), set (`1`) or left intact (`x`). (`_`) can be used as a separator.",
                         "type": "string",
-                        "examples": ["0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_0000_xxxx_xxxx_xxxx_0000_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx"]
+                        "examples": ["0bxxxxxxxxxxxx_0000_xxxx_xxxx_xxxx_0000_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx_xxxx"]
                     }
                 }
             }
