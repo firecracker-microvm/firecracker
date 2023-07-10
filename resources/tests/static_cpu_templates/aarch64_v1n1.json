@@ -2,19 +2,19 @@
   "reg_modifiers": [
       {
           "addr": "0x603000000013c020",
-          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx0000xxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "bitmap": "0bxxxxxxxxxxxx0000xxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       },
       {
           "addr": "0x603000000013c030",
-          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx0000xxxx00000000xxxx000000000000xxxxxxxxxxxxxxxx0001xxxxxxxxxxxx"
+          "bitmap": "0b0000xxxx00000000xxxx000000000000xxxxxxxxxxxxxxxx0001xxxxxxxxxxxx"
       },
       {
           "addr": "0x603000000013c031",
-          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx000000000000xxxxxxxxxxxxxxxxxxxx000100000000xxxxxxxx0001"
+          "bitmap": "0bxxxxxxxx000000000000xxxxxxxxxxxxxxxxxxxx000100000000xxxxxxxx0001"
       },
       {
           "addr": "0x603000000013c03a",
-          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
   ]
 }

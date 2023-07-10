@@ -169,7 +169,7 @@ curl --unix-socket /tmp/firecracker.socket -i  \
         "reg_modifiers": [
           {
             "addr": "0x603000000013c020",
-            "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx0000xxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            "bitmap": "0bxxxxxxxxxxxx0000xxxxxxxxxxxx0000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
           }
         ]
       }'
@@ -177,8 +177,8 @@ curl --unix-socket /tmp/firecracker.socket -i  \
 
 This CPU templates will do the following with the ARM register `0x603000000013c020`:
 
-- will clear bits `0b00000000000000000000000000000000000000000000000000000000000000000000000000001111000000000000111100000000000000000000000000000000`
-- will leave bits `0b11111111111111111111111111111111111111111111111111111111111111111111111111110000111111111111000011111111111111111111111111111111`
+- will clear bits `0b0000000000001111000000000000111100000000000000000000000000000000`
+- will leave bits `0b1111111111110000111111111111000011111111111111111111111111111111`
   intact.
 
 Information on how the ARM register addresses are constructed can be found
