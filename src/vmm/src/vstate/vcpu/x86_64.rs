@@ -165,6 +165,8 @@ pub enum KvmVcpuConfigureError {
     SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
     #[error("Failed to configure LAPICs: {0}")]
     SetLint(#[from] interrupts::InterruptError),
+    #[error("Failed to get TSC frequency: {0}")]
+    GetTsc(#[from] GetTscError),
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
@@ -217,6 +219,9 @@ impl KvmVcpu {
     ) -> Result<(), KvmVcpuConfigureError> {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
 
+        // Get TSC frequency.
+        let tsc_freq = self.get_tsc_khz().map_err(KvmVcpuConfigureError::GetTsc)?;
+
         // Apply machine specific changes to CPUID.
         cpuid.normalize(
             // The index of the current logical CPU in the range [0..cpu_count].
@@ -225,6 +230,8 @@ impl KvmVcpu {
             vcpu_config.vcpu_count,
             // The number of bits needed to enumerate logical CPUs per core.
             u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
+            // The TSC frequency in kHz.
+            tsc_freq,
         )?;
 
         // Set CPUID.
