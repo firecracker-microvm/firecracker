@@ -96,23 +96,22 @@ impl UffdPfHandler {
         }
     }
 
-    fn populate_from_file(&self, region: &MemRegion) -> (u64, u64) {
-        let src = self.backing_buffer as u64 + region.mapping.offset;
+    fn populate_from_file(&self, region: &MemRegion, dest: u64) -> (u64, u64) {
         let start_addr = region.mapping.base_host_virt_addr;
-        let len = region.mapping.size;
-        // Populate whole region from backing mem-file.
-        // This offers an example of how memory can be loaded in RAM,
-        // however this can be adjusted to accommodate use case needs.
+        let offset = dest - start_addr;
+        let src = self.backing_buffer as u64 + offset;
+        let len = get_page_size().unwrap();
+
         let ret = unsafe {
             self.uffd
-                .copy(src as *const _, start_addr as *mut _, len, true)
+                .copy(src as *const _, dest as *mut _, len, true)
                 .expect("Uffd copy failed")
         };
 
         // Make sure the UFFD copied some bytes.
         assert!(ret > 0);
 
-        return (start_addr, start_addr + len as u64);
+        return (dest, dest + len as u64);
     }
 
     fn zero_out(&mut self, addr: u64) -> (u64, u64) {
@@ -138,35 +137,8 @@ impl UffdPfHandler {
 
         // Get the state of the current faulting page.
         for region in self.mem_regions.iter() {
-            match region.page_states.get(&fault_page_addr) {
-                // Our simple PF handler has a simple strategy:
-                // There exist 4 states in which a memory page can be in:
-                // 1. Uninitialized - page was never touched
-                // 2. FromFile - the page is populated with content from snapshotted memory file
-                // 3. Removed - MADV_DONTNEED was called due to balloon inflation
-                // 4. Anonymous - page was zeroed out -> this implies that more than one page fault
-                //    event was received. This can be a consequence of guest reclaiming back its
-                //    memory from the host (through balloon device)
-                Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
-                    let (start, end) = self.populate_from_file(region);
-                    self.update_mem_state_mappings(start, end, &MemPageState::FromFile);
-                    return;
-                }
-                Some(MemPageState::Removed) | Some(MemPageState::Anonymous) => {
-                    let (start, end) = self.zero_out(fault_page_addr);
-                    self.update_mem_state_mappings(start, end, &MemPageState::Anonymous);
-                    return;
-                }
-                None => {
-                    ();
-                }
-            }
+            let (start, end) = self.populate_from_file(region, fault_page_addr);
         }
-
-        panic!(
-            "Could not find addr: {:?} within guest region mappings.",
-            addr
-        );
     }
 }
 
