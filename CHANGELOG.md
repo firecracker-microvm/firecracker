@@ -38,6 +38,7 @@
   IA32_ARCH_CAPABILITIES MSR from the host in accordance with an Intel microcode
   update.
 - Fixed passing through cache information from host in CPUID leaf 0x80000005.
+- Fixed the T2A CPU template to disable SVM (nested virtualization).
 
 ## [1.3.0]
 
