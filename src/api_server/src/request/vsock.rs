@@ -6,11 +6,10 @@ use vmm::vmm_config::vsock::VsockDeviceConfig;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 
-pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_vsock(body: serde_json::Value) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.vsock_count.inc();
-    let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|err| {
+    let vsock_cfg = serde_json::from_value::<VsockDeviceConfig>(body).map_err(|err| {
         METRICS.put_api_requests.vsock_fails.inc();
         err
     })?;
@@ -36,40 +35,15 @@ pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsed_request::tests::depr_action_from_req;
 
     #[test]
     fn test_parse_put_vsock_request() {
-        let body = r#"{
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
-        assert!(parse_put_vsock(&Body::new(body)).is_ok());
+        assert!(parse_put_vsock(serde_json::Value::Null).is_ok());
 
-        let body = r#"{
-                "guest_cid": 42,
-                "invalid_field": false
-              }"#;
-        assert!(parse_put_vsock(&Body::new(body)).is_err());
-    }
-
-    #[test]
-    fn test_depr_vsock_id() {
-        let body = r#"{
-                "vsock_id": "foo",
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
-        depr_action_from_req(
-            parse_put_vsock(&Body::new(body)).unwrap(),
-            Some("PUT /vsock: vsock_id field is deprecated.".to_string()),
-        );
-
-        let body = r#"{
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
-        let (_, mut parsing_info) = parse_put_vsock(&Body::new(body)).unwrap().into_parts();
-        assert!(parsing_info.take_deprecation_message().is_none());
+        let body = serde_json::json!({
+          "guest_cid": 42,
+          "invalid_field": false
+        });
+        assert!(parse_put_vsock(body).is_err());
     }
 }

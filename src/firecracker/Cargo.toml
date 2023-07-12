@@ -18,6 +18,7 @@ libc = "0.2.147"
 serde_json = "1.0.99"
 thiserror = "1.0.32"
 timerfd = "1.5.0"
+tokio = { version = "1.29.0", features = ["full"] }
 
 api_server = { path = "../api_server" }
 logger = { path = "../logger" }

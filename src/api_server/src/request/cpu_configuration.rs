@@ -6,14 +6,13 @@ use vmm::cpu_config::templates::CustomCpuTemplate;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
 
-pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_cpu_config(body: serde_json::Value) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.cpu_cfg_count.inc();
 
     // Convert the API request into a a deserialized/binary format
     Ok(ParsedRequest::new_sync(VmmAction::PutCpuConfiguration(
-        CustomCpuTemplate::try_from(body.raw()).map_err(|err| {
+        CustomCpuTemplate::try_from(body.to_string().as_str()).map_err(|err| {
             METRICS.put_api_requests.cpu_cfg_fails.inc();
             Error::SerdeJson(err)
         })?,
@@ -23,7 +22,7 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 #[cfg(test)]
 mod tests {
     use logger::{IncMetric, METRICS};
-    use micro_http::Body;
+    use serde_json::json;
     use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_INVALID_TEMPLATE_JSON};
     use vmm::rpc_interface::VmmAction;
 
@@ -33,17 +32,11 @@ mod tests {
     #[test]
     fn test_parse_put_cpu_config_request() {
         let cpu_template = build_test_template();
-        let cpu_config_json_result = serde_json::to_string(&cpu_template);
-        assert!(
-            &cpu_config_json_result.is_ok(),
-            "Unable to serialize CPU template to JSON"
-        );
-        let cpu_template_json = cpu_config_json_result.unwrap();
+        let cpu_template_json =
+            serde_json::to_value(&cpu_template).expect("Unable to serialize CPU template to JSON");
 
         {
-            match vmm_action_from_request(
-                parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes())).unwrap(),
-            ) {
+            match vmm_action_from_request(parse_put_cpu_config(cpu_template_json).unwrap()) {
                 VmmAction::PutCpuConfiguration(received_cpu_template) => {
                     // Test that the CPU config to be used for KVM config is the
                     // the same that was read in from a test file.
@@ -54,7 +47,7 @@ mod tests {
         }
 
         // Test empty request succeeds
-        let parse_cpu_config_result = parse_put_cpu_config(&Body::new(r#"{ }"#));
+        let parse_cpu_config_result = parse_put_cpu_config(json!({}));
         assert!(
             parse_cpu_config_result.is_ok(),
             "Failed to parse cpu-config: [{}]",
@@ -70,8 +63,7 @@ mod tests {
         let mut expected_err_count = METRICS.put_api_requests.cpu_cfg_fails.count() + 1;
 
         // Test case for invalid payload
-        let unparsable_cpu_config_result =
-            parse_put_cpu_config(&Body::new("<unparseable_payload>"));
+        let unparsable_cpu_config_result = parse_put_cpu_config(serde_json::Value::Null);
         assert!(unparsable_cpu_config_result.is_err());
         assert_eq!(
             METRICS.put_api_requests.cpu_cfg_fails.count(),
@@ -79,7 +71,8 @@ mod tests {
         );
 
         // Test request with invalid fields
-        let invalid_put_result = parse_put_cpu_config(&Body::new(TEST_INVALID_TEMPLATE_JSON));
+        let body = serde_json::to_value(TEST_INVALID_TEMPLATE_JSON).unwrap();
+        let invalid_put_result = parse_put_cpu_config(body);
         expected_err_count += 1;
 
         assert!(invalid_put_result.is_err());
