@@ -25,7 +25,8 @@ See also: [boot protocol settings](boot-protocol.md)
 | Update extended topology enumeration                                                 | 0xb        | all     | EAX           | 4:0   |
 | Update extended topology enumeration                                                 | 0xb        | all     | EBX           | 15:0  |
 | Update extended topology enumeration                                                 | 0xb        | all     | ECX           | 15:8  |
-| Pass through cache information from host                                             | 0x80000006 | -       | all           | all   |
+| Pass through L1 cache and TLB information from host                                  | 0x80000005 | -       | all           | all   |
+| Pass through L2 cache and TLB and L3 cache information from host                     | 0x80000006 | -       | all           | all   |
 
 ## Intel-specific CPUID normalization
 
