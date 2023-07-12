@@ -175,7 +175,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.23",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -197,7 +197,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.23",
+ "syn 2.0.25",
  "which",
 ]
 
@@ -336,7 +336,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.23",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -344,6 +344,12 @@ name = "clap_lex"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2da6da31387c7e4ef160ffab6d5e7f00c42626fe39aea70a7b0f1773f7dd6c1b"
+
+[[package]]
+name = "clippy-tracing-attributes"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cc1f3bbafdf6613bd4a8d8a37970632074798bb892ef8f57c2c09854e3c3afa"
 
 [[package]]
 name = "cmake"
@@ -464,6 +470,7 @@ name = "dumbo"
 version = "0.1.0"
 dependencies = [
  "bitflags 1.3.2",
+ "clippy-tracing-attributes",
  "derive_more",
  "logger",
  "micro_http",
@@ -541,6 +548,7 @@ dependencies = [
  "timerfd",
  "tracing",
  "tracing-subscriber",
+ "userfaultfd 0.6.0",
  "utils",
  "vmm",
 ]
@@ -912,9 +920,9 @@ checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.9"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0a7ae3ac2f1173085d398531c705756c94a4c56843785df85a60c1a0afac116"
+checksum = "4c40d25201921e5ff0c862a505c6557ea88568a4e3ace775ab55e93f2f4f9d57"
 
 [[package]]
 name = "pin-utils"
@@ -947,7 +955,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9825a04601d60621feed79c4e6b56d65db77cdca55cef43b46b0de1096d1c282"
 dependencies = [
  "proc-macro2",
- "syn 2.0.23",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -1117,29 +1125,29 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.165"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c939f902bb7d0ccc5bce4f03297e161543c2dcb30914faf032c2bd0b7a0d48fc"
+checksum = "30e27d1e4fd7659406c492fd6cfaf2066ba8773de45ca75e855590f856dc34a9"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.165"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6eaae920e25fffe4019b75ff65e7660e72091e59dd204cb5849bbd6a3fd343d7"
+checksum = "389894603bd18c46fa56231694f8d827779c0951a667087194cf9de94ed24682"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.23",
+ "syn 2.0.25",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.99"
+version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46266871c240a00b8f503b877622fe33430b3c7d963bdc0f2adc511e54a1eae3"
+checksum = "b5062a995d481b2308b6064e9af76011f2921c35f97b0468811ed9f6cd91dfed"
 dependencies = [
  "itoa",
  "ryu",
@@ -1172,9 +1180,9 @@ checksum = "43b2853a4d09f215c24cc5489c992ce46052d359b5109343cbafbf26bc62f8a3"
 
 [[package]]
 name = "smallvec"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
+checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
 
 [[package]]
 name = "snapshot"
@@ -1219,9 +1227,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.23"
+version = "2.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59fb7d6d8281a51045d62b8eb3a7d1ce347b76f312af50cd3dc0af39c87c1737"
+checksum = "15e3fc8c0c74267e2df136e5e5fb656a464158aa57624053375eb9c8c6e25ae2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1245,7 +1253,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.23",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -1313,11 +1321,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
+version = "0.2.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
 dependencies = [
- "cfg-if",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -1325,41 +1331,46 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f57e3ca2a01450b1a921183a9c9cbfda207fd822cef4ccb00a65402cbba7a74"
+version = "0.2.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.16",
+ "syn 2.0.25",
 ]
 
 [[package]]
 name = "tracing-core"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0955b8137a1df6f1a2e9a37d8a6656291ff0297c1a97c24e0d8425fe2312f79a"
+version = "0.2.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
 dependencies = [
  "once_cell",
- "valuable",
+]
+
+[[package]]
+name = "tracing-flame"
+version = "0.2.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
+dependencies = [
+ "once_cell",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "tracing-log"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78ddad33d2d10b1ed7eb9d1f518a5674713876e97e5bb9b7345a7984fbb4f922"
+version = "0.2.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
 dependencies = [
- "lazy_static",
  "log",
+ "once_cell",
  "tracing-core",
 ]
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30a651bc37f915e81f087d86e62a18eec5f79550c7faff886f7090b4ea757c77"
+version = "0.3.0"
+source = "git+https://github.com/JonathanWoollett-Light/tracing?rev=9b13dbf9ab6022bdcd0c6800d8d77767ccc67348#9b13dbf9ab6022bdcd0c6800d8d77767ccc67348"
 dependencies = [
  "nu-ansi-term",
  "sharded-slab",
@@ -1466,12 +1477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "valuable"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
-
-[[package]]
 name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1547,6 +1552,7 @@ version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
  "bitflags 2.3.1",
+ "clippy-tracing-attributes",
  "criterion",
  "derive_more",
  "device_tree",
@@ -1570,9 +1576,9 @@ dependencies = [
  "thiserror",
  "timerfd",
  "tracing",
- "tracing-core",
+ "tracing-flame",
  "tracing-subscriber",
- "userfaultfd",
+ "userfaultfd 0.5.1",
  "utils",
  "versionize",
  "versionize_derive",
